@@ -177,7 +177,7 @@ func TestDuplex_SendAfterProviderClosesReturnsSessionClosed(t *testing.T) {
 	e := openAndEndDuplex(t, prov)
 
 	assertSendsFail(t, e.conv, func(t *testing.T, err error) {
-		assert.EqualError(t, err, "session is closed")
+		assert.ErrorIs(t, err, ErrSessionClosed)
 	})
 	assert.NoError(t, e.conv.SessionError())
 }

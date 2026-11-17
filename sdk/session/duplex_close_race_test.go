@@ -58,7 +58,7 @@ func TestDuplexSession_SendsRacingCloseNeverPanic(t *testing.T) {
 		close(errs)
 		for err := range errs {
 			if err != nil {
-				require.EqualError(t, err, errSessionClosed)
+				require.ErrorIs(t, err, ErrSessionClosed)
 			}
 		}
 	}

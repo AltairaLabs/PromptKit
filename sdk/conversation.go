@@ -1199,7 +1199,7 @@ func (c *Conversation) newEmitter(bus events.Bus) *events.Emitter {
 //
 // Once the session has ended (Close, the idle timeout, a provider error, the
 // provider closing the session) it returns at once: with the error that ended
-// the session, as SessionError reports it, else with a session-closed error.
+// the session, as SessionError reports it, else with [ErrSessionClosed].
 // SendText, SendFrame, SendVideoChunk and TriggerStart do the same.
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	c.mu.RLock()

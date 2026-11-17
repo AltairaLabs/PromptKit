@@ -23,7 +23,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-const errSessionClosed = "session is closed"
+// ErrSessionClosed is returned by a duplex session's input methods once the
+// session has ended without an error of its own: Close was called, or the
+// provider closed the session.
+var ErrSessionClosed = errors.New("session is closed")
 
 // duplexSession implements BidirectionalSession with stage-based StreamPipeline.
 // It manages streaming input/output through the stage pipeline.
@@ -209,7 +212,10 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	// Create streaming channels
 	// stageInput feeds stage.StreamElement to the pipeline
 	// streamOutput receives providers.StreamChunk for the external API
-	stageInput := make(chan stage.StreamElement, streamBufferSize)
+	// stageInput is unbuffered: a send returns nil only once the pipeline
+	// has taken the element, so input is never accepted into a buffer the
+	// pipeline may end without reading (see sendInput).
+	stageInput := make(chan stage.StreamElement)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
 	// The session keeps ctx's values — tool calls see the host's caller
@@ -249,7 +255,7 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	}
 	s.closeMu.Unlock()
 
@@ -284,15 +290,17 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 // once Close has run. A send blocked on a full channel is woken by Close
 // canceling the session context, so it never holds Close off.
 //
-// Once the pipeline has ended (the idle timeout, a provider error, the
-// provider closing the session) nothing reads the input any more: the send
-// returns the error that ended it, or the session-closed error when none did,
-// rather than land in a buffer nobody drains or block on a full one.
+// The input channel is unbuffered, so a send returns nil only once the
+// pipeline has taken elem. Once the pipeline has ended (the idle timeout, a
+// provider error, the provider closing the session), a send, including one
+// already waiting, returns the error that ended it, or ErrSessionClosed when
+// none did: input is either taken by the pipeline or refused, never accepted
+// and then left unread.
 func (s *duplexSession) sendInput(ctx context.Context, elem stage.StreamElement) error {
 	s.inputMu.RLock()
 	defer s.inputMu.RUnlock()
 	if s.inputClosed {
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	}
 	if ended, err := s.ended(); ended {
 		return err
@@ -303,7 +311,7 @@ func (s *duplexSession) sendInput(ctx context.Context, elem stage.StreamElement)
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.sessionCtx.Done():
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	case <-s.pipelineDone:
 		_, err := s.ended()
 		return err
@@ -321,7 +329,7 @@ func (s *duplexSession) ended() (bool, error) {
 	if s.endErr != nil {
 		return true, s.endErr
 	}
-	return true, errors.New(errSessionClosed)
+	return true, ErrSessionClosed
 }
 
 // SendText is a convenience method for sending text.
@@ -329,7 +337,7 @@ func (s *duplexSession) SendText(ctx context.Context, text string) error {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	}
 	s.closeMu.Unlock()
 
@@ -345,7 +353,7 @@ func (s *duplexSession) SendFrame(ctx context.Context, frame *ImageFrame) error 
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	}
 	s.closeMu.Unlock()
 
@@ -371,7 +379,7 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	}
 	s.closeMu.Unlock()
 
@@ -426,16 +434,25 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 		case elem, ok := <-stageOutput:
 			if !ok {
 				// Stage pipeline finished
-				s.endErr = lastErr
+				s.recordEnd(ctx, lastErr)
 				return
 			}
 			var keep bool
 			keep, lastErr = s.handleOutputElement(ctx, &elem)
 			if !keep {
-				s.endErr = lastErr
+				s.recordEnd(ctx, lastErr)
 				return
 			}
 		}
+	}
+}
+
+// recordEnd records err as the error the pipeline ended on, unless Close has
+// already canceled the session: the session then ended by Close, and an error
+// still being delivered or produced by the teardown is not the pipeline's end.
+func (s *duplexSession) recordEnd(ctx context.Context, err error) {
+	if ctx.Err() == nil {
+		s.endErr = err
 	}
 }
 
@@ -732,7 +749,7 @@ func (s *duplexSession) SubmitToolResultMessages(
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		return errors.New(errSessionClosed)
+		return ErrSessionClosed
 	}
 	s.closeMu.Unlock()
 

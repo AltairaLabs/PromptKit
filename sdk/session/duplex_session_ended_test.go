@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,18 +61,23 @@ func TestDuplexSession_ErrorThePipelineWentOnFromIsNotItsEnd(t *testing.T) {
 	assert.Equal(t, "carrying on", chunks[1].Content)
 	requireClosedSoon(t, sess.Done(), "Done() did not close")
 
-	assert.EqualError(t, sess.SendText(context.Background(), "again"), errSessionClosed)
+	assert.ErrorIs(t, sess.SendText(context.Background(), "again"), ErrSessionClosed)
 	assert.NoError(t, sess.Error())
 }
 
-// A send already waiting on a full input when the pipeline ends returns the
-// error it ended on instead of waiting for a reader that is gone.
-func TestDuplexSession_SendWaitingOnFullInputReturnsWhenThePipelineEnds(t *testing.T) {
+// A send the pipeline never takes is not accepted: once the pipeline stops
+// reading and ends, a send waiting on it returns the error the pipeline ended
+// on, never nil for input nobody will read. Every send that returned nil was
+// taken by the pipeline.
+func TestDuplexSession_SendThePipelineNeverTakesReturnsItsEndError(t *testing.T) {
 	fatal := errors.New("provider connection lost")
 	release := make(chan struct{})
-	sess := scriptedSession(t, func(ctx context.Context, _ <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+	var taken atomic.Int32
+	sess := scriptedSession(t, func(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
 		defer close(out)
-		// Never reads its input, so the session's input buffer fills.
+		<-in
+		taken.Add(1)
+		// Reads nothing more, then ends on an error.
 		<-release
 		out <- stage.NewErrorElement(fatal)
 		return fatal
@@ -81,15 +87,14 @@ func TestDuplexSession_SendWaitingOnFullInputReturnsWhenThePipelineEnds(t *testi
 		}
 	}()
 	ctx := context.Background()
-	for i := 0; i < streamBufferSize; i++ {
-		require.NoError(t, sess.SendText(ctx, "fill"))
-	}
+	require.NoError(t, sess.SendText(ctx, "first"))
 
 	got := make(chan error, 1)
-	go func() { got <- sess.SendText(ctx, "one too many") }()
+	go func() { got <- sess.SendText(ctx, "never read") }()
 	select {
 	case err := <-got:
-		t.Fatalf("test premise: the send past a full input should wait, returned %v", err)
+		require.Errorf(t, err, "a send the pipeline never read returned nil")
+		t.Fatalf("the send returned %v before the pipeline ended", err)
 	case <-time.After(50 * time.Millisecond):
 	}
 
@@ -100,5 +105,38 @@ func TestDuplexSession_SendWaitingOnFullInputReturnsWhenThePipelineEnds(t *testi
 	case <-time.After(lifecycleWait):
 		t.Fatal("the waiting send never returned after the pipeline ended")
 	}
+	assert.Equal(t, int32(1), taken.Load(), "the pipeline took only the first send")
 	assert.ErrorIs(t, sess.Error(), fatal)
+}
+
+// Close ends the session, and Error() then reports only an error the
+// pipeline ended on before Close: an error it reported and was going on from,
+// still being delivered when Close cut the session off, is not one.
+func TestDuplexSession_ErrorAfterCloseIsNotAnErrorBeingDelivered(t *testing.T) {
+	limit := errors.New("tool round limit reached")
+	emitted := make(chan struct{})
+	sess := scriptedSession(t, func(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+		defer close(out)
+		<-in
+		// Fill the response buffer nobody reads yet, so the session is still
+		// delivering the error below when Close comes.
+		for i := 0; i < streamBufferSize; i++ {
+			text := "filler"
+			out <- stage.StreamElement{Text: &text}
+		}
+		out <- stage.NewErrorElement(limit)
+		close(emitted)
+		<-ctx.Done()
+		return nil
+	})
+	resp := sess.Response()
+	require.NoError(t, sess.SendText(context.Background(), "hi"))
+	requireClosedSoon(t, emitted, "the stage never emitted its error")
+	time.Sleep(50 * time.Millisecond) // the session reaches the blocked delivery
+	require.NoError(t, sess.Close())
+	drainResponse(t, resp)
+	requireClosedSoon(t, sess.Done(), "Done() did not close")
+
+	assert.NoError(t, sess.Error())
+	assert.ErrorIs(t, sess.SendText(context.Background(), "again"), ErrSessionClosed)
 }

@@ -59,7 +59,7 @@ type DuplexSession interface {
 	// This method is thread-safe and can be called from multiple goroutines.
 	// Once the session has ended it returns at once, and so do the other
 	// input methods: with the error that ended it (see Error), else with a
-	// session-closed error.
+	// ErrSessionClosed.
 	SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
 
 	// SendText is a convenience method for sending text directly.
