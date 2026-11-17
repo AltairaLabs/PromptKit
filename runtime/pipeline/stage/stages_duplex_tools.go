@@ -120,6 +120,9 @@ type duplexTools struct {
 	// offer is what the session holds of the tool offer
 	// (stages_duplex_tool_offer.go).
 	offer sessionOffer
+	// view holds what DescribeTool made of each tool the session's last
+	// sync offered (toolRunner.views).
+	view toolOffer
 	// jobs carries rounds from the response goroutine to the worker.
 	jobs chan *duplexToolJob
 	// results carries finished rounds from the worker to the input goroutine.
@@ -217,6 +220,9 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 			DescribeTool: dt.cfg.DescribeTool,
 		},
 		stateResolver: dt.resolver,
+		// The session's syncs record what DescribeTool made of each tool they
+		// offered (descriptorCollector.view), so a round's check reuses it.
+		views: &dt.view,
 	}
 	r.availability = func(called []*tools.ToolDescriptor, excluded map[string]bool) roundRefusals {
 		return s.roundRefusals(r, called, excluded)
@@ -272,20 +278,24 @@ func (s *DuplexProviderStage) sessionCanUpdateTools() bool {
 	return ok
 }
 
-// sessionOffers reports which of called wantedSessionTools(nil) would offer
-// the session, resolving called alone.
+// sessionOffers reports which of called the session is offered, by the
+// rules its sync applies (sessionTools): the called tools the conversation
+// offers (offeredAmong, without the turn's exclusions), merged with the
+// host's tools. Only called is resolved, and DescribeTool's outcome for a
+// tool is taken from the session's last sync where it described it.
 func (s *DuplexProviderStage) sessionOffers(r *toolRunner, called []*tools.ToolDescriptor) map[string]bool {
-	if s.sessionToolChoice() == toolChoiceNone {
-		return nil
-	}
 	offered := r.offeredAmong(s.allowedTools(), called)
-	if r.toolsDisabled() || s.baseConfig == nil {
-		return offered
+	offer := make([]*tools.ToolDescriptor, 0, len(offered))
+	for _, tool := range called {
+		if offered[tool.Name] {
+			offer = append(offer, &tools.ToolDescriptor{Name: tool.Name})
+		}
 	}
-	for i := range s.baseConfig.Tools {
-		offered[s.baseConfig.Tools[i].Name] = true
+	wanted := make(map[string]bool, len(offer))
+	for _, name := range toolDefNames(s.sessionTools(r, offer, nil)) {
+		wanted[name] = true
 	}
-	return offered
+	return wanted
 }
 
 // maxToolRounds is the policy's MaxRounds, or the default.
@@ -746,6 +756,11 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) *duplexToolResult {
 	out := job.turn.RunRoundPastPending(ctx, job.calls, job.rr)
 	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
+	if out.AllRefused {
+		if res, stopped := s.countRefusedRound(job); stopped {
+			return res
+		}
+	}
 	if !out.Stop && out.Err == nil {
 		return toolRoundResult(out.Results, out.Pending, nil)
 	}
@@ -755,6 +770,21 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	}
 	s.tools.stop(job.turn, cause)
 	return toolRoundResult(refuseUnanswered(job.calls, out.Results, out.Pending, cause), out.Pending, out.Err)
+}
+
+// countRefusedRound counts a round whose every call was refused as to a tool
+// the model may not call, as a stopped turn's refusals are counted: a model
+// that keeps calling unavailable tools, with new arguments each time so the
+// repeated-call breaker never trips, is not answered until the round limit.
+// Past maxStoppedTurnRefusals such batches the turn is stopped, and the
+// session closed, with an error naming the tool, and stopped is set.
+func (s *DuplexProviderStage) countRefusedRound(job *duplexToolJob) (res *duplexToolResult, stopped bool) {
+	if s.tools.addRefusal(job.turn) <= maxStoppedTurnRefusals {
+		return nil, false
+	}
+	err := fmt.Errorf("tool %s is not available in this realtime session", job.calls[0].Name)
+	s.tools.stop(job.turn, err)
+	return s.refuseStoppedTurn(job, err), true
 }
 
 // refuseStoppedTurn answers the calls of a stopped tool turn with refusals.

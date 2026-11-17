@@ -473,7 +473,7 @@ func (s *ProviderStage) updateExcludedTools(
 	ctx context.Context, results []types.Message, rejectionCounts map[string]int,
 	excluded map[string]bool, round int,
 ) bool {
-	return s.runner().updateExcludedTools(ctx, results, rejectionCounts, excluded, round, nil)
+	return s.runner().updateExcludedTools(ctx, results, rejectionCounts, excluded, round, roundDecision{})
 }
 
 // getMaxParallelToolCalls returns the max concurrency for parallel tool execution.
@@ -1203,7 +1203,7 @@ func (s *ProviderStage) applyStateHandoff(
 	// what the model is offered and what it may call change together.
 	var offered *describedTools
 	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged &&
-		sameStringSet(handoff.AllowedTools, acc.promptTools()) {
+		s.runner().selectsSameTools(handoff.AllowedTools, acc.promptTools()) {
 		var describedChanged bool
 		if describedChanged, offered = s.describedToolsChanged(handoff.AllowedTools, loop.excluded); !describedChanged {
 			return false, nil
@@ -3259,23 +3259,6 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// sameStringSet reports whether two string slices name the same set of
-// strings, whatever their order and repeats; nil and empty are the same.
-func sameStringSet(a, b []string) bool {
-	inA := make(map[string]bool, len(a))
-	for _, s := range a {
-		inA[s] = true
-	}
-	inB := make(map[string]bool, len(b))
-	for _, s := range b {
-		if !inA[s] {
-			return false
-		}
-		inB[s] = true
-	}
-	return len(inA) == len(inB)
 }
 
 // offerableDescriptors returns the tools a tools build would offer

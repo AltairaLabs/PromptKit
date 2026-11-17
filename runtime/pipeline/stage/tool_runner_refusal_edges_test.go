@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,30 +52,34 @@ func TestToolLoop_RenamedToolsOriginalNameIsRefused(t *testing.T) {
 	assert.Equal(t, []string{"fine"}, exec.calls(), "the unadvertised name never runs")
 }
 
-// A call the round refuses that is also a repeated identical call gets its
-// refusal, not the repeated-call nudge saying its result would not change:
-// it never ran. It still counts toward the repeated-call breaker.
-func TestToolLoop_RepeatedRefusedCallGetsItsRefusal(t *testing.T) {
+// A refused call repeated past the repeated-call threshold is answered with
+// its refusal every time: it never ran, so it neither gets the nudge nor uses
+// it up. A later genuine loop of a tool that runs still gets its one nudge.
+func TestToolLoop_RepeatedRefusedCallLeavesTheNudge(t *testing.T) {
 	f := newUnofferedFixture(t, mock.NewToolProvider("test", "model", false, nil), "")
-	same := func(id string) types.MessageToolCall {
-		return types.MessageToolCall{ID: id, Name: "unlisted", Args: json.RawMessage(`{"q":1}`)}
+	call := func(id, name string) types.MessageToolCall {
+		return types.MessageToolCall{ID: id, Name: name, Args: json.RawMessage(`{"q":1}`)}
 	}
-	f.playRound(t, 1, same("c1"))
-	f.playRound(t, 2, same("c2"))
+	for round := 1; round <= 4; round++ {
+		id := fmt.Sprintf("u%d", round)
+		assert.Equal(t, []types.Message{policyRefusal(id, "unlisted", unofferedRefusalText)},
+			f.playRound(t, round, call(id, "unlisted")), "round %d", round)
+	}
+	f.playRound(t, 5, call("f1", "fine"))
+	f.playRound(t, 6, call("f2", "fine"))
 
-	got := f.playRound(t, 3, same("c3"))
+	got := f.playRound(t, 7, call("f3", "fine"))
 
-	assert.Equal(t, []types.Message{policyRefusal("c3", "unlisted", unofferedRefusalText)}, got)
-	response := types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{same("c4")}}
-	_, _, err := f.loop.afterRound(context.Background(), unofferedAllowed, &response, true, roundRef{round: 4})
-	require.Error(t, err)
-	assert.Equal(t, `provider stage: tool loop persisted after a self-correction nudge: "unlisted" called with `+
-		`identical arguments`, err.Error())
+	assert.Equal(t, []types.Message{types.NewToolResultMessage(types.NewTextToolResult("f3", "fine",
+		`Repeated call ignored: "fine" has been called 3 times with identical arguments and was NOT executed `+
+			"again — the result will not change. Stop repeating this exact call: change the arguments, use a "+
+			"different tool, or finish the task."))}, got, "the genuine loop is nudged")
 }
 
-// A workflow state whose allowed tools are the turn's in another order, or
-// none where the turn has none, is the same set of tools: the tools array is
-// not rebuilt for it.
+// A workflow state whose allowed tools select the turn's tools (the same
+// names in another order, none where the turn has none, or the names a
+// wildcard of the turn's matches) is offered the same tools: the tools array
+// is not rebuilt for it.
 func TestToolLoop_HandoffWithTheSameToolSetDoesNotRebuild(t *testing.T) {
 	for name, tc := range map[string]struct {
 		turn, state []string
@@ -86,9 +91,14 @@ func TestToolLoop_HandoffWithTheSameToolSetDoesNotRebuild(t *testing.T) {
 			call:  "origin_tool",
 		},
 		"nil versus empty": {turn: nil, state: []string{}, call: "workflow__transition"},
+		"wildcard versus its names": {
+			turn:  []string{"mcp__kb__*"},
+			state: []string{"mcp__kb__get", "mcp__kb__search"},
+			call:  "mcp__kb__get",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			registry := registryWithTools(t, "workflow__transition", "origin_tool")
+			registry := registryWithTools(t, "workflow__transition", "origin_tool", "mcp__kb__get", "mcp__kb__search")
 			registry.RegisterExecutor(&grantingExec{})
 			provider := &scriptedRoundsProvider{
 				ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil),

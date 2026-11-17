@@ -34,6 +34,9 @@ type realtimeToolProvider struct {
 	updatable bool
 	// failUpdates makes them StreamToolUpdaters whose updates fail.
 	failUpdates bool
+	// failFirstUpdate makes them StreamToolUpdaters whose first update fails
+	// and whose later ones succeed.
+	failFirstUpdate bool
 	// partsSupport makes them providers.ToolResponsePartsSupport sessions.
 	partsSupport bool
 
@@ -61,6 +64,9 @@ func (p *realtimeToolProvider) CreateStreamSession(
 	p.mu.Unlock()
 	if p.failUpdates {
 		return &failingUpdateSession{realtimeToolSession: s}, nil
+	}
+	if p.failFirstUpdate {
+		return &recoveringUpdateSession{updatingToolSession: &updatingToolSession{realtimeToolSession: s}}, nil
 	}
 	if p.partsSupport {
 		return &partsToolSession{realtimeToolSession: s}, nil
@@ -315,6 +321,9 @@ type realtimeOpts struct {
 	updatable bool
 	// failUpdates makes the session a StreamToolUpdater whose updates fail.
 	failUpdates bool
+	// failFirstUpdate makes the session a StreamToolUpdater whose first
+	// update fails and whose later ones succeed.
+	failFirstUpdate bool
 	// hostToolChoice is the host's StreamingInputConfig.ToolChoice.
 	hostToolChoice string
 	// partsSupport makes the session a providers.ToolResponsePartsSupport.
@@ -335,6 +344,7 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		replyDelay:        o.replyDelay,
 		updatable:         o.updatable,
 		failUpdates:       o.failUpdates,
+		failFirstUpdate:   o.failFirstUpdate,
 		partsSupport:      o.partsSupport,
 	}
 	cfg := baseConfig()

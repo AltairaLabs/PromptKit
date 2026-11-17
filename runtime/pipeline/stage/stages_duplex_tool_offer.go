@@ -53,9 +53,9 @@ type sessionOffer struct {
 	// held are the tools the session holds, heldKey their fingerprint.
 	held    []providers.StreamingToolDefinition
 	heldKey string
-	// updateFailed is set once a tool update of a session that can change its
-	// tools failed: from then on it keeps the tools it holds. Readable
-	// without mu.
+	// updateFailed is set while the last tool update of a session that can
+	// change its tools failed: it keeps the tools it held. A later update
+	// that succeeds clears it. Readable without mu.
 	updateFailed atomic.Bool
 	// names are held's names, sorted, readable without mu.
 	names atomic.Pointer[[]string]
@@ -127,6 +127,17 @@ func (s *DuplexProviderStage) allowedTools() []string {
 // the policy's tool choice is "none".
 func (s *DuplexProviderStage) wantedSessionTools(excluded map[string]bool) []providers.StreamingToolDefinition {
 	r := s.toolRunner()
+	return s.sessionTools(r, r.offer(s.allowedTools(), excluded), excluded)
+}
+
+// sessionTools is what the session is given of offer, the conversation's
+// offer less excluded: offer merged with the host's tools
+// (mergeSessionTools), or nothing when the host's or the policy's tool
+// choice is "none". The session's sync (wantedSessionTools) and each
+// round's check (sessionOffers) both apply these rules through it.
+func (s *DuplexProviderStage) sessionTools(
+	r *toolRunner, offer []*tools.ToolDescriptor, excluded map[string]bool,
+) []providers.StreamingToolDefinition {
 	if s.sessionToolChoice() == toolChoiceNone || r.toolsDisabled() {
 		return nil
 	}
@@ -134,7 +145,7 @@ func (s *DuplexProviderStage) wantedSessionTools(excluded map[string]bool) []pro
 	if s.baseConfig != nil {
 		host = s.baseConfig.Tools
 	}
-	return mergeSessionTools(r.offer(s.allowedTools(), excluded), host, excluded)
+	return mergeSessionTools(offer, host, excluded)
 }
 
 // mergeSessionTools merges the conversation's offer with the host's tools:
@@ -259,6 +270,7 @@ func (s *DuplexProviderStage) updateSessionToolsLocked(
 		o.updateFailed.Store(true)
 		return
 	}
+	o.updateFailed.Store(false) // the session holds the offer again
 	o.setHeldLocked(want, key)
 }
 
