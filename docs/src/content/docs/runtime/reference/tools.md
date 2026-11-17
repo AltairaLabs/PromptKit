@@ -123,6 +123,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [type Registry](<#Registry>)
   - [func NewRegistry\(opts ...RegistryOption\) \*Registry](<#NewRegistry>)
   - [func NewRegistryWithRepository\(repo ToolRepository, opts ...RegistryOption\) \*Registry](<#NewRegistryWithRepository>)
+  - [func \(r \*Registry\) CheckResult\(toolName string, content json.RawMessage, parts \[\]types.ContentPart\) \(\*ToolExecutionResult, error\)](<#Registry.CheckResult>)
   - [func \(r \*Registry\) Child\(opts ...RegistryOption\) \*Registry](<#Registry.Child>)
   - [func \(r \*Registry\) Execute\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolResult, error\)](<#Registry.Execute>)
   - [func \(r \*Registry\) ExecuteAsync\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteAsync>)
@@ -1420,6 +1421,17 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 ```
 
 NewRegistryWithRepository creates a tool registry preloaded with every descriptor the repository lists. The repository is not retained.
+
+<a name="Registry.CheckResult"></a>
+### func \(\*Registry\) [CheckResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L816-L818>)
+
+```go
+func (r *Registry) CheckResult(toolName string, content json.RawMessage, parts []types.ContentPart) (*ToolExecutionResult, error)
+```
+
+CheckResult holds content \(and parts\), a result produced for a call to toolName outside the registry, to the checks ExecuteCallAsync applies to an executor's result: coerced toward and validated against the tool's output schema, unless the tool is in mcp mode or the result carries media. A result that fails is reported as status ToolStatusFailed with the error text a call the registry runs reports; one that passes as ToolStatusComplete with the content to use. An unknown tool returns an error.
+
+It is for a host that runs a call itself, such as a held call it approved, so its result is held to the same contract as one the registry ran.
 
 <a name="Registry.Child"></a>
 ### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L21>)

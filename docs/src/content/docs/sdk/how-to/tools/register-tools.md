@@ -185,6 +185,8 @@ for _, pending := range resp.PendingTools() {
 resp, _ = conv.Continue(ctx)
 ```
 
+The approved handler's result is checked against the tool's `output_schema`, as the result of a call the turn runs is. A result that does not match never reaches the model: the resolution's `Error` carries the validation error, and `Continue` gives the model that error as the call's result. A failed approved call, whether its handler returned an error or its result did not match, reaches the model as a failed call the turn runs does: `Tool execution failed: <error>`.
+
 Settle every held call before you continue. `conv.Continue(ctx)` gives the model every result of the round in one request and returns its reply. A `Continue` with calls still unanswered carries on without them, and the conversation then stops waiting on those calls.
 
 The conversation does not wait on a call whose turn was continued or abandoned before the call was settled: `Continue` carried on without it, or `Send` started a new turn. `ResolveTool`, `ResolveToolWithArgs` and `RejectTool` return `sdk.ErrToolCallNotAwaited` for it and remove it from the store, and `ResolveTool` does not run its handler. `SendToolResult`, `SendToolResultMultimodal` and `FailClientTool` refuse such a call the same way.

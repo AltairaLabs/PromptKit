@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -468,6 +469,12 @@ func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.To
 // *stage.CallRateLimitError, which Continue passes to the model as the call's
 // result.
 //
+// The handler's result is held to the tool's output schema as the result of
+// a call the turn runs is (tools.Registry.CheckResult): coerced, or, when it
+// does not match, replaced by the validation error, which the resolution's
+// Error wraps in a *ToolError and Continue passes to the model as the call's
+// result.
+//
 // Works on both paths: after Send() follow with Continue(), and after a duplex
 // pending surfaces follow with ContinueDuplex() — both consume the resolution
 // this produces.
@@ -517,6 +524,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	}
 	c.admitCall(call.ID, call.Name, call.Arguments)
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
+	c.checkApprovedResult(call.Name, resolution)
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}
 	}
@@ -525,6 +533,32 @@ func (c *Conversation) ResolveToolWithArgs(
 		c.resolvedStore.Add(resolution)
 	}
 	return resolution, nil
+}
+
+// checkApprovedResult holds an approved call's result to the checks the
+// registry applies to the result of a call it runs (Registry.CheckResult), so
+// the model is given, and the ToolResultRewriter hooks see, what they would
+// had the turn run the call: the result as coerced (Result and ResultJSON
+// both), or, when it does not match the tool's output schema, the validation
+// error in its place. A handler failure, or a tool the registry does not
+// know, is left as it is.
+func (c *Conversation) checkApprovedResult(name string, res *sdktools.ToolResolution) {
+	if res.Error != nil || c.toolRegistry == nil {
+		return
+	}
+	checked, err := c.toolRegistry.CheckResult(name, res.ResultJSON, res.Parts)
+	if err != nil {
+		return
+	}
+	if checked.Status == tools.ToolStatusFailed {
+		res.Result, res.ResultJSON = nil, nil
+		res.Error = errors.New(checked.Error)
+		return
+	}
+	if !bytes.Equal(checked.Content, res.ResultJSON) {
+		res.Result = parseToolResult(checked.Content) // the coerced value
+	}
+	res.ResultJSON = checked.Content
 }
 
 // discardIfNotAwaited removes held call id from the pending store and returns

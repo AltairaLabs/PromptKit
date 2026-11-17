@@ -777,16 +777,7 @@ func (r *Registry) executeWithAsyncExecutor(
 		return result, nil
 	}
 
-	// Skip validation for MCP tools
-	if tool.Mode == modeMCP {
-		return result, nil
-	}
-
-	// result.Content is already json.RawMessage
-	validated := r.validateAndCoerceResult(tool, result.Content, result.Parts)
-	// Propagate multimodal parts from the executor through validation
-	validated.Parts = result.Parts
-	return validated, nil
+	return r.checkResult(tool, result.Content, result.Parts), nil
 }
 
 // executeSyncFallback executes a tool synchronously for non-async executors
@@ -808,18 +799,43 @@ func (r *Registry) executeSyncFallback(
 		}, nil
 	}
 
-	// Skip validation for MCP tools
-	if tool.Mode == modeMCP {
-		return &ToolExecutionResult{
-			Status:  ToolStatusComplete,
-			Content: result,
-			Parts:   parts,
-		}, nil
-	}
+	return r.checkResult(tool, result, parts), nil
+}
 
-	execResult := r.validateAndCoerceResult(tool, result, parts)
-	execResult.Parts = parts
-	return execResult, nil
+// CheckResult holds content (and parts), a result produced for a call to
+// toolName outside the registry, to the checks ExecuteCallAsync applies to an
+// executor's result: coerced toward and validated against the tool's output
+// schema, unless the tool is in mcp mode or the result carries media. A
+// result that fails is reported as status ToolStatusFailed with the error
+// text a call the registry runs reports; one that passes as
+// ToolStatusComplete with the content to use. An unknown tool returns an
+// error.
+//
+// It is for a host that runs a call itself, such as a held call it approved,
+// so its result is held to the same contract as one the registry ran.
+func (r *Registry) CheckResult(
+	toolName string, content json.RawMessage, parts []types.ContentPart,
+) (*ToolExecutionResult, error) {
+	tool, err := r.GetTool(toolName)
+	if err != nil {
+		return nil, err
+	}
+	return r.checkResult(tool, content, parts), nil
+}
+
+// checkResult is CheckResult for a resolved tool.
+func (r *Registry) checkResult(
+	tool *ToolDescriptor, content json.RawMessage, parts []types.ContentPart,
+) *ToolExecutionResult {
+	// MCP is a standard protocol with trusted responses, whose tool schemas
+	// often don't match actual response formats (strings vs objects).
+	if tool.Mode == modeMCP {
+		return &ToolExecutionResult{Status: ToolStatusComplete, Content: content, Parts: parts}
+	}
+	checked := r.validateAndCoerceResult(tool, content, parts)
+	// Propagate multimodal parts from the executor through validation
+	checked.Parts = parts
+	return checked
 }
 
 // holdsToOutputSchema reports whether a result is held to the tool's output
