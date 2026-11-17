@@ -80,30 +80,26 @@ func (o *sessionOffer) heldNames() []string {
 	return nil
 }
 
-// unsyncedRefusals returns, as of now, whether a call to a tool is refused
-// because the session's tools differ from the conversation's offer, and the
-// refusal: the conversation offers it but the session does not hold it, or
-// the session holds it but the conversation has withdrawn it.
-func (o *sessionOffer) unsyncedRefusals() func(name string) (string, bool) {
-	o.mu.Lock()
-	unsynced, withdrawn, updateFailed := o.unsynced, o.withdrawn, o.updateFailed
-	o.mu.Unlock()
-	return func(name string) (string, bool) {
-		var what, cannot string
-		switch {
-		case unsynced[name]:
-			what, cannot = "became available", "the provider cannot add tools to a live session"
-		case withdrawn[name]:
-			what, cannot = "was withdrawn", "the provider cannot remove tools from a live session"
-		default:
-			return "", false
-		}
-		if updateFailed {
-			cannot = "the session's tools could not be updated"
-		}
-		return fmt.Sprintf("Tool %s was not run: it %s after this realtime session started, and %s",
-			name, what, cannot), true
+// unsyncedRefusalLocked reports whether a call to name is refused because
+// the session's tools differ from the conversation's offer, and the refusal:
+// the conversation offers it but the session does not hold it, or the
+// session holds it but the conversation has withdrawn it. Called with mu
+// held.
+func (o *sessionOffer) unsyncedRefusalLocked(name string) (string, bool) {
+	var what, cannot string
+	switch {
+	case o.unsynced[name]:
+		what, cannot = "became available", "the provider cannot add tools to a live session"
+	case o.withdrawn[name]:
+		what, cannot = "was withdrawn", "the provider cannot remove tools from a live session"
+	default:
+		return "", false
 	}
+	if o.updateFailed {
+		cannot = "the session's tools could not be updated"
+	}
+	return fmt.Sprintf("Tool %s was not run: it %s after this realtime session started, and %s",
+		name, what, cannot), true
 }
 
 // sessionToolChoice is the session's tool_choice: the host's

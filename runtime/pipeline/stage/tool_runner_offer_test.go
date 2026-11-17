@@ -198,3 +198,32 @@ func TestToolTurn_RunRound_GrantsReorderedIsNoChange(t *testing.T) {
 
 	assert.False(t, out.OfferChanged)
 }
+
+// offeredAmong resolves exactly the names the offer would hold: allowed,
+// wildcard-matched, granted and capability tools, less what DescribeTool
+// withholds; a tool neither selected nor kept is not offered.
+func TestToolRunner_OfferedAmongMatchesTheOffer(t *testing.T) {
+	names := []string{"refund", "get_order", "skill__activate", "unlisted", "mcp__kb__search", "mcp__fs__read", "hidden"}
+	r := offerRunner(t, nil, toolRunnerConfig{
+		ToolGrants: func() []string { return []string{"get_order"} },
+		DescribeTool: func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+			if d.Name == "hidden" {
+				return nil
+			}
+			return d
+		},
+	}, names...)
+	allowed := []string{"refund", "hidden", "mcp__kb__*"}
+
+	got := r.offeredAmong(allowed, names)
+
+	want := map[string]bool{}
+	for _, n := range offerNames(r.offer(allowed, nil)) {
+		want[n] = true
+	}
+	for _, n := range names {
+		assert.Equal(t, want[n], got[n], "tool %s", n)
+	}
+	assert.Equal(t, []string{"get_order", "mcp__kb__search", "refund", "skill__activate"},
+		offerNames(r.offer(allowed, nil)))
+}

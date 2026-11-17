@@ -157,14 +157,14 @@ func TestToolLoop_ExcludedToolKeepsItsPath(t *testing.T) {
 	assert.Equal(t, []types.Message{policyRefusal("c3", "offered", "Tool offered blocked by hook: denied")}, got)
 }
 
-// Repeated calls to an unoffered tool count as rejections: the second
-// excludes the tool, as for any refused call.
-func TestToolLoop_UnofferedRefusalsCountAsRejections(t *testing.T) {
+// Refusals of a tool the model was never offered are not rejections of an
+// offered tool: repeated ones exclude nothing, and change no offer.
+func TestToolLoop_UnofferedRefusalsAreNotRejections(t *testing.T) {
 	f := newUnofferedFixture(t, mock.NewToolProvider("test", "model", false, nil), "")
 	f.playRound(t, 1, unofferedCall("c1", "unlisted"))
 	f.playRound(t, 2, unofferedCall("c2", "unlisted"))
 
-	assert.True(t, f.loop.excluded["unlisted"])
+	assert.Empty(t, f.loop.excluded, "a tool never offered was excluded")
 }
 
 // firstOnlySelector selects only the first candidate.
@@ -239,12 +239,23 @@ func TestToolLoop_ProviderSentNoToolsIsNotGated(t *testing.T) {
 }
 
 // scriptedRoundsProvider plays one round of tool calls per script entry, then
-// answers in text, and records the tool results each round was sent.
+// answers in text, and records the tool results each round was sent and the
+// tool names of each tools array built.
 type scriptedRoundsProvider struct {
 	*mock.ToolProvider
 	script [][]types.MessageToolCall
 	rounds int
 	last   []types.Message
+	builds [][]string
+}
+
+func (p *scriptedRoundsProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
+	names := make([]string, 0, len(descriptors))
+	for _, d := range descriptors {
+		names = append(names, d.Name)
+	}
+	p.builds = append(p.builds, names)
+	return p.ToolProvider.BuildTooling(descriptors)
 }
 
 func (p *scriptedRoundsProvider) SupportsStreaming() bool { return false }
@@ -268,8 +279,11 @@ func (p *scriptedRoundsProvider) PredictWithTools(
 func TestToolLoop_HandoffChangesTheEligibleTools(t *testing.T) {
 	for name, destPrompt := range map[string]string{"new prompt": "DESTINATION PROMPT", "same prompt": "ORIGIN PROMPT"} {
 		t.Run(name, func(t *testing.T) {
-			results := handoffRoundResults(t, destPrompt)
+			results, builds := handoffRoundResults(t, destPrompt)
 
+			require.NotEmpty(t, builds)
+			assert.Equal(t, []string{"destination_tool", "workflow__transition"}, builds[len(builds)-1],
+				"the model is offered the destination state's tools")
 			require.Len(t, results, 2)
 			assert.Equal(t, "c2", results[0].ID)
 			assert.Empty(t, results[0].Error, "the destination state's tool ran")
@@ -280,8 +294,8 @@ func TestToolLoop_HandoffChangesTheEligibleTools(t *testing.T) {
 
 // handoffRoundResults plays a turn that moves from a state allowing
 // origin_tool to one allowing destination_tool, with destPrompt, and returns
-// the results of the round after the transition.
-func handoffRoundResults(t *testing.T, destPrompt string) []*types.MessageToolResult {
+// the results of the round after the transition and the tools arrays built.
+func handoffRoundResults(t *testing.T, destPrompt string) ([]*types.MessageToolResult, [][]string) {
 	t.Helper()
 	registry := tools.NewRegistry()
 	for _, name := range []string{"workflow__transition", "origin_tool", "destination_tool"} {
@@ -315,7 +329,7 @@ func handoffRoundResults(t *testing.T, destPrompt string) []*types.MessageToolRe
 			results = append(results, tr)
 		}
 	}
-	return results
+	return results, provider.builds
 }
 
 // loopFor returns a text turn's tool loop on a tool-calling provider over reg,
@@ -402,6 +416,30 @@ func TestToolLoop_UnavailableCallSpendsNoBudgetAndStopsNothing(t *testing.T) {
 		policyRefusal("c1", "unlisted", unofferedRefusalText),
 		okText("c2", "fine", "ok"),
 	}, got, "the allowed call is within the budget of one")
+	assert.Equal(t, 1, counter.n, "only the call that ran is recorded")
+}
+
+// A call to an unavailable tool that the blocklist refuses first is charged
+// to no budget either: the round decides once that it is unavailable.
+func TestToolLoop_BlocklistedUnavailableCallIsNotRecorded(t *testing.T) {
+	reg := registryWithTools(t, "fine", "unlisted")
+	reg.RegisterExecutor(&grantingExec{})
+	allowed := []string{"fine"}
+	stage := NewProviderStage(mock.NewToolProvider("test", "model", false, nil), reg,
+		&pipeline.ToolPolicy{Blocklist: []string{"unlisted"}}, &ProviderConfig{})
+	counter := &toolCallCounter{}
+	stage.SetWorkflowStateResolver(counter)
+	loop, err := stage.newToolLoop(&providerInput{
+		allowedTools: allowed, messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+
+	_, got := play(t, loop, allowed, 1, unofferedCall("c1", "unlisted"), unofferedCall("c2", "fine"))
+
+	assert.Equal(t, []types.Message{
+		policyRefusal("c1", "unlisted", "Tool unlisted is blocked by policy"),
+		okText("c2", "fine", "ok"),
+	}, got)
 	assert.Equal(t, 1, counter.n, "only the call that ran is recorded")
 }
 

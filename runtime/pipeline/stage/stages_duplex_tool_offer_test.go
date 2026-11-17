@@ -276,6 +276,26 @@ func TestDuplexToolOffer_EmptyOfferRefusesTheCall(t *testing.T) {
 	assert.Empty(t, exec.calls())
 }
 
+// A host tool_choice of none offers the session nothing, the conversation's
+// tools included, so a call to one is refused.
+func TestDuplexToolOffer_HostToolChoiceNoneRefusesTheCall(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry: reg, turnState: &TurnState{AllowedTools: []string{"weather"}}, hostToolChoice: toolChoiceNone,
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "weather")))
+	sent := h.awaitSent(1)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{
+		ToolCallID: "c1", Result: "Tool weather was not run: it is not available this turn", IsError: true,
+	}}, sent[0])
+	assert.Empty(t, exec.calls())
+}
+
 // The blocklist is checked before the session's tools are: a blocklisted
 // tool the session lacks is refused as blocklisted.
 func TestDuplexToolOffer_BlocklistPrecedesTheUnsyncedRefusal(t *testing.T) {
@@ -650,6 +670,46 @@ func TestDuplexToolOffer_RepeatedCallsToAToolTheSessionLacksCloseTheSession(t *t
 	assert.Equal(t, "duplex provider stage: closing the session: the model kept calling tools after its "+
 		"tool turn was stopped: "+loop, errs[1].Error())
 	assert.Equal(t, []string{"activate"}, exec.calls())
+}
+
+// A model that keeps calling a tool it was never offered, with new
+// arguments each time, is bounded by the round limit: the limit round stops
+// the tool turn, and the stopped turn's refusals close the session after two
+// more batches.
+func TestDuplexToolOffer_UnofferedCallsAreBoundedByTheRoundLimit(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather", "refund")
+	reg.RegisterExecutor(exec)
+	call := func(i int) types.MessageToolCall {
+		return types.MessageToolCall{ID: fmt.Sprintf("c%d", i), Name: "refund", Args: json.RawMessage(fmt.Sprintf(`{"n":%d}`, i))}
+	}
+	script := make([][]providers.StreamChunk, 0, 4)
+	for i := 2; i <= 5; i++ {
+		script = append(script, toolCallTurn(call(i)))
+	}
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		policy:    &pipeline.ToolPolicy{MaxRounds: 2},
+		turnState: &TurnState{AllowedTools: []string{"weather"}},
+		script:    script,
+	})
+
+	h.emit(toolCallTurn(call(1)))
+	elems := drainUntilClosed(t, h.output)
+	require.NoError(t, <-h.done)
+
+	const refusal = "Tool refund was not run: it is not available this turn"
+	const stopped = "Tool refund not executed: the turn's tool calls were stopped: provider stage: " +
+		"max rounds (2) exceeded"
+	sent := h.sess().sentResponses()
+	require.Len(t, sent, 4, "two rounds, then two stopped-turn batches, then the session closes")
+	assert.Equal(t, refusal, sent[0][0].Result)
+	assert.Equal(t, refusal, sent[1][0].Result, "the limit round's call is answered")
+	assert.Equal(t, stopped, sent[2][0].Result)
+	assert.Equal(t, stopped, sent[3][0].Result)
+	assert.True(t, h.sess().isClosed())
+	assert.Len(t, streamErrors(elems), 2)
+	assert.Empty(t, exec.calls())
 }
 
 // A turn completion with no content (only its cost), and no user turn
