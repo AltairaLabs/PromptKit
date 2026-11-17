@@ -22,8 +22,8 @@ const (
 	// MetaPlayedFraction is MetaHeardMs over MetaAudioMs, from 0 to 1
 	// (float64, three decimals).
 	MetaPlayedFraction = "played_fraction"
-	// MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn
-	// or PlayoutCutSessionClosed.
+	// MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn,
+	// PlayoutCutGuardrail or PlayoutCutSessionClosed.
 	MetaPlayoutCut = "playout_cut"
 )
 
@@ -34,6 +34,8 @@ const (
 	// PlayoutCutSessionClosed: the session ended (closed, drained or canceled)
 	// while the reply played.
 	PlayoutCutSessionClosed = "session-closed"
+	// PlayoutCutGuardrail: a guardrail blocked the reply and cut it.
+	PlayoutCutGuardrail = "guardrail"
 )
 
 // playoutHoldPoll bounds how long the stage sleeps before rechecking a
@@ -72,6 +74,11 @@ var realHoldClock = holdClock{now: time.Now, after: time.After}
 // transcripts carry no timing, so what the caller heard cannot be mapped to
 // words.
 //
+// A reply cut while it still arrives (an Interrupt element: a guardrail's cut,
+// marked safety, or a barge-in the provider reported as the reply's end) is
+// not held: its Message records what was heard before the cut, with
+// playout_cut guardrail or barge-in.
+//
 // A reply without audio, with nothing held ahead of it, passes unchanged.
 type PlayoutHoldStage struct {
 	BaseStage
@@ -101,6 +108,16 @@ type playoutHold struct {
 	audio map[int]time.Duration
 	held  []heldMessage
 	fwd   cancelForwarder
+	// cut is the cut of the reply still arriving (an Interrupt before its
+	// Message): its Message, when it comes, records it and is not held.
+	cut *replyCut
+}
+
+// replyCut is what the caller heard of reply key before an Interrupt cut it.
+type replyCut struct {
+	key   int
+	heard time.Duration
+	cause string
 }
 
 // Process implements the Stage interface. A held Message is never lost: on
@@ -144,6 +161,10 @@ func (h *playoutHold) handle(ctx context.Context, elem StreamElement, output cha
 		h.playout.Add(strconv.Itoa(h.seq), 0, d)
 		h.audio[h.seq] += d
 	}
+	if h.takeCut(&elem) {
+		h.fwd.forward(ctx, output, elem)
+		return
+	}
 	heldReply := h.hold(&elem)
 	h.fwd.forward(ctx, output, elem)
 	switch {
@@ -151,11 +172,52 @@ func (h *playoutHold) handle(ctx context.Context, elem StreamElement, output cha
 		// The playback stopped: what was held is released with what was heard.
 		h.release(ctx, output, h.playout.Stop(), PlayoutCutBargeIn)
 		h.endReply()
+	case elem.Interrupt:
+		// A reply cut before its Message: a guardrail's cut (marked safety),
+		// or a barge-in the provider reported as the reply's end.
+		h.interrupt(ctx, output, elem)
 	case !heldReply && (elem.EndOfStream || elem.Error != nil):
 		// A reply that ended without a held message (an error, no content):
 		// its audio belongs to no message, and not to the next reply.
 		h.endReply()
 	}
+}
+
+// interrupt handles an Interrupt: the playback stopped, so what was held is
+// released with what was heard, and the reply still arriving, if it has
+// audio, keeps what was heard of it for its Message (takeCut).
+func (h *playoutHold) interrupt(ctx context.Context, output chan<- StreamElement, elem StreamElement) {
+	cause := PlayoutCutBargeIn
+	if fr := elem.Meta.FinishReason; fr != nil && *fr == types.FinishReasonSafety {
+		cause = PlayoutCutGuardrail
+	}
+	cuts := h.playout.Stop()
+	h.release(ctx, output, cuts, cause)
+	total := h.audio[h.seq]
+	if total == 0 {
+		return
+	}
+	heard := total
+	for _, c := range cuts {
+		if c.ItemID == strconv.Itoa(h.seq) {
+			heard = c.Heard
+		}
+	}
+	h.cut = &replyCut{key: h.seq, heard: heard, cause: cause}
+}
+
+// takeCut records a cut on the Message of the reply it cut, which is not
+// held: it no longer plays. It reports whether elem was that reply.
+func (h *playoutHold) takeCut(elem *StreamElement) bool {
+	msg := elem.Message
+	if h.cut == nil || h.cut.key != h.seq || msg == nil || msg.Role != roleAssistant ||
+		!(elem.EndOfStream || elem.Meta.Interrupted) {
+		return false
+	}
+	elem.Message = heardReply(msg, h.cut.heard, h.audio[h.seq], h.cut.cause)
+	h.cut = nil
+	h.endReply()
+	return true
 }
 
 // endReply drops the current reply's audio accounting and starts the next.

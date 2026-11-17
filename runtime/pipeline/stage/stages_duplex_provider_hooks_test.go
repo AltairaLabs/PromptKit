@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -147,7 +148,8 @@ func TestDuplexHooks_ChunkEnforcedDropsRestOfTurn(t *testing.T) {
 			audioBytes += len(e.Audio.Samples)
 		}
 	}
-	assert.Equal(t, []string{"this is "}, texts, "nothing from the blocked chunk on is forwarded")
+	assert.Equal(t, []string{"this is ", prompt.DefaultBlockedMessage}, texts,
+		"nothing from the blocked chunk on is forwarded; the blocked text goes out in its place")
 	assert.Equal(t, 10, audioBytes, "the blocked turn's later audio is dropped")
 
 	msg, _ := turnMessage(t, elems)
@@ -236,27 +238,6 @@ func TestDuplexHooks_InputEnforcedBlocksText(t *testing.T) {
 	got := getEvents()
 	require.Len(t, got, 1)
 	assert.Equal(t, hooks.DirectionInput, got[0].Direction)
-}
-
-// An input hook that denies without enforcing ends the session with the
-// error, as it fails a text turn.
-func TestDuplexHooks_InputDenyEndsSession(t *testing.T) {
-	reg := hooks.NewRegistry(hooks.WithProviderHook(&denyAllProviderHook{reason: "no"}))
-	s, sess, _ := duplexStageWithHooks(t, reg)
-
-	text := "hello"
-	out := make(chan StreamElement, 4)
-	done := make(chan error, 1)
-	require.True(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, done))
-
-	var denied *hooks.HookDeniedError
-	require.ErrorAs(t, <-done, &denied)
-	require.Len(t, out, 1, "the error is the only output")
-	require.ErrorAs(t, (<-out).Error, &denied)
-	sess.mu.Lock()
-	assert.Empty(t, sess.texts)
-	assert.Equal(t, 1, sess.closeCount, "the session is closed so the response loop ends")
-	sess.mu.Unlock()
 }
 
 // capturingHook records what each AfterCall saw.
@@ -421,22 +402,6 @@ func TestDuplexHooks_BlockedInputStillSendsToolResponses(t *testing.T) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	require.Len(t, sess.toolResponses, 1)
-}
-
-// After an input hook denies, its error element is the session's last output:
-// the response loop does not then emit (and possibly block on) a partial reply.
-func TestDuplexHooks_InputDenyIsLastOutput(t *testing.T) {
-	reg := hooks.NewRegistry(hooks.WithProviderHook(&denyAllProviderHook{reason: "no"}))
-	s, _, _ := duplexStageWithHooks(t, reg)
-	s.accumulatedText.WriteString("partial")
-	text := "hello"
-	out := make(chan StreamElement, 4)
-	require.True(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
-	require.Len(t, out, 1)
-	<-out
-
-	require.NoError(t, s.finishOnResponseClosed(context.Background(), out, true))
-	assert.Empty(t, out)
 }
 
 // The history keeps text only: a realtime turn's audio part would otherwise
@@ -937,7 +902,8 @@ func TestDuplexHooks_StaleInterruptionKeepsTheOpenTurnBlocked(t *testing.T) {
 			msgs = append(msgs, e.Message)
 		}
 	}
-	assert.Equal(t, []string{"fine"}, texts, "the blocked turn forwards nothing after the stale interruption either")
+	assert.Equal(t, []string{"fine", prompt.DefaultBlockedMessage}, texts,
+		"the blocked turn forwards only its blocked text, nothing after the stale interruption")
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "fine", msgs[0].Content)
 	assert.Equal(t, types.FinishReasonSafety, msgs[1].FinishReason)

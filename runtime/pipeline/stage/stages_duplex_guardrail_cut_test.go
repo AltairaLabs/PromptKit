@@ -110,7 +110,7 @@ func TestDuplexGuardrailCut_StreamingBlockInterruptsAndSessionContinues(t *testi
 
 	assert.Equal(t, []string{
 		"text:this is ", "audio:10",
-		"interrupt",
+		"interrupt", "text:I can't say that.",
 		"end:I can't say that.|safety",
 		"text:all fine", "audio:12",
 		"end:all fine|stop",
@@ -130,7 +130,7 @@ func TestDuplexGuardrailCut_StreamingDenyEndsTheTurnOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
-		"interrupt",
+		"interrupt", "text:" + prompt.DefaultBlockedMessage,
 		"end:" + prompt.DefaultBlockedMessage + "|safety",
 	}, trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())
@@ -145,7 +145,7 @@ func TestDuplexGuardrailCut_AfterCallEnforceInterrupts(t *testing.T) {
 	elems, err := feedChunks(t, s, transcriptChunk("the plan", pcm(10)), stopChunk())
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"text:the plan", "audio:10", "interrupt", "end:No.|safety"}, trace(elems))
+	assert.Equal(t, []string{"text:the plan", "audio:10", "interrupt", "text:No.", "end:No.|safety"}, trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())
 }
 
@@ -164,8 +164,10 @@ func TestDuplexGuardrailCut_AfterCallDenyEndsTheTurnOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
-		"text:hello", "audio:10", "interrupt", "end:" + prompt.DefaultBlockedMessage + "|safety",
-		"text:again", "interrupt", "end:" + prompt.DefaultBlockedMessage + "|safety",
+		"text:hello", "audio:10", "interrupt", "text:" + prompt.DefaultBlockedMessage,
+		"end:" + prompt.DefaultBlockedMessage + "|safety",
+		"text:again", "interrupt", "text:" + prompt.DefaultBlockedMessage,
+		"end:" + prompt.DefaultBlockedMessage + "|safety",
 	}, trace(elems))
 	assert.Equal(t, 2, sess.interruptCount())
 	msg, _ := turnMessage(t, elems)
@@ -199,6 +201,87 @@ func (h *wordInputHook) AfterCall(
 	return hooks.Allow
 }
 
+// A blocked reply's text reaches the caller as live output, shaped as a
+// blocked typed turn's: a text element carrying finish reason safety, after
+// the interruption.
+func TestDuplexGuardrailCut_BlockedTextIsLiveOutput(t *testing.T) {
+	s, _ := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
+
+	elems, err := feedChunks(t, s, transcriptChunk("forbidden", pcm(10)), stopChunk())
+	require.NoError(t, err)
+
+	var live, cuts []StreamElement
+	for _, e := range elems {
+		if e.Text != nil && e.Message == nil {
+			live = append(live, e)
+		}
+		if e.Interrupt {
+			cuts = append(cuts, e)
+		}
+	}
+	require.Len(t, cuts, 1)
+	require.NotNil(t, cuts[0].Meta.FinishReason, "the cut says it was a guardrail's")
+	assert.Equal(t, types.FinishReasonSafety, *cuts[0].Meta.FinishReason)
+	require.Len(t, live, 1)
+	assert.Equal(t, "I can't say that.", *live[0].Text)
+	require.NotNil(t, live[0].Meta.FinishReason)
+	assert.Equal(t, types.FinishReasonSafety, *live[0].Meta.FinishReason)
+}
+
+// A typed input a hook denies without enforcing ends the turn, as a spoken
+// one does: the blocked message answers it and the session stays open.
+func TestDuplexGuardrailCut_TypedInputDenyEndsTheTurnOnly(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&denyAllProviderHook{reason: "no",
+		metadata: map[string]any{"validator_type": "test_input"}}))
+	s, sess := cutStage(t, reg)
+
+	text := "hello"
+	out := make(chan StreamElement, 8)
+	done := make(chan error, 1)
+	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, done))
+	assert.Empty(t, done, "the input goroutine goes on")
+	close(sess.respCh)
+	require.NoError(t, s.forwardResponseElements(context.Background(), out))
+	close(out)
+	var elems []StreamElement
+	for e := range out {
+		elems = append(elems, e)
+	}
+
+	assert.Equal(t, []string{"user:hello", "text:" + prompt.DefaultBlockedMessage,
+		"end:" + prompt.DefaultBlockedMessage + "|safety"}, trace(elems))
+	msg, _ := turnMessage(t, elems)
+	assert.Equal(t, []string{"test_input"}, validationTypes(msg.Validations))
+	sess.mu.Lock()
+	defer sess.mu.Unlock()
+	assert.Empty(t, sess.texts, "the denied text never reaches the session")
+	assert.Zero(t, sess.closeCount, "the session stays open")
+}
+
+// A reply the provider canceled on barge-in (OpenAI Realtime's cancelled
+// response.done) tells the caller to stop playing it, before its end.
+func TestDuplexGuardrailCut_ProviderCanceledReplyInterruptsTheCaller(t *testing.T) {
+	s, sess := cutStage(t, hooks.NewRegistry())
+	interrupted := types.FinishReasonInterrupted
+
+	elems, err := feedChunks(t, s,
+		transcriptChunk("a long", pcm(10)),
+		providers.StreamChunk{FinishReason: &interrupted},
+		transcriptChunk("next", nil),
+		stopChunk(),
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"text:a long", "audio:10", "interrupt", "end:a long|interrupted",
+		"text:next", "end:next|stop"}, trace(elems))
+	for _, e := range elems {
+		if e.Interrupt {
+			assert.Equal(t, types.FinishReasonInterrupted, *e.Meta.FinishReason, "a barge-in, not a guardrail's cut")
+		}
+	}
+	assert.Zero(t, sess.interruptCount(), "the provider stopped the reply itself")
+}
+
 // The caller's spoken turn is checked once its transcript is final. A block
 // after the reply began cuts the reply: the rest is dropped, the caller is
 // interrupted, and the turn is the blocked message, marked with the input
@@ -222,7 +305,7 @@ func TestDuplexGuardrailCut_SpokenInputBlockCutsTheReply(t *testing.T) {
 	assert.Equal(t, []string{
 		"text:Sure, ", "audio:10",
 		"user:please arrange a wire transfer",
-		"interrupt",
+		"interrupt", "text:I can't help with transfers.",
 		"end:I can't help with transfers.|safety",
 		"user:what time is it",
 		"text:noon", "audio:12",
@@ -262,7 +345,7 @@ func TestDuplexGuardrailCut_SpokenInputBlockedAtReplyStart(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"user:a wire transfer please",
-		"interrupt",
+		"interrupt", "text:I can't help with transfers.",
 		"end:I can't help with transfers.|safety",
 	}, trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())
@@ -312,7 +395,8 @@ func TestDuplexGuardrailCut_ScenarioTranscriptBlockedAtTurnEnd(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"text:Sure", "audio:10", "interrupt", "end:I can't help with transfers.|safety"},
+	assert.Equal(t, []string{"text:Sure", "audio:10", "interrupt", "text:I can't help with transfers.",
+		"end:I can't help with transfers.|safety"},
 		trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())
 }
@@ -335,8 +419,9 @@ func TestDuplexGuardrailCut_BlockedReplyIsCutOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
-		"interrupt",
+		"interrupt", "text:I can't say that.",
 		"user:a wire transfer",
+		"text:I can't help with transfers.",
 		"end:I can't help with transfers.|safety",
 	}, trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())

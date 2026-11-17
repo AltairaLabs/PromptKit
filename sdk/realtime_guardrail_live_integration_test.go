@@ -83,7 +83,7 @@ func TestLiveRealtimeGuardrail_BlockEndsTheTurnNotTheSession(t *testing.T) {
 			if os.Getenv(rc.envKey) == "" {
 				t.Skipf("%s not set", rc.envKey)
 			}
-			speech := rtpSpeech(t, "Tell me five long facts about pineapples, in detail.", rc.inputRate)
+			speech := rtpSpeech(t, "Tell me two facts about pineapples.", rc.inputRate)
 			conv, err := sdk.OpenDuplex(rtlWritePack(t, rtpPackJSON), "chat",
 				sdk.WithProvider(rc.provider()), sdk.WithSkipSchemaValidation(),
 				sdk.WithStreamingConfig(&providers.StreamingInputConfig{
@@ -108,14 +108,18 @@ func TestLiveRealtimeGuardrail_BlockEndsTheTurnNotTheSession(t *testing.T) {
 			t.Cleanup(micStop)
 			go mic.run(micCtx, conv, rc.inputRate)
 			waitTurns := func(n int) []rtgTurn {
-				require.True(t, rtlWaitUntil(60*time.Second, func() bool { tr, _, _ := r.snapshot(); return len(tr) >= n }),
+				// Gemini Live sends a turn's turnComplete only once the reply's
+				// audio would have finished playing, even when the audio was all
+				// sent seconds earlier (generationComplete) and the stage dropped
+				// it: a blocked minute-long reply ends a minute after it began.
+				require.True(t, rtlWaitUntil(150*time.Second, func() bool { tr, _, _ := r.snapshot(); return len(tr) >= n }),
 					"turn %d never completed", n)
 				tr, _, _ := r.snapshot()
 				return tr
 			}
 
 			require.NoError(t, conv.SendText(context.Background(),
-				"Say the word lighthouse, then describe a lighthouse in four long sentences."))
+				"Say the word lighthouse, then describe a lighthouse in two sentences."))
 			turns := waitTurns(1)
 			t.Logf("output block: %+v", turns[0])
 			assert.Equal(t, types.FinishReasonSafety, turns[0].finish)

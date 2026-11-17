@@ -35,16 +35,17 @@ import (
 //     to it: that reply becomes the blocked turn.
 //
 // An enforced turn is marked types.FinishReasonSafety and its tool calls are
-// dropped, so they are not executed. An output hook that denies without
-// enforcing, and a spoken turn an input hook denies, block the turn the same
-// way, with the default blocked message: the turn ends, not the session. Text
-// a hook denies before it is sent still ends the session (failInput).
+// dropped, so they are not executed. A hook that denies without enforcing
+// blocks the turn the same way, with the default blocked message: the turn
+// ends, not the session, whether it denied typed text, spoken input or the
+// reply.
 //
 // A blocked reply is cut (cutReply): the provider is asked to stop generating
 // it and to cut its own copy to the audio the caller heard
 // (providers.ResponseInterrupter), and an Interrupt element tells the caller
-// to stop playing what it buffered, as a barge-in does. Whatever the caller
-// heard before the check fired cannot be unsaid.
+// to stop playing what it buffered, as a barge-in does. The blocked turn's
+// text then goes out as live output, as a blocked typed turn's does. Whatever
+// the caller heard before the check fired cannot be unsaid.
 
 // SetHookRegistry installs the provider hooks (guardrails) the stage runs. A
 // nil registry, the default, runs none. The registry is handed the stage's
@@ -265,9 +266,10 @@ func (s *DuplexProviderStage) hookRequest(messages []types.Message) *hooks.Provi
 }
 
 // guardInputText runs the BeforeCall chain on text bound for the session.
-// handled reports that the element must not be sent: an enforcing hook
-// blocked it and the blocked turn has been queued for the response loop, or a
-// hook denied it and err is the HookDeniedError. Tool responses the element
+// handled reports that the element must not be sent: a hook blocked it
+// (enforcing, or denying, which gives the default blocked message) and the
+// blocked turn has been queued for the response loop. err is set only when
+// ctx ended first. Tool responses the element
 // carries still reach the session; its end-of-input signal does not, since
 // nothing was sent for the provider to answer.
 func (s *DuplexProviderStage) guardInputText(
@@ -300,15 +302,8 @@ func (s *DuplexProviderStage) guardInputText(
 	if d.Allow {
 		return false, nil
 	}
-	if !d.Enforced {
-		return true, &hooks.HookDeniedError{
-			HookName: providerHookName,
-			HookType: providerHookTypeBefore,
-			Reason:   d.Reason,
-			Metadata: d.Metadata,
-		}
-	}
 
+	// Enforced or denied, the turn is blocked; the session goes on.
 	blocked := &duplexBlockedTurn{
 		msg:      blockedTurnMessage(req, d),
 		decision: d,
@@ -549,6 +544,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		s.accumulatedText.Reset()
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
+		s.showBlockedText(probe.Content)
 	} else {
 		s.blockTurnWith(nil, d)
 	}
@@ -574,24 +570,52 @@ func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.
 	s.turnGuard.blockedText = &blocked.Content
 	s.turnGuard.blockedMeta = blocked.Meta
 	s.blockTurn()
+	s.showBlockedText(blocked.Content)
+}
+
+// showBlockedText has a blocked turn's text sent as live output by the next
+// cutReply.
+func (s *DuplexProviderStage) showBlockedText(text string) {
+	s.blockedLive = &text
 }
 
 // cutReply cuts a reply a guardrail blocked, once per block: the session is
 // asked to stop it and cut its own copy to what the caller heard, when it can
-// (providers.ResponseInterrupter), and an Interrupt element tells the caller
-// to stop playing what it buffered, as a barge-in does. A session that fails
-// to stop the reply is logged: the stage drops the rest of it anyway.
+// (providers.ResponseInterrupter), and an Interrupt element marked safety
+// tells the caller to stop playing what it buffered, as a barge-in does. A
+// session that fails to stop the reply is logged: the stage drops the rest of
+// it anyway. Then the blocked turn's text, when it is new, goes out as a text
+// element marked safety, shaped as a blocked typed turn's (emitBlockedTurn).
 func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- StreamElement) error {
-	if !s.cutPending {
-		return nil
-	}
-	s.cutPending = false
-	if ri, ok := s.session.(providers.ResponseInterrupter); ok {
-		if err := ri.InterruptResponse(ctx); err != nil {
-			logger.Warn("DuplexProviderStage: the provider did not stop the blocked reply", "error", err)
+	if s.cutPending {
+		s.cutPending = false
+		if ri, ok := s.session.(providers.ResponseInterrupter); ok {
+			if err := ri.InterruptResponse(ctx); err != nil {
+				logger.Warn("DuplexProviderStage: the provider did not stop the blocked reply", "error", err)
+			}
+		}
+		if err := sendStreamElement(ctx, interruptElement(types.FinishReasonSafety), output); err != nil {
+			return err
 		}
 	}
-	return sendStreamElement(ctx, NewInterruptElement(), output)
+	text := s.blockedLive
+	if text == nil {
+		return nil
+	}
+	s.blockedLive = nil
+	fr := types.FinishReasonSafety
+	elem := StreamElement{Text: text, Timestamp: timeNow()}
+	elem.Meta.FinishReason = &fr
+	return sendStreamElement(ctx, elem, output)
+}
+
+// interruptElement is an Interrupt element carrying why the reply was cut:
+// types.FinishReasonSafety for a guardrail, FinishReasonInterrupted for a
+// barge-in.
+func interruptElement(reason string) StreamElement {
+	elem := NewInterruptElement()
+	elem.Meta.FinishReason = &reason
+	return elem
 }
 
 // guardSpokenInput runs the input hooks (BeforeCall) on the caller's spoken
@@ -674,8 +698,11 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	if guard.blocked {
 		markBlockedTurn(msg, elem, &guard)
 	}
-	if s.runTurnAfterCallHooks(ctx, msg, elem) && !guard.blocked {
-		s.cutPending = true
+	if s.runTurnAfterCallHooks(ctx, msg, elem) {
+		if !guard.blocked {
+			s.cutPending = true
+		}
+		s.showBlockedText(msg.Content)
 	}
 	s.history.add(msg)
 	s.completeAssistantTurn()

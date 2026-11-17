@@ -212,3 +212,149 @@ func TestRealtimeInterrupt_ClosedSession(t *testing.T) {
 }
 
 var _ providers.ResponseInterrupter = (*RealtimeSession)(nil)
+
+// pendingCancelServer waits for start, then, for a new turn, sends
+// speech_started (newTurn "speech") or reads the client's text turn
+// (conversation.item.create and response.create, newTurn "text"), then sends
+// response.created R1, one audio delta, and response.done
+// (cancelled when the client cancels R1 first, else completed). It records
+// the client events until input_audio_buffer.commit.
+func pendingCancelServer(t *testing.T, start <-chan struct{}, newTurn string) *interruptServer {
+	t.Helper()
+	is := &interruptServer{client: make(chan []map[string]any, 1)}
+	second := base64.StdEncoding.EncodeToString(make([]byte, 2*DefaultRealtimeSampleRate))
+	is.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		write := func(v map[string]any) { _ = conn.WriteJSON(v) }
+		write(map[string]any{"type": "session.created", "session": map[string]any{"id": "s", "model": "gpt-realtime"}})
+		if _, _, err := conn.ReadMessage(); err != nil { // session.update
+			return
+		}
+		<-start
+		var got []map[string]any
+		switch newTurn {
+		case "speech":
+			write(map[string]any{"type": "input_audio_buffer.speech_started", "item_id": "item_user2"})
+		case "text":
+			for i := 0; i < 2; i++ {
+				ev := readClientEvent(conn)
+				if ev == nil {
+					return
+				}
+				got = append(got, ev)
+			}
+		}
+		write(map[string]any{"type": "response.created", "response": map[string]any{"id": "R1", "status": "in_progress"}})
+		status := "completed"
+		if newTurn == "" {
+			ev := readClientEvent(conn)
+			if ev == nil {
+				return
+			}
+			got = append(got, ev)
+			status = "cancelled"
+		}
+		write(map[string]any{"type": "response.output_audio.delta", "item_id": "item_R1",
+			"response_id": "R1", "content_index": 0, "delta": second})
+		write(map[string]any{"type": "response.done", "response": map[string]any{"id": "R1", "status": status}})
+		for {
+			ev := readClientEvent(conn)
+			if ev == nil {
+				return
+			}
+			if ev["type"] == "input_audio_buffer.commit" {
+				is.client <- got
+				<-r.Context().Done()
+				return
+			}
+			got = append(got, ev)
+		}
+	}))
+	t.Cleanup(is.srv.Close)
+	return is
+}
+
+// runPendingCancel interrupts before any response exists, then lets the
+// server go on. It returns the chunks up to R1's end and the client events.
+func runPendingCancel(t *testing.T, newTurn string) interruptRun {
+	t.Helper()
+	start := make(chan struct{})
+	is := pendingCancelServer(t, start, newTurn)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	config := DefaultRealtimeSessionConfig()
+	session, err := newRealtimeSession(ctx, "test-key", &config, realtimeSessionOpts{endpoint: bargeInWSURL(is.srv)})
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+
+	require.NoError(t, session.InterruptResponse(ctx))
+	if newTurn == "text" {
+		require.NoError(t, session.SendText(ctx, "hello"))
+	}
+	close(start)
+	var run interruptRun
+	for {
+		var c providers.StreamChunk
+		select {
+		case c = <-session.Response():
+		case <-ctx.Done():
+			t.Fatal("timed out")
+		}
+		run.chunks = append(run.chunks, c)
+		if c.FinishReason != nil {
+			break
+		}
+	}
+	require.NoError(t, session.CommitAudioBuffer())
+	select {
+	case run.clients = <-is.client:
+	case <-ctx.Done():
+		t.Fatal("the server never saw the commit")
+	}
+	for _, ev := range run.clients {
+		delete(ev, "event_id")
+	}
+	return run
+}
+
+// A reply interrupted before the server created it (the caller's transcript
+// blocked it first) is cancelled as soon as it is created, so it is neither
+// generated nor billed, and none of its audio reaches the caller.
+func TestRealtimeInterrupt_PendingCancelStopsTheNextResponse(t *testing.T) {
+	run := runPendingCancel(t, "")
+
+	assert.Equal(t, []map[string]any{{"type": "response.cancel"}}, run.clients)
+	require.Len(t, run.chunks, 1, "the cancelled reply's audio is dropped")
+	assert.Equal(t, "interrupted", *run.chunks[0].FinishReason)
+}
+
+// A pending cancel belongs to the turn it was made in: once the caller starts
+// a new turn, the next response is that turn's and is not cancelled.
+func TestRealtimeInterrupt_PendingCancelEndsWithTheTurn(t *testing.T) {
+	for _, newTurn := range []string{"speech", "text"} {
+		t.Run(newTurn, func(t *testing.T) {
+			run := runPendingCancel(t, newTurn)
+
+			for _, ev := range run.clients {
+				assert.NotEqual(t, "response.cancel", ev["type"], "no cancel for the new turn's response")
+			}
+			assertNewTurnReplyPlays(t, run)
+		})
+	}
+}
+
+func assertNewTurnReplyPlays(t *testing.T, run interruptRun) {
+	t.Helper()
+	var audio int
+	for _, c := range run.chunks {
+		if c.MediaData != nil {
+			audio++
+		}
+	}
+	assert.Equal(t, 1, audio, "the new turn's reply plays")
+	assert.Equal(t, "stop", *run.chunks[len(run.chunks)-1].FinishReason)
+}

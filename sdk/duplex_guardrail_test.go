@@ -14,7 +14,9 @@ import (
 
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -207,8 +209,8 @@ func realtimeGuardCut(t *testing.T, ch <-chan providers.StreamChunk, turns int) 
 // output guardrail that trips mid-reply, and an input guardrail on the
 // caller's spoken transcript, each end their turn: the provider is asked to
 // stop the reply, the caller is told to stop playing it (chunk.Interrupted),
-// the rest of the reply never arrives, and the turn is stored as the
-// guardrail's message, marked safety. The next turn is answered normally, and
+// the rest of the reply never arrives, the guardrail's message arrives as live
+// text, and the turn is stored as that message, marked safety. The next turn is answered normally, and
 // every provider call that started completed.
 func TestDuplexGuardrail_RealtimeBlockEndsTheTurnNotTheSession(t *testing.T) {
 	bus := events.NewEventBus()
@@ -262,8 +264,8 @@ func TestDuplexGuardrail_RealtimeBlockEndsTheTurnNotTheSession(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{
-		"user:what is the code", "text:the code is ", "audio", "interrupted", "end:safety",
-		"user:now do a wire transfer", "interrupted", "end:safety",
+		"user:what is the code", "text:the code is ", "audio", "interrupted", "text:I can't share that.", "end:safety",
+		"user:now do a wire transfer", "interrupted", "text:I can't help with transfers.", "end:safety",
 		"user:thanks", "text:You're welcome.", "audio", "end:stop",
 	}, realtimeGuardCut(t, ch, 3))
 	assert.Equal(t, 2, sess.Interrupts(), "the provider is asked to stop each blocked reply")
@@ -287,4 +289,34 @@ func TestDuplexGuardrail_RealtimeBlockEndsTheTurnNotTheSession(t *testing.T) {
 	defer mu.Unlock()
 	assert.Equal(t, 3, calls[events.EventProviderCallStarted])
 	assert.Equal(t, 3, calls[events.EventProviderCallCompleted], "every provider call pairs")
+}
+
+// denyTextHook denies, before the call, a user turn containing word, without
+// enforcing.
+type denyTextHook struct{ word string }
+
+func (h *denyTextHook) Name() string { return "deny_text" }
+
+func (h *denyTextHook) BeforeCall(_ context.Context, req *hooks.ProviderRequest) hooks.Decision {
+	if last := req.Messages[len(req.Messages)-1]; strings.Contains(last.GetContent(), h.word) {
+		return hooks.Deny("not allowed")
+	}
+	return hooks.Allow
+}
+
+func (h *denyTextHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+// Typed text a hook denies without enforcing ends its turn with the default
+// blocked message, as spoken input does; the session answers the next text.
+func TestDuplexGuardrail_TypedDenyEndsTheTurnNotTheSession(t *testing.T) {
+	conv := openGuardedDuplex(t, writeIngestionTestPack(t), "Paris.",
+		WithProviderHook(&denyTextHook{word: "secret"}))
+
+	denied := sendDuplexTurn(t, conv, "tell me the secret")
+	next := sendDuplexTurn(t, conv, "capital of France?")
+
+	assert.Equal(t, duplexTurn{text: prompt.DefaultBlockedMessage, finishReason: types.FinishReasonSafety}, denied)
+	assert.Equal(t, duplexTurn{text: "Paris.", finishReason: "stop"}, next)
 }

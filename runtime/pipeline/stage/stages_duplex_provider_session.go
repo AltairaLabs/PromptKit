@@ -213,8 +213,10 @@ type DuplexProviderStage struct {
 	// deltas (normalizeTextDeltaChunk); response goroutine only.
 	textFromDeltas bool
 	// cutPending is set when a guardrail blocked the reply and it is still to
-	// be cut (cutReply). Response goroutine only.
-	cutPending bool
+	// be cut (cutReply); blockedLive is the blocked turn's text still to go out
+	// as live output. Response goroutine only.
+	cutPending  bool
+	blockedLive *string
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -1638,8 +1640,12 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// queued once the turn's message is out.
 	round := s.completeChunkTurn(ctx, chunk, &elem, turnDone)
 	s.noteChunkTurnEnd(chunk, &elem, turnDone)
-	// A reply a guardrail blocked is cut before anything more of it is sent.
+	// A reply a guardrail blocked is cut before anything more of it is sent,
+	// and one the provider canceled tells the caller to stop playing it.
 	if err := s.cutReply(ctx, output); err != nil {
+		return err
+	}
+	if err := s.reportCanceledReply(ctx, &elem, turnDone, output); err != nil {
 		return err
 	}
 
@@ -1656,6 +1662,20 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return err
 	}
 	return s.queueToolRound(ctx, round)
+}
+
+// reportCanceledReply sends an Interrupt ahead of a turn the provider ended
+// as interrupted (OpenAI Realtime's canceled response.done on barge-in), so
+// the caller stops playing it at once, as it does for a provider that reports
+// the interruption itself. A turn a guardrail cut is marked safety and was
+// reported by cutReply.
+func (s *DuplexProviderStage) reportCanceledReply(
+	ctx context.Context, elem *StreamElement, turnDone bool, output chan<- StreamElement,
+) error {
+	if !turnDone || elem.Meta.FinishReason == nil || *elem.Meta.FinishReason != finishReasonInterrupted {
+		return nil
+	}
+	return sendStreamElement(ctx, interruptElement(finishReasonInterrupted), output)
 }
 
 // bindChunkGeneration binds the provider call and accumulation of the
