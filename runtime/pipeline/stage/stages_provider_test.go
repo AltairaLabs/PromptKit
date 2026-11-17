@@ -932,17 +932,11 @@ func TestProviderStage_EmitsProviderCallCompletedEvent_NonStreaming(t *testing.T
 	assert.Equal(t, "test-provider", data.Provider)
 }
 
-func TestProviderStage_NoEventsWithNilEmitter(t *testing.T) {
+// A stage built without an emitter has nothing to publish events through: it
+// must not fail or drop the turn for want of one, and runs it as a stage with
+// an emitter does.
+func TestProviderStage_RunsTheTurnWithoutAnEmitter(t *testing.T) {
 	t.Parallel()
-	// Create event bus to verify NO events are emitted
-	bus := events.NewEventBus()
-
-	eventReceived := false
-	bus.SubscribeAll(func(e *events.Event) {
-		eventReceived = true
-	})
-
-	// Create provider and stage WITHOUT emitter (nil)
 	provider := mock.NewProvider("test-provider", "test-model", false)
 	turnState := NewTurnState()
 	turnState.SystemPrompt = "You are a helpful assistant"
@@ -951,28 +945,24 @@ func TestProviderStage_NoEventsWithNilEmitter(t *testing.T) {
 		Temperature: 0.7,
 	}, nil, nil, turnState)
 
-	// Create input
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
-	elem := NewMessageElement(&userMsg)
-	input <- elem
+	input <- NewMessageElement(&userMsg)
 	close(input)
 
-	// Execute stage
 	output := make(chan StreamElement, 10)
-	ctx := context.Background()
-	err := stage.Process(ctx, input, output)
-	require.NoError(t, err)
+	require.NoError(t, stage.Process(context.Background(), input, output))
 
-	// Drain output
-	for range output {
+	var msgs []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			msgs = append(msgs, *elem.Message)
+		}
 	}
-
-	// Give some time for any events to propagate
-	time.Sleep(50 * time.Millisecond)
-
-	// Verify no events were received (since emitter is nil)
-	assert.False(t, eventReceived, "no events should be emitted when emitter is nil")
+	require.Len(t, msgs, 2, "the user message and the reply")
+	assert.Equal(t, "Test message", msgs[0].GetContent())
+	assert.Equal(t, "assistant", msgs[1].Role)
+	assert.Equal(t, "Mock response from test-provider model test-model", msgs[1].GetContent())
 }
 
 // toolOfferRecorder is a non-streaming ToolSupport provider that records,

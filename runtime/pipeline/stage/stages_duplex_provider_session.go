@@ -197,8 +197,20 @@ type DuplexProviderStage struct {
 	// finalToolWaitLimit; tests shorten them.
 	finalWait     time.Duration
 	toolWaitLimit time.Duration
-	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it.
+	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it. Zero
+	// means the default (see inputGrace).
 	inputGracePeriod time.Duration
+}
+
+// inputGrace is how long Process waits for the input goroutine to exit once
+// the response loop ends: inputGracePeriod, or inputForwardingGracePeriod when
+// it is unset, so a stage built without the constructor does not abandon the
+// goroutine at once.
+func (s *DuplexProviderStage) inputGrace() time.Duration {
+	if s.inputGracePeriod == 0 {
+		return inputForwardingGracePeriod
+	}
+	return s.inputGracePeriod
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -333,7 +345,7 @@ func (s *DuplexProviderStage) Process(
 		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
 			responseErr = inputErr
 		}
-	case <-time.After(s.inputGracePeriod):
+	case <-time.After(s.inputGrace()):
 		// The goroutine is still running (in a slow input hook, say). It
 		// exits on the canceled context; output closes when it does.
 		logger.Debug("DuplexProviderStage: input forwarding still running; closing output when it exits")

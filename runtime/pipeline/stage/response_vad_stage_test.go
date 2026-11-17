@@ -327,9 +327,12 @@ func TestResponseVADStage_InputClosed_EmitsPendingEndOfStream(t *testing.T) {
 
 func TestResponseVADStage_PointerAliasingBug(t *testing.T) {
 	t.Parallel()
+	// Windows that never expire: the EndOfStream is held while every audio
+	// element after it passes through (the aliasing path), and is emitted when
+	// input closes, whatever the machine's load.
 	config := stage.DefaultResponseVADConfig()
-	config.SilenceDuration = 20 * time.Millisecond
-	config.MaxWaitDuration = 100 * time.Millisecond
+	config.SilenceDuration = 10 * time.Second
+	config.MaxWaitDuration = 10 * time.Second
 
 	s, err := stage.NewResponseVADStage(config)
 	require.NoError(t, err)
@@ -340,55 +343,33 @@ func TestResponseVADStage_PointerAliasingBug(t *testing.T) {
 	input := make(chan stage.StreamElement, 10)
 	output := make(chan stage.StreamElement, 10)
 
-	go func() {
-		_ = s.Process(ctx, input, output)
-	}()
-
-	// Send EndOfStream with Message
+	// EndOfStream with Message, then 3 audio elements after it (like Gemini
+	// sending audio after turnComplete), all queued before the stage runs.
 	msgText := "Expected response text"
 	msg := &types.Message{Role: "assistant", Content: msgText}
-	endOfStreamElem := stage.StreamElement{
-		Message:     msg,
-		EndOfStream: true,
-	}
-	input <- endOfStreamElem
-
-	// Send 3 audio elements after EOS (like Gemini sending audio after turnComplete)
+	input <- stage.StreamElement{Message: msg, EndOfStream: true}
 	for i := 0; i < 3; i++ {
 		input <- makeAudioElement(generateTestPCMAudio(100), 24000)
 	}
-
-	// Collect outputs
-	var endOfStreamReceived *stage.StreamElement
-	var audioCount int
-	timeout := time.After(1 * time.Second)
-
-collectLoop:
-	for {
-		select {
-		case elem, ok := <-output:
-			if !ok {
-				break collectLoop
-			}
-			if elem.EndOfStream {
-				endOfStreamReceived = &elem
-				break collectLoop
-			}
-			if elem.Audio != nil {
-				audioCount++
-			}
-		case <-timeout:
-			break collectLoop
-		}
-	}
-
 	close(input)
 
-	require.NotNil(t, endOfStreamReceived, "EndOfStream should have been received")
-	require.NotNil(t, endOfStreamReceived.Message, "Message should be preserved in EndOfStream element")
-	assert.Equal(t, msgText, endOfStreamReceived.Message.Content, "Message content should be preserved")
-	assert.Equal(t, "assistant", endOfStreamReceived.Message.Role, "Message role should be preserved")
-	assert.Equal(t, 3, audioCount, "All audio elements should have been forwarded")
+	require.NoError(t, s.Process(ctx, input, output))
+
+	var got []stage.StreamElement
+	for elem := range output {
+		got = append(got, elem)
+	}
+	require.Len(t, got, 4, "the 3 audio elements and the held EndOfStream")
+	for i := 0; i < 3; i++ {
+		assert.NotNil(t, got[i].Audio, "element %d is forwarded audio", i)
+		assert.False(t, got[i].EndOfStream, "element %d is not the EndOfStream", i)
+	}
+	eos := got[3]
+	assert.True(t, eos.EndOfStream, "the EndOfStream is emitted last")
+	require.NotNil(t, eos.Message, "Message should be preserved in EndOfStream element")
+	assert.Equal(t, msgText, eos.Message.Content, "Message content should be preserved")
+	assert.Equal(t, "assistant", eos.Message.Role, "Message role should be preserved")
+	assert.Nil(t, eos.Audio, "the held EndOfStream did not take on a later element's audio")
 }
 
 func TestResponseVADStage_MultipleTurns(t *testing.T) {
@@ -416,7 +397,7 @@ func TestResponseVADStage_MultipleTurns(t *testing.T) {
 	input <- stage.StreamElement{Message: turn1Msg, EndOfStream: true}
 
 	var turn1EOS *stage.StreamElement
-	timeout := time.After(500 * time.Millisecond)
+	timeout := time.After(2 * time.Second) // MaxWaitDuration emits it; slack for load
 turn1Loop:
 	for {
 		select {
@@ -439,7 +420,7 @@ turn1Loop:
 	input <- stage.StreamElement{Message: turn2Msg, EndOfStream: true}
 
 	var turn2EOS *stage.StreamElement
-	timeout = time.After(500 * time.Millisecond)
+	timeout = time.After(2 * time.Second)
 turn2Loop:
 	for {
 		select {

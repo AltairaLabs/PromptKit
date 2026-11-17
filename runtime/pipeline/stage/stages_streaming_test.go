@@ -259,19 +259,27 @@ func TestDuplexProviderStage_ResponseForwarding(t *testing.T) {
 			stage.Process(ctx, input, output)
 		}()
 
-		// Collect output until the first element arrives
-		var outputElements []StreamElement
-		select {
-		case elem, ok := <-output:
-			if ok {
-				outputElements = append(outputElements, elem)
+		// Collect output until the response's assistant message arrives.
+		var reply *types.Message
+		var streamed string
+		for reply == nil {
+			select {
+			case elem, ok := <-output:
+				require.True(t, ok, "output closed before the response was forwarded")
+				if elem.Text != nil {
+					streamed += *elem.Text
+				}
+				if elem.Message != nil && elem.Message.Role == roleAssistant {
+					reply = elem.Message
+				}
+			case <-ctx.Done():
+				require.FailNow(t, "the response was never forwarded")
 			}
-		case <-time.After(2 * time.Second):
 		}
 		cancel()
 
-		// Should have received response
-		require.NotEmpty(t, outputElements, "Should receive output elements")
+		assert.Equal(t, "Test response from LLM", reply.GetContent())
+		assert.Equal(t, "Test response from LLM", streamed, "the response's text is streamed before its message")
 	})
 }
 

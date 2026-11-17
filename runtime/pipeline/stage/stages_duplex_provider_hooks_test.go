@@ -548,12 +548,19 @@ func TestDuplexHooks_BlockedTurnFlushedBeforeError(t *testing.T) {
 	assert.Equal(t, []string{"half a reply", "Not here.", "error"}, got)
 }
 
-// blockingDenyHook denies BeforeCall once release is closed.
-type blockingDenyHook struct{ release chan struct{} }
+// blockingDenyHook denies BeforeCall once release is closed. entered, when
+// set, is closed as BeforeCall begins.
+type blockingDenyHook struct {
+	release chan struct{}
+	entered chan struct{}
+}
 
 func (h *blockingDenyHook) Name() string { return "blocking_deny" }
 
 func (h *blockingDenyHook) BeforeCall(_ context.Context, _ *hooks.ProviderRequest) hooks.Decision {
+	if h.entered != nil {
+		close(h.entered)
+	}
 	<-h.release
 	return hooks.Deny("no")
 }
@@ -590,6 +597,37 @@ func TestDuplexHooks_SlowInputHookAfterProcessReturns(t *testing.T) {
 			}
 		}, 2*time.Second, time.Millisecond, "output closes once the input goroutine exits")
 	}
+}
+
+// A stage whose grace period is unset waits the default for an input
+// goroutine still in a hook, rather than abandoning it at once.
+func TestDuplexHooks_UnsetInputGracePeriodWaitsTheDefault(t *testing.T) {
+	t.Parallel()
+	h := &blockingDenyHook{release: make(chan struct{}), entered: make(chan struct{})}
+	s, sess, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
+	s.inputGracePeriod = 0
+	input := make(chan StreamElement, 1)
+	output := make(chan StreamElement, 4)
+	text := "hello"
+	input <- StreamElement{Text: &text}
+
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+	<-h.entered // the input goroutine is in the hook
+	start := time.Now()
+	close(sess.respCh) // the provider ends the session while the hook runs
+	require.NoError(t, <-done)
+	elapsed := time.Since(start)
+	close(h.release)
+	assert.GreaterOrEqual(t, elapsed, inputForwardingGracePeriod, "Process waited the default grace period")
+	require.Eventually(t, func() bool {
+		select {
+		case _, ok := <-output:
+			return !ok
+		default:
+			return false
+		}
+	}, 2*time.Second, time.Millisecond, "output closes once the input goroutine exits")
 }
 
 // blockTextHook enforces BeforeCall on one user text and records what each

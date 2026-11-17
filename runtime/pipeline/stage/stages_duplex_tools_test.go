@@ -370,6 +370,34 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 
 func (h *realtimeHarness) sess() *realtimeToolSession { return h.provider.session() }
 
+// toolTurn returns the stage's current tool turn.
+func (h *realtimeHarness) toolTurn() *duplexToolTurn {
+	h.stage.tools.mu.Lock()
+	defer h.stage.tools.mu.Unlock()
+	return h.stage.tools.turn
+}
+
+// awaitNewToolTurn waits until the stage has begun a tool turn other than
+// earlier (nil when the last turn ended). A user message is forwarded
+// downstream before its tool turn begins, so its element in the output does
+// not show the turn has begun; a live session replies only after the stage
+// sends it the user's input, which it does once the turn has begun.
+func (h *realtimeHarness) awaitNewToolTurn(earlier *duplexToolTurn) {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool {
+		turn := h.toolTurn()
+		return turn != nil && turn != earlier
+	}, 2*time.Second, time.Millisecond, "the user turn never began a new tool turn")
+}
+
+// awaitToolTurnEnded waits until a reply without tool calls has ended the
+// current tool turn.
+func (h *realtimeHarness) awaitToolTurnEnded() {
+	h.t.Helper()
+	require.Eventually(h.t, func() bool { return h.toolTurn() == nil }, 2*time.Second, time.Millisecond,
+		"no reply ended the tool turn")
+}
+
 // emit plays one assistant turn on the session.
 func (h *realtimeHarness) emit(turn []providers.StreamChunk) {
 	for i := range turn {
@@ -558,20 +586,26 @@ func TestDuplexTools_BlocklistedToolIsRefused(t *testing.T) {
 
 func TestDuplexTools_ParallelLimit(t *testing.T) {
 	t.Parallel()
+	// Each call waits until the other is running too, or its window expires.
+	// Parallel calls are released as soon as both run, so their window can be
+	// generous enough for a loaded machine; a serialized call always waits out
+	// its window alone, and a short one still sees calls that wrongly overlap.
 	cases := []struct {
 		name   string
 		policy *pipeline.ToolPolicy
+		window time.Duration
 		want   int
 	}{
-		{name: "default runs calls in parallel", want: 2},
-		{name: "MaxParallelToolCalls 1 serializes", policy: &pipeline.ToolPolicy{MaxParallelToolCalls: 1}, want: 1},
+		{name: "default runs calls in parallel", window: time.Second, want: 2},
+		{
+			name: "MaxParallelToolCalls 1 serializes", policy: &pipeline.ToolPolicy{MaxParallelToolCalls: 1},
+			window: 100 * time.Millisecond, want: 1,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			// A serialized call waits out the whole window alone; a parallel one
-			// sees the other start within it.
-			exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), overlap: 100 * time.Millisecond}
+			exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), overlap: tc.window}
 			h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), policy: tc.policy})
 
 			h.emit(toolCallTurn(weatherCall("c1"), weatherCall("c2")))
@@ -610,8 +644,10 @@ func TestDuplexTools_MaxRoundsRefusesUntilTheNextTurn(t *testing.T) {
 	assert.Equal(t, []string{"weather", "weather"}, exec.calls(), "the refused call never ran")
 
 	// The next user turn starts a new tool turn: its call runs.
+	h.awaitToolTurnEnded() // by "giving up"
 	user := types.Message{Role: roleUser, Content: "and tomorrow?"}
 	h.input <- StreamElement{Message: &user}
+	h.awaitNewToolTurn(nil)
 	h.emit(toolCallTurn(weatherCall("c4")))
 	sent = h.awaitSent(4)
 	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c4", Result: weatherResult}}, sent[3])
@@ -1014,10 +1050,10 @@ func TestDuplexTools_NewUserTurnDuringRound(t *testing.T) {
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
+	earlier := h.toolTurn()
 	user := types.Message{Role: roleUser, Content: "actually, Rome"}
 	h.input <- StreamElement{Message: &user}
-	require.Eventually(t, func() bool { return len(h.output) >= 2 }, 2*time.Second, time.Millisecond,
-		"the user message is forwarded")
+	h.awaitNewToolTurn(earlier)
 	close(exec.gate)
 
 	sent := h.awaitSent(1)
@@ -1578,11 +1614,14 @@ func TestDuplexTools_FinalWaitCoversARunningRoundAndItsReply(t *testing.T) {
 // past the wait limit.
 func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
 	t.Parallel()
+	// The hung tool never returns: without the limit the wait would last
+	// until the harness's 5s context ends.
+	const toolWaitLimit = 150 * time.Millisecond
 	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), gate: make(chan struct{})}
 	h := startRealtime(t, realtimeOpts{
 		registry:      newWeatherRegistry(t, exec),
 		finalWait:     10 * time.Millisecond,
-		toolWaitLimit: 80 * time.Millisecond,
+		toolWaitLimit: toolWaitLimit,
 	})
 
 	h.emit(toolCallTurn(weatherCall("c1")))
@@ -1593,8 +1632,9 @@ func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
 	require.NoError(t, <-h.done)
 
 	assert.True(t, h.sess().isClosed())
-	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond, "the wait was extended for the running round")
-	assert.Less(t, time.Since(start), 2*time.Second, "but not past the limit")
+	elapsed := time.Since(start)
+	assert.GreaterOrEqual(t, elapsed, toolWaitLimit, "the wait was extended for the running round")
+	assert.Less(t, elapsed, toolWaitLimit+850*time.Millisecond, "but not past the limit")
 	assert.Empty(t, h.sess().sentResponses())
 }
 

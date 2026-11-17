@@ -298,9 +298,10 @@ func TestDuplexToolOffer_EarlierTurnsRoundDoesNotChangeTheNewTurnsOffer(t *testi
 
 	h.emit(toolCallTurn(namedCall("c1", "activate")))
 	<-exec.started
+	earlier := h.toolTurn()
 	user := types.Message{Role: roleUser, Content: "never mind"}
 	h.input <- StreamElement{Message: &user}
-	require.Eventually(t, func() bool { return len(h.output) >= 2 }, 2*time.Second, time.Millisecond)
+	h.awaitNewToolTurn(earlier) // the round finishes once the new turn owns the offer
 	close(exec.gate)
 	h.awaitSent(1)
 	h.emit(textTurn("ok", nil))
@@ -374,9 +375,10 @@ func TestDuplexToolOffer_SpentBudgetKeepsTheSessionsTools(t *testing.T) {
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.awaitSent(2)
+	h.awaitToolTurnEnded() // by "I cannot check again"
 	user := types.Message{Role: roleUser, Content: "and now?"}
 	h.input <- StreamElement{Message: &user}
-	require.Eventually(t, func() bool { return len(h.output) >= 6 }, 2*time.Second, time.Millisecond)
+	h.awaitNewToolTurn(nil)
 	h.emit(toolCallTurn(weatherCall("c3")))
 	sent := h.awaitSent(3)
 	h.finish()

@@ -28,12 +28,37 @@ func (p *broadcastProbe) count() int {
 	return len(p.got)
 }
 
-// waitFor waits until want payloads have arrived, or two seconds pass.
-func (p *broadcastProbe) waitFor(want int) {
+// waitFor waits until want payloads have arrived, or two seconds pass, and
+// reports whether they did.
+func (p *broadcastProbe) waitFor(want int) bool {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && p.count() < want {
 		time.Sleep(time.Millisecond)
 	}
+	return p.count() >= want
+}
+
+// broadcastSummary is what a test asserts of one message.created payload.
+type broadcastSummary struct {
+	Role, Content string
+	Index         int
+}
+
+// summarize returns role, content and Index of each payload, in Index order.
+func summarize(got []*events.MessageCreatedData) []broadcastSummary {
+	out := make([]broadcastSummary, len(got))
+	for i, d := range got {
+		out[i] = broadcastSummary{Role: d.Role, Content: d.GetContent(), Index: d.Index}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Index < out[j].Index })
+	return out
+}
+
+// snapshot returns the payloads that have arrived so far.
+func (p *broadcastProbe) snapshot() []*events.MessageCreatedData {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]*events.MessageCreatedData(nil), p.got...)
 }
 
 // drain closes the bus, which delivers everything already published (the
@@ -141,11 +166,12 @@ func TestMessageBroadcast_DoesNotRepublishHistoryThroughProvider(t *testing.T) {
 
 	runTurnThroughProvider(t, bcast, emitter, persistedHistory("old q", "old a"), "new q")
 
-	got := probe.drain()
-	for _, d := range got {
-		assert.NotEqualf(t, "old q", d.GetContent(), "replayed history was re-broadcast")
-		assert.NotEqualf(t, "old a", d.GetContent(), "replayed history was re-broadcast")
-	}
+	// Only the new turn is broadcast, at its transcript positions; the
+	// replayed history ("old q", "old a") is not.
+	assert.Equal(t, []broadcastSummary{
+		{Role: "user", Content: "new q", Index: 2},
+		{Role: "assistant", Content: "done", Index: 3},
+	}, summarize(probe.drain()))
 }
 
 // TestMessageBroadcast_IndexIsAbsoluteAcrossTurns pins that Index keeps meaning
@@ -163,23 +189,20 @@ func TestMessageBroadcast_IndexIsAbsoluteAcrossTurns(t *testing.T) {
 
 	// Turn 1: empty transcript.
 	runTurnThroughProvider(t, bcast, emitter, nil, "first")
-	probe.waitFor(2) // the user message and the reply
+	require.True(t, probe.waitFor(2), "turn 1 broadcast the user message and the reply")
+	require.Equal(t, []broadcastSummary{
+		{Role: "user", Content: "first", Index: 0},
+		{Role: "assistant", Content: "done", Index: 1},
+	}, summarize(probe.snapshot()))
 	probe.reset()
 
 	// Turn 2: turn 1 is now persisted history, so the new user message sits at
-	// transcript position 2.
-	runTurnThroughProvider(t, bcast, emitter, persistedHistory("first", "answer"), "second")
+	// transcript position 2. Turn 1 broadcast exactly its two messages, so a
+	// late delivery of a third would show here as an extra payload.
+	runTurnThroughProvider(t, bcast, emitter, persistedHistory("first", "done"), "second")
 
-	got := probe.drain()
-	require.NotEmpty(t, got)
-
-	var user *events.MessageCreatedData
-	for _, d := range got {
-		if d.GetContent() == "second" {
-			user = d
-		}
-	}
-	require.NotNil(t, user, "turn 2's user message was not broadcast")
-	assert.Equal(t, 2, user.Index,
-		"Index must be transcript-absolute on turn 2, not continue from turn 1")
+	assert.Equal(t, []broadcastSummary{
+		{Role: "user", Content: "second", Index: 2},
+		{Role: "assistant", Content: "done", Index: 3},
+	}, summarize(probe.drain()), "Index must be transcript-absolute on turn 2, not continue from turn 1")
 }
