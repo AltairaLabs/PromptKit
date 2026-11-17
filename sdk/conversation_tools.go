@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
@@ -603,37 +604,13 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 	// A client tool answered here rather than through Resume is admitted the
 	// same way.
-	callNames := c.lazyCallNames(ctx)
-	c.admitDeferredResults(resolutions, callNames)
+	calls := c.lazyCalls(ctx)
+	c.admitDeferredResults(resolutions, callNamesOf(calls))
 
 	// Build tool result messages from resolutions
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
-		name := callNames()[res.ID]
-		var content string
-		var errStr string
-		var parts []types.ContentPart
-		switch {
-		case res.Rejected:
-			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
-			errStr = "rejected by user"
-		case res.Error != nil:
-			errStr = toolResultErrorText(res.Error)
-			content = "Tool error: " + errStr
-		default:
-			given := c.modelResult(name, res)
-			content, parts = given.Text, given.Parts
-		}
-
-		// The result names the tool it answers, as an in-turn result does: a
-		// provider can match a result to its call by name (Gemini's
-		// functionResponse carries only the name).
-		toolResult := types.NewTextToolResult(res.ID, name, content)
-		if parts != nil {
-			toolResult = types.MessageToolResult{ID: res.ID, Name: name, Parts: parts}
-		}
-		toolResult.Error = errStr
-		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(c.continuedResult(ctx, callOf(calls, res.ID), res)))
 	}
 
 	// Give the model every result in one call: a provider that requires each
@@ -644,6 +621,49 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 
 	return c.buildResponse(ctx, result, startTime), nil
+}
+
+// continuedResult is the tool result Continue gives the model for res, the
+// settlement of call: the rejection, the error, or the result as
+// modelResult prepares it. The result names the tool it answers, as an
+// in-turn result does: a provider can match a result to its call by name
+// (Gemini's functionResponse carries only the name).
+func (c *Conversation) continuedResult(
+	ctx context.Context, call types.MessageToolCall, res *sdktools.ToolResolution,
+) types.MessageToolResult {
+	var content, errStr string
+	var parts []types.ContentPart
+	switch {
+	case res.Rejected:
+		content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
+		errStr = "rejected by user"
+	case res.Error != nil:
+		errStr = toolResultErrorText(res.Error)
+		content = "Tool error: " + errStr
+	default:
+		given, err := c.modelResult(ctx, call, res)
+		if err != nil {
+			errStr = err.Error()
+			content = "Tool error: " + errStr
+			break
+		}
+		content, parts = given.Text, given.Parts
+	}
+	toolResult := types.NewTextToolResult(res.ID, call.Name, content)
+	if parts != nil {
+		toolResult = types.MessageToolResult{ID: res.ID, Name: call.Name, Parts: parts}
+	}
+	toolResult.Error = errStr
+	return toolResult
+}
+
+// callOf is the call calls holds under id, or a call with only that ID when
+// the suspended assistant message made none under it.
+func callOf(calls func() map[string]types.MessageToolCall, id string) types.MessageToolCall {
+	if call, ok := calls()[id]; ok {
+		return call
+	}
+	return types.MessageToolCall{ID: id}
 }
 
 // validateContinueState returns an error when Continue cannot run: the
@@ -681,40 +701,47 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	if len(resolutions) == 0 {
 		return fmt.Errorf("no resolved tools to continue with")
 	}
-	names := c.lazyCallNames(ctx)
-	c.admitDeferredResults(resolutions, names)
+	calls := c.lazyCalls(ctx)
+	c.admitDeferredResults(resolutions, callNamesOf(calls))
 
 	responses := make([]providers.ToolResponse, 0, len(resolutions))
 	for _, res := range resolutions {
-		var result string
-		var parts []types.ContentPart
-		var isError bool
-		switch {
-		case res.Rejected:
-			result = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
-			isError = true
-		case res.Error != nil:
-			result = "Tool error: " + toolResultErrorText(res.Error)
-			isError = true
-		default:
-			given := c.modelResult(names()[res.ID], res)
-			result, parts = given.Text, given.Parts
-		}
-		responses = append(responses, providers.ToolResponse{
-			ToolCallID: res.ID,
-			Result:     result,
-			Parts:      parts,
-			IsError:    isError,
-		})
+		responses = append(responses, c.duplexContinuedResult(ctx, callOf(calls, res.ID), res))
 	}
 
 	return c.duplexSession.SubmitToolResults(ctx, responses)
 }
 
+// duplexContinuedResult is the tool response ContinueDuplex gives the
+// realtime session for res, the settlement of call: the rejection, the
+// error, or the result as modelResult prepares it.
+func (c *Conversation) duplexContinuedResult(
+	ctx context.Context, call types.MessageToolCall, res *sdktools.ToolResolution,
+) providers.ToolResponse {
+	resp := providers.ToolResponse{ToolCallID: res.ID}
+	switch {
+	case res.Rejected:
+		resp.Result, resp.IsError = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason), true
+	case res.Error != nil:
+		resp.Result, resp.IsError = "Tool error: "+toolResultErrorText(res.Error), true
+	default:
+		given, err := c.modelResult(ctx, call, res)
+		if err != nil {
+			resp.Result, resp.IsError = "Tool error: "+err.Error(), true
+			break
+		}
+		resp.Result, resp.Parts = given.Text, given.Parts
+	}
+	return resp
+}
+
 // modelResult is an approved or answered call's result as the model is given
 // the result of a call the pipeline runs (tools.BuildModelResult): formatted,
-// and capped at the registry's size limit, its parts kept. Rewriting is not applied here (#2723).
-func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution) tools.ModelResult {
+// passed through the conversation's ToolResultRewriter hooks, then capped at
+// the registry's size limit, its parts kept. The error is a rewriter's.
+func (c *Conversation) modelResult(
+	ctx context.Context, call types.MessageToolCall, res *sdktools.ToolResolution,
+) (tools.ModelResult, error) {
 	raw := res.ResultJSON
 	if raw == nil && len(res.Parts) == 0 {
 		if marshaled, err := json.Marshal(res.Result); err == nil {
@@ -723,12 +750,31 @@ func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution) to
 			raw = json.RawMessage(fmt.Sprintf("%v", res.Result))
 		}
 	}
-	opts := tools.ModelResultOptions{ToolName: name}
+	opts := tools.ModelResultOptions{ToolName: call.Name, Rewrite: c.resultRewriter(ctx, call)}
 	if c.toolRegistry != nil {
 		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
 	}
-	given, _ := tools.BuildModelResult(raw, res.Parts, opts) // no rewrite: no error
-	return given
+	return tools.BuildModelResult(raw, res.Parts, opts)
+}
+
+// resultRewriter passes a result's text for call through the conversation's
+// ToolResultRewriter hooks, with the request the provider stage gives them
+// for a call it runs: the call's name, ID and arguments as the model made
+// it, the caller and the tool's declaration. Nil when no hook rewrites.
+func (c *Conversation) resultRewriter(ctx context.Context, call types.MessageToolCall) func(string) (string, error) {
+	if !c.hookRegistry.HasToolResultRewriters() {
+		return nil
+	}
+	req := hooks.ToolRequest{Name: call.Name, Args: call.Args, CallID: call.ID, Caller: c.callerIdentity()}
+	if c.toolRegistry != nil {
+		if desc := c.toolRegistry.Get(call.Name); desc != nil {
+			req.Declaration = desc.Declaration
+		}
+	}
+	ctx = tools.WithCallID(ctx, call.ID)
+	return func(content string) (string, error) {
+		return c.hookRegistry.RunToolResultRewriters(ctx, req, content)
+	}
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this

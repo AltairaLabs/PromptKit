@@ -148,7 +148,8 @@ func (h *RedactHook) RewriteResult(_ context.Context, req hooks.ToolRequest, con
 - The model, the `tool.call.completed` event and `AfterExecution` all see the rewritten result.
 - A failed call isn't rewritten. A rewriter that returns an error fails the call: the model gets an error result, `tool.call.failed` is emitted, and the original text is not passed on.
 - Parallel tool calls are rewritten concurrently, so `RewriteResult` must be safe for concurrent use.
-- Only tools the pipeline runs are rewritten, in text turns and realtime duplex sessions alike. Client tools and calls resumed after approval are not.
+- Tools the pipeline runs are rewritten, in text turns and realtime duplex sessions alike. So are results you settle outside the turn and deliver with `Continue` or `ContinueDuplex`: a call approved with `ResolveTool`, or a client tool answered with `SendToolResult`. The rewriter gets the same `ToolRequest` it would for a call the pipeline ran. A rewriter error replaces the result with a tool error.
+- A client tool's answer delivered with `Resume` is not rewritten. It reaches the model exactly as the client sent it, because the same stored result is what an AG-UI client is shown.
 
 ## SessionHook
 

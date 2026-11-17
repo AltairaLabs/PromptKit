@@ -374,11 +374,13 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 // call the suspended turn did not make. Results stored for a suspended turn
 // are discarded when Send or Stream starts a new turn instead of resuming it.
 //
-// A client's result reaches the model as the JSON the client sent, unformatted
-// and not truncated: the stored result is also what an AG-UI consumer is shown
-// as TOOL_CALL_RESULT. This differs from [Conversation.Continue] and
-// [Conversation.ContinueDuplex], which give the model an approved result as a
-// tool the pipeline ran would.
+// A client's result reaches the model as the JSON the client sent, unformatted,
+// not truncated and not passed through the conversation's
+// hooks.ToolResultRewriter hooks: the stored result is also what an AG-UI
+// consumer is shown as TOOL_CALL_RESULT, so changing it would change that wire
+// content. This differs from [Conversation.Continue] and
+// [Conversation.ContinueDuplex], which give the model an approved or answered
+// result as a tool the pipeline ran would, rewritten and capped.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
@@ -527,12 +529,35 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 // lazyCallNames returns a function that maps each call the suspended assistant
 // message made to its tool name, reading the history on first use only.
 func (c *Conversation) lazyCallNames(ctx context.Context) func() map[string]string {
+	return callNamesOf(c.lazyCalls(ctx))
+}
+
+// lazyCalls returns a function that maps each call the suspended assistant
+// message made, by call ID, to the call itself, reading the history on first
+// use only.
+func (c *Conversation) lazyCalls(ctx context.Context) func() map[string]types.MessageToolCall {
+	var calls map[string]types.MessageToolCall
+	return func() map[string]types.MessageToolCall {
+		if calls == nil {
+			calls = map[string]types.MessageToolCall{}
+			if c.getBaseSession() != nil {
+				calls = callsMadeByLastAssistant(c.Messages(ctx))
+			}
+		}
+		return calls
+	}
+}
+
+// callNamesOf maps each call calls returns to the name of the tool it called,
+// on first use only.
+func callNamesOf(calls func() map[string]types.MessageToolCall) func() map[string]string {
 	var names map[string]string
 	return func() map[string]string {
 		if names == nil {
-			names = map[string]string{}
-			if c.getBaseSession() != nil {
-				names = callNamesOfLastAssistant(c.Messages(ctx))
+			byID := calls()
+			names = make(map[string]string, len(byID))
+			for id := range byID {
+				names[id] = byID[id].Name
 			}
 		}
 		return names
@@ -629,20 +654,20 @@ func (c *Conversation) admitDeferredResults(
 	}
 }
 
-// callNamesOfLastAssistant maps each call the last assistant message in
-// history made to the name of the tool it called.
-func callNamesOfLastAssistant(history []types.Message) map[string]string {
+// callsMadeByLastAssistant maps each call the last assistant message in
+// history made, by call ID, to the call.
+func callsMadeByLastAssistant(history []types.Message) map[string]types.MessageToolCall {
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Role != roleAssistant {
 			continue
 		}
-		names := make(map[string]string, len(history[i].ToolCalls))
+		calls := make(map[string]types.MessageToolCall, len(history[i].ToolCalls))
 		for _, tc := range history[i].ToolCalls {
-			names[tc.ID] = tc.Name
+			calls[tc.ID] = tc
 		}
-		return names
+		return calls
 	}
-	return map[string]string{}
+	return map[string]types.MessageToolCall{}
 }
 
 // emitClientToolResolvedEvents emits a tool.client.resolved event for each

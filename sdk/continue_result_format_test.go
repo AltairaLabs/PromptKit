@@ -104,9 +104,13 @@ func TestContinue_NullAndEmptyStringAreNotLost(t *testing.T) {
 func TestContinue_ResultWithoutJSONIsFormattedAsJSON(t *testing.T) {
 	conv := newTestConversation()
 	conv.toolRegistry = tools.NewRegistry(tools.WithMaxToolResultSize(14))
-	got := conv.modelResult("t", &sdktools.ToolResolution{Result: map[string]any{"a": "b"}})
+	call := types.MessageToolCall{ID: "c1", Name: "t"}
+	got, err := conv.modelResult(context.Background(), call, &sdktools.ToolResolution{Result: map[string]any{"a": "b"}})
+	require.NoError(t, err)
 	assert.Equal(t, "{\n  \"a\": \"b\"\n}", got.Text)
-	got = conv.modelResult("t", &sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}})
+	got, err = conv.modelResult(context.Background(), call,
+		&sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}})
+	require.NoError(t, err)
 	assert.Equal(t, "{\n  \"a\": \"bbbb\n... [truncated, 23 bytes exceeded limit of 14 bytes]", got.Text)
 }
 

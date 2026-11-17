@@ -2,12 +2,15 @@ package integration
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -112,4 +115,65 @@ func TestContinueDuplex_TruncatesAnApprovedResultOverTheSizeLimit(t *testing.T) 
 func TestContinueDuplex_NullAndEmptyStringAreNotLost(t *testing.T) {
 	assert.Equal(t, "null", duplexContinued(t, nil, approveCall).Result)
 	assert.Equal(t, `""`, duplexContinued(t, "", approveCall).Result)
+}
+
+// recordingRewriter is a ToolResultRewriter that wraps each result's text in
+// "<redacted:...>" (or fails with err) and records the requests it is given.
+type recordingRewriter struct {
+	mu   sync.Mutex
+	reqs []hooks.ToolRequest
+	err  error
+}
+
+func (h *recordingRewriter) Name() string { return "record-rewrite" }
+
+func (h *recordingRewriter) BeforeExecution(context.Context, hooks.ToolRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *recordingRewriter) AfterExecution(context.Context, hooks.ToolRequest, hooks.ToolResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *recordingRewriter) RewriteResult(_ context.Context, req hooks.ToolRequest, content string) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.reqs = append(h.reqs, req)
+	if h.err != nil {
+		return "", h.err
+	}
+	return "<redacted:" + content + ">", nil
+}
+
+// An approved result reaches the realtime session rewritten by the
+// conversation's ToolResultRewriter, before the size limit cuts it, and the
+// rewriter is given the call as the model made it and the caller.
+func TestContinueDuplex_RewritesAnApprovedResultBeforeTruncating(t *testing.T) {
+	rw := &recordingRewriter{}
+	caller := types.Caller{ID: "user-7"}
+	got := duplexContinued(t, "abcdefghij", approveCall, limited(15), sdk.WithToolHook(rw), sdk.WithCaller(caller))
+	assert.Equal(t, providers.ToolResponse{
+		ToolCallID: "call_1",
+		Result:     "<redacted:abcde\n... [truncated, 21 bytes exceeded limit of 15 bytes]",
+	}, got)
+
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	require.Len(t, rw.reqs, 1)
+	assert.Equal(t, "lookup_order", rw.reqs[0].Name)
+	assert.Equal(t, "call_1", rw.reqs[0].CallID)
+	assert.JSONEq(t, `{"order_id":"ORD-5"}`, string(rw.reqs[0].Args))
+	assert.Equal(t, caller, rw.reqs[0].Caller)
+}
+
+// A rewriter's error takes the place of the result: the session is told the
+// call failed and is never given the raw result.
+func TestContinueDuplex_RewriterErrorReplacesTheResult(t *testing.T) {
+	rw := &recordingRewriter{err: errors.New("redactor offline")}
+	got := duplexContinued(t, "secret", approveCall, sdk.WithToolHook(rw))
+	assert.Equal(t, providers.ToolResponse{
+		ToolCallID: "call_1",
+		Result:     "Tool error: rewriting the lookup_order result: redactor offline",
+		IsError:    true,
+	}, got)
 }

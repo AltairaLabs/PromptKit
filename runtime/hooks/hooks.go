@@ -36,8 +36,11 @@ type ToolHook interface {
 // result's text, or once per text part of a multimodal result, before the
 // result size limit applies, on text turns and realtime duplex sessions
 // alike. Rewriters run in registration order, each on the previous one's
-// output; an error fails the tool call. Client tools and calls resumed after
-// approval are not rewritten.
+// output; an error fails the tool call. The SDK also runs it on the results
+// a host settles outside the turn and delivers with Continue or
+// ContinueDuplex (an approved call, a client tool's answer), with the request
+// the stage would give for the call. A client tool's answer delivered with
+// Resume is not rewritten: it reaches the model as the client sent it.
 // Parallel tool calls rewrite concurrently, so RewriteResult must be safe
 // for concurrent use.
 type ToolResultRewriter interface {
