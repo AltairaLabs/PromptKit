@@ -203,7 +203,7 @@ func (s *DuplexProviderStage) toolPolicy() *pipeline.ToolPolicy {
 // toolRunner builds the tool runner from the stage's current fields.
 func (s *DuplexProviderStage) toolRunner() *toolRunner {
 	dt := s.tools
-	return &toolRunner{
+	r := &toolRunner{
 		registry:     dt.registry,
 		policy:       s.toolPolicy,
 		emitter:      s.emitter,
@@ -218,6 +218,29 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 		},
 		stateResolver: dt.resolver,
 	}
+	r.eligible = func(name string) (bool, bool) { return s.sessionEligible(r, name) }
+	return r
+}
+
+// sessionEligible reports whether the model may call name now, and whether
+// the session is gated: the prompt's tools, the capability tools and the
+// grants, as on a text turn, and the host's StreamingInputConfig.Tools. A
+// session that holds no tools was given none to call, and is not gated.
+func (s *DuplexProviderStage) sessionEligible(r *toolRunner, name string) (ok, gated bool) {
+	if len(s.tools.offer.heldNames()) == 0 {
+		return false, false
+	}
+	if r.isEligible(s.allowedTools(), name) {
+		return true, true
+	}
+	if s.baseConfig != nil {
+		for i := range s.baseConfig.Tools {
+			if s.baseConfig.Tools[i].Name == name {
+				return true, true
+			}
+		}
+	}
+	return false, true
 }
 
 // maxToolRounds is the policy's MaxRounds, or the default.
@@ -243,11 +266,7 @@ func (s *DuplexProviderStage) seedToolSpend(prior []types.Message) {
 // named by offered so far, and returns it. Called with dt.mu held.
 func (s *DuplexProviderStage) startToolTurnLocked(offered []string) *duplexToolTurn {
 	dt := s.tools
-	turn := &duplexToolTurn{}
-	r := s.toolRunner()
-	r.offered = func(name string) bool { return dt.wasOffered(turn, name) }
-	turn.toolTurn = r.newTurn(nil, s.maxToolRounds())
-	dt.turn = turn
+	dt.turn = &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, s.maxToolRounds())}
 	recordOfferedLocked(dt.turn, offered)
 	dt.round = 0
 	return dt.turn

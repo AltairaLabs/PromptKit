@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -307,8 +306,7 @@ type realtimeOpts struct {
 	sessionTools []providers.StreamingToolDefinition
 	// history is a resumed conversation's prior messages.
 	history []types.Message
-	// turnState is the stage's turn state (allowed tools, prompt); nil allows
-	// every tool registry holds.
+	// turnState is the stage's turn state (allowed tools, prompt); nil for none.
 	turnState *TurnState
 	// updatable makes the session a providers.StreamToolUpdater.
 	updatable bool
@@ -339,15 +337,7 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	cfg := baseConfig()
 	cfg.Tools = o.sessionTools
 	cfg.ToolChoice = o.hostToolChoice
-	turnState := o.turnState
-	if turnState == nil && o.registry != nil {
-		// The prompt allows every registered tool, so the session is offered
-		// the tools the model calls.
-		names := o.registry.List()
-		sort.Strings(names)
-		turnState = &TurnState{AllowedTools: names}
-	}
-	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, turnState)
+	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, o.turnState)
 	if o.hookReg != nil {
 		st.SetHookRegistry(o.hookReg)
 	}

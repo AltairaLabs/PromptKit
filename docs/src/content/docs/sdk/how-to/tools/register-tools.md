@@ -52,7 +52,7 @@ Register Go handlers for the tools your pack declares, so the model can call the
 }
 ```
 
-A handler runs only for a tool the model was offered on that turn: a tool the prompt lists, a capability tool such as `memory__recall`, or a tool an active skill grants. A call to any other tool, registered or not, gets the result `Tool <name> was not run: it is not available this turn`, and its handler does not run. This holds on text, VAD and realtime turns.
+A handler runs only for a tool the model may call in that round: a tool the prompt lists (a `ToolSelector` that leaves it out of the request does not change that), a capability tool such as `memory__recall`, or a tool an active skill grants, and on a realtime session a tool in `StreamingInputConfig.Tools`. A call to any other registered tool gets the result `Tool <name> was not run: it is not available this turn`, after the tool policy's `Blocklist` and the tool hooks, and is reported with `tool.call.started` and `tool.call.failed`; its handler does not run. A name no tool is registered under keeps its `tool not found` error. A provider that is never sent tools, such as a replay provider, is not checked. This holds on text, VAD and realtime turns.
 
 ## 2. Register a handler
 

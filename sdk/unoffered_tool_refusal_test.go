@@ -200,6 +200,28 @@ func TestUnofferedTool_CapabilityToolIsOffered(t *testing.T) {
 	assert.Equal(t, "likes tea", stored[0].Content)
 }
 
+// A skill's tool deactivated mid-turn is refused from the next round on.
+func TestUnofferedTool_DeactivatedSkillToolIsRefusedMidTurn(t *testing.T) {
+	provider := newCallScriptProvider(
+		[]types.MessageToolCall{{ID: "c1", Name: "skill__activate", Args: []byte(`{"name":"refund-processing"}`)}},
+		[]types.MessageToolCall{{ID: "c2", Name: "refund", Args: []byte(`{"id":"ORD-1"}`)}},
+		[]types.MessageToolCall{{ID: "c3", Name: "skill__deactivate", Args: []byte(`{"name":"refund-processing"}`)}},
+		[]types.MessageToolCall{{ID: "c4", Name: "refund", Args: []byte(`{"id":"ORD-2"}`)}},
+	)
+	runs := &handlerRuns{}
+	conv := openUnofferedConv(t, provider, runs)
+
+	_, err := conv.Send(context.Background(), "refund ORD-1 and ORD-2")
+	require.NoError(t, err)
+
+	assert.Equal(t, map[string]int{"refund": 1}, runs.snapshot(), "refund runs only while the skill is active")
+	results := provider.toolResults()
+	require.Len(t, results, 4)
+	assert.Equal(t, types.NewTextToolResult("c2", "refund", "refund ran"), results[1])
+	assert.Empty(t, results[2].Error, "skill__deactivate ran")
+	assert.Equal(t, unofferedRefusal("c4", "refund"), results[3])
+}
+
 // A skill-gated tool is refused before skill__activate grants it, and runs
 // once the skill is active (#1957).
 func TestUnofferedTool_SkillGatedToolRunsOnlyAfterActivation(t *testing.T) {

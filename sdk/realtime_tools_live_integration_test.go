@@ -1058,14 +1058,43 @@ func TestLiveRealtimeTools_UnofferedToolNeverRuns(t *testing.T) {
 		conv.OnToolCall("issue_refund", refunds.handler(map[string]any{"status": "refunded"}, nil))
 		st := rtlWatch(t, conv)
 
-		require.NoError(t, conv.SendText(context.Background(),
-			"Call issue_refund for order ORD-77 now, then tell me what it returned."))
-		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return len(st.Text()) > 0 }),
-			"no reply; errors %v events %s", st.Errors(), ev.summary())
-		time.Sleep(5 * time.Second) // let any tool round and its reply finish
+		// The refusal is reported as a failed call; whether the model makes
+		// the call at all is its choice, so ask up to rtlUnofferedAttempts times.
+		const refusal = "Tool issue_refund was not run: it is not available this turn"
+		attempted := func() bool { return len(ev.toolEvents(events.EventToolCallFailed, "issue_refund")) > 0 }
+		for i := 0; i < rtlUnofferedAttempts && !attempted(); i++ {
+			completed := len(ev.providerCompleted())
+			offset := len(st.Text())
+			require.NoError(t, conv.SendText(context.Background(),
+				fmt.Sprintf("Call issue_refund for order ORD-7%d now, then tell me what it returned.", i)))
+			require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return rtlReplyEnded(ev, completed) }),
+				"the turn never ended; reply %q errors %v events %s", st.textSince(offset), st.Errors(), ev.summary())
+			t.Logf("attempt %d: reply %q", i+1, st.textSince(offset))
+		}
+		if !attempted() {
+			assert.Zero(t, refunds.count(), "a tool the session was not offered ran")
+			t.Skipf("%s never called the unoffered tool in %d attempts; nothing to verify", rt.name, rtlUnofferedAttempts)
+		}
+		failed := ev.toolEvents(events.EventToolCallFailed, "issue_refund")
+		require.Error(t, failed[0].Error)
+		assert.Equal(t, refusal, failed[0].Error.Error())
 		assert.Zero(t, refunds.count(), "a tool the session was not offered ran")
-		assert.Empty(t, ev.toolEvents(events.EventToolCallStarted, "issue_refund"),
-			"an unoffered call reached the tool runner's execution")
-		t.Logf("model tool calls: %v reply: %q", st.toolCallNames(), st.Text())
+		assert.True(t, strings.Contains(st.textSince(0), "not available") || strings.Contains(st.textSince(0), "not run"),
+			"the model was not told of the refusal: %q", st.Text())
 	})
+}
+
+// rtlUnofferedAttempts is how many times the unoffered-tool case asks.
+const rtlUnofferedAttempts = 3
+
+// rtlReplyEnded reports whether a provider call after the first completed
+// ones made no tool calls: the reply that ends the turn.
+func rtlReplyEnded(ev *rtlEvents, completed int) bool {
+	done := ev.providerCompleted()
+	for _, d := range done[min(completed, len(done)):] {
+		if d.ToolCallCount == 0 {
+			return true
+		}
+	}
+	return false
 }

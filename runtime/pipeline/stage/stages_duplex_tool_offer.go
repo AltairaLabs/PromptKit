@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,8 +29,10 @@ import (
 // hold is refused, and so is a call to a tool the session holds but the
 // conversation has withdrawn (a revoked grant). A tool excluded for one tool
 // turn after repeated rejections is not withdrawn: a call to it still runs.
-// A call to a tool the session never held during the tool turn (a registered
-// tool outside the offer) is refused by the tool runner (splitUnoffered).
+// A call to a registered tool the conversation does not offer at all (never
+// granted, or a grant revoked since the session was last updated) is refused
+// by the tool runner, after the blocklist and the tool hooks
+// (sessionEligible). A session that holds no tools is not gated.
 //
 // A spent max_tool_calls_per_turn budget does not change the offer: calls
 // over it are refused (overBudgetResults), and a session stripped of its
@@ -311,19 +312,6 @@ func recordOfferedLocked(turn *duplexToolTurn, names []string) {
 	}
 }
 
-// wasOffered reports whether turn offered the model name: the session holds
-// it, or held it at some point during the turn. A tool excluded for the turn
-// was held before it was excluded, so a call to it still runs, as on a text
-// turn.
-func (dt *duplexTools) wasOffered(turn *duplexToolTurn, name string) bool {
-	if slices.Contains(dt.offer.heldNames(), name) {
-		return true
-	}
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	return turn.offered[name]
-}
-
 // stampToolsOffered records on msg what turn offered the model: every tool
 // the session held during the turn, sorted. Nothing when it offered none.
 func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Message) {
@@ -353,16 +341,5 @@ func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Messag
 func (dt *duplexTools) splitUnsynced(
 	calls []types.MessageToolCall,
 ) (run []types.MessageToolCall, refused []types.Message) {
-	for _, tc := range calls {
-		errMsg, unsynced := dt.offer.unsyncedRefusal(tc.Name)
-		if !unsynced {
-			run = append(run, tc)
-			continue
-		}
-		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		refused = append(refused, types.NewToolResultMessage(result))
-	}
-	return run, refused
+	return splitRefused(calls, dt.offer.unsyncedRefusal)
 }

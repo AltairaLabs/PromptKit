@@ -15,7 +15,7 @@ import (
 )
 
 // turnRunner returns a tool runner over a registry holding a "danger" tool,
-// which the turn offers, under policy.
+// under policy.
 func turnRunner(t *testing.T, policy *pipeline.ToolPolicy) *toolRunner {
 	t.Helper()
 	registry := tools.NewRegistry()
@@ -25,11 +25,7 @@ func turnRunner(t *testing.T, policy *pipeline.ToolPolicy) *toolRunner {
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 		Mode:        "mock",
 	}))
-	return &toolRunner{
-		registry: registry,
-		policy:   func() *pipeline.ToolPolicy { return policy },
-		offered:  func(name string) bool { return name == "danger" },
-	}
+	return &toolRunner{registry: registry, policy: func() *pipeline.ToolPolicy { return policy }}
 }
 
 func dangerCall(id string) types.MessageToolCall {
@@ -94,27 +90,19 @@ func TestToolTurn_RunRound_PerTurnCallCapRefusesOverflow(t *testing.T) {
 	}, out)
 }
 
-// A call to a tool the turn did not offer is refused and counts for nothing
-// else: it takes no place under the call cap and does not fire
-// termination.tool_called.
-func TestToolTurn_RunRound_UnofferedCallRefused(t *testing.T) {
-	turn := turnRunner(t, &pipeline.ToolPolicy{
-		Blocklist:           []string{"danger"},
-		MaxToolCallsPerTurn: 1,
-		StopOnTool:          "ghost",
-	}).newTurn(nil, 10)
+// Without a registry, a round with calls fails the turn at once: there is
+// nothing to run the calls on.
+func TestToolTurn_RunRound_NilRegistryFailsTheTurn(t *testing.T) {
+	runner := &toolRunner{policy: func() *pipeline.ToolPolicy { return nil }}
 
-	out := turn.RunRound(context.Background(), []types.MessageToolCall{
-		{ID: "c1", Name: "ghost", Args: json.RawMessage(`{}`)}, dangerCall("c2"),
-	}, roundRef{round: 1})
+	out := runner.newTurn(nil, 10).RunRound(context.Background(), []types.MessageToolCall{dangerCall("c1")},
+		roundRef{round: 1})
 
-	assert.Equal(t, roundOutcome{
-		Results: []types.Message{
-			policyRefusal("c2", "danger", "Tool danger is blocked by policy"),
-			policyRefusal("c1", "ghost", "Tool ghost was not run: it is not available this turn"),
-		},
-		OfferExhausted: true,
-	}, out)
+	require.Error(t, out.Err)
+	assert.Equal(t, "provider stage: tool execution failed: tool registry not configured but tool calls present",
+		out.Err.Error())
+	assert.False(t, out.Stop)
+	assert.Empty(t, out.Results)
 }
 
 func TestToolTurn_RunRound_IdenticalCallBreaker(t *testing.T) {

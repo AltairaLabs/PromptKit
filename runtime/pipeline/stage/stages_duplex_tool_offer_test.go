@@ -217,15 +217,44 @@ func TestDuplexToolOffer_NeverOfferedToolIsRefusedUntilGranted(t *testing.T) {
 
 	const refusal = "Tool refund was not run: it is not available this turn"
 	assert.Equal(t, []providers.ToolResponse{
-		{ToolCallID: "c2", Result: "ok"},
 		{ToolCallID: "c1", Result: refusal, IsError: true},
-	}, sent[0])
+		{ToolCallID: "c2", Result: "ok"},
+	}, sent[0], "the results keep the calls' order")
 	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c4", Result: "ok"}}, sent[2])
 	assert.Equal(t, []string{"weather", "activate", "refund"}, exec.calls(), "refund runs only once granted")
 	results := toolResultMessages(elems)
 	require.Len(t, results, 4)
-	assert.Equal(t, refusal, results[1].Error)
-	assert.Equal(t, types.ToolErrorApproval, results[1].ErrorType)
+	assert.Equal(t, refusal, results[0].Error)
+	assert.Equal(t, types.ToolErrorApproval, results[0].ErrorType)
+}
+
+// A grant revoked mid-turn makes its tool ineligible from the next round on,
+// though the session has not been brought in line yet.
+func TestDuplexToolOffer_RevokedGrantIsRefusedFromTheNextRound(t *testing.T) {
+	exec := &grantingExec{grant: []string{"refund"}}
+	reg := registryWithTools(t, "weather", "activate", "refund")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		cfg:       DuplexToolConfig{ToolGrants: exec.grants},
+		turnState: &TurnState{AllowedTools: []string{"weather", "activate"}},
+		updatable: true,
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "activate")))
+	h.awaitSent(1)
+	h.emit(toolCallTurn(namedCall("c2", "refund")))
+	h.awaitSent(2)
+	exec.revoke()
+	h.emit(toolCallTurn(namedCall("c3", "refund")))
+	sent := h.awaitSent(3)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c2", Result: "ok"}}, sent[1])
+	assert.Equal(t, []providers.ToolResponse{{
+		ToolCallID: "c3", Result: "Tool refund was not run: it is not available this turn", IsError: true,
+	}}, sent[2])
+	assert.Equal(t, []string{"activate", "refund"}, exec.calls(), "the revoked tool does not run again")
 }
 
 // A tool the host declares on the session alone is offered: a call to it

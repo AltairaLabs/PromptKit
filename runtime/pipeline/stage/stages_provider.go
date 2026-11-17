@@ -412,8 +412,7 @@ func (s *ProviderStage) runner() *toolRunner {
 		}
 	}
 	cfg.CallRate = s.callRate
-	offers := s.offerState()
-	return &toolRunner{
+	r := &toolRunner{
 		registry:      s.toolRegistry,
 		policy:        s.policy,
 		emitter:       s.emitter,
@@ -421,9 +420,13 @@ func (s *ProviderStage) runner() *toolRunner {
 		turnState:     s.turnState,
 		cfg:           cfg,
 		stateResolver: s.stateResolver,
-		offers:        offers,
-		offered:       offers.has,
+		offers:        s.offerState(),
 	}
+	r.eligible = func(name string) (bool, bool) {
+		allowed, gated := r.offers.eligibility()
+		return gated && r.isEligible(allowed, name), gated
+	}
+	return r
 }
 
 // executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls).
@@ -557,7 +560,10 @@ type providerInput struct {
 	messages     []types.Message
 	systemPrompt string
 	allowedTools []string
-	metadata     map[string]interface{}
+	// eligibleTools is allowedTools before a ToolSelector narrowed it: what
+	// the model may call. Nil when no selector narrowed it.
+	eligibleTools []string
+	metadata      map[string]interface{}
 
 	// upstreamErrors are the error elements an upstream stage's failure put
 	// on the input (see isTurnFailureSignal). Any of them means the turn failed.
@@ -1167,7 +1173,8 @@ func (s *ProviderStage) applyStateHandoff(
 		return false, fmt.Errorf("provider stage: workflow handoff: rebuild tools: %w", err)
 	}
 	acc.systemPrompt = handoff.SystemPrompt
-	acc.allowedTools = handoff.AllowedTools
+	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
+	s.offerState().setAllowed(handoff.AllowedTools)
 	loop.providerTools = rebuilt
 	loop.invalidateReserve()
 	if providerChanged {
@@ -1370,6 +1377,7 @@ func (s *ProviderStage) applyToolSelector(ctx context.Context, acc *providerInpu
 		return
 	}
 	if narrowed := intersectInOrder(acc.allowedTools, ids); len(narrowed) > 0 {
+		acc.eligibleTools = acc.allowedTools
 		acc.allowedTools = narrowed
 	}
 }
@@ -1586,6 +1594,11 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	// The one place both multi-round paths pass through exactly once per turn,
 	// and therefore where the turn's offered set begins.
 	s.resetOffered()
+	eligible := acc.eligibleTools
+	if eligible == nil {
+		eligible = acc.allowedTools
+	}
+	s.offerState().setAllowed(eligible)
 	// Seeded with the cost already incurred in this conversation (prior
 	// turns), so MaxCostUSD bounds the whole RUN, not just this turn's loop.
 	// Arena builds a fresh pipeline (and toolLoop) per turn, so without this

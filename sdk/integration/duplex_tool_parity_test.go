@@ -510,8 +510,7 @@ func TestDuplexToolParity_HandlerErrorIsTheCallsResult(t *testing.T) {
 	assert.Equal(t, providers.ToolResponse{ToolCallID: "call_1", Result: "Tool execution failed: payments service unavailable", IsError: true}, got[0])
 }
 
-// A call for a tool nobody declared gives the model an error result: the tool
-// was not offered, so it is refused before the registry is asked for it.
+// A call for a tool nobody declared gives the model an error result.
 func TestDuplexToolParity_UnknownToolIsAnErrorResult(t *testing.T) {
 	conv, provider := openDuplexToolConv(t, duplexHITLPackJSON,
 		[]types.MessageToolCall{{ID: "call_1", Name: "nonexistent", Args: json.RawMessage(`{}`)}}, "ok")
@@ -519,9 +518,7 @@ func TestDuplexToolParity_UnknownToolIsAnErrorResult(t *testing.T) {
 	got := firstToolResponses(t, conv, provider, "do it")
 
 	require.Len(t, got, 1)
-	assert.Equal(t, providers.ToolResponse{
-		ToolCallID: "call_1", Result: "Tool nonexistent was not run: it is not available this turn", IsError: true,
-	}, got[0])
+	assert.Equal(t, providers.ToolResponse{ToolCallID: "call_1", Result: "Error: tool not found: nonexistent", IsError: true}, got[0])
 }
 
 // Two calls of a round both run, and the provider is answered for both in one

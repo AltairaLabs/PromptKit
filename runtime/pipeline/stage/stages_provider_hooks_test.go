@@ -1057,29 +1057,6 @@ func (p *toolCallingProvider) Predict(
 	}, nil
 }
 
-// BuildTooling makes toolCallingProvider a tool-calling provider, so the tools
-// a turn allows are offered to it.
-func (p *toolCallingProvider) BuildTooling(
-	descriptors []*providers.ToolDescriptor,
-) (providers.ProviderTools, error) {
-	return descriptors, nil
-}
-
-// PredictWithTools returns Predict's tool call, whatever tools it is offered.
-func (p *toolCallingProvider) PredictWithTools(
-	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
-) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	resp, err := p.Predict(ctx, req)
-	return resp, resp.ToolCalls, err
-}
-
-// PredictStreamWithTools is unused: the provider does not stream.
-func (p *toolCallingProvider) PredictStreamWithTools(
-	context.Context, providers.PredictionRequest, providers.ProviderTools, string,
-) (<-chan providers.StreamChunk, error) {
-	return nil, errors.New("toolCallingProvider does not stream")
-}
-
 func (p *toolCallingProvider) callCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

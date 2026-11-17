@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -75,12 +74,11 @@ func TestDuplexToolParity_UnofferedToolIsRefused(t *testing.T) {
 
 	got := firstToolResponses(t, conv, provider, "refund ORD-1")
 
-	require.Len(t, got, 3)
-	assert.ElementsMatch(t, []providers.ToolResponse{
+	assert.Equal(t, []providers.ToolResponse{
 		{ToolCallID: "c1", Result: "lookup_order ran"},
 		{ToolCallID: "c2", Result: "Tool refund was not run: it is not available this turn", IsError: true},
 		{ToolCallID: "c3", Result: "host_ping ran"},
-	}, got)
+	}, got, "the results keep the calls' order")
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Equal(t, map[string]int{"lookup_order": 1, "host_ping": 1}, ran, "the unoffered tool never runs")
