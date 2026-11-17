@@ -43,7 +43,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [func ReadMultimodalResponse\(resp \*http.Response, aggregateSize \*atomic.Int64, maxAggregateSize int64\) \(json.RawMessage, \[\]types.ContentPart, error\)](<#ReadMultimodalResponse>)
 - [func RedactFields\(data \[\]byte, fields \[\]string\) \[\]byte](<#RedactFields>)
 - [func ResolveMockParts\(parts \[\]types.ContentPart\) \(\[\]types.ContentPart, error\)](<#ResolveMockParts>)
-- [func TruncateResultText\(content string, maxSize int\) string](<#TruncateResultText>)
+- [func TruncateResultText\(toolName, content string, maxSize int\) string](<#TruncateResultText>)
 - [func WithCallID\(ctx context.Context, id string\) context.Context](<#WithCallID>)
 - [func WithMCPRegistry\(ctx context.Context, reg mcp.Registry\) context.Context](<#WithMCPRegistry>)
 - [type A2AAuthConfig](<#A2AAuthConfig>)
@@ -110,6 +110,9 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(e \*MockStaticExecutor\) Name\(\) string](<#MockStaticExecutor.Name>)
 - [type MockToolErrorConfig](<#MockToolErrorConfig>)
 - [type MockToolResponseConfig](<#MockToolResponseConfig>)
+- [type ModelResult](<#ModelResult>)
+  - [func BuildModelResult\(raw json.RawMessage, parts \[\]types.ContentPart, opts ModelResultOptions\) \(ModelResult, error\)](<#BuildModelResult>)
+- [type ModelResultOptions](<#ModelResultOptions>)
 - [type MultimodalConfig](<#MultimodalConfig>)
 - [type MultimodalExecutor](<#MultimodalExecutor>)
 - [type PendingToolExecution](<#PendingToolExecution>)
@@ -333,13 +336,13 @@ knownKeys must list every top\-level JSON key the executor's typed struct owns; 
 Returns an empty map \(not nil\) when args contains no extras, so callers can merge unconditionally without nil checks. Returns nil \+ nil when args is empty or "null" — both mean "no args at all".
 
 <a name="FormatResultText"></a>
-## func [FormatResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L15>)
+## func [FormatResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L20>)
 
 ```go
 func FormatResultText(raw json.RawMessage) string
 ```
 
-FormatResultText is a JSON tool result as the model is given it: a string unquoted, an object or array indented, any other value as written \(numbers keep their exact digits, null reads null\). Text that is not JSON is returned as it is.
+FormatResultText is a JSON tool result as the model is given it: a string unquoted, an object or array indented, any other value as written \(numbers keep their exact digits, null reads null\). The empty string reads "" \(two quote characters\): an empty text block is rejected by some providers. Text that is not JSON is returned as it is.
 
 <a name="IsBinaryContentType"></a>
 ## func [IsBinaryContentType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/http_multimodal.go#L32>)
@@ -434,13 +437,13 @@ func ResolveMockParts(parts []types.ContentPart) ([]types.ContentPart, error)
 ResolveMockParts processes a slice of ContentPart, resolving any file\_path references in MediaContent to base64\-encoded data. URL references and already\-encoded data are passed through unchanged.
 
 <a name="TruncateResultText"></a>
-## func [TruncateResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L40>)
+## func [TruncateResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L49>)
 
 ```go
-func TruncateResultText(content string, maxSize int) string
+func TruncateResultText(toolName, content string, maxSize int) string
 ```
 
-TruncateResultText cuts content to maxSize bytes and appends a note saying so when it is longer. A maxSize of zero or less leaves content as it is.
+TruncateResultText cuts content to at most maxSize bytes, never inside a character, and appends a note saying so when it is longer, logging the cut under toolName. A maxSize of zero or less leaves content as it is.
 
 <a name="WithCallID"></a>
 ## func [WithCallID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/context.go#L12>)
@@ -1192,6 +1195,50 @@ type MockToolResponseConfig struct {
     CallArgs map[string]any       `yaml:"call_args"`
     Result   any                  `yaml:"result,omitempty"`
     Error    *MockToolErrorConfig `yaml:"error,omitempty"`
+}
+```
+
+<a name="ModelResult"></a>
+## type [ModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L80-L86>)
+
+ModelResult is a completed tool result as the model is given it.
+
+```go
+type ModelResult struct {
+    // Text is the result's text: the formatted JSON, or the joined text parts.
+    Text string
+    // Parts holds a multimodal result's parts (text and media, in order); nil
+    // for a text-only result.
+    Parts []types.ContentPart
+}
+```
+
+<a name="BuildModelResult"></a>
+### func [BuildModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L93-L95>)
+
+```go
+func BuildModelResult(raw json.RawMessage, parts []types.ContentPart, opts ModelResultOptions) (ModelResult, error)
+```
+
+BuildModelResult prepares a completed tool result for the model: the one place a result's formatting, rewriting and size limit are applied, for a call the pipeline ran and for one a caller resolved. A result with parts is its parts, each text part rewritten and capped and media parts kept in place; otherwise it is raw formatted as text. The error is Rewrite's.
+
+<a name="ModelResultOptions"></a>
+## type [ModelResultOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L66-L77>)
+
+ModelResultOptions says how a completed tool result is prepared for the model.
+
+```go
+type ModelResultOptions struct {
+    // ToolName names the tool in the truncation log.
+    ToolName string
+    // MaxSize is the size limit in bytes for each text; zero or less is no limit
+    // (the registry's MaxToolResultSize).
+    MaxSize int
+    // KeepJSON gives a JSON result as written instead of formatting it, for a
+    // result that is also stored or sent to a consumer as the client sent it.
+    KeepJSON bool
+    // Rewrite, when set, rewrites each text before the size limit applies.
+    Rewrite func(string) (string, error)
 }
 ```
 

@@ -531,32 +531,20 @@ func (r *toolRunner) buildToolResult(
 		return failResult, nil
 
 	case tools.ToolStatusComplete:
-		// Tool completed successfully
-		content := tools.FormatResultText(asyncResult.Content)
-
-		// If the executor returned multimodal parts, propagate them directly;
-		// otherwise wrap the text content as a single text ContentPart (legacy path).
-		if len(asyncResult.Parts) > 0 {
-			parts, err := r.rewriteTextParts(call.Name, asyncResult.Parts, rewrite)
-			if err != nil {
-				return types.MessageToolResult{}, err
-			}
-			return types.MessageToolResult{
-				ID:    call.ID,
-				Name:  call.Name,
-				Parts: parts,
-			}, nil
+		// The model is given the result as BuildModelResult prepares it: formatted,
+		// rewritten, capped, and its multimodal parts kept.
+		result, err := tools.BuildModelResult(asyncResult.Content, asyncResult.Parts, tools.ModelResultOptions{
+			ToolName: call.Name,
+			MaxSize:  r.maxResultSize(),
+			Rewrite:  rewrite,
+		})
+		if err != nil {
+			return types.MessageToolResult{}, err
 		}
-
-		if rewrite != nil {
-			var err error
-			if content, err = rewrite(content); err != nil {
-				return types.MessageToolResult{}, err
-			}
+		if len(result.Parts) > 0 {
+			return types.MessageToolResult{ID: call.ID, Name: call.Name, Parts: result.Parts}, nil
 		}
-		// Enforce tool result size limit
-		content = r.enforceResultSizeLimit(call.Name, content)
-		return types.NewTextToolResult(call.ID, call.Name, content), nil
+		return types.NewTextToolResult(call.ID, call.Name, result.Text), nil
 
 	default:
 		unknownMsg := fmt.Sprintf("Unknown tool status: %v", asyncResult.Status)
@@ -566,50 +554,13 @@ func (r *toolRunner) buildToolResult(
 	}
 }
 
-// rewriteTextParts rewrites each text part of a multimodal result, capped
-// at the size limit, and keeps the media parts in place. Without rewrite the
-// parts are returned as they are.
-func (r *toolRunner) rewriteTextParts(
-	name string, parts []types.ContentPart, rewrite func(string) (string, error),
-) ([]types.ContentPart, error) {
-	if rewrite == nil {
-		return parts, nil
-	}
-	out := make([]types.ContentPart, len(parts))
-	for i, p := range parts {
-		if p.Type != types.ContentTypeText || p.Text == nil {
-			out[i] = p
-			continue
-		}
-		text, err := rewrite(*p.Text)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = types.NewTextPart(r.enforceResultSizeLimit(name, text))
-	}
-	return out, nil
-}
-
-// enforceResultSizeLimit truncates the tool result content if it exceeds the
-// configured maximum size from the tool registry.
-func (r *toolRunner) enforceResultSizeLimit(toolName, content string) string {
+// maxResultSize is the registry's tool result size limit in bytes, zero for
+// none.
+func (r *toolRunner) maxResultSize() int {
 	if r.registry == nil {
-		return content
+		return 0
 	}
-	maxSize := r.registry.MaxToolResultSize()
-	if maxSize <= 0 {
-		return content
-	}
-	size := len(content)
-	if size <= maxSize {
-		return content
-	}
-	logger.Warn("Tool result truncated",
-		"tool", toolName,
-		"size", size,
-		"limit", maxSize,
-	)
-	return tools.TruncateResultText(content, maxSize)
+	return r.registry.MaxToolResultSize()
 }
 
 // isToolBlocked checks if a tool is in the blocklist

@@ -6,12 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // FormatResultText is a JSON tool result as the model is given it: a string
 // unquoted, an object or array indented, any other value as written (numbers
-// keep their exact digits, null reads null). Text that is not JSON is returned
-// as it is.
+// keep their exact digits, null reads null). The empty string reads "" (two
+// quote characters): an empty text block is rejected by some providers. Text
+// that is not JSON is returned as it is.
 func FormatResultText(raw json.RawMessage) string {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -26,6 +31,9 @@ func FormatResultText(raw json.RawMessage) string {
 	case nil:
 		return "null"
 	case string:
+		if v == "" {
+			return `""`
+		}
 		return v
 	case map[string]any, []any:
 		if indented, err := json.MarshalIndent(v, "", "  "); err == nil {
@@ -35,14 +43,85 @@ func FormatResultText(raw json.RawMessage) string {
 	return fmt.Sprint(value)
 }
 
-// TruncateResultText cuts content to maxSize bytes and appends a note saying so
-// when it is longer. A maxSize of zero or less leaves content as it is.
-func TruncateResultText(content string, maxSize int) string {
-	if maxSize <= 0 || len(content) <= maxSize {
+// TruncateResultText cuts content to at most maxSize bytes, never inside a
+// character, and appends a note saying so when it is longer, logging the cut
+// under toolName. A maxSize of zero or less leaves content as it is.
+func TruncateResultText(toolName, content string, maxSize int) string {
+	size := len(content)
+	if maxSize <= 0 || size <= maxSize {
 		return content
+	}
+	logger.Warn("Tool result truncated", "tool", toolName, "size", size, "limit", maxSize)
+	cut := maxSize
+	for cut > 0 && !utf8.RuneStart(content[cut]) {
+		cut--
 	}
 	return fmt.Sprintf(
 		"%s\n... [truncated, %d bytes exceeded limit of %d bytes]",
-		content[:maxSize], len(content), maxSize,
+		content[:cut], size, maxSize,
 	)
+}
+
+// ModelResultOptions says how a completed tool result is prepared for the model.
+type ModelResultOptions struct {
+	// ToolName names the tool in the truncation log.
+	ToolName string
+	// MaxSize is the size limit in bytes for each text; zero or less is no limit
+	// (the registry's MaxToolResultSize).
+	MaxSize int
+	// KeepJSON gives a JSON result as written instead of formatting it, for a
+	// result that is also stored or sent to a consumer as the client sent it.
+	KeepJSON bool
+	// Rewrite, when set, rewrites each text before the size limit applies.
+	Rewrite func(string) (string, error)
+}
+
+// ModelResult is a completed tool result as the model is given it.
+type ModelResult struct {
+	// Text is the result's text: the formatted JSON, or the joined text parts.
+	Text string
+	// Parts holds a multimodal result's parts (text and media, in order); nil
+	// for a text-only result.
+	Parts []types.ContentPart
+}
+
+// BuildModelResult prepares a completed tool result for the model: the one
+// place a result's formatting, rewriting and size limit are applied, for a call
+// the pipeline ran and for one a caller resolved. A result with parts is its
+// parts, each text part rewritten and capped and media parts kept in place;
+// otherwise it is raw formatted as text. The error is Rewrite's.
+func BuildModelResult(
+	raw json.RawMessage, parts []types.ContentPart, opts ModelResultOptions,
+) (ModelResult, error) {
+	prepare := func(text string) (string, error) {
+		if opts.Rewrite != nil {
+			var err error
+			if text, err = opts.Rewrite(text); err != nil {
+				return "", err
+			}
+		}
+		return TruncateResultText(opts.ToolName, text, opts.MaxSize), nil
+	}
+	if len(parts) == 0 {
+		text := string(raw)
+		if !opts.KeepJSON {
+			text = FormatResultText(raw)
+		}
+		text, err := prepare(text)
+		return ModelResult{Text: text}, err
+	}
+	out := make([]types.ContentPart, len(parts))
+	for i, p := range parts {
+		if p.Type != types.ContentTypeText || p.Text == nil {
+			out[i] = p
+			continue
+		}
+		text, err := prepare(*p.Text)
+		if err != nil {
+			return ModelResult{}, err
+		}
+		out[i] = types.NewTextPart(text)
+	}
+	joined := types.MessageToolResult{Parts: out}
+	return ModelResult{Text: joined.GetTextContent(), Parts: out}, nil
 }

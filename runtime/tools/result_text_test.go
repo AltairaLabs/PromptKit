@@ -2,9 +2,12 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // The model is given a JSON tool result as text, with every value exact.
@@ -24,6 +27,7 @@ func TestFormatResultText(t *testing.T) {
 			`{"id":9007199254740993}`, "{\n  \"id\": 9007199254740993\n}"},
 		{"fraction", `1.5`, "1.5"},
 		{"boolean", `true`, "true"},
+		{"empty string renders as two quotes", `""`, `""`},
 		{"null renders as null", `null`, "null"},
 		{"null inside an object", `{"a":null}`, "{\n  \"a\": null\n}"},
 		{"text that is not JSON passes through", `plain text`, "plain text"},
@@ -36,10 +40,55 @@ func TestFormatResultText(t *testing.T) {
 	}
 }
 
-// A result over the limit is cut at it and says so; one within it, or with no
-// limit, is untouched.
+// A result over the limit is cut at it, never inside a character, and says so;
+// one within it, or with no limit, is untouched.
 func TestTruncateResultText(t *testing.T) {
-	assert.Equal(t, "abcdef", TruncateResultText("abcdef", 0))
-	assert.Equal(t, "abcdef", TruncateResultText("abcdef", 6))
-	assert.Equal(t, "abc\n... [truncated, 6 bytes exceeded limit of 3 bytes]", TruncateResultText("abcdef", 3))
+	assert.Equal(t, "abcdef", TruncateResultText("t", "abcdef", 0))
+	assert.Equal(t, "abcdef", TruncateResultText("t", "abcdef", 6))
+	assert.Equal(t, "abc\n... [truncated, 6 bytes exceeded limit of 3 bytes]", TruncateResultText("t", "abcdef", 3))
+	// Each CJK character and the emoji is more than one byte.
+	assert.Equal(t, "日\n... [truncated, 9 bytes exceeded limit of 4 bytes]", TruncateResultText("t", "日本語", 4))
+	assert.Equal(t, "日本\n... [truncated, 9 bytes exceeded limit of 7 bytes]", TruncateResultText("t", "日本語", 7))
+	assert.Equal(t, "a\n... [truncated, 5 bytes exceeded limit of 3 bytes]", TruncateResultText("t", "a😀", 3))
+}
+
+func TestBuildModelResult(t *testing.T) {
+	image := types.NewImagePartFromData("aGk=", "image/png", nil)
+
+	t.Run("raw JSON is formatted then capped", func(t *testing.T) {
+		got, err := BuildModelResult(json.RawMessage(`"abcdefghij"`), nil, ModelResultOptions{MaxSize: 4})
+		assert.NoError(t, err)
+		assert.Equal(t, ModelResult{Text: "abcd\n... [truncated, 10 bytes exceeded limit of 4 bytes]"}, got)
+	})
+	t.Run("KeepJSON leaves the JSON as written", func(t *testing.T) {
+		got, _ := BuildModelResult(json.RawMessage(`{"a":1}`), nil, ModelResultOptions{KeepJSON: true})
+		assert.Equal(t, `{"a":1}`, got.Text)
+	})
+	t.Run("parts keep media and cap each text part", func(t *testing.T) {
+		got, err := BuildModelResult(nil, []types.ContentPart{types.NewTextPart("abcdef"), image},
+			ModelResultOptions{MaxSize: 3})
+		assert.NoError(t, err)
+		assert.Equal(t, "abc\n... [truncated, 6 bytes exceeded limit of 3 bytes]", got.Text)
+		assert.Equal(t, got.Text, *got.Parts[0].Text)
+		assert.Equal(t, image, got.Parts[1])
+	})
+	t.Run("a text part with no text is kept as it is", func(t *testing.T) {
+		empty := types.ContentPart{Type: types.ContentTypeText}
+		got, err := BuildModelResult(nil, []types.ContentPart{empty}, ModelResultOptions{MaxSize: 3})
+		assert.NoError(t, err)
+		assert.Equal(t, []types.ContentPart{empty}, got.Parts)
+	})
+	t.Run("a rewrite applies before the cap, to text and to text parts", func(t *testing.T) {
+		upper := func(s string) (string, error) { return s + "!", nil }
+		got, _ := BuildModelResult(json.RawMessage(`"abc"`), nil, ModelResultOptions{Rewrite: upper})
+		assert.Equal(t, "abc!", got.Text)
+		got, _ = BuildModelResult(nil, []types.ContentPart{types.NewTextPart("x"), image}, ModelResultOptions{Rewrite: upper})
+		assert.Equal(t, "x!", got.Text)
+	})
+	t.Run("a rewrite error is returned", func(t *testing.T) {
+		boom := errors.New("boom")
+		_, err := BuildModelResult(json.RawMessage(`"a"`), nil,
+			ModelResultOptions{Rewrite: func(string) (string, error) { return "", boom }})
+		assert.ErrorIs(t, err, boom)
+	})
 }

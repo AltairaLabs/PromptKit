@@ -609,27 +609,28 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	// Build tool result messages from resolutions
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
+		name := callNames()[res.ID]
 		var content string
 		var errStr string
 		var parts []types.ContentPart
-		if res.Rejected {
+		switch {
+		case res.Rejected:
 			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
 			errStr = "rejected by user"
-		} else if res.Error != nil {
+		case res.Error != nil:
 			errStr = toolResultErrorText(res.Error)
 			content = "Tool error: " + errStr
-		} else if len(res.Parts) > 0 {
-			parts = res.Parts
-		} else {
-			content = c.approvedResultText(res)
+		default:
+			given := c.modelResult(name, res, false)
+			content, parts = given.Text, given.Parts
 		}
 
 		// The result names the tool it answers, as an in-turn result does: a
 		// provider can match a result to its call by name (Gemini's
 		// functionResponse carries only the name).
-		toolResult := types.NewTextToolResult(res.ID, callNames()[res.ID], content)
+		toolResult := types.NewTextToolResult(res.ID, name, content)
 		if parts != nil {
-			toolResult = types.MessageToolResult{ID: res.ID, Name: callNames()[res.ID], Parts: parts}
+			toolResult = types.MessageToolResult{ID: res.ID, Name: name, Parts: parts}
 		}
 		toolResult.Error = errStr
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
@@ -680,11 +681,13 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	if len(resolutions) == 0 {
 		return fmt.Errorf("no resolved tools to continue with")
 	}
-	c.admitDeferredResults(resolutions, c.lazyCallNames(ctx))
+	names := c.lazyCallNames(ctx)
+	c.admitDeferredResults(resolutions, names)
 
 	responses := make([]providers.ToolResponse, 0, len(resolutions))
 	for _, res := range resolutions {
 		var result string
+		var parts []types.ContentPart
 		var isError bool
 		switch {
 		case res.Rejected:
@@ -694,11 +697,13 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
 		default:
-			result = c.approvedResultText(res)
+			given := c.modelResult(names()[res.ID], res, false)
+			result, parts = given.Text, given.Parts
 		}
 		responses = append(responses, providers.ToolResponse{
 			ToolCallID: res.ID,
 			Result:     result,
+			Parts:      parts,
 			IsError:    isError,
 		})
 	}
@@ -706,18 +711,25 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	return c.duplexSession.SubmitToolResults(ctx, responses)
 }
 
-// approvedResultText is an approved call's result as the model is given the
-// result of a call the pipeline runs: formatted as the provider stage formats
-// it (tools.FormatResultText) and cut at the registry's size limit.
-func (c *Conversation) approvedResultText(res *sdktools.ToolResolution) string {
-	if res.ResultJSON == nil {
-		return fmt.Sprintf("%v", res.Result)
+// modelResult is an approved or answered call's result as the model is given
+// the result of a call the pipeline runs (tools.BuildModelResult): formatted,
+// and capped at the registry's size limit, its parts kept. keepJSON gives JSON
+// as the caller sent it. Rewriting is not applied here (#2723).
+func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution, keepJSON bool) tools.ModelResult {
+	raw := res.ResultJSON
+	if raw == nil && len(res.Parts) == 0 {
+		if marshaled, err := json.Marshal(res.Result); err == nil {
+			raw = marshaled
+		} else {
+			raw = json.RawMessage(fmt.Sprintf("%v", res.Result))
+		}
 	}
-	text := tools.FormatResultText(res.ResultJSON)
-	if c.toolRegistry == nil {
-		return text
+	opts := tools.ModelResultOptions{ToolName: name, KeepJSON: keepJSON}
+	if c.toolRegistry != nil {
+		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
 	}
-	return tools.TruncateResultText(text, c.toolRegistry.MaxToolResultSize())
+	given, _ := tools.BuildModelResult(raw, res.Parts, opts) // no rewrite: no error
+	return given
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this

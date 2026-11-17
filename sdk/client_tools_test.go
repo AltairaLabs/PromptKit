@@ -482,7 +482,7 @@ func TestResume_BuildsToolMessages(t *testing.T) {
 			resolve: func(conv *Conversation, callID string) error {
 				return conv.SendToolResult(context.Background(), callID, map[string]any{"city": "Paris"})
 			},
-			wantContent: "{\n  \"city\": \"Paris\"\n}",
+			wantContent: `{"city":"Paris"}`,
 		},
 		{
 			name: "rejection carries the client's reason",
