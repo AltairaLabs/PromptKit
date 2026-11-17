@@ -235,8 +235,8 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 	})
 
 	// A pipeline that runs the calls (PipelineRunsTools): the turn is neither
-	// run here nor forwarded, and the call's name is kept for a result
-	// submitted by ID alone.
+	// run here nor forwarded. A call the pipeline answers is not kept; one it
+	// holds is, with its arguments, for a result submitted by ID alone.
 	t.Run("pipeline runs tools: the turn is not run or forwarded", func(t *testing.T) {
 		s := makeSession(t, tools.NewRegistry())
 		s.pipelineRunsTools = true
@@ -258,6 +258,12 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 			t.Fatalf("unexpected chunk on streamOutput: %+v", chunk)
 		default:
 		}
+		_, kept := s.ToolCall("c1")
+		assert.False(t, kept, "a call the pipeline answers is not kept")
+		s.holdCalls([]tools.PendingToolExecution{{CallID: "c1", ToolName: "sync_tool"}})
+		got, kept := s.ToolCall("c1")
+		require.True(t, kept)
+		assert.Equal(t, types.MessageToolCall{ID: "c1", Name: "sync_tool", Args: json.RawMessage(`{}`)}, got)
 		assert.Equal(t, "sync_tool", s.takeCallName("c1"))
 	})
 }

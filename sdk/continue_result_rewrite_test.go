@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,66 +80,85 @@ func TestContinue_RewritesAClientToolResult(t *testing.T) {
 }
 
 // failedEvents records the tool.call.failed events published on bus.
-func failedEvents(bus *events.EventBus) func() []events.ToolCallEventData {
+func failedEvents(bus *events.EventBus) func() []events.Event {
 	var mu sync.Mutex
-	var got []events.ToolCallEventData
+	var got []events.Event
 	bus.Subscribe(events.EventToolCallFailed, func(e *events.Event) {
-		if d, ok := e.Data.(*events.ToolCallEventData); ok {
-			mu.Lock()
-			got = append(got, *d)
-			mu.Unlock()
-		}
+		mu.Lock()
+		got = append(got, *e)
+		mu.Unlock()
 	})
-	return func() []events.ToolCallEventData {
+	return func() []events.Event {
 		mu.Lock()
 		defer mu.Unlock()
-		return append([]events.ToolCallEventData(nil), got...)
+		return append([]events.Event(nil), got...)
 	}
 }
 
 // A rewriter's error takes the place of the result exactly as on a call the
 // stage ran: the same text, error and error type, and a tool.call.failed
-// event. The model never sees the raw result.
+// event with the same session, conversation and user. The model never sees
+// the raw result.
 func TestContinue_RewriterErrorMatchesTheStage(t *testing.T) {
 	const errText = "rewriting the send_message result: redactor offline"
-
-	stageBus := events.NewEventBus()
-	stageFailed := failedEvents(stageBus)
-	ran, provider := openSettlementConv(t, 1, []string{"Done."},
-		WithToolHook(&wrappingRewriter{err: errors.New("redactor offline")}), WithEventBus(stageBus))
-	ran.OnToolAsync("send_message",
-		func(map[string]any) sdktools.PendingResult { return sdktools.PendingResult{} },
-		func(map[string]any) (any, error) { return "secret", nil })
-	_, err := ran.Send(context.Background(), "message the customer")
-	require.NoError(t, err)
-	var viaStage *types.MessageToolResult
+	bus := events.NewEventBus()
+	failed := failedEvents(bus)
+	conv, provider := openSettlementConv(t, 1, []string{"Done.", "Sending.", "Done again."},
+		WithToolHook(&wrappingRewriter{err: errors.New("redactor offline")}), WithEventBus(bus),
+		WithConversationID("conv-42"), WithUserID("user-7"))
 	provider.mu.Lock()
-	for _, m := range provider.seen[1] {
+	// The second turn calls send_message again, and the call is held.
+	provider.rounds[2].ToolCalls = []types.MessageToolCall{{ID: "call-2", Name: "send_message", Args: []byte(`{"body":"2"}`)}}
+	provider.mu.Unlock()
+	var hold atomic.Bool
+	conv.OnToolAsync("send_message",
+		func(map[string]any) sdktools.PendingResult {
+			if hold.Load() {
+				return sdktools.PendingResult{Reason: "requires_approval"}
+			}
+			return sdktools.PendingResult{}
+		},
+		func(map[string]any) (any, error) { return "secret", nil })
+	ctx := context.Background()
+
+	_, err := conv.Send(ctx, "message the customer")
+	require.NoError(t, err)
+	hold.Store(true)
+	resp, err := conv.Send(ctx, "and again")
+	require.NoError(t, err)
+	require.Len(t, resp.PendingTools(), 1)
+	_, err = conv.ResolveTool(ctx, "call-2")
+	require.NoError(t, err)
+	_, err = conv.Continue(ctx)
+	require.NoError(t, err)
+
+	provider.mu.Lock()
+	results := map[string]types.MessageToolResult{}
+	for _, m := range provider.seen[len(provider.seen)-1] {
 		if m.ToolResult != nil {
-			viaStage = m.ToolResult
+			results[m.ToolResult.ID] = *m.ToolResult
 		}
 	}
 	provider.mu.Unlock()
-	require.NotNil(t, viaStage)
+	viaStage, viaContinue := results["call-1"], results["call-2"]
+	assert.Equal(t, "Error: "+errText, viaContinue.GetTextContent())
+	assert.Equal(t, errText, viaContinue.Error)
+	assert.Equal(t, types.ToolErrorExecution, viaContinue.ErrorType)
+	viaStage.ID, viaStage.Name = viaContinue.ID, viaContinue.Name
+	assert.Equal(t, viaStage, viaContinue)
 
-	continueBus := events.NewEventBus()
-	continueFailed := failedEvents(continueBus)
-	got := heldCallContinued(t, "secret", approve,
-		WithToolHook(&wrappingRewriter{err: errors.New("redactor offline")}), WithEventBus(continueBus))
-
-	assert.Equal(t, "Error: "+errText, got.GetTextContent())
-	assert.Equal(t, errText, got.Error)
-	assert.Equal(t, types.ToolErrorExecution, got.ErrorType)
-	assert.Equal(t, *viaStage, *got)
-
-	require.Eventually(t, func() bool { return len(continueFailed()) == 1 && len(stageFailed()) == 1 },
-		2*time.Second, 5*time.Millisecond)
-	ev := continueFailed()[0]
-	assert.Equal(t, "send_message", ev.ToolName)
-	assert.Equal(t, "call-1", ev.CallID)
-	require.Error(t, ev.Error)
-	assert.Equal(t, errText, ev.Error.Error())
-	assert.Equal(t, stageFailed()[0].Error.Error(), ev.Error.Error())
+	require.Eventually(t, func() bool { return len(failed()) == 2 }, 2*time.Second, 5*time.Millisecond)
+	stageEv, continueEv := failed()[0], failed()[1]
+	for _, ev := range []events.Event{stageEv, continueEv} {
+		assert.Equal(t, "conv-42", ev.ConversationID)
+		assert.Equal(t, "conv-42", ev.SessionID)
+		assert.Equal(t, "user-7", ev.UserID)
+	}
+	data := continueEv.Data.(*events.ToolCallEventData)
+	assert.Equal(t, "send_message", data.ToolName)
+	assert.Equal(t, "call-2", data.CallID)
+	require.Error(t, data.Error)
+	assert.Equal(t, errText, data.Error.Error())
 }
 
 // A call approved with edits is rewritten with the arguments it ran with.

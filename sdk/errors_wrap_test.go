@@ -103,8 +103,7 @@ func TestResolveTool_HandlerFailureIsToolError(t *testing.T) {
 	assert.Equal(t, "process_refund", tErr.ToolName)
 	assert.ErrorIs(t, resolution.Error, cause)
 	assert.Equal(t, "refund API down", toolResultErrorText(resolution.Error))
-	noCalls := func() map[string]types.MessageToolCall { return nil }
-	failed := conv.failedClientAnswer(context.Background(), noCalls, resolution)
+	failed := conv.failedClientAnswer(context.Background(), types.MessageToolCall{ID: "call-1"}, false, resolution)
 	assert.Equal(t, "Tool error: refund API down", failed.GetTextContent())
 }
 

@@ -310,7 +310,7 @@ func (c *Conversation) SendToolResult(ctx context.Context, callID string, result
 	if err != nil {
 		return fmt.Errorf(errSerializeClientToolResult, err)
 	}
-	c.addAnswer(&sdktools.ToolResolution{
+	c.resolvedStore.Add(&sdktools.ToolResolution{
 		ID:         callID,
 		ResultJSON: resultJSON,
 	})
@@ -339,7 +339,7 @@ func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID stri
 	if len(parts) == 0 {
 		return fmt.Errorf("parts must not be empty")
 	}
-	c.addAnswer(&sdktools.ToolResolution{
+	c.resolvedStore.Add(&sdktools.ToolResolution{
 		ID:    callID,
 		Parts: parts,
 	})
@@ -357,7 +357,7 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 	if closed {
 		return
 	}
-	c.addAnswer(&sdktools.ToolResolution{
+	c.resolvedStore.Add(&sdktools.ToolResolution{
 		ID:              callID,
 		Rejected:        true,
 		RejectionReason: reason,
@@ -378,8 +378,7 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 // and not truncated: the stored result is also what an AG-UI consumer is shown
 // as TOOL_CALL_RESULT when the history is replayed. It is passed through the
 // conversation's hooks.ToolResultRewriter hooks (a failed tool's partial
-// output too), so what is stored, and replayed, is the rewritten text;
-// [Conversation.ToolResultForModel] tells it before Resume runs. This differs from [Conversation.Continue] and
+// output too), so what is stored, and replayed, is the rewritten text. This differs from [Conversation.Continue] and
 // [Conversation.ContinueDuplex], which give the model an approved or answered
 // result as a tool the pipeline ran would, formatted, rewritten and capped.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
@@ -877,7 +876,7 @@ func (c *Conversation) FailClientTool(ctx context.Context, callID string, partia
 		}
 		res.ResultJSON = data
 	}
-	c.addAnswer(res)
+	c.resolvedStore.Add(res)
 	return nil
 }
 

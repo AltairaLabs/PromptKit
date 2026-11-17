@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/convinfo"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
@@ -19,6 +19,19 @@ import (
 // prepares the result of a call it runs: rewritten by the conversation's
 // ToolResultRewriter hooks with the stage's request, and, where that fails,
 // answered with the stage's error result and a tool.call.failed event.
+
+// convinfoRegistered makes package convinfo answer for conversations, as the
+// package loads.
+var _ = registerConvinfo()
+
+// registerConvinfo tells package convinfo how to read a conversation.
+func registerConvinfo() bool {
+	convinfo.RewritesToolResults = func(conv any) bool {
+		c, ok := conv.(*Conversation)
+		return ok && c.hookRegistry.HasToolResultRewriters()
+	}
+	return true
+}
 
 // toolResultMessageSubmitter is a duplex session that records the given
 // result messages in the history, in place of ones built from the responses.
@@ -66,23 +79,24 @@ func (c *Conversation) continuedResult(
 // answer res: the rejection, the failure (with the partial output the tool
 // produced, rewritten), or what the client sent, unformatted and not
 // truncated (it is also the AG-UI TOOL_CALL_RESULT), passed through the
-// conversation's ToolResultRewriter hooks. It names the tool the suspended
-// turn called under the answer's ID.
+// conversation's ToolResultRewriter hooks. It names the tool of the call the
+// answer settles (callFor).
 func (c *Conversation) resumeResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
+	call, known := c.callFor(calls, res)
 	var result types.MessageToolResult
 	switch {
 	case res.Rejected:
-		result = types.NewTextToolResult(res.ID, "", c.rejectionText(calls()[res.ID].Name, res.RejectionReason))
+		result = types.NewTextToolResult(res.ID, "", c.rejectionText(call.Name, res.RejectionReason))
 	case res.Error != nil:
-		result = c.failedClientAnswer(ctx, calls, res)
+		result = c.failedClientAnswer(ctx, call, known, res)
 	default:
-		result = c.clientAnswer(ctx, calls, res)
+		result = c.clientAnswer(ctx, call, known, res)
 	}
 	// A provider matches a result to its call by the tool's name as well as
 	// the call ID (Gemini's functionResponse carries only the name).
-	result.Name = calls()[res.ID].Name
+	result.Name = call.Name
 	return result
 }
 
@@ -90,12 +104,11 @@ func (c *Conversation) resumeResult(
 // that failed: its partial output, rewritten, when it produced one, then the
 // error.
 func (c *Conversation) failedClientAnswer(
-	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
+	ctx context.Context, call types.MessageToolCall, known bool, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
 	errText := toolResultErrorText(res.Error)
 	content := "Tool error: " + errText
 	if len(res.ResultJSON) > 0 {
-		call, known := c.callFor(calls, res)
 		partial, _, err := c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), nil)
 		if err != nil {
 			return c.settledFailure(ctx, call, err)
@@ -109,9 +122,8 @@ func (c *Conversation) failedClientAnswer(
 
 // clientAnswer is the result Resume gives the model for what a client sent.
 func (c *Conversation) clientAnswer(
-	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
+	ctx context.Context, call types.MessageToolCall, known bool, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
-	call, known := c.callFor(calls, res)
 	text, parts, err := c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), res.Parts)
 	if err != nil {
 		return c.settledFailure(ctx, call, err)
@@ -123,60 +135,22 @@ func (c *Conversation) clientAnswer(
 }
 
 // rewriteAnswer passes a client's answer to call, its text or (when given)
-// its parts, through the conversation's ToolResultRewriter hooks. The
-// outcome for the same answer is kept until the answer is used, so the
-// hooks see an answer once however often it is prepared
-// (ToolResultForModel, then Resume).
+// its parts, through the conversation's ToolResultRewriter hooks.
 func (c *Conversation) rewriteAnswer(
 	ctx context.Context, call types.MessageToolCall, known bool, text string, parts []types.ContentPart,
 ) (string, []types.ContentPart, error) {
-	if kept, ok := c.keptRewrite(call.ID, text, parts); ok {
-		return kept.outText, kept.outParts, kept.err
-	}
-	out := answerRewrite{inText: text, inParts: parts, outText: text, outParts: parts}
 	rewrite, err := c.rewriterFor(ctx, call, known)
 	switch {
 	case err != nil:
-		out.err = err
+		return "", nil, err
 	case rewrite == nil:
+		return text, parts, nil
 	case len(parts) > 0:
-		out.outParts, out.err = rewriteTextParts(parts, rewrite)
-	default:
-		out.outText, out.err = rewrite(text)
+		parts, err = rewriteTextParts(parts, rewrite)
+		return text, parts, err
 	}
-	c.keepRewrite(call.ID, out)
-	return out.outText, out.outParts, out.err
-}
-
-// answerRewrite is the outcome of rewriting a client's answer.
-type answerRewrite struct {
-	inText   string
-	inParts  []types.ContentPart
-	outText  string
-	outParts []types.ContentPart
-	err      error
-}
-
-// keptRewrite returns the outcome kept for the answer to call id, when it was
-// for the same answer.
-func (c *Conversation) keptRewrite(id, text string, parts []types.ContentPart) (answerRewrite, bool) {
-	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
-	kept, ok := c.rewrites[id]
-	if !ok || kept.inText != text || !reflect.DeepEqual(kept.inParts, parts) {
-		return answerRewrite{}, false
-	}
-	return kept, true
-}
-
-// keepRewrite keeps the outcome of rewriting the answer to call id.
-func (c *Conversation) keepRewrite(id string, out answerRewrite) {
-	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
-	if c.rewrites == nil {
-		c.rewrites = make(map[string]answerRewrite)
-	}
-	c.rewrites[id] = out
+	text, err = rewrite(text)
+	return text, parts, err
 }
 
 // rewriteTextParts passes each text part of parts through rewrite, keeping
@@ -201,66 +175,22 @@ func rewriteTextParts(parts []types.ContentPart, rewrite func(string) (string, e
 	return out, nil
 }
 
-// RewritesToolResults reports whether the conversation has a tool hook that
-// rewrites tool results (hooks.ToolResultRewriter, see [WithToolHook]).
-func (c *Conversation) RewritesToolResults() bool {
-	return c.hookRegistry.HasToolResultRewriters()
-}
-
-// ToolResultForModel returns the tool result [Conversation.Resume] will give
-// the model for the answer stored for the client tool call callID
-// ([Conversation.SendToolResult], [Conversation.SendToolResultMultimodal],
-// [Conversation.FailClientTool] or [Conversation.RejectClientTool]): the
-// answer as the conversation's ToolResultRewriter hooks rewrite it. The hooks
-// see the answer once: Resume gives the model this same result. It returns
-// false when no answer is stored for callID. An adapter that shows a client
-// what the model is given before the turn resumes (the AG-UI adapter, when
-// only some calls are answered) uses it.
-func (c *Conversation) ToolResultForModel(ctx context.Context, callID string) (*types.MessageToolResult, bool) {
-	c.settledMu.Lock()
-	res, ok := c.answers[callID]
-	c.settledMu.Unlock()
-	if !ok {
-		return nil, false
-	}
-	preview := *res
-	calls := c.lazyCalls(ctx)
-	c.validateDeferredResults([]*sdktools.ToolResolution{&preview}, callNamesOf(calls))
-	result := c.resumeResult(ctx, calls, &preview)
-	return &result, true
-}
-
-// addAnswer stores res, a client's answer, for Resume (or Continue) to give
-// the model, and keeps it by call for ToolResultForModel.
-func (c *Conversation) addAnswer(res *sdktools.ToolResolution) {
-	c.resolvedStore.Add(res)
-	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
-	if c.answers == nil {
-		c.answers = make(map[string]*sdktools.ToolResolution)
-	}
-	c.answers[res.ID] = res
-}
-
-// settled forgets what was kept for resolutions, now given to the model: the
-// answers stored for their calls, their rewrites and the approvals recorded
-// for them.
+// settled forgets the approvals recorded for resolutions, now given to the
+// model.
 func (c *Conversation) settled(resolutions []*sdktools.ToolResolution) {
 	c.settledMu.Lock()
 	defer c.settledMu.Unlock()
 	for _, res := range resolutions {
-		delete(c.answers, res.ID)
-		delete(c.rewrites, res.ID)
 		delete(c.admitted, res.ID)
 	}
 }
 
-// forgetSettled forgets everything kept for answers and approvals not yet
-// given to the model: the turn they belong to was abandoned.
+// forgetSettled forgets every approval not yet given to the model: the turn
+// it belongs to was abandoned.
 func (c *Conversation) forgetSettled() {
 	c.settledMu.Lock()
 	defer c.settledMu.Unlock()
-	c.answers, c.rewrites, c.admitted = nil, nil, nil
+	c.admitted = nil
 }
 
 // toolResponseOf is the response a realtime session is given for tr, with
@@ -278,11 +208,9 @@ func toolResponseOf(tr types.MessageToolResult, multimodal bool) providers.ToolR
 func (c *Conversation) settledFailure(
 	ctx context.Context, call types.MessageToolCall, err error,
 ) types.MessageToolResult {
-	var emitter *events.Emitter
-	if c.config != nil {
-		emitter = c.newEmitter(c.config.eventBus)
-	}
-	if emitter != nil {
+	if c.config != nil && c.config.eventBus != nil {
+		// The emitter the conversation's pipeline reports tool calls with.
+		emitter := events.NewEmitter(c.config.eventBus, "", c.ID(), c.ID()).WithUserID(c.config.userID)
 		var labels map[string]string
 		if c.toolRegistry != nil {
 			if desc := c.toolRegistry.Get(call.Name); desc != nil {

@@ -76,6 +76,7 @@ func (s *duplexSession) runToolCallsInSession(ctx context.Context, elem *stage.S
 		}
 	}
 	if len(duplexResult.Pending) > 0 {
+		s.holdCalls(duplexResult.Pending) // the session answered the others itself
 		elem.Meta.PendingTools = duplexResult.Pending
 		if !s.forwardChunk(ctx, streamElementToStreamChunk(elem)) {
 			return ctx.Err()

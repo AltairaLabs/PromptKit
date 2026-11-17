@@ -11,7 +11,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/convinfo"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
@@ -171,56 +173,30 @@ func TestResume_RewritesAFailedClientToolsPartialOutput(t *testing.T) {
 
 var errDiskFull = errors.New("disk full")
 
-// ToolResultForModel tells the result Resume gives the model for a stored
-// answer, and the rewriter sees the answer once.
-func TestToolResultForModel_IsWhatResumeGives(t *testing.T) {
-	calls := []types.MessageToolCall{{ID: "c-cli", Name: "locate", Args: []byte(`{}`)}}
-	provider := &roundsProvider{
-		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
-		rounds:       []providers.PredictionResponse{{Content: "Locating.", ToolCalls: calls}},
-	}
-	rw := &wrappingRewriter{}
-	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider),
-		WithSkipSchemaValidation(), WithToolHook(rw))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
-	desc, err := conv.ToolRegistry().GetTool("locate")
-	require.NoError(t, err)
-	desc.Mode = "client"
-
-	ctx := context.Background()
-	_, err = conv.Send(ctx, "where am I?")
-	require.NoError(t, err)
-	_, found := conv.ToolResultForModel(ctx, "c-cli")
-	assert.False(t, found, "no answer is stored yet")
-	require.NoError(t, conv.SendToolResult(ctx, "c-cli", "Paris"))
-
-	preview, found := conv.ToolResultForModel(ctx, "c-cli")
-	require.True(t, found)
-	assert.Equal(t, `<redacted:"Paris">`, preview.GetTextContent())
-	assert.Equal(t, "locate", preview.Name)
-
-	_, err = conv.Resume(ctx)
-	require.NoError(t, err)
-	provider.mu.Lock()
-	var seen *types.MessageToolResult
-	for _, m := range provider.seen[len(provider.seen)-1] {
-		if m.ToolResult != nil {
-			seen = m.ToolResult
-		}
-	}
-	provider.mu.Unlock()
-	require.NotNil(t, seen)
-	assert.Equal(t, *preview, *seen)
-	assert.Len(t, rw.requests(), 1, "the rewriter sees the answer once")
-	_, found = conv.ToolResultForModel(ctx, "c-cli")
-	assert.False(t, found, "the answer was given to the model")
+// The SDK's adapters learn whether a conversation rewrites tool results.
+func TestConvinfo_RewritesToolResults(t *testing.T) {
+	conv := newTestConversation()
+	assert.False(t, convinfo.RewritesToolResults(conv))
+	conv.hookRegistry = hooks.NewRegistry(hooks.WithToolHook(&wrappingRewriter{}))
+	assert.True(t, convinfo.RewritesToolResults(conv))
+	assert.False(t, convinfo.RewritesToolResults("not a conversation"))
 }
 
-// RewritesToolResults reports a tool hook that rewrites results.
-func TestRewritesToolResults(t *testing.T) {
+// A settled answer's name and rejection text come from the call it settles,
+// here one the history no longer names but the conversation approved.
+func TestResumeResult_NamesTheCallFromItsApproval(t *testing.T) {
 	conv := newTestConversation()
-	assert.False(t, conv.RewritesToolResults())
-	conv.hookRegistry = hooks.NewRegistry(hooks.WithToolHook(&wrappingRewriter{}))
-	assert.True(t, conv.RewritesToolResults())
+	conv.toolRegistry = tools.NewRegistry()
+	require.NoError(t, conv.toolRegistry.Register(&tools.ToolDescriptor{
+		Name: "send_message", Description: "send", Mode: "local", InputSchema: []byte(`{"type":"object"}`),
+		ClientConfig: &tools.ClientConfig{Consent: &tools.ConsentConfig{DeclineStrategy: tools.DeclineStrategyRetry}},
+	}))
+	conv.recordAdmitted("c1", "send_message", map[string]any{"body": "hi"})
+	noHistory := func() map[string]types.MessageToolCall { return map[string]types.MessageToolCall{} }
+
+	got := conv.resumeResult(context.Background(), noHistory,
+		&sdktools.ToolResolution{ID: "c1", Rejected: true, RejectionReason: "not now"})
+	want := types.NewTextToolResult("c1", "send_message",
+		"Tool send_message denied: user declined consent. Try a different approach. Reason: not now")
+	assert.Equal(t, want, got)
 }
