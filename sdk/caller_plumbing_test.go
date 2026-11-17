@@ -15,6 +15,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -316,9 +317,10 @@ func (h *callerSessionRecorder) OnSessionEnd(context.Context, hooks.SessionEvent
 func TestCaller_A2ACallerOpenerActsForTheRequestsCaller(t *testing.T) {
 	hook := &callerSessionRecorder{}
 	callerOf := func(r *http.Request) types.Caller { return types.Caller{ID: r.Header.Get("X-User")} }
-	open := A2ACallerOpener(createTestPackFile(t, convChatPack), "chat", callerOf,
+	open, err := A2ACallerOpener(createTestPackFile(t, convChatPack), "chat", callerOf,
 		WithProvider(mock.NewProvider("mock", "mock-model", false)), WithSkipSchemaValidation(),
 		WithSessionHook(hook), WithCaller(types.Caller{ID: "fixed"}))
+	require.NoError(t, err)
 
 	for _, user := range []string{"alice", "bob"} {
 		r := httptest.NewRequest(http.MethodPost, "/a2a", http.NoBody)
@@ -331,4 +333,40 @@ func TestCaller_A2ACallerOpenerActsForTheRequestsCaller(t *testing.T) {
 	}
 
 	assert.Equal(t, []types.Caller{{ID: "alice"}, {ID: "bob"}}, hook.get())
+}
+
+func TestCaller_A2ACallerOpenerRefusesANilCallerOf(t *testing.T) {
+	open, err := A2ACallerOpener(createTestPackFile(t, convChatPack), "chat", nil)
+
+	assert.ErrorIs(t, err, ErrNilCallerOf)
+	assert.Nil(t, open)
+}
+
+// Func guardrails are given the caller on both sides of the call.
+func TestCaller_FuncGuardrailsSeeTheCaller(t *testing.T) {
+	for _, tc := range plumbingCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			var in, out callerSeen
+			conv, err := Open(createTestPackFile(t, convChatPack), "chat", append([]Option{
+				WithProvider(mock.NewProvider("mock", "mock-model", false)), WithSkipSchemaValidation(),
+				WithGuardrail(
+					guardrails.InputFunc("tenant-in", func(_ context.Context, r *hooks.InputRequest) hooks.Decision {
+						in.add(r.Caller)
+						return hooks.Allow
+					}),
+					guardrails.OutputFunc("tenant-out", func(_ context.Context, r *hooks.OutputRequest) hooks.Decision {
+						out.add(r.Caller)
+						return hooks.Allow
+					}),
+				)}, tc.opts...)...)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conv.Close() })
+
+			_, err = conv.Send(context.Background(), "hello")
+			require.NoError(t, err)
+
+			assert.Equal(t, []types.Caller{tc.want}, in.get())
+			assert.Equal(t, []types.Caller{tc.want}, out.get())
+		})
+	}
 }

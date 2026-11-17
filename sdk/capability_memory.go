@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -83,11 +84,41 @@ func (c *MemoryCapability) RegisterTools(registry *tools.Registry) {
 	exec := memory.NewExecutor(c.store, c.scope)
 	registry.RegisterExecutor(exec)
 	memory.RegisterMemoryTools(registry)
+	c.warnCallerGaps()
 
 	// Let stores register additional tools (e.g., graph traversal, temporal queries)
 	if tp, ok := c.store.(memory.ToolProvider); ok {
 		tp.RegisterTools(registry)
 	}
+}
+
+// warnCallerGaps warns when the memory setup authorizes by caller somewhere
+// but not on every write. The store reads with the caller on its options
+// whatever it implements, so a store or retriever that opts in to the caller
+// anywhere (memory.OptionsSaver, memory.ExtrasDeleter,
+// memory.ContextRequestRetriever) is taken to scope by it: then
+// memory__remember needs OptionsSaver and memory__forget ExtrasDeleter, or
+// those writes reach the store without the caller.
+func (c *MemoryCapability) warnCallerGaps() {
+	_, saves := c.store.(memory.OptionsSaver)
+	_, deletes := c.store.(memory.ExtrasDeleter)
+	_, retrieves := c.retriever.(memory.ContextRequestRetriever)
+	if !saves && !deletes && !retrieves {
+		return
+	}
+	var missing []string
+	if !saves {
+		missing = append(missing, "memory.OptionsSaver")
+	}
+	if !deletes {
+		missing = append(missing, "memory.ExtrasDeleter")
+	}
+	if len(missing) == 0 {
+		return
+	}
+	logger.Warn("memory store takes the caller on some operations but not all: "+
+		"memory__remember and memory__forget reach it without the caller",
+		"store", fmt.Sprintf("%T", c.store), "missing", missing)
 }
 
 // Close implements Capability.

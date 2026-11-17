@@ -20,3 +20,14 @@ type ContextRequestExtractor interface {
 	Extractor
 	ExtractRequest(ctx context.Context, req ContextRequest) ([]*Memory, error)
 }
+
+// ExtractFor asks e for the memories to derive from req: through
+// ExtractRequest when e implements ContextRequestExtractor, else through
+// Extract, which does not see the caller. The extraction stage extracts
+// through it.
+func ExtractFor(ctx context.Context, e Extractor, req ContextRequest) ([]*Memory, error) {
+	if ce, ok := e.(ContextRequestExtractor); ok {
+		return ce.ExtractRequest(ctx, req)
+	}
+	return e.Extract(ctx, req.Scope, req.Messages)
+}

@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -24,21 +25,27 @@ func A2AOpener(packPath, promptName string, opts ...Option) A2AConversationOpene
 	}
 }
 
+// ErrNilCallerOf is returned by [A2ACallerOpener] when callerOf is nil.
+var ErrNilCallerOf = errors.New("A2ACallerOpener: callerOf must not be nil")
+
 // A2ACallerOpener is A2AOpener for conversations that act for the caller of
 // the request opening them. The A2A protocol carries no caller identity, so
 // callerOf reads it from what the host's authentication put on the request
 // (its context or headers); the conversation is opened with opts plus
-// [WithCaller] of that caller, which overrides a WithCaller in opts.
+// [WithCaller] of that caller, which overrides a WithCaller in opts. A nil
+// callerOf returns [ErrNilCallerOf].
 //
-// The server caches the conversation per context ID, so it acts for the
-// caller who opened the context for every later message naming it. Pass
-// a2aserver.WithTaskOwner to the server so a message from another caller
-// into the context is refused.
+// Serve it with [NewA2AServerFor], whose callerID must identify the same
+// caller (callerOf's ID, say): the server then refuses a message from
+// another caller into a context this opener opened.
 func A2ACallerOpener(
 	packPath, promptName string, callerOf func(*http.Request) types.Caller, opts ...Option,
-) A2ARequestConversationOpener {
+) (A2ARequestConversationOpener, error) {
+	if callerOf == nil {
+		return nil, ErrNilCallerOf
+	}
 	return func(r *http.Request, contextID string) (a2aserver.Conversation, error) {
 		withCaller := append(append([]Option(nil), opts...), WithCaller(callerOf(r)))
 		return A2AOpener(packPath, promptName, withCaller...)(contextID)
-	}
+	}, nil
 }

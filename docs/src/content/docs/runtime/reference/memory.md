@@ -21,6 +21,7 @@ The package provides the Store, Retriever and Extractor interfaces, the memory\_
 - [func DefaultContextFormatter\(memories \[\]\*Memory\) string](<#DefaultContextFormatter>)
 - [func IsKnownCategory\(s string\) bool](<#IsKnownCategory>)
 - [func RegisterMemoryTools\(registry \*tools.Registry\)](<#RegisterMemoryTools>)
+- [func SaveFor\(ctx context.Context, store Store, m \*Memory, caller types.Caller\) error](<#SaveFor>)
 - [func ScopeFromContext\(ctx context.Context\) map\[string\]string](<#ScopeFromContext>)
 - [func WithScope\(ctx context.Context, scope map\[string\]string\) context.Context](<#WithScope>)
 - [type ConsentCategory](<#ConsentCategory>)
@@ -46,6 +47,8 @@ The package provides the Store, Retriever and Extractor interfaces, the memory\_
   - [func \(s \*InMemoryStore\) Save\(\_ context.Context, m \*Memory\) error](<#InMemoryStore.Save>)
 - [type ListOptions](<#ListOptions>)
 - [type Memory](<#Memory>)
+  - [func ExtractFor\(ctx context.Context, e Extractor, req ContextRequest\) \(\[\]\*Memory, error\)](<#ExtractFor>)
+  - [func RetrieveContextFor\(ctx context.Context, r Retriever, req ContextRequest\) \(\[\]\*Memory, error\)](<#RetrieveContextFor>)
   - [func \(m \*Memory\) GetConsentCategory\(\) ConsentCategory](<#Memory.GetConsentCategory>)
   - [func \(m \*Memory\) GetProvenance\(\) Provenance](<#Memory.GetProvenance>)
   - [func \(m \*Memory\) SetConsentCategory\(c ConsentCategory\)](<#Memory.SetConsentCategory>)
@@ -124,6 +127,15 @@ func RegisterMemoryTools(registry *tools.Registry)
 ```
 
 RegisterMemoryTools registers the four base memory tools \(memory\_\_recall, memory\_\_remember, memory\_\_list and memory\_\_forget\) with executor routing. Register an Executor under ExecutorMode so the registry routes calls to it.
+
+<a name="SaveFor"></a>
+## func [SaveFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L77>)
+
+```go
+func SaveFor(ctx context.Context, store Store, m *Memory, caller types.Caller) error
+```
+
+SaveFor saves m to store for caller: through SaveWithOptions when the store implements OptionsSaver, else through Save, which does not see the caller. The memory tools and the extraction stage save through it.
 
 <a name="ScopeFromContext"></a>
 ## func [ScopeFromContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/scope.go#L30>)
@@ -306,9 +318,9 @@ type Extractor interface {
 ```
 
 <a name="ExtrasDeleter"></a>
-## type [ExtrasDeleter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L47-L51>)
+## type [ExtrasDeleter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L58-L62>)
 
-ExtrasDeleter is optionally implemented by stores that accept backend\-specific arguments on delete.
+ExtrasDeleter is optionally implemented by stores that accept backend\-specific arguments, or the caller \(DeleteOptions.Caller\), on delete. It is the only way memory\_\_forget hands a store the caller.
 
 Store.Delete takes no options struct, so it has nowhere to carry the passthrough args a host adds to memory\_\_forget's input schema with sdk.WithToolDescriptorOverride. Rather than change Delete's signature \(which every Store implementation would have to follow\), a store opts in by implementing this. The memory executor prefers it when present and falls back to Delete otherwise, so a store that ignores it is unaffected.
 
@@ -426,6 +438,24 @@ type Memory struct {
 }
 ```
 
+<a name="ExtractFor"></a>
+### func [ExtractFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/extractor.go#L28>)
+
+```go
+func ExtractFor(ctx context.Context, e Extractor, req ContextRequest) ([]*Memory, error)
+```
+
+ExtractFor asks e for the memories to derive from req: through ExtractRequest when e implements ContextRequestExtractor, else through Extract, which does not see the caller. The extraction stage extracts through it.
+
+<a name="RetrieveContextFor"></a>
+### func [RetrieveContextFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/retriever.go#L30>)
+
+```go
+func RetrieveContextFor(ctx context.Context, r Retriever, req ContextRequest) ([]*Memory, error)
+```
+
+RetrieveContextFor asks r for the memories relevant to req: through RetrieveContextRequest when r implements ContextRequestRetriever, else through RetrieveContext, which does not see the caller. The retrieval stage retrieves through it.
+
 <a name="Memory.GetConsentCategory"></a>
 ### func \(\*Memory\) [GetConsentCategory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/consent_category.go#L88>)
 
@@ -463,9 +493,9 @@ func (m *Memory) SetProvenance(p Provenance)
 SetProvenance sets the provenance metadata on a Memory, initializing the Metadata map if nil. This always overwrites any existing provenance value to prevent callers from spoofing provenance.
 
 <a name="OptionsSaver"></a>
-## type [OptionsSaver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L58-L60>)
+## type [OptionsSaver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L70-L72>)
 
-OptionsSaver is optionally implemented by stores that accept options on save, such as the caller the conversation acts for. Store.Save takes no options, so a store opts in by implementing this; the memory executor and the extraction stage prefer it when present and fall back to Save otherwise.
+OptionsSaver is optionally implemented by stores that accept options on save, such as the caller the conversation acts for. It is the only way memory\_\_remember and the extraction stage hand a store the caller. Store.Save takes no options, so a store opts in by implementing this; the memory executor and the extraction stage prefer it when present and fall back to Save otherwise.
 
 ```go
 type OptionsSaver interface {
@@ -570,9 +600,11 @@ type SaveOptions struct {
 ```
 
 <a name="Store"></a>
-## type [Store](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L13-L26>)
+## type [Store](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L23-L36>)
 
 Store is the core memory persistence interface. Every method other than Save operates within the scope it is given: a memory is visible only to calls that pass the same scope map it was saved with.
+
+The caller the conversation acts for \(sdk.WithCaller\) reaches a store on RetrieveOptions.Caller \(memory\_\_recall\) and ListOptions.Caller \(memory\_\_list\) whatever else it implements. Save and Delete take no options, so memory\_\_remember and extracted memories reach it with the caller only through OptionsSaver, and memory\_\_forget only through ExtrasDeleter \(DeleteOptions.Caller\). DeleteAll never receives it. A store that scopes reads by caller must implement OptionsSaver and ExtrasDeleter too, or a caller's writes are unauthorized; the SDK warns at startup about a store or retriever that takes the caller somewhere but lacks either.
 
 ```go
 type Store interface {
@@ -592,7 +624,7 @@ type Store interface {
 ```
 
 <a name="ToolProvider"></a>
-## type [ToolProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L31-L33>)
+## type [ToolProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/store.go#L41-L43>)
 
 ToolProvider is optionally implemented by stores that want to register additional tools beyond the base recall/remember/list/forget. Custom tools are registered in the "memory" namespace.
 

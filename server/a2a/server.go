@@ -284,6 +284,13 @@ type Server struct {
 	// convOwner (under convsMu) records who opened each conversation.
 	owner     OwnerFunc
 	convOwner map[string]string
+	// convOpening (under convsMu) holds a channel per context whose
+	// conversation is being opened, closed when the open finishes.
+	convOpening map[string]chan struct{}
+	// convCaller, when set (NewServerFor), identifies the caller a
+	// conversation acts for; a context's conversation then belongs to the
+	// caller who opened it.
+	convCaller OwnerFunc
 
 	// handlers serves each protocol operation.
 	handlers map[a2a.Operation]func(*rpcCall)
@@ -298,20 +305,27 @@ type Server struct {
 // For an embedder that owns conversations itself (because the runtime lives
 // elsewhere, or it already tracks sessions), see [NewStatelessServer].
 func NewServer(opener ConversationOpener, opts ...Option) *Server {
-	return NewServerFor(func(_ *http.Request, contextID string) (Conversation, error) {
+	s := newServer(opts...)
+	s.opener = func(_ *http.Request, contextID string) (Conversation, error) {
 		return opener(contextID)
-	}, opts...)
+	}
+	return s
 }
 
-// NewServerFor is NewServer with an opener that is given the request opening
-// each context, so the conversation can act for the caller the host's
-// authentication identified on it. The conversation is cached per context
-// ID and serves every later message naming that context; use WithTaskOwner
-// so a message from another caller into the context is refused rather than
-// served by a conversation acting for the caller who opened it.
-func NewServerFor(opener RequestConversationOpener, opts ...Option) *Server {
+// NewServerFor is NewServer for conversations that act for the caller of
+// the request opening them. callerID identifies the caller of each request,
+// typically from what the host's authentication middleware put on it; a
+// request it gives no identity is refused. opener is given the request
+// opening each context, so the conversation can act for that caller.
+//
+// A context's conversation belongs to the caller who opened it: a message
+// from another caller naming that context is refused, whether or not tasks
+// are scoped with WithTaskOwner. Openers run outside the server's lock, one
+// at a time per context, so a slow open does not hold up other contexts.
+func NewServerFor(callerID OwnerFunc, opener RequestConversationOpener, opts ...Option) *Server {
 	s := newServer(opts...)
 	s.opener = opener
+	s.convCaller = callerID
 	return s
 }
 
@@ -321,6 +335,7 @@ func newServer(opts ...Option) *Server {
 		convs:       make(map[string]Conversation),
 		convLastUse: make(map[string]time.Time),
 		convOwner:   make(map[string]string),
+		convOpening: make(map[string]chan struct{}),
 		cancels:     make(map[string]context.CancelFunc),
 		cancelRegs:  make(map[string]uint64),
 		readTimeout: defaultReadTimeout,
@@ -614,6 +629,12 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	call := &rpcCall{w: w, r: r, req: &req, v: v, log: s.log}
 	if s.owner != nil {
 		if call.owner = s.owner(r); call.owner == "" {
+			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
+			return
+		}
+	}
+	if s.convCaller != nil {
+		if call.caller = s.convCaller(r); call.caller == "" {
 			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
 			return
 		}
@@ -1276,39 +1297,84 @@ func (s *Server) handleListTasks(call *rpcCall) {
 }
 
 // getOrCreateConversation retrieves an existing conversation for the context ID
-// or creates a new one via the opener (double-check lock pattern).
-// It also updates the last-use timestamp for conversation TTL tracking.
+// or creates a new one via the opener. It also updates the last-use timestamp
+// for conversation TTL tracking.
 //
-// With tasks scoped by caller, a conversation belongs to the caller that
-// opened it, checked under the same lock that creates it: another caller
-// naming its context gets errContextTaken, however the two race.
+// A conversation belongs to the caller that opened it (conversationOwner):
+// another caller naming its context gets errContextTaken, however the two
+// race. The opener runs outside convsMu, one at a time per context
+// (convOpening), so a slow open holds up only messages for its own context.
 func (s *Server) getOrCreateConversation(call *rpcCall, contextID string) (Conversation, error) {
-	// Acquire write lock directly to avoid a TOCTOU gap between RUnlock and
-	// Lock that could allow duplicate conversation creation.
+	owner := s.conversationOwner(call)
+	for {
+		s.convsMu.Lock()
+		if cached, ok := s.convs[contextID]; ok {
+			conv, err := s.reuseConversation(cached, contextID, owner)
+			s.convsMu.Unlock()
+			return conv, err
+		}
+		if opening, ok := s.convOpening[contextID]; ok {
+			s.convsMu.Unlock()
+			<-opening // the other open finished: look again
+			continue
+		}
+		if err := s.checkContextTasks(call, contextID); err != nil {
+			s.convsMu.Unlock()
+			return nil, err
+		}
+		opening := make(chan struct{})
+		s.convOpening[contextID] = opening
+		s.convsMu.Unlock()
+		return s.openNewConversation(call, contextID, owner, opening)
+	}
+}
+
+// reuseConversation hands back contextID's cached conversation conv when
+// owner may use it, marking it used. Caller must hold convsMu.
+func (s *Server) reuseConversation(conv Conversation, contextID, owner string) (Conversation, error) {
+	if s.ownsConversations() && s.convOwner[contextID] != owner {
+		return nil, errContextTaken
+	}
+	s.convLastUse[contextID] = time.Now()
+	return conv, nil
+}
+
+// openNewConversation runs the opener for contextID, outside convsMu, and
+// records the conversation for owner. opening is closed when it is done, so
+// messages waiting on the same context look again.
+func (s *Server) openNewConversation(
+	call *rpcCall, contextID, owner string, opening chan struct{},
+) (Conversation, error) {
+	conv, err := s.opener(call.r, contextID)
+
 	s.convsMu.Lock()
 	defer s.convsMu.Unlock()
-
-	if conv, ok := s.convs[contextID]; ok {
-		if s.owner != nil && s.convOwner[contextID] != call.owner {
-			return nil, errContextTaken
-		}
-		s.convLastUse[contextID] = time.Now()
-		return conv, nil
-	}
-
-	if err := s.checkContextTasks(call, contextID); err != nil {
-		return nil, err
-	}
-	conv, err := s.opener(call.r, contextID)
+	delete(s.convOpening, contextID)
+	close(opening)
 	if err != nil {
 		return nil, err
 	}
 	s.convs[contextID] = conv
 	s.convLastUse[contextID] = time.Now()
-	if s.owner != nil {
-		s.convOwner[contextID] = call.owner
+	if s.ownsConversations() {
+		s.convOwner[contextID] = owner
 	}
 	return conv, nil
+}
+
+// ownsConversations reports whether each conversation belongs to the caller
+// that opened it: under NewServerFor, or with tasks scoped by caller.
+func (s *Server) ownsConversations() bool {
+	return s.convCaller != nil || s.owner != nil
+}
+
+// conversationOwner is who a conversation the call opens belongs to: the
+// caller NewServerFor identified, else the task owner.
+func (s *Server) conversationOwner(call *rpcCall) string {
+	if s.convCaller != nil {
+		return call.caller
+	}
+	return call.owner
 }
 
 // openConversation answers the call itself when the conversation for

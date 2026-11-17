@@ -10,11 +10,9 @@ import (
 )
 
 // RepositoryToolExecutor wraps existing tool executors to provide
-// repository-backed mock responses with fallback to real execution. It
-// forwards each call to the base executor's richest entry point: a base that
-// implements CallExecutor or AsyncCallExecutor is given the whole call, caller
-// included; one that implements AsyncToolExecutor can still suspend a call;
-// one that implements MultimodalExecutor still returns content parts.
+// repository-backed mock responses with fallback to real execution. A base
+// executor that implements CallExecutor is given the whole call, caller
+// included; any other base runs Execute.
 // This enables deterministic tool testing while maintaining the ability
 // to fall back to real tool execution when needed.
 type RepositoryToolExecutor struct {
@@ -54,39 +52,21 @@ func (e *RepositoryToolExecutor) Execute(
 }
 
 // ExecuteCall implements CallExecutor: a repository response for the call's
-// arguments, else the call handed to the base executor through the first
-// entry point it implements (CallExecutor, MultimodalExecutor, Executor), so
-// a base that takes the call still sees its ID and caller.
+// arguments, else the base executor's run of the call. A base that implements
+// CallExecutor is given the whole call, its caller included; any other base
+// runs Execute, exactly as through Execute. The wrapper never suspends a call
+// and never returns content parts, whatever the base implements.
 func (e *RepositoryToolExecutor) ExecuteCall(
 	ctx context.Context, descriptor *ToolDescriptor, call ToolCall,
 ) (json.RawMessage, []types.ContentPart, error) {
 	if result, ok, err := e.repositoryResult(descriptor, call.Args); ok {
 		return result, nil, err
 	}
-	return invokeExecutor(ctx, e.baseExecutor, descriptor, call)
-}
-
-// ExecuteCallAsync implements AsyncCallExecutor: a repository response for
-// the call's arguments, else the call handed to the base executor's entry
-// point that may suspend it (AsyncCallExecutor, AsyncToolExecutor), or run
-// synchronously as ExecuteCall runs it when the base cannot suspend calls.
-func (e *RepositoryToolExecutor) ExecuteCallAsync(
-	ctx context.Context, descriptor *ToolDescriptor, call ToolCall,
-) (*ToolExecutionResult, error) {
-	if result, ok, err := e.repositoryResult(descriptor, call.Args); ok {
-		if err != nil {
-			return nil, err
-		}
-		return &ToolExecutionResult{Status: ToolStatusComplete, Content: result}, nil
+	if callExec, ok := e.baseExecutor.(CallExecutor); ok {
+		return callExec.ExecuteCall(ctx, descriptor, call)
 	}
-	if run, ok := asyncEntryPoint(e.baseExecutor, descriptor, call); ok {
-		return run(ctx)
-	}
-	result, parts, err := invokeExecutor(ctx, e.baseExecutor, descriptor, call)
-	if err != nil {
-		return nil, err
-	}
-	return &ToolExecutionResult{Status: ToolStatusComplete, Content: result, Parts: parts}, nil
+	result, err := e.baseExecutor.Execute(ctx, descriptor, call.Args)
+	return result, nil, err
 }
 
 // repositoryResult is the repository's answer to a call with args: its

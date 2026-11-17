@@ -43,38 +43,11 @@ func TestRepositoryToolExecutor_ForwardsTheCallToACallExecutor(t *testing.T) {
 	assert.Empty(t, base.plainArgs)
 }
 
-func TestRepositoryToolExecutor_ForwardsTheCallToAnAsyncCallExecutor(t *testing.T) {
+// The wrapper never suspends a call: a base that could return pending runs
+// its synchronous call entry point on the async path, as before the caller
+// was forwarded.
+func TestRepositoryToolExecutor_DoesNotExposeTheBasesAsyncEntryPoints(t *testing.T) {
 	base := &asyncCallExecutor{}
-	r := newRepositoryCallRegistry(t, base)
-
-	res, err := r.ExecuteCallAsyncAdmitted(context.Background(), lookupCall(), nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, ToolStatusComplete, res.Status)
-	assert.JSONEq(t, `{"via":"call_async"}`, string(res.Content))
-	require.Len(t, base.asyncCalls, 1)
-	assert.Equal(t, types.Caller{ID: "u1", Claims: map[string]any{"tenant": "acme"}}, base.asyncCalls[0].Caller)
-	assert.Equal(t, "c1", base.asyncCalls[0].ID)
-}
-
-// A base that can suspend a call but does not take the call keeps suspending
-// it through the wrapper.
-func TestRepositoryToolExecutor_KeepsAnAsyncExecutorsPendingResult(t *testing.T) {
-	base := &asyncAndCallExecutor{}
-	r := newRepositoryCallRegistry(t, base)
-
-	res, err := r.ExecuteCallAsyncAdmitted(context.Background(), lookupCall(), nil)
-	require.NoError(t, err)
-
-	assert.Equal(t, ToolStatusPending, res.Status)
-	require.NotNil(t, res.PendingInfo)
-	assert.Equal(t, "held", res.PendingInfo.Reason)
-	assert.Equal(t, []string{`{"n":5}`}, base.asyncArgs)
-}
-
-// A synchronous base on the async path runs as on the synchronous one.
-func TestRepositoryToolExecutor_RunsASyncBaseOnTheAsyncPath(t *testing.T) {
-	base := &recordingCallExecutor{}
 	r := newRepositoryCallRegistry(t, base)
 
 	res, err := r.ExecuteCallAsyncAdmitted(context.Background(), lookupCall(), nil)
@@ -84,26 +57,22 @@ func TestRepositoryToolExecutor_RunsASyncBaseOnTheAsyncPath(t *testing.T) {
 	assert.JSONEq(t, `{"via":"call"}`, string(res.Content))
 	require.Len(t, base.calls, 1)
 	assert.Equal(t, "u1", base.calls[0].Caller.ID)
+	assert.Empty(t, base.asyncCalls)
+	assert.Empty(t, base.asyncArgs)
 }
 
-func TestRepositoryToolExecutor_RepositoryAnswerWinsOnEveryPath(t *testing.T) {
-	base := &asyncCallExecutor{}
+func TestRepositoryToolExecutor_RepositoryAnswerWins(t *testing.T) {
+	base := &recordingCallExecutor{}
 	r := newRepositoryCallRegistry(t, base)
 	call := lookupCall()
 	call.Args = json.RawMessage(`{"n":99}`)
 
 	res, err := r.ExecuteCall(context.Background(), call)
 	require.NoError(t, err)
+
 	assert.JSONEq(t, `{"via":"repository"}`, string(res.Result))
-
-	async, err := r.ExecuteCallAsyncAdmitted(context.Background(), call, nil)
-	require.NoError(t, err)
-	assert.Equal(t, ToolStatusComplete, async.Status)
-	assert.JSONEq(t, `{"via":"repository"}`, string(async.Content))
-
 	assert.Empty(t, base.calls)
-	assert.Empty(t, base.asyncCalls)
-	assert.Empty(t, base.asyncArgs)
+	assert.Empty(t, base.plainArgs)
 }
 
 // multimodalRepoBase returns content parts through ExecuteMultimodal.
@@ -119,12 +88,13 @@ func (multimodalRepoBase) ExecuteMultimodal(
 	return json.RawMessage(`{"via":"multimodal"}`), []types.ContentPart{types.NewTextPart("part")}, nil
 }
 
-func TestRepositoryToolExecutor_ForwardsMultimodalParts(t *testing.T) {
+// A base that does not take the call runs Execute, as it always has.
+func TestRepositoryToolExecutor_RunsExecuteOnABaseThatDoesNotTakeTheCall(t *testing.T) {
 	r := newRepositoryCallRegistry(t, multimodalRepoBase{})
 
 	res, err := r.ExecuteCall(context.Background(), lookupCall())
 	require.NoError(t, err)
 
-	assert.JSONEq(t, `{"via":"multimodal"}`, string(res.Result))
-	assert.Equal(t, []types.ContentPart{types.NewTextPart("part")}, res.Parts)
+	assert.JSONEq(t, `{"via":"execute"}`, string(res.Result))
+	assert.Empty(t, res.Parts)
 }

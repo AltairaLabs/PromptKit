@@ -219,10 +219,10 @@ Mock response from mock model mock-model
 - [type A2AConversationOpener](<#A2AConversationOpener>)
   - [func A2AOpener\(packPath, promptName string, opts ...Option\) A2AConversationOpener](<#A2AOpener>)
 - [type A2ARequestConversationOpener](<#A2ARequestConversationOpener>)
-  - [func A2ACallerOpener\(packPath, promptName string, callerOf func\(\*http.Request\) types.Caller, opts ...Option\) A2ARequestConversationOpener](<#A2ACallerOpener>)
+  - [func A2ACallerOpener\(packPath, promptName string, callerOf func\(\*http.Request\) types.Caller, opts ...Option\) \(A2ARequestConversationOpener, error\)](<#A2ACallerOpener>)
 - [type A2AServer](<#A2AServer>)
   - [func NewA2AServer\(opener A2AConversationOpener, opts ...A2AServerOption\) \*A2AServer](<#NewA2AServer>)
-  - [func NewA2AServerFor\(opener A2ARequestConversationOpener, opts ...A2AServerOption\) \*A2AServer](<#NewA2AServerFor>)
+  - [func NewA2AServerFor\(callerID func\(\*http.Request\) string, opener A2ARequestConversationOpener, opts ...A2AServerOption\) \*A2AServer](<#NewA2AServerFor>)
 - [type A2AServerOption](<#A2AServerOption>)
   - [func WithA2ACard\(card \*a2a.AgentCard\) A2AServerOption](<#WithA2ACard>)
   - [func WithA2AConversationTTL\(d time.Duration\) A2AServerOption](<#WithA2AConversationTTL>)
@@ -712,6 +712,12 @@ var (
 )
 ```
 
+<a name="ErrNilCallerOf"></a>ErrNilCallerOf is returned by [A2ACallerOpener](<#A2ACallerOpener>) when callerOf is nil.
+
+```go
+var ErrNilCallerOf = errors.New("A2ACallerOpener: callerOf must not be nil")
+```
+
 <a name="ErrReentrantTurn"></a>ErrReentrantTurn is returned when a turn is started on a conversation from inside one of its own turns, such as a tool handler calling Send on the conversation that invoked it. The outer turn holds the conversation, so the inner call could only wait for itself.
 
 The nested call is recognized by its context, so a handler must pass on the context it was given \(OnToolCtx\). A call made with an unrelated context, such as from an OnTool handler, cannot be told apart from another caller's and waits for the running turn, which waits for the handler.
@@ -985,7 +991,7 @@ func (c *A2ACapability) RegisterTools(registry *tools.Registry)
 RegisterTools registers A2A tools into the registry. Bridge path: registers bridge tool descriptors \+ A2A executor. Pack path: resolves agent tools from prompt tools list \+ registers executor.
 
 <a name="A2AConversationOpener"></a>
-## type [A2AConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L25>)
+## type [A2AConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L26>)
 
 A2AConversationOpener creates or retrieves a conversation for a context ID.
 
@@ -994,7 +1000,7 @@ type A2AConversationOpener = a2aserver.ConversationOpener
 ```
 
 <a name="A2AOpener"></a>
-### func [A2AOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a.go#L17>)
+### func [A2AOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a.go#L18>)
 
 ```go
 func A2AOpener(packPath, promptName string, opts ...Option) A2AConversationOpener
@@ -1003,7 +1009,7 @@ func A2AOpener(packPath, promptName string, opts ...Option) A2AConversationOpene
 A2AOpener returns an A2AConversationOpener backed by SDK conversations. Each call to the returned function opens a new conversation with sdk.Open using the provided pack path, prompt name, and options. The context ID is not passed to the conversation, so each one gets a generated conversation ID unless opts include [WithConversationID](<#WithConversationID>). Likewise, a [WithCaller](<#WithCaller>) in opts makes every conversation it opens, for whichever remote client, act for that one caller; [A2ACallerOpener](<#A2ACallerOpener>) opens each for its request's caller.
 
 <a name="A2ARequestConversationOpener"></a>
-## type [A2ARequestConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L29>)
+## type [A2ARequestConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L30>)
 
 A2ARequestConversationOpener creates a conversation for a context ID, given the HTTP request that opens it.
 
@@ -1012,18 +1018,18 @@ type A2ARequestConversationOpener = a2aserver.RequestConversationOpener
 ```
 
 <a name="A2ACallerOpener"></a>
-### func [A2ACallerOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a.go#L37-L39>)
+### func [A2ACallerOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a.go#L41-L43>)
 
 ```go
-func A2ACallerOpener(packPath, promptName string, callerOf func(*http.Request) types.Caller, opts ...Option) A2ARequestConversationOpener
+func A2ACallerOpener(packPath, promptName string, callerOf func(*http.Request) types.Caller, opts ...Option) (A2ARequestConversationOpener, error)
 ```
 
-A2ACallerOpener is A2AOpener for conversations that act for the caller of the request opening them. The A2A protocol carries no caller identity, so callerOf reads it from what the host's authentication put on the request \(its context or headers\); the conversation is opened with opts plus [WithCaller](<#WithCaller>) of that caller, which overrides a WithCaller in opts.
+A2ACallerOpener is A2AOpener for conversations that act for the caller of the request opening them. The A2A protocol carries no caller identity, so callerOf reads it from what the host's authentication put on the request \(its context or headers\); the conversation is opened with opts plus [WithCaller](<#WithCaller>) of that caller, which overrides a WithCaller in opts. A nil callerOf returns [ErrNilCallerOf](<#ErrNilCallerOf>).
 
-The server caches the conversation per context ID, so it acts for the caller who opened the context for every later message naming it. Pass a2aserver.WithTaskOwner to the server so a message from another caller into the context is refused.
+Serve it with [NewA2AServerFor](<#NewA2AServerFor>), whose callerID must identify the same caller \(callerOf's ID, say\): the server then refuses a message from another caller into a context this opener opened.
 
 <a name="A2AServer"></a>
-## type [A2AServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L19>)
+## type [A2AServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L20>)
 
 A2AServer is the A2A\-protocol HTTP server.
 
@@ -1032,7 +1038,7 @@ type A2AServer = a2aserver.Server
 ```
 
 <a name="NewA2AServer"></a>
-### func [NewA2AServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L42>)
+### func [NewA2AServer](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L43>)
 
 ```go
 func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2AServer
@@ -1041,16 +1047,16 @@ func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2ASer
 NewA2AServer creates a new A2A server with the given opener and options.
 
 <a name="NewA2AServerFor"></a>
-### func [NewA2AServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L48>)
+### func [NewA2AServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L52-L54>)
 
 ```go
-func NewA2AServerFor(opener A2ARequestConversationOpener, opts ...A2AServerOption) *A2AServer
+func NewA2AServerFor(callerID func(*http.Request) string, opener A2ARequestConversationOpener, opts ...A2AServerOption) *A2AServer
 ```
 
-NewA2AServerFor creates a new A2A server whose opener is given the request opening each context \(see [A2ACallerOpener](<#A2ACallerOpener>)\).
+NewA2AServerFor creates a new A2A server for conversations that act for the caller of each request \(see [A2ACallerOpener](<#A2ACallerOpener>) and a2aserver.NewServerFor\). callerID identifies the caller of a request; a context's conversation belongs to the caller who opened it, and a message from another caller naming that context is refused.
 
 <a name="A2AServerOption"></a>
-## type [A2AServerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L22>)
+## type [A2AServerOption](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L23>)
 
 A2AServerOption configures an A2AServer.
 
@@ -1059,7 +1065,7 @@ type A2AServerOption = a2aserver.Option
 ```
 
 <a name="WithA2ACard"></a>
-### func [WithA2ACard](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L55>)
+### func [WithA2ACard](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L61>)
 
 ```go
 func WithA2ACard(card *a2a.AgentCard) A2AServerOption
@@ -1068,7 +1074,7 @@ func WithA2ACard(card *a2a.AgentCard) A2AServerOption
 WithA2ACard sets the agent card served at /.well\-known/agent\-card.json.
 
 <a name="WithA2AConversationTTL"></a>
-### func [WithA2AConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L95>)
+### func [WithA2AConversationTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L101>)
 
 ```go
 func WithA2AConversationTTL(d time.Duration) A2AServerOption
@@ -1077,7 +1083,7 @@ func WithA2AConversationTTL(d time.Duration) A2AServerOption
 WithA2AConversationTTL sets the conversation TTL for eviction.
 
 <a name="WithA2AIdleTimeout"></a>
-### func [WithA2AIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L80>)
+### func [WithA2AIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L86>)
 
 ```go
 func WithA2AIdleTimeout(d time.Duration) A2AServerOption
@@ -1086,7 +1092,7 @@ func WithA2AIdleTimeout(d time.Duration) A2AServerOption
 WithA2AIdleTimeout sets the idle timeout.
 
 <a name="WithA2AMaxBodySize"></a>
-### func [WithA2AMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L85>)
+### func [WithA2AMaxBodySize](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L91>)
 
 ```go
 func WithA2AMaxBodySize(n int64) A2AServerOption
@@ -1095,7 +1101,7 @@ func WithA2AMaxBodySize(n int64) A2AServerOption
 WithA2AMaxBodySize sets the max body size.
 
 <a name="WithA2APort"></a>
-### func [WithA2APort](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L60>)
+### func [WithA2APort](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L66>)
 
 ```go
 func WithA2APort(port int) A2AServerOption
@@ -1104,7 +1110,7 @@ func WithA2APort(port int) A2AServerOption
 WithA2APort sets the TCP port for ListenAndServe.
 
 <a name="WithA2AReadTimeout"></a>
-### func [WithA2AReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L70>)
+### func [WithA2AReadTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L76>)
 
 ```go
 func WithA2AReadTimeout(d time.Duration) A2AServerOption
@@ -1113,7 +1119,7 @@ func WithA2AReadTimeout(d time.Duration) A2AServerOption
 WithA2AReadTimeout sets the read timeout.
 
 <a name="WithA2ATaskStore"></a>
-### func [WithA2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L65>)
+### func [WithA2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L71>)
 
 ```go
 func WithA2ATaskStore(store A2ATaskStore) A2AServerOption
@@ -1122,7 +1128,7 @@ func WithA2ATaskStore(store A2ATaskStore) A2AServerOption
 WithA2ATaskStore sets a custom task store.
 
 <a name="WithA2ATaskTTL"></a>
-### func [WithA2ATaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L90>)
+### func [WithA2ATaskTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L96>)
 
 ```go
 func WithA2ATaskTTL(d time.Duration) A2AServerOption
@@ -1131,7 +1137,7 @@ func WithA2ATaskTTL(d time.Duration) A2AServerOption
 WithA2ATaskTTL sets the task TTL for eviction.
 
 <a name="WithA2AWriteTimeout"></a>
-### func [WithA2AWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L75>)
+### func [WithA2AWriteTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L81>)
 
 ```go
 func WithA2AWriteTimeout(d time.Duration) A2AServerOption
@@ -1140,7 +1146,7 @@ func WithA2AWriteTimeout(d time.Duration) A2AServerOption
 WithA2AWriteTimeout sets the write timeout.
 
 <a name="A2ATaskStore"></a>
-## type [A2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L13>)
+## type [A2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L14>)
 
 A2ATaskStore is the task persistence interface.
 
@@ -3392,7 +3398,7 @@ type Governance = prompt.Governance
 ```
 
 <a name="InMemoryA2ATaskStore"></a>
-## type [InMemoryA2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L16>)
+## type [InMemoryA2ATaskStore](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/a2a_exports.go#L17>)
 
 InMemoryA2ATaskStore is a concurrency\-safe in\-memory TaskStore.
 
@@ -3665,7 +3671,7 @@ func (r *MapMCPEndpointResolver) Resolve(serverName string) MCPEndpoint
 Resolve returns the endpoint for the given name, or the zero value when the name is not in the map.
 
 <a name="MemoryCapability"></a>
-## type [MemoryCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L12-L26>)
+## type [MemoryCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L13-L27>)
 
 MemoryCapability registers memory tools and wires the memory executor.
 
@@ -3676,7 +3682,7 @@ type MemoryCapability struct {
 ```
 
 <a name="NewMemoryCapability"></a>
-### func [NewMemoryCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L34>)
+### func [NewMemoryCapability](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L35>)
 
 ```go
 func NewMemoryCapability(store memory.Store, scope map[string]string) *MemoryCapability
@@ -3685,7 +3691,7 @@ func NewMemoryCapability(store memory.Store, scope map[string]string) *MemoryCap
 NewMemoryCapability creates a MemoryCapability with the given store and scope.
 
 <a name="MemoryCapability.Close"></a>
-### func \(\*MemoryCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L94>)
+### func \(\*MemoryCapability\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L125>)
 
 ```go
 func (c *MemoryCapability) Close() error
@@ -3694,7 +3700,7 @@ func (c *MemoryCapability) Close() error
 Close implements Capability.
 
 <a name="MemoryCapability.Init"></a>
-### func \(\*MemoryCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L54>)
+### func \(\*MemoryCapability\) [Init](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L55>)
 
 ```go
 func (c *MemoryCapability) Init(_ CapabilityContext) error
@@ -3703,7 +3709,7 @@ func (c *MemoryCapability) Init(_ CapabilityContext) error
 Init implements Capability.
 
 <a name="MemoryCapability.Name"></a>
-### func \(\*MemoryCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L51>)
+### func \(\*MemoryCapability\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L52>)
 
 ```go
 func (c *MemoryCapability) Name() string
@@ -3712,7 +3718,7 @@ func (c *MemoryCapability) Name() string
 Name implements Capability.
 
 <a name="MemoryCapability.RegisterTools"></a>
-### func \(\*MemoryCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L71>)
+### func \(\*MemoryCapability\) [RegisterTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L72>)
 
 ```go
 func (c *MemoryCapability) RegisterTools(registry *tools.Registry)
@@ -3725,7 +3731,7 @@ When the scope carries no value for the subject key \("user\_id" by default, or 
 When tools are disabled via [WithMemoryToolsDisabled](<#WithMemoryToolsDisabled>), no executor or tool descriptors are registered at all — the LLM never sees memory as an option, but ambient RAG injection still works because the retriever is wired separately from this method.
 
 <a name="MemoryCapability.WithExtractor"></a>
-### func \(\*MemoryCapability\) [WithExtractor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L39>)
+### func \(\*MemoryCapability\) [WithExtractor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L40>)
 
 ```go
 func (c *MemoryCapability) WithExtractor(e memory.Extractor) *MemoryCapability
@@ -3734,7 +3740,7 @@ func (c *MemoryCapability) WithExtractor(e memory.Extractor) *MemoryCapability
 WithExtractor sets the memory extractor for automatic extraction.
 
 <a name="MemoryCapability.WithRetriever"></a>
-### func \(\*MemoryCapability\) [WithRetriever](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L45>)
+### func \(\*MemoryCapability\) [WithRetriever](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/capability_memory.go#L46>)
 
 ```go
 func (c *MemoryCapability) WithRetriever(r memory.Retriever) *MemoryCapability

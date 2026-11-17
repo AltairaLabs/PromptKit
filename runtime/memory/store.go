@@ -10,6 +10,16 @@ import (
 // Store is the core memory persistence interface. Every method other than Save
 // operates within the scope it is given: a memory is visible only to calls
 // that pass the same scope map it was saved with.
+//
+// The caller the conversation acts for (sdk.WithCaller) reaches a store on
+// RetrieveOptions.Caller (memory__recall) and ListOptions.Caller
+// (memory__list) whatever else it implements. Save and Delete take no
+// options, so memory__remember and extracted memories reach it with the
+// caller only through OptionsSaver, and memory__forget only through
+// ExtrasDeleter (DeleteOptions.Caller). DeleteAll never receives it. A store
+// that scopes reads by caller must implement OptionsSaver and ExtrasDeleter
+// too, or a caller's writes are unauthorized; the SDK warns at startup about
+// a store or retriever that takes the caller somewhere but lacks either.
 type Store interface {
 	// Save persists a memory under memory.Scope.
 	Save(ctx context.Context, memory *Memory) error
@@ -33,7 +43,8 @@ type ToolProvider interface {
 }
 
 // ExtrasDeleter is optionally implemented by stores that accept
-// backend-specific arguments on delete.
+// backend-specific arguments, or the caller (DeleteOptions.Caller), on
+// delete. It is the only way memory__forget hands a store the caller.
 //
 // [Store.Delete] takes no options struct, so it has nowhere to carry the
 // passthrough args a host adds to memory__forget's input schema with
@@ -51,7 +62,8 @@ type ExtrasDeleter interface {
 }
 
 // OptionsSaver is optionally implemented by stores that accept options on
-// save, such as the caller the conversation acts for. [Store.Save] takes no
+// save, such as the caller the conversation acts for. It is the only way
+// memory__remember and the extraction stage hand a store the caller. [Store.Save] takes no
 // options, so a store opts in by implementing this; the memory executor and
 // the extraction stage prefer it when present and fall back to Save
 // otherwise.
@@ -59,9 +71,10 @@ type OptionsSaver interface {
 	SaveWithOptions(ctx context.Context, memory *Memory, opts SaveOptions) error
 }
 
-// saveFor saves m to store for caller: through SaveWithOptions when the store
+// SaveFor saves m to store for caller: through SaveWithOptions when the store
 // implements OptionsSaver, else through Save, which does not see the caller.
-func saveFor(ctx context.Context, store Store, m *Memory, caller types.Caller) error {
+// The memory tools and the extraction stage save through it.
+func SaveFor(ctx context.Context, store Store, m *Memory, caller types.Caller) error {
 	if s, ok := store.(OptionsSaver); ok {
 		return s.SaveWithOptions(ctx, m, SaveOptions{Caller: caller})
 	}

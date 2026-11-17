@@ -122,6 +122,9 @@ type InputRequest struct {
 	// Replacement supplies the canned assistant text when the check
 	// returns Enforced. Empty falls back to the default blocked message.
 	Replacement string
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set.
+	Caller types.Caller
 }
 
 // OutputRequest is the narrow view of a completed call handed to a func-based
@@ -133,6 +136,9 @@ type OutputRequest struct {
 	Message *types.Message
 	// Round is the provider round this response belongs to (1-based).
 	Round int
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set.
+	Caller types.Caller
 }
 
 // MetadataKeyValidatorDeclaration is the Decision.Metadata key under which a

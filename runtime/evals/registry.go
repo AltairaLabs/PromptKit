@@ -32,6 +32,16 @@ type StreamableEvalHandler interface {
 	EvalPartial(ctx context.Context, content string, params map[string]any) (*EvalResult, error)
 }
 
+// StreamableRequestEvalHandler is StreamableEvalHandler with the caller: a
+// guardrail whose handler implements it calls EvalPartialRequest on each
+// streaming chunk in place of EvalPartial.
+type StreamableRequestEvalHandler interface {
+	EvalTypeHandler
+
+	// EvalPartialRequest evaluates partial content accumulated so far.
+	EvalPartialRequest(ctx context.Context, req PartialEvalRequest) (*EvalResult, error)
+}
+
 // ParamValidator is an optional interface for EvalTypeHandler implementations
 // that have required or strictly-typed params. Handlers without required
 // params need not implement it.

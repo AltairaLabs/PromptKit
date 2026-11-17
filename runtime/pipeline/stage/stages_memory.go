@@ -86,7 +86,9 @@ func (s *MemoryRetrievalStage) Process(
 	}
 
 	if s.retriever != nil && s.turnState != nil && len(messages) > 0 {
-		memories, err := s.retrieve(ctx, messages)
+		memories, err := memory.RetrieveContextFor(ctx, s.retriever, memory.ContextRequest{
+			Scope: s.scope, Messages: messages, Caller: s.caller,
+		})
 		if err != nil {
 			logger.Error("Memory retrieval failed", "error", err)
 		}
@@ -107,17 +109,6 @@ func (s *MemoryRetrievalStage) Process(
 		}
 	}
 	return nil
-}
-
-// retrieve asks the retriever for the turn's memories, with the caller when
-// it implements memory.ContextRequestRetriever.
-func (s *MemoryRetrievalStage) retrieve(ctx context.Context, messages []types.Message) ([]*memory.Memory, error) {
-	if r, ok := s.retriever.(memory.ContextRequestRetriever); ok {
-		return r.RetrieveContextRequest(ctx, memory.ContextRequest{
-			Scope: s.scope, Messages: messages, Caller: s.caller,
-		})
-	}
-	return s.retriever.RetrieveContext(ctx, s.scope, messages)
 }
 
 // injectMemoryContext formats the retrieved memories and writes them onto
@@ -204,7 +195,9 @@ func (s *MemoryExtractionStage) Process(
 
 // extractAndSave runs the extractor and saves resulting memories.
 func (s *MemoryExtractionStage) extractAndSave(ctx context.Context, messages []types.Message) {
-	memories, err := s.extract(ctx, messages)
+	memories, err := memory.ExtractFor(ctx, s.extractor, memory.ContextRequest{
+		Scope: s.scope, Messages: messages, Caller: s.caller,
+	})
 	if err != nil {
 		logger.Error("Memory extraction failed", "error", err)
 		return
@@ -217,31 +210,11 @@ func (s *MemoryExtractionStage) extractAndSave(ctx context.Context, messages []t
 		if m.GetProvenance() == "" {
 			m.SetProvenance(memory.ProvenanceAgentExtracted)
 		}
-		if saveErr := s.save(ctx, m); saveErr != nil {
+		if saveErr := memory.SaveFor(ctx, s.store, m, s.caller); saveErr != nil {
 			logger.Error("Memory save failed", "id", m.ID, "error", saveErr)
 		}
 	}
 	if len(memories) > 0 {
 		logger.Debug("Memories extracted and saved", "count", len(memories))
 	}
-}
-
-// extract asks the extractor for the turn's memories, with the caller when it
-// implements memory.ContextRequestExtractor.
-func (s *MemoryExtractionStage) extract(ctx context.Context, messages []types.Message) ([]*memory.Memory, error) {
-	if e, ok := s.extractor.(memory.ContextRequestExtractor); ok {
-		return e.ExtractRequest(ctx, memory.ContextRequest{
-			Scope: s.scope, Messages: messages, Caller: s.caller,
-		})
-	}
-	return s.extractor.Extract(ctx, s.scope, messages)
-}
-
-// save saves m, with the caller when the store implements
-// memory.OptionsSaver.
-func (s *MemoryExtractionStage) save(ctx context.Context, m *memory.Memory) error {
-	if saver, ok := s.store.(memory.OptionsSaver); ok {
-		return saver.SaveWithOptions(ctx, m, memory.SaveOptions{Caller: s.caller})
-	}
-	return s.store.Save(ctx, m)
 }

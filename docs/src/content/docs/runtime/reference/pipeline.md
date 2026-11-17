@@ -3530,7 +3530,7 @@ func (s *MediaExtractStage) Process(ctx context.Context, input <-chan StreamElem
 Process implements the Stage interface. Extracts media from messages and emits individual elements for each.
 
 <a name="MemoryExtractionStage"></a>
-## type [MemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L143-L149>)
+## type [MemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L134-L140>)
 
 MemoryExtractionStage extracts memories from the conversation after the provider responds. Runs late in the pipeline \(before state persist\). Calls Extractor.Extract\(\) with the conversation messages and saves results via Store.Save\(\).
 
@@ -3544,7 +3544,7 @@ type MemoryExtractionStage struct {
 ```
 
 <a name="NewMemoryExtractionStage"></a>
-### func [NewMemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L152-L154>)
+### func [NewMemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L143-L145>)
 
 ```go
 func NewMemoryExtractionStage(extractor memory.Extractor, store memory.Store, scope map[string]string) *MemoryExtractionStage
@@ -3553,7 +3553,7 @@ func NewMemoryExtractionStage(extractor memory.Extractor, store memory.Store, sc
 NewMemoryExtractionStage creates an extraction stage.
 
 <a name="MemoryExtractionStage.Process"></a>
-### func \(\*MemoryExtractionStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L173-L177>)
+### func \(\*MemoryExtractionStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L164-L168>)
 
 ```go
 func (s *MemoryExtractionStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3562,7 +3562,7 @@ func (s *MemoryExtractionStage) Process(ctx context.Context, input <-chan Stream
 Process implements Stage.
 
 <a name="MemoryExtractionStage.WithCaller"></a>
-### func \(\*MemoryExtractionStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L167>)
+### func \(\*MemoryExtractionStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L158>)
 
 ```go
 func (s *MemoryExtractionStage) WithCaller(caller types.Caller) *MemoryExtractionStage

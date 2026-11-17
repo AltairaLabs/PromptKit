@@ -111,7 +111,7 @@ func (accountExecutor) ExecuteCall(
 
 Register it with `sdk.WithToolExecutor(name, executor)` or `conv.OnToolExecutor`. An executor you pass to `sdk.WithA2AToolExecutor` to govern remote A2A agent calls receives the caller the same way.
 
-`tools.RepositoryToolExecutor`, which answers calls from a mock repository and falls back to the executor it wraps, hands that executor the whole call, so a wrapped `CallExecutor` or `AsyncCallExecutor` still receives the caller.
+`tools.RepositoryToolExecutor`, which answers calls from a mock repository and falls back to the executor it wraps, hands a wrapped `CallExecutor` the whole call, caller included. It runs any other executor through `Execute`, and never suspends a call.
 
 An executor that implements only `tools.AsyncToolExecutor` does not receive the caller. Implement `tools.AsyncCallExecutor` instead. An executor that implements `AsyncToolExecutor` and `CallExecutor` but not `AsyncCallExecutor` gets the caller on synchronous calls and none on asynchronous ones.
 
@@ -140,7 +140,7 @@ Register it with `sdk.WithToolHook(tenantPolicy{})`.
 
 An exec hook receives the caller in the JSON on its stdin, as `"Caller": {"ID": "...", "Claims": {...}}` inside the request or event it handles.
 
-`hooks.ProviderRequest.Caller` carries the caller to provider hooks, in `BeforeCall` and `AfterCall`, so a per-tenant guardrail can judge a turn by who it acts for. A guardrail built from an eval handler passes it on as `evals.EvalContext.Caller`.
+`hooks.ProviderRequest.Caller` carries the caller to provider hooks, in `BeforeCall` and `AfterCall`, so a per-tenant guardrail can judge a turn by who it acts for. `guardrails.InputFunc` and `guardrails.OutputFunc` receive it on `hooks.InputRequest.Caller` and `hooks.OutputRequest.Caller`. A guardrail built from an eval handler passes it on as `evals.EvalContext.Caller`, and while streaming to a handler that implements `evals.StreamableRequestEvalHandler`, on `evals.PartialEvalRequest.Caller`.
 
 A provider hook that also implements `hooks.ChunkRequestInterceptor` judges each streamed chunk with the caller. PromptKit calls its `InterceptChunk` in place of `OnChunk`:
 
@@ -194,17 +194,22 @@ func (r tenantRetriever) RetrieveContextRequest(
 
 A memory extractor (`sdk.WithMemoryExtractor`) receives it the same way when it implements `memory.ContextRequestExtractor`.
 
-A memory store you pass to `sdk.WithMemory` receives the caller of the model's memory tool calls on `memory.RetrieveOptions.Caller` (`memory__recall`), `memory.ListOptions.Caller` (`memory__list`) and `memory.DeleteOptions.Caller` (`memory__forget`, for a store that implements `memory.ExtrasDeleter`). A store that implements `memory.OptionsSaver` saves through `SaveWithOptions`, with the caller on `memory.SaveOptions.Caller`, for `memory__remember` and for the memories the extractor produces. A store with only `Save` does not receive it.
+A memory store you pass to `sdk.WithMemory` receives the caller of the model's memory tool calls on `memory.RetrieveOptions.Caller` (`memory__recall`) and `memory.ListOptions.Caller` (`memory__list`). Writes reach it with the caller only through two optional interfaces:
+
+- `memory.OptionsSaver`: `memory__remember` and the memories the extractor produces are saved through `SaveWithOptions`, with the caller on `memory.SaveOptions.Caller`. A store with only `Save` does not receive it.
+- `memory.ExtrasDeleter`: `memory__forget` deletes through `DeleteWithOptions`, with the caller on `memory.DeleteOptions.Caller`. A store with only `Delete` does not receive it.
+
+A store that scopes reads by caller must implement both, or a caller's writes go unauthorized. When a store or retriever takes the caller anywhere but the store lacks either interface, PromptKit logs a warning naming what is missing when it registers the memory tools. `DeleteAll` never receives the caller; PromptKit does not call it.
 
 ## 8. Read it in an eval handler
 
 `evals.EvalContext.Caller` carries the caller to the eval handlers a conversation runs, per turn and at session end. `sdk.Evaluate` passes `EvaluateOpts.Caller` the same way.
 
-The built-in `tool_exec` eval runs its tool with the caller on the call, so a `CallExecutor` behind it authorizes the eval's call as it would the conversation's.
+The built-in `tool_exec` eval runs its tool with the caller on the call, so a `CallExecutor` behind it authorizes the eval's call as it would the conversation's. An exec eval handler receives it in the JSON on its stdin, as `"caller": {"ID": "...", "Claims": {...}}` inside `context`.
 
 ## 9. Serve A2A clients as themselves
 
-The A2A protocol carries no caller identity of its own: your authentication middleware puts it on the HTTP request. `sdk.A2ACallerOpener` opens each conversation for the caller of the request that opens its context. Pass it to `sdk.NewA2AServerFor`, with a function that reads the caller from the request:
+The A2A protocol carries no caller identity of its own: your authentication middleware puts it on the HTTP request. `sdk.A2ACallerOpener` opens each conversation for the caller of the request that opens its context. Serve it with `sdk.NewA2AServerFor`, which takes a function naming the caller of each request:
 
 ```go
 callerOf := func(r *http.Request) types.Caller {
@@ -212,15 +217,16 @@ callerOf := func(r *http.Request) types.Caller {
 	return types.Caller{ID: id.Subject, Claims: map[string]any{"tenant": id.Tenant}}
 }
 
-srv := sdk.NewA2AServerFor(
-	sdk.A2ACallerOpener("./app.pack.json", "assistant", callerOf),
-	a2aserver.WithTaskOwner(func(r *http.Request) string { return callerOf(r).ID }),
-)
+open, err := sdk.A2ACallerOpener("./app.pack.json", "assistant", callerOf)
+if err != nil {
+	log.Fatal(err)
+}
+srv := sdk.NewA2AServerFor(func(r *http.Request) string { return callerOf(r).ID }, open)
 ```
 
-The server keeps one conversation per context ID, opened by the first message that names the context, and that conversation acts for the caller who opened it. `a2aserver.WithTaskOwner` makes the server refuse a message from another caller into that context, so pass it as well.
+The server keeps one conversation per context ID, opened by the first message that names the context, and that conversation belongs to the caller who opened it. A message from another caller naming the context is refused with an invalid-params error, and a request the function gives no identity is refused as unauthorized. Opening a context does not hold up messages for other contexts.
 
-The caller `A2ACallerOpener` reads replaces a `WithCaller` in its options. With `a2aserver.NewServerFor` you can open conversations your own way: its opener receives the request alongside the context ID.
+`A2ACallerOpener` returns an error for a nil `callerOf`. The caller it reads replaces a `WithCaller` in its options. With `a2aserver.NewServerFor` you can open conversations your own way: its opener receives the request alongside the context ID.
 
 ## What PromptKit does with the caller
 

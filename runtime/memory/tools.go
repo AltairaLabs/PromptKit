@@ -196,7 +196,7 @@ func (e *Executor) remember(
 	// Always set provenance — overwrites any LLM-provided value.
 	m.SetProvenance(ProvenanceUserRequested)
 
-	if err := saveFor(ctx, e.store, m, caller); err != nil {
+	if err := SaveFor(ctx, e.store, m, caller); err != nil {
 		return nil, fmt.Errorf("memory remember: %w", err)
 	}
 

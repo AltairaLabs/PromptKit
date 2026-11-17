@@ -22,3 +22,14 @@ type ContextRequestRetriever interface {
 	Retriever
 	RetrieveContextRequest(ctx context.Context, req ContextRequest) ([]*Memory, error)
 }
+
+// RetrieveContextFor asks r for the memories relevant to req: through
+// RetrieveContextRequest when r implements ContextRequestRetriever, else
+// through RetrieveContext, which does not see the caller. The retrieval stage
+// retrieves through it.
+func RetrieveContextFor(ctx context.Context, r Retriever, req ContextRequest) ([]*Memory, error) {
+	if cr, ok := r.(ContextRequestRetriever); ok {
+		return cr.RetrieveContextRequest(ctx, req)
+	}
+	return r.RetrieveContext(ctx, req.Scope, req.Messages)
+}
