@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -52,33 +51,10 @@ func (p *Provider) toolMessageText(result *types.MessageToolResult) string {
 		lifted++
 		liftedKind = part.Type
 	}
-	if note := attachedMediaNote(lifted, liftedKind); note != "" {
+	if note := providers.AttachedToolMediaNote(lifted, liftedKind); note != "" {
 		notes = append([]string{note}, notes...)
 	}
-	return withToolNotes(result.GetTextContent(), notes)
-}
-
-// attachedMediaNote is the note saying a tool's media follows in the next
-// user message: lifted parts, of kind when there is one; "" when none.
-func attachedMediaNote(lifted int, kind string) string {
-	switch {
-	case lifted == 1:
-		return fmt.Sprintf("[The %s this tool returned is attached in the next user message.]", kind)
-	case lifted > 1:
-		return fmt.Sprintf("[The %d media parts this tool returned are attached in the next user message.]", lifted)
-	}
-	return ""
-}
-
-// withToolNotes is a tool result's text followed by notes, one per line.
-func withToolNotes(text string, notes []string) string {
-	if len(notes) == 0 {
-		return text
-	}
-	if text == "" {
-		return strings.Join(notes, "\n")
-	}
-	return text + "\n" + strings.Join(notes, "\n")
+	return providers.JoinToolNotes(result.GetTextContent(), notes)
 }
 
 // liftedMediaMessages are the user messages that carry the media of results,

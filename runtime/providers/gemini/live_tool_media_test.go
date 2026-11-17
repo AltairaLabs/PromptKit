@@ -154,7 +154,7 @@ func TestLiveToolResponse_UnloadableMediaIsDescribed(t *testing.T) {
 
 // Whether a Live model takes media in a function response is read from its
 // version, also when it is named by a Vertex resource; a name without a
-// version is taken to be a current model.
+// version is not known to take it.
 func TestTakesToolMedia_ByModelVersion(t *testing.T) {
 	cases := map[string]bool{
 		"gemini-3.8-live":               true,
@@ -162,7 +162,10 @@ func TestTakesToolMedia_ByModelVersion(t *testing.T) {
 		"projects/p1/locations/us-central1/publishers/google/models/gemini-3.8-live":       true,
 		"projects/p1/locations/us-central1/publishers/google/models/gemini-live-2.5-flash": false,
 		"gemini-2.5-flash-native-audio-preview-12-2025":                                    false,
-		"gemini-live-latest": true,
+		"gemini-live-latest":     false,
+		"tunedModels/my-model":   false,
+		"gemini-3-flash-preview": true,
+		"gemini-flash-latest":    false,
 	}
 	for model, want := range cases {
 		assert.Equal(t, want, takesToolMedia(model), model)

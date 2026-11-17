@@ -117,10 +117,10 @@ func (s *RealtimeSession) toolOutputAndMedia(
 		content = append(content, c)
 		kind = part.Type
 	}
-	if note := attachedMediaNote(len(content), kind); note != "" {
+	if note := providers.AttachedToolMediaNote(len(content), kind); note != "" {
 		notes = append([]string{note}, notes...)
 	}
-	return withToolNotes(resp.Result, notes), content
+	return providers.JoinToolNotes(resp.Result, notes), content
 }
 
 // realtimeMediaContent converts a tool result's media part to user message

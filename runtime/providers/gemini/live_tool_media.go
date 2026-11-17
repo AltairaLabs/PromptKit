@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -87,14 +88,7 @@ func (s *StreamSession) liveToolMedia(
 		}
 		parts = append(parts, inline)
 	}
-	text := resp.Result
-	if len(notes) > 0 {
-		if text != "" {
-			text += "\n"
-		}
-		text += strings.Join(notes, "\n")
-	}
-	return text, parts
+	return providers.JoinToolNotes(resp.Result, notes), parts
 }
 
 // liveToolPart converts a tool result's media part to a function response
@@ -125,13 +119,18 @@ func (s *StreamSession) liveToolPart(
 	}}, ""
 }
 
-// takesToolMedia reports whether a Live model sees media in a function
-// response: Gemini 3 and later. A name without a version is taken to be a
-// current model.
+// modelMajorVersion matches the major version in a Gemini model name, dotted
+// or not: "gemini-3.8-flash", "gemini-3-flash-preview", "gemini-live-2.5-flash".
+var modelMajorVersion = regexp.MustCompile(`(?:^|-)(\d+)(?:\.\d+)?(?:-|$)`)
+
+// takesToolMedia reports whether a model takes media in a function
+// response: Gemini 3 and later, Live or not. A model whose name carries no
+// version (an alias such as "gemini-flash-latest", a tuned model) is not
+// known to, so its tool media is described or sent after the round instead.
 func takesToolMedia(model string) bool {
-	m := liveModelVersion.FindStringSubmatch(baseModelName(model))
+	m := modelMajorVersion.FindStringSubmatch(baseModelName(model))
 	if m == nil {
-		return true
+		return false
 	}
 	major, _ := strconv.Atoi(m[1]) // digits only: an overflow reads as the largest int
 	return major >= firstToolMediaMajor
