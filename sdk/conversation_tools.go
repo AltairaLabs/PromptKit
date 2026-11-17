@@ -612,6 +612,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	for _, res := range resolutions {
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(c.continuedResult(ctx, calls, res)))
 	}
+	c.settled(resolutions)
 
 	// Give the model every result in one call: a provider that requires each
 	// call of a round to be answered rejects a request missing any of them.
@@ -668,6 +669,7 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 		results = append(results, tr)
 		responses = append(responses, toolResponseOf(tr, len(res.Parts) > 0 && tr.Error == ""))
 	}
+	c.settled(resolutions)
 
 	// The history records each result as Continue's history would, with its
 	// error and error type, where the session can take them.

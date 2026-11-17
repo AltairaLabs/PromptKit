@@ -112,7 +112,7 @@ func TestDuplexSession_SubmittedToolResultsCarryTheCallName(t *testing.T) {
 	// An answered call is forgotten, so a long session does not accumulate
 	// every call it ever made.
 	ds := sess.(*duplexSession)
-	ds.callNamesMu.Lock()
-	defer ds.callNamesMu.Unlock()
-	assert.Empty(t, ds.callNames)
+	ds.callsMu.Lock()
+	defer ds.callsMu.Unlock()
+	assert.Empty(t, ds.calls)
 }

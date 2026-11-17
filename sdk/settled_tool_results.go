@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
@@ -61,53 +62,199 @@ func (c *Conversation) continuedResult(
 	return types.NewTextToolResult(res.ID, call.Name, given.Text)
 }
 
-// clientAnswer is the tool result Resume gives the model for a client's
-// answer res: what the client sent, unformatted and not truncated (it is also
-// the AG-UI TOOL_CALL_RESULT), passed through the conversation's
-// ToolResultRewriter hooks.
+// resumeResult is the tool result Resume gives the model for a client's
+// answer res: the rejection, the failure (with the partial output the tool
+// produced, rewritten), or what the client sent, unformatted and not
+// truncated (it is also the AG-UI TOOL_CALL_RESULT), passed through the
+// conversation's ToolResultRewriter hooks. It names the tool the suspended
+// turn called under the answer's ID.
+func (c *Conversation) resumeResult(
+	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
+) types.MessageToolResult {
+	var result types.MessageToolResult
+	switch {
+	case res.Rejected:
+		result = types.NewTextToolResult(res.ID, "", c.rejectionText(calls()[res.ID].Name, res.RejectionReason))
+	case res.Error != nil:
+		result = c.failedClientAnswer(ctx, calls, res)
+	default:
+		result = c.clientAnswer(ctx, calls, res)
+	}
+	// A provider matches a result to its call by the tool's name as well as
+	// the call ID (Gemini's functionResponse carries only the name).
+	result.Name = calls()[res.ID].Name
+	return result
+}
+
+// failedClientAnswer is the result Resume gives the model for a client tool
+// that failed: its partial output, rewritten, when it produced one, then the
+// error.
+func (c *Conversation) failedClientAnswer(
+	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
+) types.MessageToolResult {
+	errText := toolResultErrorText(res.Error)
+	content := "Tool error: " + errText
+	if len(res.ResultJSON) > 0 {
+		call, known := c.callFor(calls, res)
+		partial, _, err := c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), nil)
+		if err != nil {
+			return c.settledFailure(ctx, call, err)
+		}
+		content = partial + "\n\n" + content
+	}
+	result := types.NewTextToolResult(res.ID, "", content)
+	result.Error = errText
+	return result
+}
+
+// clientAnswer is the result Resume gives the model for what a client sent.
 func (c *Conversation) clientAnswer(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
 	call, known := c.callFor(calls, res)
-	rewrite, err := c.rewriterFor(ctx, call, known)
+	text, parts, err := c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), res.Parts)
 	if err != nil {
 		return c.settledFailure(ctx, call, err)
 	}
 	if len(res.Parts) > 0 {
-		parts, partsErr := rewriteTextParts(res.Parts, rewrite)
-		if partsErr != nil {
-			return c.settledFailure(ctx, call, partsErr)
-		}
 		return types.MessageToolResult{ID: res.ID, Parts: parts}
-	}
-	text := string(res.ResultJSON)
-	if rewrite != nil {
-		if text, err = rewrite(text); err != nil {
-			return c.settledFailure(ctx, call, err)
-		}
 	}
 	return types.NewTextToolResult(res.ID, "", text)
 }
 
+// rewriteAnswer passes a client's answer to call, its text or (when given)
+// its parts, through the conversation's ToolResultRewriter hooks. The
+// outcome for the same answer is kept until the answer is used, so the
+// hooks see an answer once however often it is prepared
+// (ToolResultForModel, then Resume).
+func (c *Conversation) rewriteAnswer(
+	ctx context.Context, call types.MessageToolCall, known bool, text string, parts []types.ContentPart,
+) (string, []types.ContentPart, error) {
+	if kept, ok := c.keptRewrite(call.ID, text, parts); ok {
+		return kept.outText, kept.outParts, kept.err
+	}
+	out := answerRewrite{inText: text, inParts: parts, outText: text, outParts: parts}
+	rewrite, err := c.rewriterFor(ctx, call, known)
+	switch {
+	case err != nil:
+		out.err = err
+	case rewrite == nil:
+	case len(parts) > 0:
+		out.outParts, out.err = rewriteTextParts(parts, rewrite)
+	default:
+		out.outText, out.err = rewrite(text)
+	}
+	c.keepRewrite(call.ID, out)
+	return out.outText, out.outParts, out.err
+}
+
+// answerRewrite is the outcome of rewriting a client's answer.
+type answerRewrite struct {
+	inText   string
+	inParts  []types.ContentPart
+	outText  string
+	outParts []types.ContentPart
+	err      error
+}
+
+// keptRewrite returns the outcome kept for the answer to call id, when it was
+// for the same answer.
+func (c *Conversation) keptRewrite(id, text string, parts []types.ContentPart) (answerRewrite, bool) {
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	kept, ok := c.rewrites[id]
+	if !ok || kept.inText != text || !reflect.DeepEqual(kept.inParts, parts) {
+		return answerRewrite{}, false
+	}
+	return kept, true
+}
+
+// keepRewrite keeps the outcome of rewriting the answer to call id.
+func (c *Conversation) keepRewrite(id string, out answerRewrite) {
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	if c.rewrites == nil {
+		c.rewrites = make(map[string]answerRewrite)
+	}
+	c.rewrites[id] = out
+}
+
 // rewriteTextParts passes each text part of parts through rewrite, keeping
-// media parts where they are. Nil rewrite returns parts as they are.
+// media parts where they are and each part's other fields. Nil rewrite
+// returns parts as they are.
 func rewriteTextParts(parts []types.ContentPart, rewrite func(string) (string, error)) ([]types.ContentPart, error) {
 	if rewrite == nil {
 		return parts, nil
 	}
 	out := make([]types.ContentPart, len(parts))
 	for i, p := range parts {
+		out[i] = p
 		if p.Type != types.ContentTypeText || p.Text == nil {
-			out[i] = p
 			continue
 		}
 		text, err := rewrite(*p.Text)
 		if err != nil {
 			return nil, err
 		}
-		out[i] = types.NewTextPart(text)
+		out[i].Text = &text
 	}
 	return out, nil
+}
+
+// ToolResultForModel returns the tool result [Conversation.Resume] will give
+// the model for the answer stored for the client tool call callID
+// ([Conversation.SendToolResult], [Conversation.SendToolResultMultimodal],
+// [Conversation.FailClientTool] or [Conversation.RejectClientTool]): the
+// answer as the conversation's ToolResultRewriter hooks rewrite it. The hooks
+// see the answer once: Resume gives the model this same result. It returns
+// false when no answer is stored for callID. An adapter that shows a client
+// what the model is given before the turn resumes (the AG-UI adapter, when
+// only some calls are answered) uses it.
+func (c *Conversation) ToolResultForModel(ctx context.Context, callID string) (*types.MessageToolResult, bool) {
+	c.settledMu.Lock()
+	res, ok := c.answers[callID]
+	c.settledMu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	preview := *res
+	calls := c.lazyCalls(ctx)
+	c.validateDeferredResults([]*sdktools.ToolResolution{&preview}, callNamesOf(calls))
+	result := c.resumeResult(ctx, calls, &preview)
+	return &result, true
+}
+
+// addAnswer stores res, a client's answer, for Resume (or Continue) to give
+// the model, and keeps it by call for ToolResultForModel.
+func (c *Conversation) addAnswer(res *sdktools.ToolResolution) {
+	c.resolvedStore.Add(res)
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	if c.answers == nil {
+		c.answers = make(map[string]*sdktools.ToolResolution)
+	}
+	c.answers[res.ID] = res
+}
+
+// settled forgets what was kept for resolutions, now given to the model: the
+// answers stored for their calls, their rewrites and the approvals recorded
+// for them.
+func (c *Conversation) settled(resolutions []*sdktools.ToolResolution) {
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	for _, res := range resolutions {
+		delete(c.answers, res.ID)
+		delete(c.rewrites, res.ID)
+		delete(c.admitted, res.ID)
+	}
+}
+
+// forgetSettled forgets everything kept for answers and approvals not yet
+// given to the model: the turn they belong to was abandoned.
+func (c *Conversation) forgetSettled() {
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	c.answers, c.rewrites, c.admitted = nil, nil, nil
 }
 
 // toolResponseOf is the response a realtime session is given for tr, with
@@ -125,17 +272,20 @@ func toolResponseOf(tr types.MessageToolResult, multimodal bool) providers.ToolR
 func (c *Conversation) settledFailure(
 	ctx context.Context, call types.MessageToolCall, err error,
 ) types.MessageToolResult {
-	if c.config != nil && c.config.eventBus != nil {
+	var emitter *events.Emitter
+	if c.config != nil {
+		emitter = c.newEmitter(c.config.eventBus)
+	}
+	if emitter != nil {
 		var labels map[string]string
 		if c.toolRegistry != nil {
 			if desc := c.toolRegistry.Get(call.Name); desc != nil {
 				labels = desc.Labels
 			}
 		}
-		events.NewEmitter(c.config.eventBus, "", c.ID(), c.ID()).WithUserID(c.config.userID).
-			ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
-				ToolName: call.Name, CallID: call.ID, Error: err, Labels: labels,
-			})
+		emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
+			ToolName: call.Name, CallID: call.ID, Error: err, Labels: labels,
+		})
 	}
 	return tools.ErrorResult(call.ID, call.Name, err)
 }
@@ -190,16 +340,28 @@ func (c *Conversation) rewriterFor(
 	}, nil
 }
 
-// callFor is the call res settles: the call the suspended assistant message
-// made under its ID, else the held call the conversation admitted it from
-// (recordAdmitted), with the arguments an approval with edits ran with. known
-// is false when neither names it; the call then carries only the ID.
+// callFor is the call res settles, from the first that knows it:
+//
+//   - the duplex session's record of the calls the model made (the current
+//     call under a reused ID, and known before the tool-call message reaches
+//     the history);
+//   - the held call the conversation approved in the current turn
+//     (recordAdmitted);
+//   - the suspended turn's last assistant message in the history.
+//
+// An approval with edits gives the arguments it ran with. known is false when
+// none names the call; the call then carries only the ID.
 func (c *Conversation) callFor(
 	calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) (call types.MessageToolCall, known bool) {
-	call, known = calls()[res.ID]
-	if held, ok := c.takeAdmitted(res.ID); ok && !known {
-		call, known = held, true
+	if recorder, ok := c.duplexSession.(toolCallRecorder); ok {
+		call, known = recorder.ToolCall(res.ID)
+	}
+	if !known {
+		call, known = c.admittedCall(res.ID)
+	}
+	if !known {
+		call, known = calls()[res.ID]
 	}
 	call.ID = res.ID
 	if res.Edited && res.Arguments != nil {
@@ -210,9 +372,31 @@ func (c *Conversation) callFor(
 	return call, known
 }
 
+// toolCallRecorder is a duplex session that records the calls the model made
+// and counts the turns it completed.
+type toolCallRecorder interface {
+	ToolCall(id string) (types.MessageToolCall, bool)
+	TurnsCompleted() int64
+}
+
+// duplexTurn is how many turns the duplex session has completed; zero for a
+// unary conversation.
+func (c *Conversation) duplexTurn() int64 {
+	if recorder, ok := c.duplexSession.(toolCallRecorder); ok {
+		return recorder.TurnsCompleted()
+	}
+	return 0
+}
+
+// admittedCall is a held call approved in the current turn.
+type admittedCall struct {
+	call types.MessageToolCall
+	turn int64
+}
+
 // recordAdmitted records the held call id of tool name, with the arguments
-// the model proposed, as approved: its result's request is taken from it
-// when the history no longer names the call.
+// the model proposed, as approved in the current turn: its result's request
+// is taken from it when no other record names the call.
 func (c *Conversation) recordAdmitted(id, name string, args map[string]any) {
 	call := types.MessageToolCall{ID: id, Name: name}
 	if args != nil {
@@ -220,26 +404,29 @@ func (c *Conversation) recordAdmitted(id, name string, args map[string]any) {
 			call.Args = raw
 		}
 	}
-	c.admittedMu.Lock()
-	defer c.admittedMu.Unlock()
+	turn := c.duplexTurn()
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
 	if c.admitted == nil {
-		c.admitted = make(map[string]types.MessageToolCall)
+		c.admitted = make(map[string]admittedCall)
 	}
-	c.admitted[id] = call
+	c.admitted[id] = admittedCall{call: call, turn: turn}
 }
 
-// takeAdmitted returns and forgets the call recordAdmitted recorded under id.
-func (c *Conversation) takeAdmitted(id string) (types.MessageToolCall, bool) {
-	c.admittedMu.Lock()
-	defer c.admittedMu.Unlock()
-	call, ok := c.admitted[id]
-	delete(c.admitted, id)
-	return call, ok
-}
-
-// forgetAdmitted drops every call recordAdmitted recorded.
-func (c *Conversation) forgetAdmitted() {
-	c.admittedMu.Lock()
-	defer c.admittedMu.Unlock()
-	c.admitted = nil
+// admittedCall returns the call recordAdmitted recorded under id in the
+// current turn. One recorded in a turn that has since ended is dropped: a
+// later response may reuse its ID for another call.
+func (c *Conversation) admittedCall(id string) (types.MessageToolCall, bool) {
+	turn := c.duplexTurn()
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	rec, ok := c.admitted[id]
+	if !ok {
+		return types.MessageToolCall{}, false
+	}
+	if rec.turn != turn {
+		delete(c.admitted, id)
+		return types.MessageToolCall{}, false
+	}
+	return rec.call, true
 }

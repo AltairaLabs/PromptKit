@@ -55,6 +55,13 @@ type clientToolFailer interface {
 	FailClientTool(ctx context.Context, callID string, partial any, err error) error
 }
 
+// modelResultReader is implemented by conversations that tell the tool
+// result they will give the model for a stored client answer
+// (*sdk.Conversation does).
+type modelResultReader interface {
+	ToolResultForModel(ctx context.Context, callID string) (*types.MessageToolResult, bool)
+}
+
 // workflowStateReader is implemented by conversations that run a workflow
 // state machine (*sdk.WorkflowConversation does).
 type workflowStateReader interface {
@@ -634,8 +641,9 @@ func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Resp
 		return nil, resolveErr
 	}
 	if !answersAll(pending, results) {
+		// Each result as the model will be given it when the turn resumes.
 		for i := range results {
-			st.emitResult(results[i].CallID, resultText(&results[i]))
+			st.emitResult(results[i].CallID, a.answerText(st.ctx, &results[i]))
 		}
 		return nil, nil
 	}
@@ -683,6 +691,17 @@ func toolMessagesByCall(msgs []types.Message) map[string]string {
 		}
 	}
 	return out
+}
+
+// answerText is the text the model will be given for a stored answer r: the
+// conversation's own (rewritten) result where it can tell it, else resultText.
+func (a *EventAdapter) answerText(ctx context.Context, r *ToolResult) string {
+	if reader, ok := a.sender.(modelResultReader); ok {
+		if result, found := reader.ToolResultForModel(ctx, r.CallID); found {
+			return toolResultText(result)
+		}
+	}
+	return resultText(r)
 }
 
 // resultText renders a caller-supplied result the way the conversation hands
@@ -902,6 +921,16 @@ func (w *workflowSender) RejectClientTool(ctx context.Context, callID, reason st
 	if conv := w.wc.ActiveConversation(); conv != nil {
 		conv.RejectClientTool(ctx, callID, reason)
 	}
+}
+
+// ToolResultForModel tells the result the active conversation will give the
+// model for the answer stored for callID.
+func (w *workflowSender) ToolResultForModel(ctx context.Context, callID string) (*types.MessageToolResult, bool) {
+	conv := w.wc.ActiveConversation()
+	if conv == nil {
+		return nil, false
+	}
+	return conv.ToolResultForModel(ctx, callID)
 }
 
 // Resume continues the active conversation after its client tools are answered.

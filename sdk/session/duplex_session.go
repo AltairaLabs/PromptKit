@@ -39,10 +39,15 @@ type duplexSession struct {
 	// opened with, nil in pipeline mode; ForkSession passes it on.
 	streamConfig *providers.StreamingInputConfig
 
-	// callNames maps each tool call the model made to its tool name, so a
-	// result submitted by call ID alone can be named (#2589).
-	callNamesMu sync.Mutex
-	callNames   map[string]string
+	// calls maps each tool call the model made, by ID, to the call (its name
+	// and arguments), so a result submitted by call ID alone can be named
+	// (#2589) and the request it answers known. A later response that reuses
+	// an ID replaces the earlier call under it.
+	callsMu sync.Mutex
+	calls   map[string]types.MessageToolCall
+	// turnsCompleted counts the replies the model completed (see
+	// TurnsCompleted).
+	turnsCompleted atomic.Int64
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
 	// pipelineRunsTools: the pipeline runs the session's tool calls. Otherwise
 	// a session with toolRegistry runs them, gated by asyncToolChecker, and
@@ -420,6 +425,9 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 				if elem.Source == stage.TextInputTurnSource {
 					continue
 				}
+				if action == streaming.ResponseActionComplete {
+					s.turnsCompleted.Add(1)
+				}
 				chunk := streamElementToStreamChunk(&elem)
 				if !s.forwardChunk(ctx, chunk) {
 					return
@@ -438,7 +446,7 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 //     them (runToolCallsInSession).
 //   - Neither: the turn is forwarded for the caller to answer.
 func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
-	s.rememberCallNames(elem.Message.ToolCalls)
+	s.rememberCalls(elem.Message.ToolCalls)
 	switch {
 	case s.pipelineRunsTools:
 		return nil
@@ -718,29 +726,45 @@ func copyStreamConfig(cfg *providers.StreamingInputConfig) *providers.StreamingI
 	return &cp
 }
 
-// rememberCallNames records the tool name of each call by its ID.
-func (s *duplexSession) rememberCallNames(calls []types.MessageToolCall) {
+// rememberCalls records each call of a response by its ID, replacing any
+// earlier call under the same ID.
+func (s *duplexSession) rememberCalls(calls []types.MessageToolCall) {
 	if len(calls) == 0 {
 		return
 	}
-	s.callNamesMu.Lock()
-	defer s.callNamesMu.Unlock()
-	if s.callNames == nil {
-		s.callNames = make(map[string]string, len(calls))
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	if s.calls == nil {
+		s.calls = make(map[string]types.MessageToolCall, len(calls))
 	}
 	for _, tc := range calls {
-		s.callNames[tc.ID] = tc.Name
+		s.calls[tc.ID] = tc
 	}
+}
+
+// ToolCall returns the call the model made under id that is not answered
+// yet: the latest response's call when a response reused the ID.
+func (s *duplexSession) ToolCall(id string) (types.MessageToolCall, bool) {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	call, ok := s.calls[id]
+	return call, ok
+}
+
+// TurnsCompleted returns how many replies the model has completed in the
+// session: a reply ends the model's turn.
+func (s *duplexSession) TurnsCompleted() int64 {
+	return s.turnsCompleted.Load()
 }
 
 // takeCallName returns the tool name of the call with id and forgets it, or
 // "" if the session never saw it. A call is answered once, so the entry is
 // dropped rather than kept for the life of the session.
 func (s *duplexSession) takeCallName(id string) string {
-	s.callNamesMu.Lock()
-	defer s.callNamesMu.Unlock()
-	name := s.callNames[id]
-	delete(s.callNames, id)
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	name := s.calls[id].Name
+	delete(s.calls, id)
 	return name
 }
 

@@ -310,7 +310,7 @@ func (c *Conversation) SendToolResult(ctx context.Context, callID string, result
 	if err != nil {
 		return fmt.Errorf(errSerializeClientToolResult, err)
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
+	c.addAnswer(&sdktools.ToolResolution{
 		ID:         callID,
 		ResultJSON: resultJSON,
 	})
@@ -339,7 +339,7 @@ func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID stri
 	if len(parts) == 0 {
 		return fmt.Errorf("parts must not be empty")
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
+	c.addAnswer(&sdktools.ToolResolution{
 		ID:    callID,
 		Parts: parts,
 	})
@@ -357,7 +357,7 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 	if closed {
 		return
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
+	c.addAnswer(&sdktools.ToolResolution{
 		ID:              callID,
 		Rejected:        true,
 		RejectionReason: reason,
@@ -377,8 +377,9 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 // A client's result reaches the model as the JSON the client sent, unformatted
 // and not truncated: the stored result is also what an AG-UI consumer is shown
 // as TOOL_CALL_RESULT when the history is replayed. It is passed through the
-// conversation's hooks.ToolResultRewriter hooks, so what is stored, and
-// replayed, is the rewritten text. This differs from [Conversation.Continue] and
+// conversation's hooks.ToolResultRewriter hooks (a failed tool's partial
+// output too), so what is stored, and replayed, is the rewritten text;
+// [Conversation.ToolResultForModel] tells it before Resume runs. This differs from [Conversation.Continue] and
 // [Conversation.ContinueDuplex], which give the model an approved or answered
 // result as a tool the pipeline ran would, formatted, rewritten and capped.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
@@ -499,23 +500,9 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
-		var toolResult types.MessageToolResult
-
-		switch {
-		case res.Rejected:
-			toolResult = types.NewTextToolResult(res.ID, "", c.rejectionText(callNames()[res.ID], res.RejectionReason))
-		case res.Error != nil:
-			toolResult = types.NewTextToolResult(res.ID, "", toolErrorContent(res))
-			toolResult.Error = toolResultErrorText(res.Error)
-		default:
-			toolResult = c.clientAnswer(ctx, calls, res)
-		}
-		// A provider matches a result to its call by the tool's name as well
-		// as the call ID (Gemini's functionResponse carries only the name).
-		toolResult.Name = callNames()[res.ID]
-
-		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(c.resumeResult(ctx, calls, res)))
 	}
+	c.settled(resolutions)
 
 	c.emitClientToolResolvedEvents(resolutions)
 
@@ -846,7 +833,7 @@ func (c *Conversation) discardAbandonedResolutions() {
 	if dropped := c.resolvedStore.PopAll(); len(dropped) > 0 {
 		logger.Debug("discarding tool answers for an abandoned suspended turn", "count", len(dropped))
 	}
-	c.forgetAdmitted()
+	c.forgetSettled()
 }
 
 // answeredSinceLastAssistant lists the calls answered by tool results after the
@@ -859,15 +846,6 @@ func answeredSinceLastAssistant(history []types.Message) []string {
 		}
 	}
 	return ids
-}
-
-// toolErrorContent is what the model is told about a client tool that failed:
-// the partial output it produced, if any, then the error.
-func toolErrorContent(res *sdktools.ToolResolution) string {
-	if len(res.ResultJSON) > 0 {
-		return fmt.Sprintf("%s\n\nTool error: %s", res.ResultJSON, toolResultErrorText(res.Error))
-	}
-	return "Tool error: " + toolResultErrorText(res.Error)
 }
 
 // FailClientTool reports that a deferred client tool failed.
@@ -899,7 +877,7 @@ func (c *Conversation) FailClientTool(ctx context.Context, callID string, partia
 		}
 		res.ResultJSON = data
 	}
-	c.resolvedStore.Add(res)
+	c.addAnswer(res)
 	return nil
 }
 
