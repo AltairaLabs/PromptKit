@@ -205,10 +205,10 @@ func (p *Provider) Model() string {
 
 // Gemini API request/response structures
 type geminiRequest struct {
-	Contents          []geminiContent `json:"contents"`
-	SystemInstruction *geminiContent  `json:"systemInstruction,omitempty"`
-	GenerationConfig  geminiGenConfig `json:"generationConfig"`
-	SafetySettings    []geminiSafety  `json:"safetySettings,omitempty"`
+	Contents          []map[string]any `json:"contents"`
+	SystemInstruction *geminiContent   `json:"systemInstruction,omitempty"`
+	GenerationConfig  geminiGenConfig  `json:"generationConfig"`
+	SafetySettings    []geminiSafety   `json:"safetySettings,omitempty"`
 	// CachedContent references a CachedContent resource holding the stable
 	// system (+tools) prefix for explicit caching. When set, SystemInstruction
 	// must be nil — the API rejects sending both (see gemini_cache.go).
@@ -380,60 +380,6 @@ type geminiSafetyRating struct {
 	Probability string `json:"probability"`
 }
 
-// convertMessagesToGeminiContents converts provider messages to Gemini format.
-// This handles both legacy text-only messages and multimodal messages with audio/image/video.
-//
-// For text-only messages (including SDK-style messages with multiple text parts),
-// content is combined into a single text part via GetContent() to preserve backward
-// compatibility with existing tests and behavior.
-//
-// For messages with actual media content (images, audio, video), each part is
-// converted separately using the multimodal conversion functions.
-func (p *Provider) convertMessagesToGeminiContents(
-	ctx context.Context, messages []types.Message,
-) ([]geminiContent, error) {
-	contents := make([]geminiContent, 0, len(messages))
-	for i := range messages {
-		content, err := p.geminiContentForMessage(ctx, &messages[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
-		}
-		contents = append(contents, content)
-	}
-	return contents, nil
-}
-
-// geminiContentForMessage converts a single provider message to Gemini content.
-// Messages with actual media (images, audio, video) convert each part; text-only
-// messages combine all text via GetContent(). We use HasMediaContent() rather
-// than IsMultimodal() because IsMultimodal() is true even for text-only Parts
-// (SDK-style). A part that cannot be converted is an error: falling back to the
-// message's text used to send the model the question without its media. The
-// message's parts share one MediaLoader, so its media is held to
-// providers.MaxMediaItems and providers.MaxAggregateMediaSize.
-func (p *Provider) geminiContentForMessage(ctx context.Context, msg *types.Message) (geminiContent, error) {
-	role := msg.Role
-	// Gemini uses "user" and "model" roles
-	if role == roleAssistant {
-		role = roleModel
-	}
-
-	if !msg.HasMediaContent() {
-		return geminiContent{Role: role, Parts: []geminiPart{{Text: msg.GetContent()}}}, nil
-	}
-
-	parts := make([]geminiPart, 0, len(msg.Parts))
-	loader := p.MediaLoader()
-	for _, part := range msg.Parts {
-		gPart, err := p.convertPartToGemini(ctx, loader, part)
-		if err != nil {
-			return geminiContent{}, fmt.Errorf("%s part: %w", part.Type, err)
-		}
-		parts = append(parts, gPart)
-	}
-	return geminiContent{Role: role, Parts: parts}, nil
-}
-
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
 func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
 	temperature = providers.ResolveTemperature(&req, p.defaults.Temperature)
@@ -451,7 +397,7 @@ func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temper
 // preparedGeminiRequest is a predict request converted to Gemini format with
 // defaults applied, ready for buildGeminiRequest.
 type preparedGeminiRequest struct {
-	contents          []geminiContent
+	contents          []map[string]any
 	systemInstruction *geminiContent
 	temperature, topP float32
 	maxTokens         int
@@ -475,8 +421,9 @@ func (p *Provider) prepareGeminiRequest(
 		}
 	}
 
-	// Convert conversation messages
-	contents, err := p.convertMessagesToGeminiContents(ctx, req.Messages)
+	// Convert conversation messages with the tool path's serializer, so tool
+	// turns keep their functionCall/functionResponse linkage without tools.
+	contents, err := p.buildToolContents(ctx, req.Messages)
 	if err != nil {
 		return preparedGeminiRequest{}, err
 	}
@@ -508,7 +455,7 @@ func (p *Provider) warnUnsentPenalties(req *providers.PredictionRequest) {
 
 // buildGeminiRequest creates a Gemini API request with standard safety settings
 func (p *Provider) buildGeminiRequest(
-	contents []geminiContent, systemInstruction *geminiContent, temperature, topP float32, maxTokens int,
+	contents []map[string]any, systemInstruction *geminiContent, temperature, topP float32, maxTokens int,
 ) geminiRequest {
 	return geminiRequest{
 		Contents:          contents,

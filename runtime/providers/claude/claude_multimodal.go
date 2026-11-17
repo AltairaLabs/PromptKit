@@ -2,7 +2,6 @@ package claude
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -64,29 +63,6 @@ type claudeContentBlockMultimodal struct {
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
-// convertMessageToClaudeMultimodal converts a single PromptKit message to Claude format
-func (p *Provider) convertMessageToClaudeMultimodal(ctx context.Context, msg types.Message) (claudeMessage, error) {
-	var contentBlocks []interface{}
-
-	// Handle legacy string content
-	if msg.Content != "" && len(msg.Parts) == 0 {
-		contentBlocks = append(contentBlocks, claudeContentBlockMultimodal{
-			Type: contentTypeText,
-			Text: msg.Content,
-		})
-	} else {
-		// Handle multimodal parts
-		blocks, err := p.convertPartsToClaudeBlocks(ctx, msg.Parts)
-		if err != nil {
-			return claudeMessage{}, err
-		}
-		contentBlocks = blocks
-	}
-
-	// Marshal and unmarshal to handle mixed type array
-	return p.buildClaudeMessage(msg.Role, contentBlocks)
-}
-
 // convertPartsToClaudeBlocks converts one message's content parts to Claude
 // content blocks. The parts share one MediaLoader, so the message's media is
 // held to providers.MaxMediaItems and providers.MaxAggregateMediaSize.
@@ -130,27 +106,6 @@ func (p *Provider) convertPartsToClaudeBlocks(ctx context.Context, parts []types
 	}
 
 	return contentBlocks, nil
-}
-
-// buildClaudeMessage creates a claudeMessage from role and content blocks
-func (p *Provider) buildClaudeMessage(role string, contentBlocks []interface{}) (claudeMessage, error) {
-	// Marshal to JSON to handle the mixed type array
-	contentJSON, err := json.Marshal(contentBlocks)
-	if err != nil {
-		return claudeMessage{}, fmt.Errorf("failed to marshal content blocks: %w", err)
-	}
-
-	// Create the message
-	claudeMsg := claudeMessage{
-		Role: role,
-	}
-
-	// Unmarshal into the Content field
-	if err := json.Unmarshal(contentJSON, &claudeMsg.Content); err != nil {
-		return claudeMessage{}, fmt.Errorf("failed to unmarshal content blocks: %w", err)
-	}
-
-	return claudeMsg, nil
 }
 
 // claudeBlockTypeImage is the Claude content-block type for image sources.

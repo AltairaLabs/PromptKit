@@ -124,7 +124,7 @@ func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabili
 // convertMessagesToGemini converts PromptKit messages to Gemini format
 // Handles both legacy text-only and new multimodal messages.
 //
-// Exercised only by tests (the live path uses convertMessagesToGeminiContents);
+// Exercised only by tests (the live path uses buildToolContents);
 // the unused linter runs with tests:false so it cannot see those callers.
 //
 //nolint:unused // covered by unit tests; linter is configured with tests:false
@@ -190,6 +190,8 @@ func (p *Provider) convertMessageToGemini(ctx context.Context, msg types.Message
 
 // convertPartToGemini converts a ContentPart to Gemini's format, loading its
 // media through loader, which the caller shares across one message's parts.
+//
+//nolint:unused // reached only through convertMessageToGemini, which only tests call
 func (p *Provider) convertPartToGemini(
 	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
 ) (geminiPart, error) {
@@ -209,6 +211,8 @@ func (p *Provider) convertPartToGemini(
 }
 
 // convertMediaPartToGemini converts image/audio/video/document parts to Gemini format
+//
+//nolint:unused // reached only through convertMessageToGemini, which only tests call
 func (p *Provider) convertMediaPartToGemini(
 	ctx context.Context, loader *providers.MediaLoader, part types.ContentPart,
 ) (geminiPart, error) {

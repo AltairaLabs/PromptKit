@@ -144,8 +144,8 @@ func TestOllamaRequest_Structure(t *testing.T) {
 	seed := 42
 	req := ollamaRequest{
 		Model: "llama2",
-		Messages: []ollamaMessage{
-			{Role: "user", Content: "Hello"},
+		Messages: []map[string]any{
+			{"role": "user", "content": "Hello"},
 		},
 		Temperature: 0.7,
 		TopP:        0.9,
@@ -273,7 +273,7 @@ func TestPredict_Success(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("Failed to decode request: %v", err)
 		}
-		if len(req.Messages) < 1 || req.Messages[0].Role != "system" {
+		if len(req.Messages) < 1 || req.Messages[0]["role"] != "system" {
 			t.Error("Expected first message to be system message")
 		}
 

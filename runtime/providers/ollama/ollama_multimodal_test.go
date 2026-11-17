@@ -234,7 +234,7 @@ func TestProvider_ConvertMessagesToOllama(t *testing.T) {
 		},
 	}
 
-	messages, err := provider.prepareMessages(context.Background(), req)
+	messages, err := provider.convertRequestMessagesToOllama(context.Background(), req)
 
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
@@ -245,11 +245,11 @@ func TestProvider_ConvertMessagesToOllama(t *testing.T) {
 		t.Errorf("Expected 4 messages, got %d", len(messages))
 	}
 
-	if messages[0].Role != "system" {
-		t.Errorf("Expected first message to be system, got '%s'", messages[0].Role)
+	if messages[0]["role"] != "system" {
+		t.Errorf("Expected first message to be system, got '%v'", messages[0]["role"])
 	}
 
-	if messages[0].Content != "You are a helpful assistant." {
+	if messages[0]["content"] != "You are a helpful assistant." {
 		t.Errorf("System content mismatch")
 	}
 }

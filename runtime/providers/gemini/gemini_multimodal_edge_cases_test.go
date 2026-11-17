@@ -265,7 +265,7 @@ func TestGeminiProvider_BuildGeminiRequest(t *testing.T) {
 		},
 	}
 
-	req := provider.buildGeminiRequest(contents, sysInst, 0.7, 0.9, 1000)
+	req := provider.buildGeminiRequest(contentMaps(t, contents), sysInst, 0.7, 0.9, 1000)
 
 	// Verify the request structure
 	if len(req.Contents) != 1 {

@@ -118,48 +118,21 @@ func TestToolProvider_BuildRequestWithToolMessages(t *testing.T) {
 		t.Fatalf("Expected contents to be array, got: %T", capturedRequest["contents"])
 	}
 
-	// Expected structure:
-	// Content 0: user - "What's the weather?"
-	// Content 1: model - text + functionCall
-	// Content 2: user - functionResponse + text "Thanks! Now check NYC."
-	if len(contents) != 3 {
-		t.Errorf("Expected 3 contents, got %d", len(contents))
-		for i, content := range contents {
-			contentMap := content.(map[string]interface{})
-			t.Logf("Content %d: role=%s, parts=%v", i, contentMap["role"], contentMap["parts"])
-		}
+	// The tool result takes a user turn of its own, ahead of the follow-up:
+	// gemini-2.5-flash answers a turn mixing functionResponse and text with
+	// no parts.
+	got, err := json.Marshal(contents)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	// Check content 2 (user message with functionResponse)
-	content2 := contents[2].(map[string]interface{})
-	if content2["role"] != "user" {
-		t.Errorf("Content 2 should be 'user', got: %s", content2["role"])
-	}
-
-	// Check parts of content 2
-	parts2 := content2["parts"].([]interface{})
-	if len(parts2) != 2 {
-		t.Errorf("Content 2 parts should have 2 items (functionResponse + text), got %d", len(parts2))
-		t.Logf("Parts: %+v", parts2)
-		t.FailNow()
-	}
-
-	// First part should be functionResponse
-	part0 := parts2[0].(map[string]interface{})
-	if _, hasFunctionResponse := part0["functionResponse"]; !hasFunctionResponse {
-		t.Errorf("First part should have 'functionResponse', got: %v", part0)
-	}
-
-	// Verify functionResponse structure
-	funcResp := part0["functionResponse"].(map[string]interface{})
-	if funcResp["name"] != "get_weather" {
-		t.Errorf("Expected function name 'get_weather', got: %s", funcResp["name"])
-	}
-
-	// Second part should be text
-	part1 := parts2[1].(map[string]interface{})
-	if part1["text"] != "Thanks! Now check NYC." {
-		t.Errorf("Expected text 'Thanks! Now check NYC.', got: %s", part1["text"])
+	want := `[{"parts":[{"text":"What's the weather?"}],"role":"user"},` +
+		`{"parts":[{"text":"Let me check the weather for you."},` +
+		`{"functionCall":{"args":{"location":"SF"},"name":"get_weather"}}],"role":"model"},` +
+		`{"parts":[{"functionResponse":{"name":"get_weather","response":{"condition":"sunny","temperature":72}}}],` +
+		`"role":"user"},` +
+		`{"parts":[{"text":"Thanks! Now check NYC."}],"role":"user"}]`
+	if string(got) != want {
+		t.Errorf("contents = %s\nwant       %s", got, want)
 	}
 
 	t.Logf("✅ Tool results properly converted to Gemini functionResponse format")

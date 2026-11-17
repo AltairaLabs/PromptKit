@@ -296,17 +296,8 @@ func (p *Provider) buildMultimodalToolResponse(
 }
 
 // buildMessageParts creates parts array for a message including text, images, and tool calls
-func (p *Provider) buildMessageParts(
-	ctx context.Context, msg types.Message, pendingToolResults []map[string]any,
-) ([]any, error) {
+func (p *Provider) buildMessageParts(ctx context.Context, msg types.Message) ([]any, error) {
 	parts := make([]any, 0)
-
-	// Add pending tool results first if this is a user message
-	if msg.Role == roleUser {
-		for _, tr := range pendingToolResults {
-			parts = append(parts, tr)
-		}
-	}
 
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
@@ -469,8 +460,11 @@ func addToolConfig(request map[string]any, tools any, toolChoice string) {
 }
 
 // buildToolContents converts the request messages to Gemini contents, folding
-// tool results into user turns.
-func (p *ToolProvider) buildToolContents(ctx context.Context, messages []types.Message) ([]map[string]any, error) {
+// tool results into user turns. It is the one serializer for every request
+// path, with or without tools, so an assistant's tool calls go out as
+// functionCall parts and each tool result as a functionResponse naming its
+// function whether or not the request offers tools.
+func (p *Provider) buildToolContents(ctx context.Context, messages []types.Message) ([]map[string]any, error) {
 	contents := make([]map[string]any, 0, len(messages))
 	var pendingToolResults []map[string]any
 
@@ -490,9 +484,11 @@ func (p *ToolProvider) buildToolContents(ctx context.Context, messages []types.M
 }
 
 // foldToolContent adds one message to contents. A tool result joins
-// pendingToolResults, which lead the next user message, or become a user turn
-// of their own before any other message.
-func (p *ToolProvider) foldToolContent(
+// pendingToolResults, which become a user turn of their own before the next
+// message. They are never folded into a following user message: given a turn
+// that mixes functionResponse parts with text, gemini-2.5-flash returns a
+// candidate with no parts.
+func (p *Provider) foldToolContent(
 	ctx context.Context, msg types.Message, contents, pendingToolResults []map[string]any,
 ) (outContents, outPending []map[string]any, err error) {
 	if msg.Role == "tool" {
@@ -503,18 +499,14 @@ func (p *ToolProvider) foldToolContent(
 		return contents, append(pendingToolResults, result), nil
 	}
 
-	// If we have pending tool results, add them as a user message before non-user messages
-	if len(pendingToolResults) > 0 && msg.Role != roleUser {
+	if len(pendingToolResults) > 0 {
 		contents = append(contents, toolResultsTurn(pendingToolResults))
 		pendingToolResults = nil
 	}
 
-	content, err := p.toolContentForMessage(ctx, msg, pendingToolResults)
+	content, err := p.toolContentForMessage(ctx, msg)
 	if err != nil {
 		return nil, nil, err
-	}
-	if msg.Role == roleUser {
-		pendingToolResults = nil
 	}
 	if content != nil {
 		contents = append(contents, content)
@@ -530,13 +522,10 @@ func toolResultsTurn(toolResults []map[string]any) map[string]any {
 	}
 }
 
-// toolContentForMessage converts one non-tool message to a Gemini content,
-// with pendingToolResults leading a user message. It returns nil for a message
-// with no parts.
-func (p *ToolProvider) toolContentForMessage(
-	ctx context.Context, msg types.Message, pendingToolResults []map[string]any,
-) (map[string]any, error) {
-	parts, err := p.buildMessageParts(ctx, msg, pendingToolResults)
+// toolContentForMessage converts one non-tool message to a Gemini content. It
+// returns nil for a message with no parts.
+func (p *Provider) toolContentForMessage(ctx context.Context, msg types.Message) (map[string]any, error) {
+	parts, err := p.buildMessageParts(ctx, msg)
 	if err != nil || len(parts) == 0 {
 		return nil, err
 	}

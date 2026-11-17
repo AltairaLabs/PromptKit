@@ -292,7 +292,7 @@ func (p *Provider) toolResultMediaBlock(
 }
 
 // buildClaudeMessageContent creates content array for a message including text, images, and tool calls
-func (p *ToolProvider) buildClaudeMessageContent(
+func (p *Provider) buildClaudeMessageContent(
 	ctx context.Context,
 	msg types.Message,
 	pendingToolResults []claudeToolResult,
@@ -336,7 +336,7 @@ func (p *ToolProvider) buildClaudeMessageContent(
 // A part that cannot be converted is an error, as on the non-tool path:
 // falling back to the message's text used to send the model the question
 // without its media.
-func (p *ToolProvider) buildMessageContentBlocks(ctx context.Context, msg types.Message) ([]interface{}, error) {
+func (p *Provider) buildMessageContentBlocks(ctx context.Context, msg types.Message) ([]interface{}, error) {
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
 		return p.convertPartsToClaudeBlocks(ctx, msg.Parts)
@@ -389,13 +389,14 @@ func flushPendingToolResults(pendingToolResults []claudeToolResult) claudeToolMe
 	}
 }
 
-// processMessageForTools processes a single message and manages tool results
-func (p *ToolProvider) processMessageForTools(
+// processMessageForTools appends one non-tool message to messages, carrying
+// any pending tool results: they lead a user message, or go out in a user
+// message of their own before any other role.
+func (p *Provider) processMessageForTools(
 	ctx context.Context,
 	msg types.Message,
 	pendingToolResults []claudeToolResult,
 	messages []claudeToolMessage,
-	tools interface{},
 ) ([]claudeToolMessage, []claudeToolResult, error) {
 	// If we have pending tool results and this is not a user message, create a user message for them
 	if len(pendingToolResults) > 0 && msg.Role != roleUser {
@@ -415,25 +416,66 @@ func (p *ToolProvider) processMessageForTools(
 		return messages, pendingToolResults, nil
 	}
 
-	claudeMsg := claudeToolMessage{
+	messages = append(messages, claudeToolMessage{
 		Role:    msg.Role,
 		Content: content,
-	}
+	})
+	return messages, pendingToolResults, nil
+}
 
-	// For caching: cache the prefix through the first user message when tools are
-	// present and the model supports caching. cache_control must go on a CONTENT
-	// BLOCK (the last one) — the Anthropic API rejects cache_control on a message
-	// object ("messages.N.cache_control: Extra inputs are not permitted").
-	if p.supportsCaching() && msg.Role == roleUser && len(messages) == 0 && tools != nil {
-		last := len(claudeMsg.Content) - 1
-		if tc, ok := claudeMsg.Content[last].(claudeTextContent); ok {
-			tc.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
-			claudeMsg.Content[last] = tc
+// convertMessagesToClaudeFormat converts conversation messages to the Messages
+// API shape. It is the one serializer for every request path, with or without
+// tools: an assistant's tool calls become tool_use blocks and each tool
+// message becomes a tool_result block, carrying its tool_use_id, in the user
+// message that follows. It places no cache breakpoints; each path adds its own.
+//
+// A media part that cannot be converted is an error: falling back to the
+// message's text used to send the model the question without its image.
+func (p *Provider) convertMessagesToClaudeFormat(
+	ctx context.Context, msgs []types.Message,
+) ([]claudeToolMessage, error) {
+	messages := make([]claudeToolMessage, 0, len(msgs))
+	var pendingToolResults []claudeToolResult
+
+	for i := range msgs {
+		msg := &msgs[i]
+		if msg.Role == roleTool {
+			result, err := p.processClaudeToolResult(ctx, *msg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
+			}
+			pendingToolResults = append(pendingToolResults, result)
+			continue
+		}
+
+		var err error
+		messages, pendingToolResults, err = p.processMessageForTools(ctx, *msg, pendingToolResults, messages)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
 		}
 	}
 
-	messages = append(messages, claudeMsg)
-	return messages, pendingToolResults, nil
+	// If there are still pending tool results at the end, add them as a final user message
+	if len(pendingToolResults) > 0 {
+		messages = append(messages, flushPendingToolResults(pendingToolResults))
+	}
+	return messages, nil
+}
+
+// markFirstUserTextCacheable caches the prefix through the first message when
+// it is a user message ending in text. cache_control must go on a CONTENT
+// BLOCK (the last one) — the Anthropic API rejects cache_control on a message
+// object ("messages.N.cache_control: Extra inputs are not permitted").
+func markFirstUserTextCacheable(messages []claudeToolMessage) {
+	if len(messages) == 0 || messages[0].Role != roleUser {
+		return
+	}
+	first := &messages[0]
+	last := len(first.Content) - 1
+	if tc, ok := first.Content[last].(claudeTextContent); ok {
+		tc.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
+		first.Content[last] = tc
+	}
 }
 
 // markLastBlockCacheable sets a cache_control breakpoint on the final content
@@ -467,39 +509,20 @@ func markLastBlockCacheable(messages []claudeToolMessage) {
 func (p *ToolProvider) buildToolRequest(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) (claudeRequest, error) {
-	messages := make([]claudeToolMessage, 0, len(req.Messages))
-	var pendingToolResults []claudeToolResult
-
-	for i := range req.Messages {
-		msg := &req.Messages[i]
-		if msg.Role == roleTool {
-			result, err := p.processClaudeToolResult(ctx, *msg)
-			if err != nil {
-				return claudeRequest{}, fmt.Errorf("failed to convert message %d: %w", i, err)
-			}
-			pendingToolResults = append(pendingToolResults, result)
-			continue
-		}
-
-		var err error
-		messages, pendingToolResults, err = p.processMessageForTools(ctx, *msg, pendingToolResults, messages, tools)
-		if err != nil {
-			return claudeRequest{}, fmt.Errorf("failed to convert message %d: %w", i, err)
-		}
+	messages, err := p.convertMessagesToClaudeFormat(ctx, req.Messages)
+	if err != nil {
+		return claudeRequest{}, err
 	}
 
-	// If there are still pending tool results at the end, add them as a final user message
-	if len(pendingToolResults) > 0 {
-		messages = append(messages, flushPendingToolResults(pendingToolResults))
-	}
-
-	// Cache the GROWING conversation prefix. A cache_control breakpoint caches the
+	// For caching with tools: cache the prefix through the first user message,
+	// and the GROWING conversation prefix. A cache_control breakpoint caches the
 	// entire prefix up to it, and Anthropic auto-matches earlier cached prefixes
 	// within a 20-block lookback, so marking the LAST block rolls the cache forward
 	// each round: round N reads round N-1's full prefix and writes the new one.
-	// (The static first-message breakpoint set above only cached the base, leaving
+	// (A static first-message breakpoint alone only cached the base, leaving
 	// the growing tool-result history re-billed at full price every round.)
 	if p.supportsCaching() && tools != nil {
+		markFirstUserTextCacheable(messages)
 		markLastBlockCacheable(messages)
 	}
 

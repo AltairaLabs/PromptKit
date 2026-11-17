@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestClaudeProvider_ConvertLegacyMessage(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestClaudeProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -109,8 +110,10 @@ func TestClaudeProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 		t.Errorf("Expected role 'user', got '%s'", claudeMsg.Role)
 	}
 
-	if len(claudeMsg.Content) != 2 {
-		t.Fatalf("Expected 2 content blocks, got %d", len(claudeMsg.Content))
+	// A message with no media goes out as one text block, as on every path.
+	want := []any{claudeTextContent{Type: "text", Text: "What's the weather?I need to know for tomorrow."}}
+	if !reflect.DeepEqual(claudeMsg.Content, want) {
+		t.Fatalf("content = %#v, want %#v", claudeMsg.Content, want)
 	}
 }
 
@@ -132,7 +135,7 @@ func TestClaudeProvider_ConvertImageBase64Message(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -164,7 +167,7 @@ func TestClaudeProvider_ConvertImageURLMessage(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -195,7 +198,7 @@ func TestClaudeProvider_ConvertMultipleImages(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -222,12 +225,12 @@ func TestClaudeProvider_ConvertAudioReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	_, err := convertOneMessage(provider, msg)
 	if err == nil {
 		t.Error("Expected error for audio content, got nil")
 	}
 
-	if err != nil && err.Error() != "claude does not support audio content" {
+	if err != nil && err.Error() != "failed to convert message 0: claude does not support audio content" {
 		t.Errorf("Expected audio not supported error, got: %v", err)
 	}
 }
@@ -248,12 +251,12 @@ func TestClaudeProvider_ConvertVideoReturnsError(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	_, err := convertOneMessage(provider, msg)
 	if err == nil {
 		t.Error("Expected error for video content, got nil")
 	}
 
-	if err != nil && err.Error() != "claude does not support video content" {
+	if err != nil && err.Error() != "failed to convert message 0: claude does not support video content" {
 		t.Errorf("Expected video not supported error, got: %v", err)
 	}
 }
@@ -276,7 +279,7 @@ func TestClaudeProvider_ConvertEmptyTextPart(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -303,7 +306,7 @@ func TestClaudeProvider_ConvertImageMissingMedia(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	_, err := convertOneMessage(provider, msg)
 	if err == nil {
 		t.Error("Expected error for image without media, got nil")
 	}
@@ -331,7 +334,7 @@ func TestClaudeProvider_ConvertImageMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	_, err := convertOneMessage(provider, msg)
 	if err == nil {
 		t.Error("Expected error for image without data source, got nil")
 	}
@@ -510,7 +513,7 @@ func TestClaudeProvider_MixedMultimodal(t *testing.T) {
 		},
 	}
 
-	claudeMsg, err := provider.convertMessageToClaudeMultimodal(context.Background(), msg)
+	claudeMsg, err := convertOneMessage(provider, msg)
 	if err != nil {
 		t.Fatalf("Failed to convert mixed multimodal message: %v", err)
 	}
@@ -518,54 +521,6 @@ func TestClaudeProvider_MixedMultimodal(t *testing.T) {
 	// Should have 5 content parts (3 text + 2 images)
 	if len(claudeMsg.Content) != 5 {
 		t.Errorf("Expected 5 content parts, got %d", len(claudeMsg.Content))
-	}
-}
-
-func TestClaudeProvider_BuildClaudeMessage(t *testing.T) {
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Test with text block
-	textBlocks := []interface{}{
-		claudeContentBlockMultimodal{
-			Type: "text",
-			Text: "Hello, Claude!",
-		},
-	}
-
-	msg, err := provider.buildClaudeMessage("user", textBlocks)
-	if err != nil {
-		t.Fatalf("Failed to build message: %v", err)
-	}
-
-	if msg.Role != "user" {
-		t.Errorf("Expected role 'user', got '%s'", msg.Role)
-	}
-
-	// Test with multiple content blocks
-	multiBlocks := []interface{}{
-		claudeContentBlockMultimodal{
-			Type: "text",
-			Text: "First block",
-		},
-		claudeContentBlockMultimodal{
-			Type: "text",
-			Text: "Second block",
-		},
-	}
-
-	msg2, err := provider.buildClaudeMessage("assistant", multiBlocks)
-	if err != nil {
-		t.Fatalf("Failed to build message with multiple blocks: %v", err)
-	}
-
-	if msg2.Role != "assistant" {
-		t.Errorf("Expected role 'assistant', got '%s'", msg2.Role)
 	}
 }
 
@@ -655,31 +610,6 @@ func TestClaudeProvider_ConvertSystemMessage(t *testing.T) {
 	}
 }
 
-func TestClaudeProvider_BuildClaudeMessage_MarshalError(t *testing.T) {
-	provider := NewProvider(
-		"test-claude",
-		"claude-3-5-sonnet-20241022",
-		"https://api.anthropic.com/v1",
-		providers.ProviderDefaults{},
-		false,
-	)
-
-	// Create content blocks with unmarshalable content (channel type can't be marshaled)
-	ch := make(chan int)
-	badBlocks := []interface{}{
-		ch, // Channels can't be marshaled to JSON
-	}
-
-	_, err := provider.buildClaudeMessage("user", badBlocks)
-	if err == nil {
-		t.Error("Expected marshal error for unmarshalable content")
-	}
-
-	if !strings.Contains(err.Error(), "failed to marshal content blocks") {
-		t.Errorf("Expected marshal error, got: %v", err)
-	}
-}
-
 func TestClaudeProvider_ConvertMessagesToClaudeMultimodal_ConversionError(t *testing.T) {
 	provider := NewProvider(
 		"test-claude",
@@ -703,6 +633,15 @@ func TestClaudeProvider_ConvertMessagesToClaudeMultimodal_ConversionError(t *tes
 	if err == nil {
 		t.Error("Expected conversion error for unsupported audio content")
 	}
+}
+
+// convertOneMessage serializes a single message as every request path does.
+func convertOneMessage(p *Provider, msg types.Message) (claudeToolMessage, error) {
+	msgs, err := p.convertMessagesToClaudeFormat(context.Background(), []types.Message{msg})
+	if err != nil || len(msgs) == 0 {
+		return claudeToolMessage{}, err
+	}
+	return msgs[0], nil
 }
 
 func testClaudeProvider() *Provider {

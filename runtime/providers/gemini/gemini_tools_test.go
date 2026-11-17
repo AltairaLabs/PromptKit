@@ -749,7 +749,7 @@ func TestBuildMessageParts_MultimodalContent(t *testing.T) {
 			},
 		},
 	}
-	parts := mustBuildMessageParts(t, msg, nil)
+	parts := mustBuildMessageParts(t, msg)
 	if len(parts) != 2 {
 		t.Fatalf("expected 2 parts, got %d", len(parts))
 	}
@@ -861,9 +861,9 @@ func mustProcessToolMessage(t *testing.T, msg types.Message) map[string]any {
 }
 
 // mustBuildMessageParts converts a message's parts and fails the test on error.
-func mustBuildMessageParts(t *testing.T, msg types.Message, pending []map[string]any) []any {
+func mustBuildMessageParts(t *testing.T, msg types.Message) []any {
 	t.Helper()
-	parts, err := convProvider().buildMessageParts(context.Background(), msg, pending)
+	parts, err := convProvider().buildMessageParts(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("buildMessageParts: %v", err)
 	}

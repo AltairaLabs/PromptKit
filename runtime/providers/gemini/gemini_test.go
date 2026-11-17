@@ -9,7 +9,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
-	"github.com/stretchr/testify/require"
 )
 
 func TestNewProvider(t *testing.T) {
@@ -321,12 +320,12 @@ func TestGeminiProvider_DifferentModels(t *testing.T) {
 
 func TestGeminiRequest_Structure(t *testing.T) {
 	req := geminiRequest{
-		Contents: []geminiContent{
+		Contents: contentMaps(t, []geminiContent{
 			{
 				Role:  "user",
 				Parts: []geminiPart{{Text: "Hello"}},
 			},
-		},
+		}),
 		SystemInstruction: &geminiContent{
 			Parts: []geminiPart{{Text: "You are helpful"}},
 		},
@@ -511,12 +510,12 @@ func TestGeminiPromptFeedback_Structure(t *testing.T) {
 }
 
 // TestInferMediaTypeFromMIME tests the MIME type inference function
-// TestConvertMessagesToGeminiContents_WithParts verifies that messages created using
+// TestBuildToolContents_WithParts verifies that messages created using
 // AddTextPart() (SDK style) are correctly converted to Gemini format.
-// This is a regression test for a bug where convertMessagesToGeminiContents used
+// This is a regression test for a bug where the message serializer used
 // .Content directly instead of GetContent(), which would return empty string for
 // messages that store text in Parts rather than the Content field.
-func TestConvertMessagesToGeminiContents_WithParts(t *testing.T) {
+func TestBuildToolContents_WithParts(t *testing.T) {
 	tests := []struct {
 		name     string
 		setup    func() types.Message
@@ -565,8 +564,7 @@ func TestConvertMessagesToGeminiContents_WithParts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			msg := tt.setup()
-			contents, err := convProvider().convertMessagesToGeminiContents(context.Background(), []types.Message{msg})
-			require.NoError(t, err)
+			contents := convertContents(t, convProvider(), []types.Message{msg})
 
 			if len(contents) != 1 {
 				t.Fatalf("Expected 1 content, got %d", len(contents))

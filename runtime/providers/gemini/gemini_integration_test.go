@@ -320,7 +320,7 @@ func TestMakeGeminiHTTPRequest(t *testing.T) {
 			provider := NewProvider("test", "gemini-2.0-flash", server.URL, providers.ProviderDefaults{}, false)
 
 			geminiReq := geminiRequest{
-				Contents: []geminiContent{{Parts: []geminiPart{{Text: "test"}}}},
+				Contents: contentMaps(t, []geminiContent{{Parts: []geminiPart{{Text: "test"}}}}),
 				GenerationConfig: geminiGenConfig{
 					Temperature:     0.7,
 					TopP:            0.9,

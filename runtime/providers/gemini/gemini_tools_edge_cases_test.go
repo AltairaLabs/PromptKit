@@ -16,31 +16,29 @@ func TestToolProvider_BuildMessageParts_EmptyToolResults(t *testing.T) {
 		Parts: []types.ContentPart{types.NewTextPart("Hello")},
 	}
 
-	parts := mustBuildMessageParts(t, msg, []map[string]interface{}{})
+	parts := mustBuildMessageParts(t, msg)
 	if len(parts) != 1 {
 		t.Errorf("Expected 1 part, got %d", len(parts))
 	}
 }
 
-func TestToolProvider_BuildMessageParts_WithToolResults(t *testing.T) {
-	msg := types.Message{
-		Role:  "user",
-		Parts: []types.ContentPart{types.NewTextPart("Process result")},
+// Tool results go out in a user turn of their own, ahead of the user message
+// that follows them, never folded into it.
+func TestToolProvider_BuildToolContents_ToolResultsTakeTheirOwnTurn(t *testing.T) {
+	msgs := []types.Message{
+		{Role: "tool", ToolResult: &types.MessageToolResult{Name: "get_weather", ID: "c1",
+			Parts: []types.ContentPart{types.NewTextPart(`{"temp":72}`)}}},
+		{Role: "user", Parts: []types.ContentPart{types.NewTextPart("Process result")}},
 	}
-
-	toolResults := []map[string]interface{}{
-		{
-			"functionResponse": map[string]interface{}{
-				"name":     "get_weather",
-				"response": map[string]interface{}{"temp": 72},
-			},
-		},
+	contents, err := convProvider().buildToolContents(context.Background(), msgs)
+	if err != nil {
+		t.Fatalf("buildToolContents: %v", err)
 	}
-
-	parts := mustBuildMessageParts(t, msg, toolResults)
-	// Should have tool result + text
-	if len(parts) != 2 {
-		t.Errorf("Expected 2 parts (tool result + text), got %d", len(parts))
+	got, _ := json.Marshal(contents)
+	want := `[{"parts":[{"functionResponse":{"name":"get_weather","response":{"temp":72}}}],"role":"user"},` +
+		`{"parts":[{"text":"Process result"}],"role":"user"}]`
+	if string(got) != want {
+		t.Errorf("contents = %s, want %s", got, want)
 	}
 }
 
@@ -58,7 +56,7 @@ func TestToolProvider_BuildMessageParts_WithToolCalls(t *testing.T) {
 		},
 	}
 
-	parts := mustBuildMessageParts(t, msg, []map[string]interface{}{})
+	parts := mustBuildMessageParts(t, msg)
 	// Should have text + function call
 	if len(parts) < 2 {
 		t.Errorf("Expected at least 2 parts (text + function call), got %d", len(parts))

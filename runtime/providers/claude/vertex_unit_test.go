@@ -88,8 +88,8 @@ func TestProvider_MarshalPartnerRequest_VertexVersion(t *testing.T) {
 	p := &Provider{platform: vertexPlatform, model: "claude-haiku-4-5@20251001"}
 	req := &claudeRequest{
 		MaxTokens: 100,
-		Messages: []claudeMessage{
-			{Role: "user", Content: []claudeContentBlock{{Type: "text", Text: "hi"}}},
+		Messages: []claudeToolMessage{
+			{Role: "user", Content: []any{claudeTextContent{Type: "text", Text: "hi"}}},
 		},
 	}
 	body, err := p.marshalPartnerRequest(req)
