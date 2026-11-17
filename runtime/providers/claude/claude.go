@@ -595,7 +595,8 @@ const (
 // convertPlainMessages serializes the messages of a request sent without
 // tools: the same serializer the tool path uses, so a history with tool turns
 // keeps its tool_use/tool_result linkage, plus the plain path's one cache
-// breakpoint on a last text block long enough for Claude to cache.
+// breakpoint: on a final tool block, or a final text block long enough for
+// Claude to cache.
 func (p *Provider) convertPlainMessages(
 	ctx context.Context, msgs []types.Message,
 ) ([]claudeToolMessage, error) {
@@ -603,14 +604,8 @@ func (p *Provider) convertPlainMessages(
 	if err != nil {
 		return nil, err
 	}
-	if p.supportsCaching() && len(messages) > 0 {
-		last := &messages[len(messages)-1]
-		i := len(last.Content) - 1
-		minCharsForCaching := messageCacheMinTokens * charsPerToken // ~8192 characters
-		if tc, ok := last.Content[i].(claudeTextContent); ok && len(tc.Text) >= minCharsForCaching {
-			tc.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
-			last.Content[i] = tc
-		}
+	if p.supportsCaching() {
+		markLastBlockCacheable(messages, messageCacheMinTokens*charsPerToken) // ~8192 characters of text
 	}
 	return messages, nil
 }

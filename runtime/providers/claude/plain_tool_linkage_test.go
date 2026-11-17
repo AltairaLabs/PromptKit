@@ -109,7 +109,8 @@ func TestPredict_PlainPathKeepsToolResultImage(t *testing.T) {
 		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_img","name":"camera","input":{}}]},
 		{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_img","content":[
 			{"type":"text","text":"done"},
-			{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1n"}}]}]}
+			{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aW1n"}}],
+			"cache_control":{"type":"ephemeral"}}]}
 	]`, string(got))
 }
 

@@ -350,11 +350,16 @@ func (p *Provider) mediaContentPart(
 			return map[string]any{wireKeyText: *part.Text}, nil
 		}
 	case types.ContentTypeImage, types.ContentTypeAudio, types.ContentTypeVideo, types.ContentTypeDocument:
+		if part.Media == nil {
+			return nil, fmt.Errorf("%s part missing media field", part.Type)
+		}
 		mediaMap, err := p.convertMediaPartToMap(ctx, loader, part)
 		if err != nil {
 			return nil, fmt.Errorf("%s part: %w", part.Type, err)
 		}
 		return mediaMap, nil
+	default:
+		return nil, fmt.Errorf("unsupported part type: %s", part.Type)
 	}
 	return nil, nil
 }
@@ -480,7 +485,57 @@ func (p *Provider) buildToolContents(ctx context.Context, messages []types.Messa
 	if len(pendingToolResults) > 0 {
 		contents = append(contents, toolResultsTurn(pendingToolResults))
 	}
+	signCurrentTurnCalls(contents)
 	return contents, nil
+}
+
+// placeholderThoughtSignature is the value Google documents for a function
+// call Gemini did not generate: "you can set the following dummy signatures of
+// either "context_engineering_is_the_way_to_go" or
+// "skip_thought_signature_validator" in the thought signature field to skip
+// validation" (https://ai.google.dev/gemini-api/docs/thought-signatures).
+const placeholderThoughtSignature = "skip_thought_signature_validator"
+
+// signCurrentTurnCalls gives the first functionCall part of each model step in
+// the current turn the placeholder signature when it carries none. Gemini 3
+// refuses such a request with 400; Gemini validates the current turn only,
+// which starts at the latest user content that is not function responses.
+func signCurrentTurnCalls(contents []map[string]any) {
+	start := 0
+	for i, content := range contents {
+		if content[wireKeyRole] == roleUser && !onlyFunctionResponses(content) {
+			start = i + 1
+		}
+	}
+	for _, content := range contents[start:] {
+		if content[wireKeyRole] == roleModel {
+			signFirstCall(content)
+		}
+	}
+}
+
+// signFirstCall gives a model content's first functionCall part the
+// placeholder signature when it carries none.
+func signFirstCall(content map[string]any) {
+	parts, _ := content[wireKeyParts].([]any)
+	for _, part := range parts {
+		pm, ok := part.(map[string]any)
+		if !ok || pm["functionCall"] == nil {
+			continue
+		}
+		if _, signed := pm["thoughtSignature"]; !signed {
+			pm["thoughtSignature"] = placeholderThoughtSignature
+		}
+		return
+	}
+}
+
+// onlyFunctionResponses reports whether a user content is a turn of function
+// responses (toolResultsTurn), which continues the model's turn rather than
+// starting one.
+func onlyFunctionResponses(content map[string]any) bool {
+	_, ok := content[wireKeyParts].([]map[string]any)
+	return ok
 }
 
 // foldToolContent adds one message to contents. A tool result joins
@@ -491,7 +546,11 @@ func (p *Provider) buildToolContents(ctx context.Context, messages []types.Messa
 func (p *Provider) foldToolContent(
 	ctx context.Context, msg types.Message, contents, pendingToolResults []map[string]any,
 ) (outContents, outPending []map[string]any, err error) {
-	if msg.Role == "tool" {
+	if msg.Role == roleToolMessage && msg.ToolResult == nil {
+		// Nothing to link it to: send its text as the user's.
+		msg.Role = roleUser
+	}
+	if msg.Role == roleToolMessage {
 		result, toolErr := p.processToolMessage(ctx, msg)
 		if toolErr != nil {
 			return nil, nil, toolErr
