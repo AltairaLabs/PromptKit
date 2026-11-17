@@ -652,6 +652,11 @@ type openAIMessage struct {
 	// no reasoning while Stream reported it. Routed to Message.Reasoning, never
 	// to content. Omitted on requests — it is a response-only field.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// ToolCalls is the assistant message's calls and ToolCallID the call a
+	// tool message answers. Chat Completions accepts both without a tools
+	// array, and the model needs them to tie each result to its call.
+	ToolCalls  []map[string]interface{} `json:"tool_calls,omitempty"`
+	ToolCallID string                   `json:"tool_call_id,omitempty"`
 }
 
 type openAIResponse struct {
@@ -714,6 +719,12 @@ func (p *Provider) prepareOpenAIMessages(
 		converted, err := p.convertMessageToOpenAI(ctx, req.Messages[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
+		}
+		if len(req.Messages[i].ToolCalls) > 0 {
+			converted.ToolCalls = openAIToolCalls(req.Messages[i].ToolCalls)
+		}
+		if tr := req.Messages[i].ToolResult; tr != nil && req.Messages[i].Role == roleToolResult {
+			converted.ToolCallID = tr.ID
 		}
 		messages = append(messages, converted)
 	}

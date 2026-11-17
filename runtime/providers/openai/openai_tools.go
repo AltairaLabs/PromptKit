@@ -394,6 +394,11 @@ func replayArgs(args json.RawMessage) string {
 
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
 func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
+	return openAIToolCalls(toolCalls)
+}
+
+// openAIToolCalls renders tool calls as a Chat Completions assistant message's tool_calls.
+func openAIToolCalls(toolCalls []types.MessageToolCall) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]interface{}{
