@@ -13,7 +13,8 @@ import (
 func TestMockStreamSession_InterruptResponseIsCounted(t *testing.T) {
 	s := NewMockStreamSession()
 	assert.Equal(t, 0, s.Interrupts())
-	require.NoError(t, s.InterruptResponse(context.Background()))
-	require.NoError(t, s.InterruptResponse(context.Background()))
+	require.NoError(t, s.InterruptResponse(context.Background(), 3))
+	require.NoError(t, s.InterruptResponse(context.Background(), 5))
 	assert.Equal(t, 2, s.Interrupts())
+	assert.Equal(t, []int64{3, 5}, s.InterruptedGenerations())
 }

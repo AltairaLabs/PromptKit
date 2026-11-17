@@ -144,7 +144,7 @@ type MockStreamSession struct {
 	history []providers.HistoryTurn
 
 	// interrupts counts InterruptResponse calls (mock_stream_interrupt.go).
-	interrupts int
+	interrupts []int64
 }
 
 // NewMockStreamSession creates a new mock stream session.

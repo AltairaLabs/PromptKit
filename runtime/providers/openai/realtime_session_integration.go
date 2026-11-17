@@ -86,10 +86,13 @@ type RealtimeSession struct {
 	// cancels tracks the response.cancel events InterruptResponse sent, so
 	// one the server rejects (the response had ended) is not a session error.
 	cancels truncateTracker
-	// cancelNext is set when InterruptResponse found no response to cancel:
-	// the turn's response is still to be created, and is canceled when it is
+	// cancelGen is the generation of a response InterruptResponse named
+	// before the server created it: it is canceled when it is created
 	// (realtime_interrupt.go). A new turn clears it.
-	cancelNext bool
+	cancelGen int64
+	// emitClosed is set once the receive loop has closed emitCh: nothing may
+	// be emitted after it.
+	emitClosed bool
 
 	// recvMu is held while a server event is handled and while
 	// InterruptResponse runs, so the state above, otherwise the receive
@@ -558,7 +561,10 @@ func (s *RealtimeSession) receiveLoop() {
 		// canceling the context so a terminal chunk (e.g. connection-lost) is
 		// delivered to a reading consumer first. cancel() is idempotent — Close()
 		// may have already called it.
+		s.recvMu.Lock()
+		s.emitClosed = true
 		close(s.emitCh)
+		s.recvMu.Unlock()
 		s.Wait()
 		s.cancel()
 	}()
@@ -751,7 +757,7 @@ func (s *RealtimeSession) playoutEstimate() *audio.Playout {
 // finished generating gets no canceled response.done to end it, so the
 // interruption is also reported in-band, as an Interrupted chunk.
 func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEvent) {
-	s.cancelNext = false // the caller's new turn: a pending cancel was the last one's
+	s.cancelGen = 0 // the caller's new turn: a pending cancel was the last one's
 	playing := s.playoutEstimate().Playing()
 	if !s.responseActive && !playing {
 		logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)

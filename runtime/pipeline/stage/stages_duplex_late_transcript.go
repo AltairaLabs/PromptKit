@@ -95,8 +95,10 @@ func (s *DuplexProviderStage) emitLateUserTurn(ctx context.Context, text string,
 	if err := s.emit(ctx, elem, output); err != nil {
 		return err
 	}
-	// The reply to it completed: a block can only cut what still plays.
-	s.guardSpokenInput(ctx, true)
+	// It is judged as the input it is, though its reply follows it in the
+	// history. A finished turn's reply completed: a block can only cut what
+	// still plays. A tool turn goes on: a block stops the rest of it.
+	s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn)
 	return nil
 }
 

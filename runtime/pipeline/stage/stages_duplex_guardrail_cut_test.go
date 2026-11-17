@@ -26,20 +26,26 @@ import (
 // request, recording each call.
 type interruptingSession struct {
 	*recordingSession
-	interrupts int
+	gens []int64
 }
 
-func (s *interruptingSession) InterruptResponse(_ context.Context) error {
+func (s *interruptingSession) InterruptResponse(_ context.Context, generation int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.interrupts++
+	s.gens = append(s.gens, generation)
 	return nil
 }
 
 func (s *interruptingSession) interruptCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.interrupts
+	return len(s.gens)
+}
+
+func (s *interruptingSession) interruptedGens() []int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]int64(nil), s.gens...)
 }
 
 // cutStage is a duplex stage on an interruptingSession with reg's hooks, on
@@ -425,4 +431,172 @@ func TestDuplexGuardrailCut_BlockedReplyIsCutOnce(t *testing.T) {
 		"end:I can't help with transfers.|safety",
 	}, trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())
+}
+
+// genChunk is c tagged with the provider generation it belongs to.
+func genChunk(g int64, c providers.StreamChunk) providers.StreamChunk {
+	c.Generation = g
+	return c
+}
+
+// inputBannedWords is the built-in banned_words guardrail on the input side.
+func inputBannedWords(t *testing.T, word string) hooks.ProviderHook {
+	t.Helper()
+	guard, err := guardrails.NewGuardrailHook("banned_words",
+		map[string]any{"words": []any{word}, "direction": "input"},
+		guardrails.WithMessage("I can't help with transfers."))
+	require.NoError(t, err)
+	return guard
+}
+
+// The provider is asked to stop the blocked reply by its generation: the
+// reply streaming when an output guardrail fires, and, for a spoken turn
+// blocked before its reply began, the reply after the last one seen. A later
+// reply is never named.
+func TestDuplexGuardrailCut_InterruptNamesTheBlockedGeneration(t *testing.T) {
+	t.Run("streaming block", func(t *testing.T) {
+		s, sess := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
+		_, err := feedChunks(t, s,
+			genChunk(1, transcriptChunk("fine", nil)), genChunk(1, stopChunk()),
+			genChunk(2, transcriptChunk("forbidden", nil)), genChunk(2, stopChunk()))
+		require.NoError(t, err)
+		assert.Equal(t, []int64{2}, sess.interruptedGens())
+	})
+	t.Run("spoken turn blocked before its reply", func(t *testing.T) {
+		s, sess := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+		_, err := feedChunks(t, s,
+			finalTranscript("hello"), genChunk(1, transcriptChunk("hi", nil)), genChunk(1, stopChunk()),
+			finalTranscript("a wire transfer"),
+			genChunk(2, transcriptChunk("Sure", nil)), genChunk(2, stopChunk()))
+		require.NoError(t, err)
+		assert.Equal(t, []int64{2}, sess.interruptedGens())
+	})
+	t.Run("spoken turn blocked mid-reply", func(t *testing.T) {
+		s, sess := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+		_, err := feedChunks(t, s,
+			genChunk(5, transcriptChunk("Sure, ", nil)),
+			genChunk(4, finalTranscript("a wire transfer")), // tagged with an older response's number
+			genChunk(5, stopChunk()))
+		require.NoError(t, err)
+		assert.Equal(t, []int64{5}, sess.interruptedGens())
+	})
+	t.Run("completed-turn block", func(t *testing.T) {
+		s, sess := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(&enforceAfterCallHook{replacement: "No."})))
+		_, err := feedChunks(t, s, genChunk(4, transcriptChunk("plan", nil)), genChunk(4, stopChunk()))
+		require.NoError(t, err)
+		assert.Equal(t, []int64{4}, sess.interruptedGens())
+	})
+}
+
+// A transcript that arrives after its reply completed is judged as the
+// input it is: the built-in input guardrail sees that user message, though
+// the reply follows it in the history, and its block cuts what still plays
+// of that reply (by its generation).
+func TestDuplexGuardrailCut_LateTranscriptRunsBuiltInInputGuardrail(t *testing.T) {
+	s, rec, getEvents := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+	sess := &interruptingSession{recordingSession: rec}
+	s.session = sess
+
+	elems, err := feedChunks(t, s,
+		genChunk(3, transcriptChunk("Sure", pcm(10))), genChunk(3, stopChunk()),
+		finalTranscript("a wire transfer please"))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"text:Sure", "audio:10", "end:Sure|stop", "user:a wire transfer please", "interrupt"},
+		trace(elems))
+	assert.Equal(t, []int64{3}, sess.interruptedGens())
+	got := getEvents()
+	require.Len(t, got, 1)
+	assert.Equal(t, hooks.DirectionInput, got[0].Direction)
+}
+
+// A blocked reply that a barge-in then cuts short (Gemini's interrupted) is
+// still the blocked turn: finish reason safety, its blocked text, no tool
+// calls.
+func TestDuplexGuardrailCut_BlockedReplyBargedInStaysSafety(t *testing.T) {
+	s, _ := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
+
+	elems, err := feedChunks(t, s,
+		transcriptChunk("this is forbidden", pcm(10)),
+		providers.StreamChunk{Interrupted: true},
+	)
+	require.NoError(t, err)
+
+	var partial StreamElement
+	for _, e := range elems {
+		if e.Meta.Interrupted && e.Message != nil {
+			partial = e
+		}
+	}
+	require.NotNil(t, partial.Message, "the cut-short reply is kept")
+	assert.Equal(t, "I can't say that.", partial.Message.Content)
+	assert.Equal(t, types.FinishReasonSafety, partial.Message.FinishReason)
+	assert.Equal(t, types.FinishReasonSafety, partial.Message.Meta[finishReasonMetaKey])
+	require.NotNil(t, partial.Meta.FinishReason)
+	assert.Equal(t, types.FinishReasonSafety, *partial.Meta.FinishReason)
+	assert.Equal(t, []string{"banned_words"}, validationTypes(partial.Message.Validations))
+}
+
+// A transcript that arrives during a tool turn's round (after the reply that
+// made the calls, before the reply to their results) blocks the rest of the
+// turn: the follow-up reply is the blocked message, with one interruption,
+// marked safety.
+func TestDuplexGuardrailCut_LateBlockOnOwedToolTurnBlocksTheFollowUp(t *testing.T) {
+	s, sess := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+	toolUse := "tool_use"
+	calls := genChunk(1, providers.StreamChunk{FinishReason: &toolUse,
+		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "lookup"}}})
+	interrupted := types.FinishReasonInterrupted
+
+	elems, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("Let me check.", pcm(10))), calls,
+		finalTranscript("a wire transfer"),
+		genChunk(2, transcriptChunk("Done, sending", pcm(20))),
+		genChunk(2, providers.StreamChunk{FinishReason: &interrupted}),
+	)
+	require.NoError(t, err)
+
+	var interrupts []string
+	for _, e := range elems {
+		if e.Interrupt {
+			interrupts = append(interrupts, *e.Meta.FinishReason)
+		}
+	}
+	assert.Equal(t, []string{types.FinishReasonSafety}, interrupts, "one interruption, the guardrail's")
+	var last *types.Message
+	for _, e := range elems {
+		if e.EndOfStream && e.Message != nil {
+			last = e.Message
+		}
+	}
+	require.NotNil(t, last)
+	assert.Equal(t, "I can't help with transfers.", last.Content)
+	assert.Equal(t, types.FinishReasonSafety, last.FinishReason)
+	assert.Equal(t, []int64{2}, sess.interruptedGens(), "the follow-up reply is the one stopped")
+}
+
+// An enforcing interceptor that truncates text the caller already has sends
+// only what the caller does not have: the caller's text adds up to the
+// truncated turn.
+func TestDuplexGuardrailCut_TruncationSendsOnlyTheRest(t *testing.T) {
+	guard, err := guardrails.NewGuardrailHook("length", map[string]any{"max_characters": 20})
+	require.NoError(t, err)
+	s, _ := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(guard)))
+
+	elems, err := feedChunks(t, s,
+		transcriptChunk("Hello there ", nil),
+		transcriptChunk("my friend, how are you", nil),
+		stopChunk(),
+	)
+	require.NoError(t, err)
+
+	var caller strings.Builder
+	for _, e := range elems {
+		if e.Text != nil && e.Message == nil {
+			caller.WriteString(*e.Text)
+		}
+	}
+	msg, _ := turnMessage(t, elems)
+	assert.Len(t, msg.Content, 20)
+	assert.Equal(t, msg.Content, caller.String(), "the caller's text is the turn's, sent once")
 }

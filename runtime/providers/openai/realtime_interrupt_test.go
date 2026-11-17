@@ -140,7 +140,7 @@ func runInterrupt(t *testing.T, seconds int, after time.Duration, done, rejectCa
 		require.NotNil(t, next().FinishReason)
 	}
 	clock.set(t0.Add(after))
-	require.NoError(t, session.InterruptResponse(ctx))
+	require.NoError(t, session.InterruptResponse(ctx, 1))
 
 	var run interruptRun
 	if !done {
@@ -171,7 +171,7 @@ func TestRealtimeInterrupt_CancelsAndTruncatesAReplyInProgress(t *testing.T) {
 	run := runInterrupt(t, 2, 700*time.Millisecond, false, false)
 
 	assert.Equal(t, []map[string]any{
-		{"type": "response.cancel"},
+		{"type": "response.cancel", "response_id": "R1"},
 		{"type": "conversation.item.truncate", "item_id": "item_R1",
 			"content_index": float64(0), "audio_end_ms": float64(700)},
 	}, run.clients)
@@ -208,7 +208,7 @@ func TestRealtimeInterrupt_FinishedReplyIsOnlyTruncated(t *testing.T) {
 // A closed session cannot interrupt.
 func TestRealtimeInterrupt_ClosedSession(t *testing.T) {
 	s := &RealtimeSession{closed: true}
-	assert.EqualError(t, s.InterruptResponse(context.Background()), errSessionClosed)
+	assert.EqualError(t, s.InterruptResponse(context.Background(), 1), errSessionClosed)
 }
 
 var _ providers.ResponseInterrupter = (*RealtimeSession)(nil)
@@ -239,7 +239,7 @@ func pendingCancelServer(t *testing.T, start <-chan struct{}, newTurn string) *i
 		switch newTurn {
 		case "speech":
 			write(map[string]any{"type": "input_audio_buffer.speech_started", "item_id": "item_user2"})
-		case "text":
+		case "text", "tool":
 			for i := 0; i < 2; i++ {
 				ev := readClientEvent(conn)
 				if ev == nil {
@@ -291,9 +291,12 @@ func runPendingCancel(t *testing.T, newTurn string) interruptRun {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 
-	require.NoError(t, session.InterruptResponse(ctx))
-	if newTurn == "text" {
+	require.NoError(t, session.InterruptResponse(ctx, 1))
+	switch newTurn {
+	case "text":
 		require.NoError(t, session.SendText(ctx, "hello"))
+	case "tool":
+		require.NoError(t, session.SendToolResponses(ctx, []providers.ToolResponse{{ToolCallID: "c1", Result: "ok"}}))
 	}
 	close(start)
 	var run interruptRun
@@ -327,7 +330,7 @@ func runPendingCancel(t *testing.T, newTurn string) interruptRun {
 func TestRealtimeInterrupt_PendingCancelStopsTheNextResponse(t *testing.T) {
 	run := runPendingCancel(t, "")
 
-	assert.Equal(t, []map[string]any{{"type": "response.cancel"}}, run.clients)
+	assert.Equal(t, []map[string]any{{"type": "response.cancel", "response_id": "R1"}}, run.clients)
 	require.Len(t, run.chunks, 1, "the cancelled reply's audio is dropped")
 	assert.Equal(t, "interrupted", *run.chunks[0].FinishReason)
 }
@@ -335,7 +338,7 @@ func TestRealtimeInterrupt_PendingCancelStopsTheNextResponse(t *testing.T) {
 // A pending cancel belongs to the turn it was made in: once the caller starts
 // a new turn, the next response is that turn's and is not cancelled.
 func TestRealtimeInterrupt_PendingCancelEndsWithTheTurn(t *testing.T) {
-	for _, newTurn := range []string{"speech", "text"} {
+	for _, newTurn := range []string{"speech", "text", "tool"} {
 		t.Run(newTurn, func(t *testing.T) {
 			run := runPendingCancel(t, newTurn)
 
@@ -357,4 +360,117 @@ func assertNewTurnReplyPlays(t *testing.T, run interruptRun) {
 	}
 	assert.Equal(t, 1, audio, "the new turn's reply plays")
 	assert.Equal(t, "stop", *run.chunks[len(run.chunks)-1].FinishReason)
+}
+
+// slowJudgeServer delivers reply R1 and completes it, then starts R2 and
+// streams its audio, then waits for the client's commit, records the client
+// events before it, and completes R2.
+func slowJudgeServer(t *testing.T) *interruptServer {
+	t.Helper()
+	is := &interruptServer{client: make(chan []map[string]any, 1)}
+	second := base64.StdEncoding.EncodeToString(make([]byte, 2*DefaultRealtimeSampleRate))
+	is.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		write := func(v map[string]any) { _ = conn.WriteJSON(v) }
+		write(map[string]any{"type": "session.created", "session": map[string]any{"id": "s", "model": "gpt-realtime"}})
+		if _, _, err := conn.ReadMessage(); err != nil { // session.update
+			return
+		}
+		for _, id := range []string{"R1", "R2"} {
+			write(map[string]any{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress"}})
+			write(map[string]any{"type": "response.output_audio.delta", "item_id": "item_" + id,
+				"response_id": id, "content_index": 0, "delta": second})
+			if id == "R1" {
+				write(map[string]any{"type": "response.done", "response": map[string]any{"id": id, "status": "completed"}})
+			}
+		}
+		var got []map[string]any
+		for {
+			ev := readClientEvent(conn)
+			if ev == nil {
+				return
+			}
+			if ev["type"] == "input_audio_buffer.commit" {
+				break
+			}
+			got = append(got, ev)
+		}
+		write(map[string]any{"type": "response.done", "response": map[string]any{"id": "R2", "status": "completed"}})
+		is.client <- got
+		<-r.Context().Done()
+	}))
+	t.Cleanup(is.srv.Close)
+	return is
+}
+
+// A slow guardrail blocks reply R1 after R2 has begun: R1 has completed, so
+// nothing is canceled, and R2, which the block is not about, is neither
+// canceled nor truncated; it completes.
+func TestRealtimeInterrupt_NeverTouchesALaterReply(t *testing.T) {
+	is := slowJudgeServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	config := DefaultRealtimeSessionConfig()
+	session, err := newRealtimeSession(ctx, "test-key", &config, realtimeSessionOpts{endpoint: bargeInWSURL(is.srv)})
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+	next := func() providers.StreamChunk {
+		select {
+		case c := <-session.Response():
+			return c
+		case <-ctx.Done():
+			t.Fatal("timed out")
+			return providers.StreamChunk{}
+		}
+	}
+	for audio := 0; audio < 2; {
+		if next().MediaData != nil {
+			audio++
+		}
+	}
+
+	require.NoError(t, session.InterruptResponse(ctx, 1))
+	require.NoError(t, session.CommitAudioBuffer())
+	var clients []map[string]any
+	select {
+	case clients = <-is.client:
+	case <-ctx.Done():
+		t.Fatal("the server never saw the commit")
+	}
+	assert.Empty(t, clients, "no cancel or truncate for R2")
+	var end providers.StreamChunk
+	for end.FinishReason == nil {
+		end = next()
+	}
+	assert.Equal(t, "stop", *end.FinishReason, "R2 completes")
+}
+
+// A session whose receive loop has ended (its context canceled) refuses to
+// interrupt instead of sending on its closed response queue.
+func TestRealtimeInterrupt_AfterTheReceiveLoopEnded(t *testing.T) {
+	is := newInterruptServer(t, 1, false, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	config := DefaultRealtimeSessionConfig()
+	session, err := newRealtimeSession(ctx, "test-key", &config, realtimeSessionOpts{endpoint: bargeInWSURL(is.srv)})
+	require.NoError(t, err)
+	for c := range session.Response() {
+		if c.MediaData != nil {
+			break // R1 is in progress
+		}
+	}
+	cancel()
+	require.Eventually(t, func() bool {
+		session.recvMu.Lock()
+		defer session.recvMu.Unlock()
+		return session.emitClosed
+	}, 5*time.Second, time.Millisecond, "the receive loop closes its response queue")
+	session.recvMu.Lock()
+	session.responseActive = true // R1 was in progress: a cancel would emit
+	session.recvMu.Unlock()
+
+	assert.EqualError(t, session.InterruptResponse(context.Background(), 1), errSessionClosed)
 }

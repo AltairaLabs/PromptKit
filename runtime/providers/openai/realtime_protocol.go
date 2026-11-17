@@ -139,6 +139,9 @@ type ResponseConfig struct {
 // ResponseCancelEvent cancels an in-progress response.
 type ResponseCancelEvent struct {
 	ClientEvent
+	// ResponseID names the response to cancel; empty cancels the one in
+	// progress.
+	ResponseID string `json:"response_id,omitempty"`
 }
 
 // conversationItemTruncatedEvent (conversation.item.truncated) acknowledges

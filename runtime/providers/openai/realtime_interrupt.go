@@ -21,14 +21,16 @@ const realtimeEventResponseCancel = "response.cancel"
 // canceled response's response.done still ends the turn. No Interrupted
 // chunk is sent: the caller reports the interruption.
 //
-// With no response in progress (the server has not created the turn's
-// response yet), the response is canceled as soon as it is created, unless
+// It acts on the response numbered generation (StreamChunk.Generation) only.
+// A response not created yet is canceled as soon as it is created, unless
 // the caller starts a new turn first (speech_started, or a response.create
-// the client sends).
+// the client sends, text or tool results). A response that has completed
+// while a later one began is left alone, and so is the later one.
+// Generation 0 is the response in progress, or the next one.
 //
 // A cancel the server rejects because the response ended first is logged,
 // not reported as a session error.
-func (s *RealtimeSession) InterruptResponse(_ context.Context) error {
+func (s *RealtimeSession) InterruptResponse(_ context.Context, generation int64) error {
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
@@ -38,14 +40,27 @@ func (s *RealtimeSession) InterruptResponse(_ context.Context) error {
 
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	if s.responseActive {
-		if err := s.cancelResponse(); err != nil {
-			return err
-		}
-	} else {
-		s.cancelNext = true
+	if s.emitClosed {
+		return errors.New(errSessionClosed)
 	}
-	s.truncateHeard()
+	target := generation
+	if target == 0 {
+		target = s.gen
+		if !s.responseActive {
+			target++
+		}
+	}
+	switch {
+	case target > s.gen:
+		s.cancelGen = target // not created yet: none of it has played
+	case target == s.gen:
+		if s.responseActive {
+			if err := s.cancelResponse(); err != nil {
+				return err
+			}
+		}
+		s.truncateHeard()
+	}
 	return nil
 }
 
@@ -55,6 +70,9 @@ func (s *RealtimeSession) cancelResponse() error {
 	event := ResponseCancelEvent{ClientEvent: ClientEvent{
 		EventID: s.nextEventID(), Type: realtimeEventResponseCancel,
 	}}
+	if n := len(s.respOrder); n > 0 {
+		event.ResponseID = s.respOrder[n-1]
+	}
 	s.cancels.sent(event.EventID, "")
 	if err := s.ws.Send(event); err != nil {
 		return fmt.Errorf("cancel the response: %w", err)
@@ -64,14 +82,14 @@ func (s *RealtimeSession) cancelResponse() error {
 	return nil
 }
 
-// cancelPending cancels a response just created when InterruptResponse found
-// none to cancel earlier in the turn, so the reply is neither generated nor
-// billed. Called with recvMu held, on response.created.
+// cancelPending cancels a response just created when InterruptResponse named
+// it before it existed, so the reply is neither generated nor billed. Called
+// with recvMu held, on response.created.
 func (s *RealtimeSession) cancelPending() {
-	if !s.cancelNext {
+	if s.cancelGen == 0 || s.gen != s.cancelGen {
 		return
 	}
-	s.cancelNext = false
+	s.cancelGen = 0
 	if err := s.cancelResponse(); err != nil {
 		logger.Warn("OpenAI Realtime: failed to cancel the interrupted turn's response", "error", err)
 	}
@@ -82,7 +100,7 @@ func (s *RealtimeSession) cancelPending() {
 func (s *RealtimeSession) startClientTurn() {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	s.cancelNext = false
+	s.cancelGen = 0
 }
 
 // cancelRejected reports whether a server error rejects a response.cancel

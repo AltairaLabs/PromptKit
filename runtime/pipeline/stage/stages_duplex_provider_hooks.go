@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -141,6 +142,15 @@ func (h *duplexHistory) fillUserTranscript(text string) {
 		}
 		return
 	}
+}
+
+// upTo returns the history's messages up to and including position i
+// (clamped to the history).
+func (h *duplexHistory) upTo(i int) []types.Message {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	i = max(0, min(i+1, len(h.msgs)))
+	return append([]types.Message(nil), h.msgs[:i]...)
 }
 
 // length is the number of messages in the history.
@@ -396,7 +406,7 @@ func (s *DuplexProviderStage) nextBlockedTurn() *duplexBlockedTurn {
 // assistant turns. A canceled context leaves the queue to the loop's
 // cancellation path, and after an input deny the error was the last output.
 func (s *DuplexProviderStage) emitWaitingBlockedTurns(ctx context.Context, output chan<- StreamElement) error {
-	for ctx.Err() == nil && !s.inputFailed.Load() {
+	for ctx.Err() == nil {
 		turn := s.nextBlockedTurn()
 		if turn == nil {
 			return nil
@@ -498,20 +508,6 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	return s.emit(ctx, end, output)
 }
 
-// failInput reports a hook denial on the input side: the error goes
-// downstream as an element and the session is closed, so the response loop
-// ends and Process returns err.
-//
-// The error is the session's last output: the response loop emits nothing
-// after it (no partial reply, no blocked turn), so a consumer, which keeps
-// reading past an error element until the stream closes, sees the session end
-// at the error.
-func (s *DuplexProviderStage) failInput(ctx context.Context, err error, output chan<- StreamElement) {
-	s.inputFailed.Store(true)
-	_ = s.emit(ctx, NewErrorElement(err), output)
-	s.closeSessionIfOpen()
-}
-
 // guardOutputChunk runs the chunk interceptors on a response chunk's assistant
 // text before it is accumulated or forwarded, and drops the chunk's text and
 // audio once the turn is blocked. A firing blocks the turn: an enforcing
@@ -540,11 +536,17 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	}
 	if d.Enforced {
 		// The interceptor rewrote probe.Content (truncated or replaced): that
-		// is the turn's text from here on.
+		// is the turn's text from here on. The caller already has what was
+		// forwarded: a truncation sends only what follows it.
+		sent := s.accumulatedText.String()
 		s.accumulatedText.Reset()
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
-		s.showBlockedText(probe.Content)
+		if rest, truncated := strings.CutPrefix(probe.Content, sent); !truncated {
+			s.showBlockedText(probe.Content)
+		} else if rest != "" {
+			s.showBlockedText(rest)
+		}
 	} else {
 		s.blockTurnWith(nil, d)
 	}
@@ -555,9 +557,31 @@ func (s *DuplexProviderStage) guardOutputChunk(
 // is dropped, and has it cut (cutReply) unless it already was.
 func (s *DuplexProviderStage) blockTurn() {
 	if !s.turnGuard.blocked {
-		s.cutPending = true
+		s.cutReplyOf(s.replyGeneration())
 	}
 	s.turnGuard.blocked = true
+}
+
+// cutReplyOf has the reply numbered gen cut (cutReply).
+func (s *DuplexProviderStage) cutReplyOf(gen int64) {
+	s.cutPending = true
+	s.cutGen = gen
+}
+
+// replyGeneration is the generation of the reply a block applies to now: the
+// one being accumulated, or whose chunk is being handled, or, before any of
+// it has arrived, the one after the latest reply seen. Zero when the provider
+// does not number its replies.
+func (s *DuplexProviderStage) replyGeneration() int64 {
+	switch {
+	case s.accGen != 0:
+		return s.accGen
+	case s.chunkIsReply && s.chunkGen != 0:
+		return s.chunkGen
+	case s.lastReplyGen == 0:
+		return 0
+	}
+	return s.lastReplyGen + 1
 }
 
 // blockTurnWith blocks the current reply for a decision that supplies no text
@@ -590,7 +614,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	if s.cutPending {
 		s.cutPending = false
 		if ri, ok := s.session.(providers.ResponseInterrupter); ok {
-			if err := ri.InterruptResponse(ctx); err != nil {
+			if err := ri.InterruptResponse(ctx, s.cutGen); err != nil {
 				logger.Warn("DuplexProviderStage: the provider did not stop the blocked reply", "error", err)
 			}
 		}
@@ -619,18 +643,19 @@ func interruptElement(reason string) StreamElement {
 }
 
 // guardSpokenInput runs the input hooks (BeforeCall) on the caller's spoken
-// turn, which is the last user message in the history. It runs after the
+// turn: messages is the conversation up to and including it, so it is the
+// input under judgment even when a reply follows it in the history. It runs after the
 // fact: the model heard the audio before its transcript existed. A block
 // stops the reply to it (blockTurnWith, the firing recorded on the reply), or,
 // with replyDone (the reply already completed and was emitted), only cuts what
 // is still playing.
-func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, replyDone bool) {
+func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []types.Message, replyDone bool) {
 	if !s.hooksActive() {
 		return
 	}
 	defer keepIdleAlive(ctx)()
 
-	req := s.hookRequest(s.history.snapshot())
+	req := s.hookRequest(messages)
 	start := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, req)
 	if d.Allow {
@@ -638,7 +663,7 @@ func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, replyDone bo
 	}
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, time.Since(start), req.TurnIndex)
 	if replyDone {
-		s.cutPending = true
+		s.cutReplyOf(s.lastReplyGen)
 		return
 	}
 	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
@@ -686,7 +711,7 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	turn := msg != nil && msg.Role == roleAssistant && s.hooksActive()
 	if tr := elem.Meta.Transcription; turn && tr != nil && tr.Text != "" {
 		s.history.fillUserTranscript(tr.Text)
-		s.guardSpokenInput(ctx, false)
+		s.guardSpokenInput(ctx, s.history.snapshot(), false)
 	}
 	guard := s.turnGuard
 	s.turnGuard = duplexTurnGuard{}
@@ -700,7 +725,7 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	}
 	if s.runTurnAfterCallHooks(ctx, msg, elem) {
 		if !guard.blocked {
-			s.cutPending = true
+			s.cutReplyOf(s.replyGeneration())
 		}
 		s.showBlockedText(msg.Content)
 	}

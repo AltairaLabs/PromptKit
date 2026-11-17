@@ -54,6 +54,14 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	msg.Parts = s.buildAssistantParts(text)
 	msg.Reasoning = s.takeReasoning()
 	msg.Validations = guard.validations
+	if guard.blocked {
+		// Cut short after a guardrail blocked it: still the blocked turn.
+		for k, v := range guard.blockedMeta {
+			msg.Meta[k] = v
+		}
+		msg.FinishReason = types.FinishReasonSafety
+		msg.Meta[finishReasonMetaKey] = types.FinishReasonSafety
+	}
 
 	s.textFromDeltas = false
 	s.accumulatedText.Reset()
@@ -166,6 +174,9 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		s.interruptedGen = chunk.Generation
 
 		interruptedReason := finishReasonInterrupted
+		if elem.Message != nil {
+			interruptedReason = elem.Message.FinishReason // safety for a blocked turn
+		}
 		elem.Meta.Interrupted = true
 		elem.Meta.FinishReason = &interruptedReason
 		// Note: NOT setting EndOfStream - the provider will continue with new response

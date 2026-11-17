@@ -689,12 +689,6 @@ func TestDuplexHooks_UnemittedBlockedTurnStillReportsFiring(t *testing.T) {
 		require.ErrorIs(t, s.forwardResponseElements(ctx, make(chan StreamElement, 8)), context.Canceled)
 		require.Len(t, getEvents(), 1)
 	})
-	t.Run("after input deny", func(t *testing.T) {
-		s, getEvents := block(t)
-		s.inputFailed.Store(true)
-		require.NoError(t, s.finishOnResponseClosed(context.Background(), make(chan StreamElement, 8), true))
-		require.Len(t, getEvents(), 1)
-	})
 }
 
 // blockingEnforceHook enforces BeforeCall once release is closed.
@@ -809,19 +803,6 @@ func TestDuplexHooks_BlockedTurnEmittedBeforeNextReply(t *testing.T) {
 		}
 		require.Equal(t, []string{"reply A", "Not here.", "reply C"}, turns, "iteration %d", i)
 	}
-}
-
-// After an input deny the error element is the last output, so blocked turns
-// still waiting are not emitted after it.
-func TestDuplexHooks_NoBlockedTurnAfterInputDeny(t *testing.T) {
-	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&blockTextHook{block: "B"})))
-	text := "B"
-	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text},
-		make(chan StreamElement, 4), make(chan error, 1)))
-	s.inputFailed.Store(true)
-	out := make(chan StreamElement, 4)
-	require.NoError(t, s.emitWaitingBlockedTurns(context.Background(), out))
-	assert.Empty(t, out)
 }
 
 // assertTypedUserTurn checks elem is the user Message a typed realtime turn

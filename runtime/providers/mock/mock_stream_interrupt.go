@@ -6,13 +6,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
-// InterruptResponse records that the caller stopped the reply in progress
-// (providers.ResponseInterrupter). The mock emits nothing for it: a test
-// scripts what the provider sends after a cancel.
-func (m *MockStreamSession) InterruptResponse(_ context.Context) error {
+// InterruptResponse records that the caller stopped the reply numbered
+// generation (providers.ResponseInterrupter). The mock emits nothing for it:
+// a test scripts what the provider sends after a cancel.
+func (m *MockStreamSession) InterruptResponse(_ context.Context, generation int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.interrupts++
+	m.interrupts = append(m.interrupts, generation)
 	return nil
 }
 
@@ -20,7 +20,15 @@ func (m *MockStreamSession) InterruptResponse(_ context.Context) error {
 func (m *MockStreamSession) Interrupts() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.interrupts
+	return len(m.interrupts)
+}
+
+// InterruptedGenerations returns the generation each InterruptResponse call
+// named, in order.
+func (m *MockStreamSession) InterruptedGenerations() []int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]int64(nil), m.interrupts...)
 }
 
 var _ providers.ResponseInterrupter = (*MockStreamSession)(nil)
