@@ -142,6 +142,9 @@ type MockStreamSession struct {
 	// history is every prior-conversation turn SeedHistory was given, in the
 	// order received (see mock_stream_history.go).
 	history []providers.HistoryTurn
+
+	// interrupts counts InterruptResponse calls (mock_stream_interrupt.go).
+	interrupts int
 }
 
 // NewMockStreamSession creates a new mock stream session.

@@ -119,26 +119,6 @@ func TestDuplexHooks_AfterCallEnforcedRewritesTurn(t *testing.T) {
 	assert.Equal(t, hooks.DirectionOutput, got[0].Direction)
 }
 
-// A hook that denies without enforcing fails the realtime turn as it fails a
-// text turn: no assistant message, an error element, and the error returned.
-func TestDuplexHooks_AfterCallDenyFailsTurn(t *testing.T) {
-	reg := hooks.NewRegistry(hooks.WithProviderHook(&allowBeforeDenyAfterHook{reason: "nope"}))
-	s, _, _ := duplexStageWithHooks(t, reg)
-
-	elems, err := feedChunks(t, s, providers.StreamChunk{Content: "hello"}, stopChunk())
-	var denied *hooks.HookDeniedError
-	require.ErrorAs(t, err, &denied)
-	assert.Equal(t, providerHookTypeAfter, denied.HookType)
-
-	for _, e := range elems {
-		if e.Message != nil {
-			assert.NotEqual(t, roleAssistant, e.Message.Role, "a denied turn must not be emitted")
-		}
-	}
-	last := elems[len(elems)-1]
-	require.ErrorAs(t, last.Error, &denied)
-}
-
 // A streaming guardrail checks each transcript delta before it is forwarded.
 // Once it enforces, the turn's text is the enforced text and the rest of the
 // turn's text and audio is dropped, the realtime equivalent of the text path
@@ -209,25 +189,6 @@ func TestDuplexHooks_InterruptedTurnKeepsChunkFiring(t *testing.T) {
 	assert.Equal(t, "fine", msg.Content)
 	assert.Empty(t, msg.Validations)
 	assert.NotEqual(t, types.FinishReasonSafety, msg.FinishReason)
-}
-
-// A streaming interceptor that denies without enforcing fails the turn: as in
-// text, none of the blocked output is kept.
-func TestDuplexHooks_ChunkDenyAbortsTurn(t *testing.T) {
-	reg := hooks.NewRegistry(hooks.WithProviderHook(&maxCharsChunkInterceptor{maxChars: 3}))
-	s, _, _ := duplexStageWithHooks(t, reg)
-	s.turnIDQueue = []string{"t1"}
-
-	elems, err := feedChunks(t, s, transcriptChunk("too long", nil), stopChunk())
-	var abort *providers.ValidationAbortError
-	require.ErrorAs(t, err, &abort)
-	for _, e := range elems {
-		assert.Nil(t, e.Message, "a blocked turn keeps no message")
-		assert.Nil(t, e.Text, "the blocked text is not forwarded")
-	}
-	require.NotEmpty(t, elems)
-	require.ErrorAs(t, elems[len(elems)-1].Error, &abort)
-	assert.Zero(t, s.accumulatedText.Len())
 }
 
 // Text bound for the session is checked before it is sent. An enforcing input

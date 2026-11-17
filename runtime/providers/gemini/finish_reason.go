@@ -2,6 +2,10 @@ package gemini
 
 import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
+// reasonMalformedFunctionCall is the finish reason, and the Live turn-complete
+// reason, of a turn whose function call was invalid.
+const reasonMalformedFunctionCall = "MALFORMED_FUNCTION_CALL"
+
 // normalizeFinishReason maps a Gemini finishReason onto the canonical
 // vocabulary in runtime/types. Unknown/empty values pass through verbatim.
 func normalizeFinishReason(raw string) string {
@@ -12,7 +16,7 @@ func normalizeFinishReason(raw string) string {
 		return types.FinishReasonMaxOutputTokens
 	case finishReasonSafety, finishReasonRecitation, "PROHIBITED_CONTENT", "SPII", "BLOCKLIST":
 		return types.FinishReasonSafety
-	case "MALFORMED_FUNCTION_CALL":
+	case reasonMalformedFunctionCall:
 		return types.FinishReasonRefusal
 	default:
 		return raw
@@ -29,4 +33,20 @@ func turnFinishReason(raw string, hasToolCalls bool) string {
 		return types.FinishReasonToolUse
 	}
 	return normalized
+}
+
+// liveTurnFinishReason maps a Gemini Live turnCompleteReason onto the
+// canonical vocabulary. Every documented reason other than those listed is
+// one of Gemini's safety filters ending the turn (prohibited input, a
+// blocklist, generated content or audio failing a check), so an unlisted
+// reason reads as safety rather than as a normal end.
+func liveTurnFinishReason(reason string) string {
+	switch reason {
+	case "", "TURN_COMPLETE_REASON_UNSPECIFIED", "NEED_MORE_INPUT", "MAX_REGENERATION_REACHED":
+		return finishReasonComplete
+	case reasonMalformedFunctionCall, "RESPONSE_REJECTED":
+		return types.FinishReasonRefusal
+	default:
+		return types.FinishReasonSafety
+	}
 }

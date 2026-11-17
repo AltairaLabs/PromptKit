@@ -30,9 +30,9 @@ const finishReasonInterrupted = types.FinishReasonInterrupted
 func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	// The turn ends here, so its guardrail state does too; any chunk firing
 	// is kept on the partial reply.
+	text := s.turnText()
 	guard := s.turnGuard
 	s.turnGuard = duplexTurnGuard{}
-	text := s.accumulatedText.String()
 	if text == "" && len(s.accumulatedMedia) == 0 &&
 		s.accumulatedReasoning.Len() == 0 && len(s.accumulatedOpaqueReasoning) == 0 {
 		return nil
@@ -204,7 +204,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 
 	// Create Message on turn completion (FinishReason received)
 	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
-		accumulatedText := s.accumulatedText.String()
+		accumulatedText := s.turnText()
 		hasContent := accumulatedText != "" || len(s.accumulatedMedia) > 0
 		hasCostInfo := chunk.CostInfo != nil && (chunk.CostInfo.InputTokens > 0 || chunk.CostInfo.OutputTokens > 0)
 

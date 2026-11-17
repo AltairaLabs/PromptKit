@@ -296,6 +296,7 @@ The package provides:
 - [type RerankUsage](<#RerankUsage>)
 - [type ResponseFormat](<#ResponseFormat>)
 - [type ResponseFormatType](<#ResponseFormatType>)
+- [type ResponseInterrupter](<#ResponseInterrupter>)
 - [type RetryBudget](<#RetryBudget>)
   - [func NewRetryBudget\(ratePerSec float64, burst int\) \*RetryBudget](<#NewRetryBudget>)
   - [func \(b \*RetryBudget\) Available\(\) float64](<#RetryBudget.Available>)
@@ -1313,7 +1314,7 @@ func WithoutAssistantAudio(msg types.Message) types.Message
 WithoutAssistantAudio returns msg without its audio parts when msg is an assistant message, for an API that takes no audio there: a realtime session stores each spoken reply with its audio and its transcript, and the transcript is what such a model is sent. Any other message is returned unchanged, so user audio meets the provider's own rule. The caller's message is not modified. An assistant message left with no parts keeps its Content.
 
 <a name="AudioStreamingCapabilities"></a>
-## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L271-L293>)
+## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L291-L313>)
 
 AudioStreamingCapabilities describes audio streaming support.
 
@@ -2692,7 +2693,7 @@ func (r *JitterHealthReporter) Report(m *StreamMetrics, jb jitterHealthCounters,
 Report emits the counter deltas since the last call to m \(nil\-safe\) for the given direction \("input"/"output"\). jb is the live jitter buffer. This is a DIRECT\-UPDATE path: it never publishes to the event bus \(see the off\-bus invariant on StreamMetrics\).
 
 <a name="LateInputTranscriber"></a>
-## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L238-L242>)
+## type [LateInputTranscriber](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L258-L262>)
 
 LateInputTranscriber is an optional interface a StreamInputSupport provider implements to declare that it delivers the user's input transcription AFTER the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper transcription arrives asynchronously, after the model has started replying.
 
@@ -3881,6 +3882,21 @@ const (
 )
 ```
 
+<a name="ResponseInterrupter"></a>
+## type [ResponseInterrupter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L245-L247>)
+
+ResponseInterrupter is an optional StreamInputSession interface for a session that can stop a reply on the caller's behalf, the way a barge\-in stops it. The duplex pipeline calls it when a guardrail blocks the reply.
+
+InterruptResponse stops the model generating the response in progress, if any, drops that response's audio still to be delivered on Response\(\), and cuts the provider's own copy of the reply to the audio the caller has heard, so the model's context holds no more of it than the caller heard. With no response in progress it only cuts the copy of the last reply. It sends no Interrupted chunk: the caller that interrupts reports the interruption itself. The response's end still arrives on Response\(\) as the provider reports it \(OpenAI Realtime: a canceled response.done\).
+
+A session without it keeps generating, and the pipeline drops the rest of the reply. Gemini Live is one: it cannot stop a reply without adding a turn to the conversation.
+
+```go
+type ResponseInterrupter interface {
+    InterruptResponse(ctx context.Context) error
+}
+```
+
 <a name="RetryBudget"></a>
 ## type [RetryBudget](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/stream_retry_budget.go#L26-L30>)
 
@@ -5022,7 +5038,7 @@ type StreamToolUpdater interface {
 ```
 
 <a name="StreamingCapabilities"></a>
-## type [StreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L245-L268>)
+## type [StreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L265-L288>)
 
 StreamingCapabilities describes what streaming features a provider supports.
 
@@ -5091,7 +5107,7 @@ type StreamingInputConfig struct {
 ```
 
 <a name="StreamingInputConfig.Validate"></a>
-### func \(\*StreamingInputConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L330>)
+### func \(\*StreamingInputConfig\) [Validate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L350>)
 
 ```go
 func (r *StreamingInputConfig) Validate() error
@@ -5153,7 +5169,7 @@ type ToolDescriptor struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L358-L368>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L378-L388>)
 
 ToolResponse represents a single tool execution result.
 
@@ -5172,7 +5188,7 @@ type ToolResponse struct {
 ```
 
 <a name="ToolResponsePartsSupport"></a>
-## type [ToolResponsePartsSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L374-L376>)
+## type [ToolResponsePartsSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L394-L396>)
 
 ToolResponsePartsSupport is an optional interface for streaming sessions that can send a tool result's media parts \(ToolResponse.Parts\) to the model. A session without it, or returning false, is sent the same responses and sends only their text Result.
 
@@ -5183,7 +5199,7 @@ type ToolResponsePartsSupport interface {
 ```
 
 <a name="ToolResponseSupport"></a>
-## type [ToolResponseSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L344-L355>)
+## type [ToolResponseSupport](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L364-L375>)
 
 ToolResponseSupport is an optional interface for streaming sessions that support tool calling. When the model returns a tool call, the caller can execute the tool and send the result back using this interface. The session will then continue generating a response based on the tool result.
 
@@ -5339,7 +5355,7 @@ func (e *ValidationAbortError) Error() string
 Error returns the error message for this validation abort error.
 
 <a name="VideoResolution"></a>
-## type [VideoResolution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L319-L322>)
+## type [VideoResolution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L339-L342>)
 
 VideoResolution represents a video resolution.
 
@@ -5351,7 +5367,7 @@ type VideoResolution struct {
 ```
 
 <a name="VideoResolution.String"></a>
-### func \(VideoResolution\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L325>)
+### func \(VideoResolution\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L345>)
 
 ```go
 func (r VideoResolution) String() string
@@ -5360,7 +5376,7 @@ func (r VideoResolution) String() string
 String returns a string representation of the resolution \(e.g., "1920x1080"\)
 
 <a name="VideoStreamingCapabilities"></a>
-## type [VideoStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L296-L316>)
+## type [VideoStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L316-L336>)
 
 VideoStreamingCapabilities describes video streaming support.
 

@@ -212,6 +212,9 @@ type DuplexProviderStage struct {
 	// textFromDeltas is set once the current reply's text has arrived as
 	// deltas (normalizeTextDeltaChunk); response goroutine only.
 	textFromDeltas bool
+	// cutPending is set when a guardrail blocked the reply and it is still to
+	// be cut (cutReply). Response goroutine only.
+	cutPending bool
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -1606,9 +1609,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 
 	// Streaming guardrails check the chunk's assistant text before it is
 	// accumulated or forwarded.
-	if err := s.guardOutputChunk(ctx, chunk, isOutputTranscription); err != nil {
-		return s.abortTurn(ctx, err, output)
-	}
+	s.guardOutputChunk(ctx, chunk, isOutputTranscription)
 
 	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
 		return err
@@ -1635,11 +1636,12 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Output guardrails check the completed turn, after its user turn (above)
 	// is in the history they see. Its tool calls, if the stage runs them, are
 	// queued once the turn's message is out.
-	round, err := s.completeChunkTurn(ctx, chunk, &elem, turnDone)
-	if err != nil {
-		return s.failTurn(ctx, err, output)
-	}
+	round := s.completeChunkTurn(ctx, chunk, &elem, turnDone)
 	s.noteChunkTurnEnd(chunk, &elem, turnDone)
+	// A reply a guardrail blocked is cut before anything more of it is sent.
+	if err := s.cutReply(ctx, output); err != nil {
+		return err
+	}
 
 	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
 		elem.Meta.ToolCallsRunning = true // the stage answers them (queueToolRound)
@@ -1671,27 +1673,31 @@ func (s *DuplexProviderStage) bindChunkGeneration(ctx context.Context, chunk *pr
 // owed to the turn just answered or repeating a turn shown is placed or
 // dropped (placeFinalTranscript); otherwise it is accumulated, and a final one
 // materializes the user turn at once (tryFastPathUserTurn). handled reports
-// that the chunk was consumed; err is then the result.
+// that the chunk was consumed; err is then the result. A user turn emitted
+// here was checked by the input guardrails, so a reply it blocked is cut.
 func (s *DuplexProviderStage) takeInputTranscription(
 	ctx context.Context, chunk *providers.StreamChunk, isInputTranscription bool, output chan<- StreamElement,
 ) (handled bool, err error) {
 	if !isInputTranscription {
 		return false, nil
 	}
-	if handled, err := s.placeFinalTranscript(ctx, chunk, output); handled {
-		return true, err
+	handled, err = s.placeFinalTranscript(ctx, chunk, output)
+	if !handled {
+		s.captureInputTranscription(chunk)
+		handled, err = s.tryFastPathUserTurn(ctx, chunk, isInputTranscription, output)
 	}
-	s.captureInputTranscription(chunk)
-	return s.tryFastPathUserTurn(ctx, chunk, isInputTranscription, output)
+	if handled && err == nil {
+		err = s.cutReply(ctx, output)
+	}
+	return handled, err
 }
 
 // completeChunkTurn charges what the chunk's turn cost and prepares its tool
-// round: an interrupted turn, a completed one (after the output guardrails,
-// whose error it returns), and cost no message carries. Returns the job for
-// the tool worker, or nil.
+// round: an interrupted turn, a completed one (after the output guardrails),
+// and cost no message carries. Returns the job for the tool worker, or nil.
 func (s *DuplexProviderStage) completeChunkTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement, turnDone bool,
-) (*duplexToolJob, error) {
+) *duplexToolJob {
 	unplaced := chunk.CostInfo != nil && !s.costPlaced
 	s.costReported = false
 	round := s.chargeInterruptedTurn(ctx, chunk, elem)
@@ -1699,15 +1705,7 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		// The call completes and its cost is charged whatever the output
 		// guardrails decide.
 		settled := s.settleTurnCall(ctx, elem)
-		if err := s.guardCompletedTurn(ctx, elem); err != nil {
-			if settled != nil {
-				s.emitCompletion(ctx, settled.done, true) // its message is not emitted
-				s.tools.endTurn(settled.turn)
-			}
-			// The denied turn's message is not emitted: its cost is carried.
-			s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
-			return nil, err
-		}
+		s.guardCompletedTurn(ctx, elem)
 		if settled != nil {
 			s.emitCompletion(ctx, settled.done, settled.msg == nil)
 		}
@@ -1719,7 +1717,7 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		}
 	}
 	s.placeCarriedCost(chunk, elem, unplaced)
-	return round, nil
+	return round
 }
 
 // materializeStreamingUserTurn is the continuous-streaming user-turn
@@ -1890,8 +1888,10 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 }
 
 // emitBufferedUserTurn emits the buffered input transcription as a user
-// Message element. The caller resets the buffer afterwards. fromDeltas
-// reports that it was assembled from incremental chunks, not a final one.
+// Message element, then checks it with the input guardrails, which can block
+// the reply to it (guardSpokenInput). The caller resets the buffer
+// afterwards. fromDeltas reports that it was assembled from incremental
+// chunks, not a final one.
 func (s *DuplexProviderStage) emitBufferedUserTurn(
 	ctx context.Context, output chan<- StreamElement, fromDeltas bool,
 ) error {
@@ -1907,7 +1907,11 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	}
 	s.beginTranscribedToolTurn(ctx)
 	s.recordHistory(userMsg)
-	return s.emit(ctx, StreamElement{Message: userMsg}, output)
+	if err := s.emit(ctx, StreamElement{Message: userMsg}, output); err != nil {
+		return err
+	}
+	s.guardSpokenInput(ctx, false)
+	return nil
 }
 
 // classifyResponseChunk classifies a chunk's transcription (see
