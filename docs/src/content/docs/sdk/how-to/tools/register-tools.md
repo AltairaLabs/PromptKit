@@ -161,6 +161,8 @@ When someone other than the client approves, such as a reviewer, a policy servic
 
 `OnToolAsync` takes a check function and an execution function. When the check returns a non-empty `PendingResult`, the pipeline holds the call instead of executing it. This applies to `Send`, to duplex sessions built with `WithIngestion`, and to realtime duplex sessions.
 
+A call the check lets through runs on the tool's handlers, by the same rule in text, VAD and realtime conversations: a handler registered with `OnToolCall`, `OnToolExecutor`, `OnToolCtx` or `OnToolHTTP` runs it, even one registered before `OnToolAsync`; otherwise the execution function does, since it replaces an `OnTool` handler. With `OnToolAsyncCall`, the execution function runs it.
+
 ```go
 conv.OnToolAsync("process_refund",
     func(args map[string]any) sdktools.PendingResult {
