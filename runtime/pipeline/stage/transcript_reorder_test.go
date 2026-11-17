@@ -2,9 +2,12 @@ package stage
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,19 +33,72 @@ func drainOrder(out <-chan StreamElement) []string {
 		switch {
 		case e.Message != nil && e.Message.Role == "user":
 			order = append(order, "USER:"+e.Message.Content)
-		case e.Message != nil && e.Message.Role == "tool":
-			order = append(order, "TOOL:"+e.Message.ToolResult.ID)
-		case e.Audio != nil:
-			order = append(order, "AUDIO")
-		case e.Text != nil:
-			order = append(order, "TXT:"+*e.Text)
-		case e.EndOfStream && e.Message != nil && len(e.Message.ToolCalls) > 0:
-			order = append(order, "END:calls")
-		case e.EndOfStream:
-			order = append(order, "END")
+		default:
+			if l := elemLabel(&e); l != "" {
+				order = append(order, l)
+			}
 		}
 	}
 	return order
+}
+
+// elemLabel names a non-user element for an order assertion ("" for one the
+// tests don't track).
+func elemLabel(e *StreamElement) string {
+	switch {
+	case e.Message != nil && e.Message.Role == "tool":
+		return "TOOL:" + e.Message.ToolResult.ID
+	case e.Audio != nil:
+		return "AUDIO"
+	case e.Text != nil:
+		return "TXT:" + *e.Text
+	case e.EndOfStream && e.Message != nil && len(e.Message.ToolCalls) > 0:
+		return "END:calls"
+	case e.EndOfStream:
+		return "END"
+	case len(e.Meta.PendingTools) > 0:
+		return "PENDING:" + e.Meta.PendingTools[0].CallID
+	case e.Error != nil:
+		return "ERR"
+	case e.Message != nil:
+		return strings.ToUpper(e.Message.Role) + ":" + e.Message.Content
+	}
+	return ""
+}
+
+// lateUserElem is a user transcript the duplex stage marked late: it belongs
+// to the turn whose reply already completed.
+func lateUserElem(content string) StreamElement {
+	e := userElem(content)
+	e.Meta.LateTranscript = true
+	return e
+}
+
+// runningToolCallEndElem is a tool-call turn-end whose calls the duplex stage
+// is running.
+func runningToolCallEndElem(id string) StreamElement {
+	e := toolCallEndElem(id)
+	e.Meta.ToolCallsRunning = true
+	return e
+}
+
+// reorderRun drives a reorder stage element by element and collects its
+// output; wait gives the stage time to act on a timer.
+type reorderRun struct {
+	in  chan StreamElement
+	out chan StreamElement
+}
+
+func startReorder(s *TranscriptReorderStage) *reorderRun {
+	r := &reorderRun{in: make(chan StreamElement, 32), out: make(chan StreamElement, 64)}
+	go func() { _ = s.Process(context.Background(), r.in, r.out) }()
+	return r
+}
+
+// finish closes the input and returns everything the stage emitted.
+func (r *reorderRun) finish() []string {
+	close(r.in)
+	return drainOrder(r.out)
 }
 
 // toolCallEndElem is the turn-end of a model response that made a tool call.
@@ -142,18 +198,17 @@ func collectUntil(out <-chan StreamElement, endMarks int, deadline time.Duration
 	for ends < endMarks {
 		select {
 		case e := <-out:
-			switch {
-			case e.Message != nil && e.Message.Role == "user":
+			if e.Message != nil && e.Message.Role == "user" {
 				order = append(order, "USER:"+e.Message.Content)
-			case e.Message != nil && e.Message.Role == "tool":
-				order = append(order, "TOOL:"+e.Message.ToolResult.ID)
-			case e.Audio != nil:
-				order = append(order, "AUDIO")
-			case e.Text != nil:
-				order = append(order, "TXT:"+*e.Text)
-			case e.EndOfStream:
-				order = append(order, "END")
+				continue
+			}
+			if e.EndOfStream {
 				ends++
+				order = append(order, "END")
+				continue
+			}
+			if l := elemLabel(&e); l != "" {
+				order = append(order, l)
 			}
 		case <-timeout:
 			return order
@@ -355,4 +410,194 @@ func TestTranscriptReorderStage_ConsecutiveTurnEndsBothKept(t *testing.T) {
 
 	require.NoError(t, s.Process(context.Background(), in, out))
 	assert.Equal(t, []string{"USER:[none]", "END", "USER:q2", "END"}, drainOrder(out))
+}
+
+// A transcript marked late for a turn the stage already resolved (its hold
+// timed out and the placeholder was emitted) is dropped: it is that turn's,
+// not the next turn's user message.
+func TestTranscriptReorderStage_LateTranscriptAfterTimeoutDropped(t *testing.T) {
+	r := startReorder(NewTranscriptReorderStageWithTimeout("[none]", 20*time.Millisecond))
+	r.in <- txtElem("A1")
+	r.in <- asstEndElem("A1")
+	time.Sleep(80 * time.Millisecond) // the hold times out
+	r.in <- lateUserElem("q1")        // turn 1's transcript, too late
+	r.in <- txtElem("A2")
+	r.in <- userElem("q2")
+	r.in <- asstEndElem("A2")
+	assert.Equal(t, []string{"USER:[none]", "TXT:A1", "END", "USER:q2", "TXT:A2", "END"}, r.finish())
+}
+
+// A held turn is not timed out while the tool round it started is still
+// running (a slow tool): its transcript, arriving after the round, still
+// takes its place ahead of the reply.
+func TestTranscriptReorderStage_HoldPausedWhileToolRoundRuns(t *testing.T) {
+	r := startReorder(NewTranscriptReorderStageWithTimeout("[none]", 20*time.Millisecond))
+	r.in <- runningToolCallEndElem("c1")
+	time.Sleep(100 * time.Millisecond) // the tool takes five hold windows
+	r.in <- toolResultElem("c1")
+	r.in <- lateUserElem("where is my order")
+	r.in <- txtElem("Shipped.")
+	r.in <- asstEndElem("Shipped.")
+	assert.Equal(t, []string{"USER:where is my order", "END:calls", "TOOL:c1", "TXT:Shipped.", "END"}, r.finish())
+}
+
+// Once the round's results are in, the hold window runs again.
+func TestTranscriptReorderStage_HoldResumesAfterToolRound(t *testing.T) {
+	r := startReorder(NewTranscriptReorderStageWithTimeout("[none]", 20*time.Millisecond))
+	r.in <- runningToolCallEndElem("c1")
+	r.in <- toolResultElem("c1")
+	time.Sleep(80 * time.Millisecond)
+	r.in <- lateUserElem("too late") // the hold timed out after the round
+	r.in <- txtElem("Shipped.")
+	r.in <- asstEndElem("Shipped.")
+	assert.Equal(t, []string{"USER:[none]", "END:calls", "TOOL:c1", "TXT:Shipped.", "END"}, r.finish())
+}
+
+// When a held tool turn does time out, its transcript arriving later is
+// dropped rather than emitted in the middle of the turn.
+func TestTranscriptReorderStage_LateTranscriptAfterToolTurnTimeoutDropped(t *testing.T) {
+	r := startReorder(NewTranscriptReorderStageWithTimeout("[none]", 20*time.Millisecond))
+	r.in <- toolCallEndElem("c1") // the host runs this call: no pause
+	time.Sleep(80 * time.Millisecond)
+	r.in <- toolResultElem("c1")
+	r.in <- lateUserElem("where is my order")
+	r.in <- txtElem("Shipped.")
+	r.in <- asstEndElem("Shipped.")
+	assert.Equal(t, []string{"USER:[none]", "END:calls", "TOOL:c1", "TXT:Shipped.", "END"}, r.finish())
+}
+
+// A tool round that never gets its results (pending, rejected, abandoned)
+// does not swallow the next turn: the next reply closes the tool turn, so
+// that reply is still reordered behind its own transcript.
+func TestTranscriptReorderStage_UnansweredToolTurnClosedByNextReply(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+	in <- userElem("q1")
+	in <- runningToolCallEndElem("c1") // no result ever comes
+	in <- txtElem("A2")                // the next turn's reply
+	in <- userElem("q2")               // its transcript, late
+	in <- asstEndElem("A2")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:q1", "END:calls", "USER:q2", "TXT:A2", "END"}, drainOrder(out))
+}
+
+// The same when the unanswered tool turn is still held for its transcript:
+// it is resolved with the placeholder, then the next turn is reordered.
+func TestTranscriptReorderStage_HeldUnansweredToolTurnClosedByNextReply(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+	in <- runningToolCallEndElem("c1")
+	in <- txtElem("A2")
+	in <- userElem("q2")
+	in <- asstEndElem("A2")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:[none]", "END:calls", "USER:q2", "TXT:A2", "END"}, drainOrder(out))
+}
+
+// A held tool round's other elements (a call held for the caller, an error)
+// stay with the round, after its call and results.
+func TestTranscriptReorderStage_HeldToolRoundKeepsItsOtherElements(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+	in <- runningToolCallEndElem("c1")
+	in <- toolResultElem("c1")
+	pending := StreamElement{}
+	pending.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "c2", ToolName: "approve"}}
+	in <- pending
+	in <- StreamElement{Error: errors.New("tool limit")}
+	in <- lateUserElem("where is my order")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:where is my order", "END:calls", "TOOL:c1", "PENDING:c2", "ERR"}, drainOrder(out))
+}
+
+// A message for a later turn resolves a held finished turn first instead of
+// joining it: a non-user message, and a typed user turn.
+func TestTranscriptReorderStage_LaterTurnMessageResolvesHeldTurn(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+	in <- txtElem("A1")
+	in <- asstEndElem("A1") // held for its transcript
+	in <- StreamElement{Message: &types.Message{Role: "system", Content: "note"}}
+	in <- txtElem("A2")
+	in <- asstEndElem("A2") // held
+	typed := userElem("typed")
+	typed.Source = TextInputTurnSource
+	in <- typed
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{
+		"USER:[none]", "TXT:A1", "END", "SYSTEM:note",
+		"USER:[none]", "TXT:A2", "END", "USER:typed",
+	}, drainOrder(out))
+}
+
+// A typed user turn arriving while reply text is buffered (no turn-end held)
+// keeps that text: it is the typed turn's reply, released at its turn-end.
+func TestTranscriptReorderStage_TypedTurnKeepsBufferedText(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+	in <- txtElem("A")
+	typed := userElem("typed")
+	typed.Source = TextInputTurnSource
+	in <- typed
+	in <- asstEndElem("A")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:typed", "TXT:A", "END"}, drainOrder(out))
+}
+
+// A tool result for a later round resolves a held finished turn before it
+// passes, so a transcript after it is not taken for the finished turn.
+func TestTranscriptReorderStage_ToolResultResolvesHeldFinishedTurn(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+	in <- txtElem("A1")
+	in <- asstEndElem("A1")
+	in <- toolResultElem("c9")
+	in <- userElem("q")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:[none]", "TXT:A1", "END", "TOOL:c9", "USER:q"}, drainOrder(out))
+}
+
+// A control element (calls held for the caller) passes a held finished turn
+// at once: only a held tool round keeps such elements.
+func TestTranscriptReorderStage_PendingPassesHeldFinishedTurn(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+	in <- txtElem("A1")
+	in <- asstEndElem("A1")
+	pending := StreamElement{}
+	pending.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "x", ToolName: "approve"}}
+	in <- pending
+	in <- userElem("q")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"PENDING:x", "USER:q", "TXT:A1", "END"}, drainOrder(out))
+}
+
+// An interrupted response that had made tool calls finished its turn: its
+// round's result resolves it, and a late transcript afterwards is dropped.
+func TestTranscriptReorderStage_InterruptedToolCallEndIsFinished(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+	cut := toolCallEndElem("c1")
+	cut.Meta.Interrupted = true
+	in <- cut
+	in <- toolResultElem("c1")
+	in <- lateUserElem("q1")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:[none]", "END:calls", "TOOL:c1"}, drainOrder(out))
 }

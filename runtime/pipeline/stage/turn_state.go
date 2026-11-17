@@ -208,6 +208,21 @@ type ElementMetadata struct {
 	// interrupted turn (downstream cleanup signal).
 	InterruptedTurnComplete bool
 
+	// LateTranscript marks a user Message that DuplexProviderStage
+	// materialized from a provider's final input transcript after the reply
+	// to it had completed (OpenAI Realtime delivers it late). It is the
+	// answered turn's user message, never the next turn's: a
+	// TranscriptReorderStage still holding that turn places it ahead of the
+	// reply, and one that has already resolved the turn drops it.
+	LateTranscript bool
+
+	// ToolCallsRunning marks the turn-end element of a model response whose
+	// tool calls DuplexProviderStage runs itself: each call's result (or a
+	// PendingTools element for a call held for the caller) follows on a later
+	// element. TranscriptReorderStage does not time out a held turn while
+	// such a round is still running.
+	ToolCallsRunning bool
+
 	// ToolResultMessages carries tool-execution result messages produced
 	// by the streaming tool integration; the duplex provider stage
 	// consumes them as the next-round input.

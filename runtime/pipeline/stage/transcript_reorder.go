@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -32,7 +33,18 @@ const defaultTranscriptHoldTimeout = 3 * time.Second
 // A turn-end that makes tool calls does not end the user's turn: the reply
 // after the tool round answers the same utterance, so it is held (or streamed,
 // once the user turn is shown) with it rather than waiting for a transcript of
-// its own.
+// its own. The round's other elements (results, calls held for the caller,
+// errors) are held with it. While a round DuplexProviderStage runs
+// (Meta.ToolCallsRunning) is still running, a held turn is not timed out. A
+// round whose calls never get results does not swallow the next turn: the
+// next reply closes it.
+//
+// A user transcript marked Meta.LateTranscript belongs to the turn whose reply
+// already completed: it fills that turn while the stage still holds it, and is
+// dropped once the stage has resolved the turn (with the placeholder) rather
+// than becoming the next turn's user message. A typed user turn
+// (TextInputTurnSource) and any non-user message for a later turn resolve a
+// held finished turn first instead of joining it.
 //
 // The mechanism is provider-agnostic; whether it is wired is decided upstream. It
 // is a Transform stage: state is per-turn and reset on each turn boundary, so a
@@ -64,6 +76,12 @@ type TranscriptReorderStage struct {
 	// heldToolTurn is set when the last held turn-end made tool calls: the
 	// user's turn continues past it.
 	heldToolTurn bool
+
+	// awaiting are the current tool round's calls with no result yet; running
+	// are those DuplexProviderStage is still running itself (not yet answered
+	// or handed to the caller as pending).
+	awaiting map[string]bool
+	running  map[string]bool
 }
 
 // NewTranscriptReorderStage creates a reorder stage with the given missing-turn
@@ -99,11 +117,11 @@ func (s *TranscriptReorderStage) Process(
 			if !ok {
 				return s.resolveOnInputClosed(ctx, output)
 			}
-			held, err := s.handle(ctx, elem, output)
+			rearm, err := s.handle(ctx, elem, output)
 			if err != nil {
 				return err
 			}
-			s.syncHoldTimer(&hold, held)
+			s.syncHoldTimer(&hold, rearm)
 
 		case <-hold.c:
 			hold.clear()
@@ -146,17 +164,23 @@ func (h *holdTimer) clear() {
 	h.c = nil
 }
 
-// syncHoldTimer manages the hold timer to match the holding state: each
-// turn-end handle starts holding (re)arms it, so the window runs from the
-// latest one, and it stops once nothing is held.
-func (s *TranscriptReorderStage) syncHoldTimer(hold *holdTimer, held bool) {
+// syncHoldTimer keeps the hold timer in line with the holding state: it runs
+// while a turn-end is held, except while the held tool round is still running,
+// and restarts (so the window runs from the latest event) when rearm is set.
+func (s *TranscriptReorderStage) syncHoldTimer(hold *holdTimer, rearm bool) {
 	switch {
-	case held:
+	case !s.timerWanted():
+		hold.stop()
+	case rearm || hold.timer == nil:
 		hold.stop()
 		hold.start(s.holdTimeout)
-	case !s.holding:
-		hold.stop()
 	}
+}
+
+// timerWanted reports whether a held turn is waiting on the hold window: one
+// is held and no tool round of it is still running.
+func (s *TranscriptReorderStage) timerWanted() bool {
+	return s.holding && (!s.heldToolTurn || len(s.running) == 0)
 }
 
 // resolveOnInputClosed resolves any held turn (placeholder if still no
@@ -168,11 +192,11 @@ func (s *TranscriptReorderStage) resolveOnInputClosed(ctx context.Context, outpu
 	return nil
 }
 
-// handle routes one element. It returns held=true when it started holding a
-// turn-end awaiting a late transcript.
+// handle routes one element. It returns rearm=true when the hold window
+// should restart: a turn-end was newly held.
 func (s *TranscriptReorderStage) handle(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
-) (held bool, err error) {
+) (rearm bool, err error) {
 	switch {
 	case isUserTurnElement(&elem):
 		return false, s.handleUserTurn(ctx, elem, output)
@@ -182,19 +206,45 @@ func (s *TranscriptReorderStage) handle(
 		return s.handleTurnEnd(ctx, elem, output)
 	case elem.Text != nil:
 		return false, s.handleText(ctx, elem, output)
-	case elem.Message != nil && s.holding:
-		// A message the turn's tool round adds (a tool result) belongs after
-		// the held turn-end that made the call.
-		s.buffered = append(s.buffered, elem)
-		return false, nil
+	case elem.Message != nil && elem.Message.Role == roleTool:
+		return false, s.handleToolResult(ctx, elem, output)
 	default:
-		return false, s.send(ctx, output, elem)
+		return false, s.handleOther(ctx, elem, output)
 	}
 }
 
-// handleUserTurn emits the user turn, then everything held for it, in order.
-// The turn ends there unless the last held turn-end made tool calls.
+// handleUserTurn places a user element. A late transcript fills the held
+// turn or is dropped; a typed turn, or one arriving while the current tool
+// round is unanswered, starts a new turn; any other is the transcript for the
+// turn in progress.
 func (s *TranscriptReorderStage) handleUserTurn(
+	ctx context.Context, elem StreamElement, output chan<- StreamElement,
+) error {
+	switch {
+	case elem.Meta.LateTranscript && !s.holding:
+		logger.Debug("TranscriptReorderStage: dropping a late transcript for a turn already resolved")
+		return nil
+	case elem.Meta.LateTranscript:
+		return s.takeTranscript(ctx, elem, output)
+	case elem.Source == TextInputTurnSource || len(s.awaiting) > 0:
+		if s.holding || len(s.awaiting) > 0 {
+			if err := s.closeTurn(ctx, output); err != nil {
+				return err
+			}
+		}
+		if err := s.send(ctx, output, elem); err != nil {
+			return err
+		}
+		s.userEmitted = true
+		return nil
+	default:
+		return s.takeTranscript(ctx, elem, output)
+	}
+}
+
+// takeTranscript emits the user turn, then everything held for it, in order.
+// The turn ends there unless the last held turn-end made tool calls.
+func (s *TranscriptReorderStage) takeTranscript(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
 ) error {
 	if err := s.send(ctx, output, elem); err != nil {
@@ -205,10 +255,13 @@ func (s *TranscriptReorderStage) handleUserTurn(
 }
 
 // handleTurnEnd forwards the turn-end when the user turn was already shown, or
-// holds it (held=true) to wait for a late transcript.
+// holds it (rearm=true) to wait for a late transcript.
 func (s *TranscriptReorderStage) handleTurnEnd(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
-) (held bool, err error) {
+) (rearm bool, err error) {
+	if err := s.closeAbandonedRound(ctx, output); err != nil {
+		return false, err
+	}
 	continues := makesToolCalls(&elem)
 	if s.userEmitted {
 		if err := s.flushBuffer(ctx, output); err != nil {
@@ -217,7 +270,9 @@ func (s *TranscriptReorderStage) handleTurnEnd(
 		if err := s.send(ctx, output, elem); err != nil {
 			return false, err
 		}
-		if !continues {
+		if continues {
+			s.startRound(&elem)
+		} else {
 			s.resetTurn()
 		}
 		return false, nil
@@ -228,14 +283,21 @@ func (s *TranscriptReorderStage) handleTurnEnd(
 	s.buffered = append(s.buffered, elem)
 	s.holding = true
 	s.heldToolTurn = continues
+	if continues {
+		s.startRound(&elem)
+	}
 	return true, nil
 }
 
 // handleText buffers assistant text before the user turn (resolving any prior
 // finished turn first), or forwards it once the user turn has been shown.
+// Text while the current tool round is unanswered is a new turn's reply.
 func (s *TranscriptReorderStage) handleText(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
 ) error {
+	if err := s.closeAbandonedRound(ctx, output); err != nil {
+		return err
+	}
 	if err := s.resolveFinishedTurn(ctx, output); err != nil {
 		return err
 	}
@@ -244,6 +306,87 @@ func (s *TranscriptReorderStage) handleText(
 		return nil
 	}
 	return s.send(ctx, output, elem)
+}
+
+// handleToolResult answers a call of the current round: held after the
+// tool-call turn-end while that is held, otherwise forwarded.
+func (s *TranscriptReorderStage) handleToolResult(
+	ctx context.Context, elem StreamElement, output chan<- StreamElement,
+) error {
+	if tr := elem.Message.ToolResult; tr != nil {
+		delete(s.awaiting, tr.ID)
+		s.stopRunning(tr.ID)
+	}
+	if s.holding && s.heldToolTurn {
+		s.buffered = append(s.buffered, elem)
+		return nil
+	}
+	if err := s.resolveFinishedTurn(ctx, output); err != nil {
+		return err
+	}
+	return s.send(ctx, output, elem)
+}
+
+// handleOther places any other element. A held tool round keeps its elements
+// (calls held for the caller, errors) in order; a message for a later turn
+// resolves a held finished turn first.
+func (s *TranscriptReorderStage) handleOther(
+	ctx context.Context, elem StreamElement, output chan<- StreamElement,
+) error {
+	for i := range elem.Meta.PendingTools {
+		s.stopRunning(elem.Meta.PendingTools[i].CallID) // handed to the caller
+	}
+	if s.holding && s.heldToolTurn {
+		s.buffered = append(s.buffered, elem)
+		return nil
+	}
+	if elem.Message != nil {
+		if err := s.resolveFinishedTurn(ctx, output); err != nil {
+			return err
+		}
+	}
+	return s.send(ctx, output, elem)
+}
+
+// startRound records the calls a tool-call turn-end makes: awaited until
+// their results arrive, and running while the duplex stage runs them.
+func (s *TranscriptReorderStage) startRound(elem *StreamElement) {
+	s.awaiting = map[string]bool{}
+	s.running = map[string]bool{}
+	for _, c := range elem.Message.ToolCalls {
+		s.awaiting[c.ID] = true
+		if elem.Meta.ToolCallsRunning {
+			s.running[c.ID] = true
+		}
+	}
+}
+
+// stopRunning marks a call no longer running. The hold timer starts once no
+// call of a held round is running (syncHoldTimer).
+func (s *TranscriptReorderStage) stopRunning(id string) {
+	delete(s.running, id)
+}
+
+// closeAbandonedRound closes the current turn when its tool round still has
+// unanswered calls: new model output means the round was abandoned (or is
+// waiting on the caller) and a new turn has begun.
+func (s *TranscriptReorderStage) closeAbandonedRound(ctx context.Context, output chan<- StreamElement) error {
+	if len(s.awaiting) == 0 {
+		return nil
+	}
+	return s.closeTurn(ctx, output)
+}
+
+// closeTurn ends the current turn: a held one is resolved with the
+// placeholder, and the turn's state is reset whether or not it continued.
+func (s *TranscriptReorderStage) closeTurn(ctx context.Context, output chan<- StreamElement) error {
+	if s.holding {
+		if err := s.resolvePending(ctx, output); err != nil {
+			return err
+		}
+	}
+	s.resetTurn()
+	return nil
 }
 
 // resolveFinishedTurn resolves a held turn whose turn-end finished it (no tool
@@ -291,6 +434,8 @@ func (s *TranscriptReorderStage) resetTurn() {
 	s.buffered = s.buffered[:0]
 	s.holding = false
 	s.heldToolTurn = false
+	s.awaiting = nil
+	s.running = nil
 }
 
 // flushBuffer forwards and clears any buffered elements.
