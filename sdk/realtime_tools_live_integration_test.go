@@ -519,6 +519,38 @@ func TestLiveRealtimeTools_BasicRound(t *testing.T) {
 	})
 }
 
+// A realtime tool turn publishes message.created for every message it adds:
+// the user turn, the tool call, its result and the reply, at transcript
+// indices 0 to 3.
+func TestLiveRealtimeTools_MessageCreated(t *testing.T) {
+	rtlEachRealtime(t, func(t *testing.T, rt rtlRealtime) {
+		bus, ev := rtlBus(t)
+		conv := rtlOpenDuplex(t, rt, rtlWeatherPackJSON, sdk.WithEventBus(bus))
+		calls := &rtlCalls{}
+		conv.OnToolCall("get_weather", calls.handler(rtlWeatherResult, nil))
+		st := rtlWatch(t, conv)
+
+		require.NoError(t, conv.SendText(context.Background(), rtlWeatherPrompt))
+		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool {
+			return len(ev.ofType(events.EventMessageCreated)) >= 4
+		}), "message.created events: %d; reply so far %q errors %v",
+			len(ev.ofType(events.EventMessageCreated)), st.Text(), st.Errors())
+
+		roles := map[int]string{}
+		var reply string
+		for _, e := range ev.ofType(events.EventMessageCreated) {
+			d := e.Data.(*events.MessageCreatedData)
+			roles[d.Index] = d.Role
+			if d.Role == "assistant" && len(d.ToolCalls) == 0 {
+				reply = d.GetContent()
+			}
+		}
+		assert.Equal(t, map[int]string{0: "user", 1: "assistant", 2: "tool", 3: "assistant"}, roles)
+		assert.Contains(t, strings.ToLower(reply), "tangerine", "the reply's message.created carries its text")
+		t.Logf("reply: %q", reply)
+	})
+}
+
 func TestLiveRealtimeTools_BasicRound_Text(t *testing.T) {
 	bus, ev := rtlBus(t)
 	conv := rtlOpenText(t, sdk.WithEventBus(bus))
