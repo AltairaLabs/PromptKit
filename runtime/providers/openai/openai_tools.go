@@ -355,30 +355,33 @@ func (p *Provider) appendLiftedMedia(
 func (p *Provider) convertSingleMessageForTools(
 	ctx context.Context, msg types.Message,
 ) (map[string]interface{}, error) {
+	// A tool message is text: its media is described by toolMessageText and
+	// lifted into a user message, so it is neither loaded nor encoded here.
+	if msg.Role == roleToolResult && msg.ToolResult != nil {
+		openaiMsg := map[string]interface{}{
+			keyRole:        msg.Role,
+			keyContent:     p.toolMessageText(msg.ToolResult),
+			"tool_call_id": msg.ToolResult.ID,
+		}
+		if msg.ToolResult.Name != "" {
+			openaiMsg[keyName] = msg.ToolResult.Name
+		}
+		return openaiMsg, nil
+	}
+
 	// Convert message to OpenAI format (handles both legacy and multimodal)
 	convertedMsg, err := p.convertMessageToOpenAI(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build the message map with content
 	openaiMsg := map[string]interface{}{
 		keyRole:    convertedMsg.Role,
 		keyContent: convertedMsg.Content,
 	}
-
-	// Add tool-related fields if present
 	if len(msg.ToolCalls) > 0 {
 		openaiMsg["tool_calls"] = p.convertToolCallsToOpenAI(msg.ToolCalls)
 	}
-
-	// Handle tool result messages
-	if msg.Role == "tool" && msg.ToolResult != nil {
-		openaiMsg["tool_call_id"] = msg.ToolResult.ID
-		openaiMsg[keyName] = msg.ToolResult.Name
-		openaiMsg[keyContent] = p.toolMessageText(msg.ToolResult)
-	}
-
 	return openaiMsg, nil
 }
 
@@ -394,11 +397,6 @@ func replayArgs(args json.RawMessage) string {
 
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
 func (p *Provider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
-	return openAIToolCalls(toolCalls)
-}
-
-// openAIToolCalls renders tool calls as a Chat Completions assistant message's tool_calls.
-func openAIToolCalls(toolCalls []types.MessageToolCall) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]interface{}{

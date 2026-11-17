@@ -751,7 +751,7 @@ func TestOpenAIProvider_ConvertMessagesToOpenAI(t *testing.T) {
 		},
 	}
 
-	messages, err := provider.prepareOpenAIMessages(context.Background(), req)
+	messages, err := provider.convertRequestMessagesToOpenAI(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Failed to convert messages: %v", err)
 	}

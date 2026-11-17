@@ -697,16 +697,6 @@ type openAIError struct {
 	Code    string `json:"code"`
 }
 
-// prepareOpenAIMessages converts predict request messages to OpenAI format with
-// system message. It is the serializer the tool path uses, so a history keeps its
-// tool call linkage, tool message names and lifted tool media whether or not the
-// request carries tools.
-func (p *Provider) prepareOpenAIMessages(
-	ctx context.Context, req providers.PredictionRequest,
-) ([]map[string]interface{}, error) {
-	return p.convertRequestMessagesToOpenAI(ctx, req)
-}
-
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
 func (p *Provider) applyRequestDefaults(req providers.PredictionRequest) (temperature, topP float32, maxTokens int) {
 	temperature = providers.ResolveTemperature(&req, p.defaults.Temperature)
@@ -777,7 +767,7 @@ func (p *Provider) predictOnce(
 	}
 
 	// Convert messages to OpenAI format
-	messages, err := p.prepareOpenAIMessages(ctx, req)
+	messages, err := p.convertRequestMessagesToOpenAI(ctx, req)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -875,7 +865,7 @@ func (p *Provider) predictStreamOnce(
 	}
 
 	// Convert messages to OpenAI format
-	messages, err := p.prepareOpenAIMessages(ctx, req)
+	messages, err := p.convertRequestMessagesToOpenAI(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}

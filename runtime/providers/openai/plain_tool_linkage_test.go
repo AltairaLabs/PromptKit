@@ -166,3 +166,58 @@ func TestPlainAndToolPathsSerializeHistoryIdentically(t *testing.T) {
 
 	assert.JSONEq(t, string(messagesOf(t, toolBody)), string(messagesOf(t, plain)))
 }
+
+// A model declared without vision gets the tool message's text plus the note
+// that the image was not sent, and no image_url, on the plain and tool paths.
+func TestToolResultImage_DeclaredWithoutVisionIsNotSent(t *testing.T) {
+	plainBody := captureChatBody(t, false, func(p *Provider) {
+		p.setCapabilities([]string{providers.CapabilityTools})
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: imageToolHistory()})
+		require.NoError(t, err)
+	})
+	got := string(messagesOf(t, plainBody))
+	assert.NotContains(t, got, "image_url")
+	assert.NotContains(t, got, `"role":"user","content":[`)
+	var msgs []map[string]any
+	require.NoError(t, json.Unmarshal(messagesOf(t, plainBody), &msgs))
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "tool", msgs[2]["role"])
+	assert.Contains(t, msgs[2]["content"], "done\n[This tool returned an image (image/png) that was not sent")
+
+	tp := NewToolProvider("novision", "gpt-4o", "http://unused", providers.ProviderDefaults{}, false, nil, nil)
+	tp.setCapabilities([]string{providers.CapabilityTools})
+	toolMsgs, err := tp.convertRequestMessagesToOpenAI(context.Background(),
+		providers.PredictionRequest{Messages: imageToolHistory()})
+	require.NoError(t, err)
+	require.Len(t, toolMsgs, 3)
+	assert.Equal(t, msgs[2]["content"], toolMsgs[2]["content"])
+}
+
+func TestToolMessage_NamelessResultOmitsName(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+			{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_1", Parts: []types.ContentPart{
+				types.NewTextPart("ok")}}},
+		}})
+		require.NoError(t, err)
+	})
+	assert.JSONEq(t, `[{"role":"tool","content":"ok","tool_call_id":"call_1"}]`, string(messagesOf(t, body)))
+}
+
+// Media on a tool message that the API does not take is described, not loaded:
+// a part that cannot be loaded must not fail the request.
+func TestToolMessage_UnsentMediaIsNeverLoaded(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+			{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_1", Name: "rec", Parts: []types.ContentPart{
+				types.NewTextPart("ok"),
+				{Type: types.ContentTypeVideo, Media: &types.MediaContent{MIMEType: "video/mp4"}},
+			}}},
+		}})
+		require.NoError(t, err)
+	})
+	var msgs []map[string]any
+	require.NoError(t, json.Unmarshal(messagesOf(t, body), &msgs))
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0]["content"], "ok\n[This tool returned a video (video/mp4) that was not sent")
+}

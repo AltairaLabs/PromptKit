@@ -30,13 +30,13 @@ const roleUser = "user"
 // the model in a user message.
 func (p *Provider) liftsToUserMessage(part *types.ContentPart) bool {
 	return part.Type != types.ContentTypeText && part.Media != nil &&
-		providers.ToolMediaRefusal(apiNameChat, p.SendableMultimodalCapabilities(), part) == ""
+		providers.ToolMediaRefusal(apiNameChat, p.GetMultimodalCapabilities(), part) == ""
 }
 
 // toolMessageText is what the tool message itself says: the result's text,
 // then where its media went or why it was not sent.
 func (p *Provider) toolMessageText(result *types.MessageToolResult) string {
-	caps := p.SendableMultimodalCapabilities()
+	caps := p.GetMultimodalCapabilities()
 	var notes []string
 	lifted := 0
 	var liftedKind string

@@ -5,6 +5,7 @@ package openai
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -28,5 +29,6 @@ func TestPredict_PlainPathToolLinkage_Live(t *testing.T) {
 	hist[2].ToolResult.Parts = []types.ContentPart{types.NewTextPart("21.7C and overcast.")}
 	resp, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: hist})
 	require.NoError(t, err)
-	assert.NotEmpty(t, resp.Content)
+	assert.True(t, strings.Contains(resp.Content, "21") || strings.Contains(resp.Content, "22"),
+		"answer does not reflect the tool result: %q", resp.Content)
 }
