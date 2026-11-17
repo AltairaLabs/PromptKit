@@ -117,3 +117,18 @@ func TestRegistry_AdmitSettled(t *testing.T) {
 	assert.ErrorIs(t, unlimited.AdmitSettled("ask", refuse), assert.AnError, "admit decides without a limit")
 	assert.NoError(t, unlimited.AdmitSettled("ask", nil))
 }
+
+// AdmitSettledRelease counts a settled call as AdmitSettled does, and its
+// release takes that count back; a refused call gets no release.
+func TestRegistry_AdmitSettledRelease(t *testing.T) {
+	reg := deferRegistry(t, &declaredDeferrer{}, tools.WithRateLimit(1))
+	release, err := reg.AdmitSettledRelease("ask", nil)
+	require.NoError(t, err)
+	refused, err := reg.AdmitSettledRelease("ask", nil)
+	assert.ErrorIs(t, err, tools.ErrRateLimitExceeded)
+	assert.Nil(t, refused)
+	release()
+	again, err := reg.AdmitSettledRelease("ask", nil)
+	require.NoError(t, err, "the released call gave its room back")
+	assert.NotNil(t, again)
+}

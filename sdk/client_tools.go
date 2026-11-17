@@ -317,14 +317,11 @@ func (c *Conversation) SendToolResult(ctx context.Context, callID string, result
 	if awaitErr := c.checkAwaited(ctx, callID); awaitErr != nil {
 		return awaitErr
 	}
-	resultJSON, err := json.Marshal(result)
+	res, err := clientResolution(callID, result, nil, nil)
 	if err != nil {
-		return fmt.Errorf(errSerializeClientToolResult, err)
+		return err
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
-		ID:         callID,
-		ResultJSON: resultJSON,
-	})
+	c.addResolution(res)
 	return nil
 }
 
@@ -350,10 +347,11 @@ func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID stri
 	if len(parts) == 0 {
 		return fmt.Errorf("parts must not be empty")
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
-		ID:    callID,
-		Parts: parts,
-	})
+	res, err := clientResolution(callID, nil, parts, nil)
+	if err != nil {
+		return err
+	}
+	c.addResolution(res)
 	return nil
 }
 
@@ -368,7 +366,7 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 	if closed {
 		return
 	}
-	c.resolvedStore.Add(&sdktools.ToolResolution{
+	c.addResolution(&sdktools.ToolResolution{
 		ID:              callID,
 		Rejected:        true,
 		RejectionReason: reason,
@@ -585,8 +583,9 @@ func (c *Conversation) validateDeferredResults(
 	}
 	for _, res := range resolutions {
 		// An approval's result was checked when it ran (checkApprovedResult):
-		// only sdktools.ResolveApproved sets Arguments.
-		if res.Rejected || res.Error != nil || len(res.Parts) > 0 || res.Arguments != nil {
+		// only sdktools.ResolveApproved sets Arguments. One SettleClientTool
+		// prepared was checked then.
+		if res.Rejected || res.Error != nil || len(res.Parts) > 0 || res.Arguments != nil || c.isPrepared(res) {
 			continue
 		}
 		desc, err := c.toolRegistry.GetTool(callNames()[res.ID])
@@ -633,17 +632,40 @@ func (c *Conversation) admitDeferredResults(
 // which counts a deferred call only now) and under ToolPolicy.MaxCallsPerMinute
 // (limit, when set). Neither counts a call the other refuses.
 func (c *Conversation) admitSettled(name string, limit int) error {
+	_, err := c.admitSettledRelease(name, limit)
+	return err
+}
+
+// admitSettledRelease is admitSettled, also returning release, which takes
+// back what both limits counted, for an answer then discarded unused.
+func (c *Conversation) admitSettledRelease(name string, limit int) (release func(), err error) {
+	var windowRelease func()
 	var admit func() error
 	if c.callRate != nil && limit > 0 {
-		admit = func() error { return c.callRate.Admit(c.ID(), name, limit) }
+		admit = func() error {
+			r, admitErr := c.callRate.AdmitRelease(c.ID(), name, limit)
+			windowRelease = r
+			return admitErr
+		}
 	}
-	if c.toolRegistry != nil {
-		return c.toolRegistry.AdmitSettled(name, admit)
+	var registryRelease func()
+	switch {
+	case c.toolRegistry != nil:
+		registryRelease, err = c.toolRegistry.AdmitSettledRelease(name, admit)
+	case admit != nil:
+		err = admit()
 	}
-	if admit != nil {
-		return admit()
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	return func() {
+		if registryRelease != nil {
+			registryRelease()
+		}
+		if windowRelease != nil {
+			windowRelease()
+		}
+	}, nil
 }
 
 // callsMadeByLastAssistant maps each call the last assistant message in
@@ -802,7 +824,15 @@ func (c *Conversation) checkAwaited(ctx context.Context, callID string) error {
 	if c.mode != UnaryMode || c.unarySession == nil {
 		return nil
 	}
-	made := callsOfLastAssistant(c.Messages(ctx))
+	return c.checkAwaitedIn(c.Messages(ctx), callID)
+}
+
+// checkAwaitedIn is checkAwaited against history, read by the caller.
+func (c *Conversation) checkAwaitedIn(history []types.Message, callID string) error {
+	if c.mode != UnaryMode || c.unarySession == nil {
+		return nil
+	}
+	made := callsOfLastAssistant(history)
 	if made == nil || made[callID] {
 		return nil
 	}
@@ -822,19 +852,23 @@ func (c *Conversation) takeSettlement(history []types.Message) []*sdktools.ToolR
 }
 
 // dropPrepared forgets the results SettleClientTool prepared for the
-// resolutions in popped that kept does not hold: answers not used.
+// resolutions in popped that kept does not hold, answers not used, and takes
+// back their admissions.
 func (c *Conversation) dropPrepared(popped, kept []*sdktools.ToolResolution) {
 	used := make(map[*sdktools.ToolResolution]bool, len(kept))
 	for _, res := range kept {
 		used[res] = true
 	}
+	var releases []func()
 	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
 	for _, res := range popped {
-		if !used[res] {
+		if p, ok := c.prepared[res]; ok && !used[res] {
+			releases = append(releases, p.release)
 			delete(c.prepared, res)
 		}
 	}
+	c.settledMu.Unlock()
+	runReleases(releases)
 }
 
 // settlementHistory reads the conversation's history once for a batch of
@@ -924,16 +958,22 @@ func (c *Conversation) FailClientTool(ctx context.Context, callID string, partia
 	if err == nil {
 		return fmt.Errorf("FailClientTool needs an error")
 	}
-	res := &sdktools.ToolResolution{ID: callID, Error: err}
-	if partial != nil {
-		data, marshalErr := json.Marshal(partial)
-		if marshalErr != nil {
-			return fmt.Errorf(errSerializeClientToolResult, marshalErr)
-		}
-		res.ResultJSON = data
+	res, resErr := clientResolution(callID, partial, nil, err)
+	if resErr != nil {
+		return resErr
 	}
-	c.resolvedStore.Add(res)
+	c.addResolution(res)
 	return nil
+}
+
+// addResolution records res, an answer to a held or deferred call, for
+// Continue or Resume to use, under settleMu: SettleClientTool's check for an
+// earlier answer and its record of its own are one step no other answer can
+// come between.
+func (c *Conversation) addResolution(res *sdktools.ToolResolution) {
+	c.settleMu.Lock()
+	defer c.settleMu.Unlock()
+	c.resolvedStore.Add(res)
 }
 
 // clientToolStatusError is the resolved-event status for a client tool that

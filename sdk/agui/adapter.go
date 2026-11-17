@@ -62,6 +62,8 @@ type clientToolSettler interface {
 	HasToolResultRewriters() bool
 	SettleClientTool(ctx context.Context, callID string, result any, failure error) (
 		prepared types.MessageToolResult, answered bool, err error)
+	SettleClientToolRejection(ctx context.Context, callID, reason string) (
+		prepared types.MessageToolResult, answered bool, err error)
 }
 
 // workflowStateReader is implemented by conversations that run a workflow
@@ -671,35 +673,47 @@ func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Resp
 // what is reported: rewritten once, never for a second answer to a call or
 // one the call-rate limit refuses. Otherwise the answer is reported as given.
 func (st *runState) reportAnswers(results []ToolResult) error {
-	a := st.a
-	settler, ok := a.sender.(clientToolSettler)
-	if !ok || !settler.HasToolResultRewriters() {
-		if err := a.resolveClientTools(st.ctx, results); err != nil {
-			return err
-		}
-		for i := range results {
-			st.emitResult(results[i].CallID, resultText(&results[i]))
-		}
-		return nil
+	var settler clientToolSettler
+	if s, ok := st.a.sender.(clientToolSettler); ok && s.HasToolResultRewriters() {
+		settler = s
 	}
 	for i := range results {
-		r := &results[i]
-		if r.Rejected {
-			a.sender.RejectClientTool(st.ctx, r.CallID, r.Reason)
-			st.emitResult(r.CallID, resultText(r))
-			continue
-		}
-		var failure error
-		if r.Error != "" {
-			failure = errors.New(r.Error)
-		}
-		prepared, answered, err := settler.SettleClientTool(st.ctx, r.CallID, r.Result, failure)
-		if err != nil {
+		if err := st.reportAnswer(settler, &results[i]); err != nil {
 			return err
 		}
-		if answered {
-			st.emitResult(r.CallID, toolResultText(&prepared))
+	}
+	return nil
+}
+
+// reportAnswer resolves one answer that leaves calls pending and emits its
+// TOOL_CALL_RESULT. With settler (the conversation has a ToolResultRewriter),
+// the answer is settled now and the result the model will be given is
+// reported, or nothing for a second answer to a call. Otherwise the answer is
+// recorded and reported as given.
+func (st *runState) reportAnswer(settler clientToolSettler, r *ToolResult) error {
+	if settler == nil {
+		if err := st.a.resolveClientTool(st.ctx, r); err != nil {
+			return err
 		}
+		st.emitResult(r.CallID, resultText(r))
+		return nil
+	}
+	var prepared types.MessageToolResult
+	var answered bool
+	var err error
+	switch {
+	case r.Rejected:
+		prepared, answered, err = settler.SettleClientToolRejection(st.ctx, r.CallID, r.Reason)
+	case r.Error != "":
+		prepared, answered, err = settler.SettleClientTool(st.ctx, r.CallID, r.Result, errors.New(r.Error))
+	default:
+		prepared, answered, err = settler.SettleClientTool(st.ctx, r.CallID, r.Result, nil)
+	}
+	if err != nil {
+		return err
+	}
+	if answered {
+		st.emitResult(r.CallID, toolResultText(&prepared))
 	}
 	return nil
 }
@@ -803,21 +817,24 @@ func toolErrorText(r *ToolResult) string {
 // resolveClientTools hands each result to the conversation.
 func (a *EventAdapter) resolveClientTools(ctx context.Context, results []ToolResult) error {
 	for i := range results {
-		r := &results[i]
-		var err error
-		switch {
-		case r.Rejected:
-			a.sender.RejectClientTool(ctx, r.CallID, r.Reason)
-		case r.Error != "":
-			err = a.failClientTool(ctx, r)
-		default:
-			err = a.sendResult(ctx, r)
-		}
-		if err != nil {
+		if err := a.resolveClientTool(ctx, &results[i]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// resolveClientTool hands one result to the conversation.
+func (a *EventAdapter) resolveClientTool(ctx context.Context, r *ToolResult) error {
+	switch {
+	case r.Rejected:
+		a.sender.RejectClientTool(ctx, r.CallID, r.Reason)
+		return nil
+	case r.Error != "":
+		return a.failClientTool(ctx, r)
+	default:
+		return a.sendResult(ctx, r)
+	}
 }
 
 // failClientTool records a failed client tool: as a failure when the
@@ -951,6 +968,36 @@ func (w *workflowSender) RejectClientTool(ctx context.Context, callID, reason st
 	if conv := w.wc.ActiveConversation(); conv != nil {
 		conv.RejectClientTool(ctx, callID, reason)
 	}
+}
+
+// HasToolResultRewriters reports whether the active conversation rewrites
+// tool results.
+func (w *workflowSender) HasToolResultRewriters() bool {
+	conv := w.wc.ActiveConversation()
+	return conv != nil && conv.HasToolResultRewriters()
+}
+
+// SettleClientTool settles a client tool's answer on the active conversation.
+func (w *workflowSender) SettleClientTool(
+	ctx context.Context, callID string, result any, failure error,
+) (types.MessageToolResult, bool, error) {
+	conv := w.wc.ActiveConversation()
+	if conv == nil {
+		return types.MessageToolResult{}, false, errNoActiveConversation
+	}
+	return conv.SettleClientTool(ctx, callID, result, failure)
+}
+
+// SettleClientToolRejection settles a client tool's rejection on the active
+// conversation.
+func (w *workflowSender) SettleClientToolRejection(
+	ctx context.Context, callID, reason string,
+) (types.MessageToolResult, bool, error) {
+	conv := w.wc.ActiveConversation()
+	if conv == nil {
+		return types.MessageToolResult{}, false, errNoActiveConversation
+	}
+	return conv.SettleClientToolRejection(ctx, callID, reason)
 }
 
 // Resume continues the active conversation after its client tools are answered.

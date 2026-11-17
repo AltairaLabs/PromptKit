@@ -84,6 +84,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type CallRateWindow](<#CallRateWindow>)
   - [func NewCallRateWindow\(\) \*CallRateWindow](<#NewCallRateWindow>)
   - [func \(w \*CallRateWindow\) Admit\(conversationID, tool string, limit int\) error](<#CallRateWindow.Admit>)
+  - [func \(w \*CallRateWindow\) AdmitRelease\(conversationID, tool string, limit int\) \(release func\(\), err error\)](<#CallRateWindow.AdmitRelease>)
   - [func \(w \*CallRateWindow\) Scoped\(scope string\) \*CallRateWindow](<#CallRateWindow.Scoped>)
 - [type Capabilities](<#Capabilities>)
   - [func AnyCapabilities\(\) Capabilities](<#AnyCapabilities>)
@@ -1319,6 +1320,15 @@ func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error
 ```
 
 Admit admits a call to tool in conversationID under a limit of limit calls per minute. If the calls admitted in the last minute already reach the limit, it returns a \*CallRateLimitError and counts nothing; otherwise the call counts for one minute from now. The host calls it for a call that runs outside the provider stage: a held call when it is approved, a deferred call when its result is used. A nil window or a limit of 0 or less admits every call.
+
+<a name="CallRateWindow.AdmitRelease"></a>
+### func \(\*CallRateWindow\) [AdmitRelease](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L126>)
+
+```go
+func (w *CallRateWindow) AdmitRelease(conversationID, tool string, limit int) (release func(), err error)
+```
+
+AdmitRelease is Admit, also returning release, which takes the admission back: for a call admitted when its result was settled whose result is then never used \(its turn was abandoned\), so it does not keep a slot. release is nil when the call is refused, and does nothing when no limit applies.
 
 <a name="CallRateWindow.Scoped"></a>
 ### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L100>)

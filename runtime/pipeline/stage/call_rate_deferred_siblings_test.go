@@ -148,3 +148,25 @@ func TestProviderStage_NestedCallUnderTheSameWindowIsRefusedNotBlocked(t *testin
 		"the nested call over the limit is refused")
 	assert.Equal(t, 1, admitted(window, "conv", "read_kit"))
 }
+
+// AdmitRelease admits as Admit does, and its release takes the admission
+// back; with no limit it admits without counting.
+func TestCallRateWindow_AdmitRelease(t *testing.T) {
+	w := NewCallRateWindow()
+	release, err := w.AdmitRelease("conv-a", "read_kit", 1)
+	require.NoError(t, err)
+	refused, err := w.AdmitRelease("conv-a", "read_kit", 1)
+	var limitErr *CallRateLimitError
+	require.ErrorAs(t, err, &limitErr)
+	assert.Nil(t, refused)
+	release()
+	assert.Zero(t, admitted(w, "conv-a", "read_kit"), "the admission was taken back")
+
+	free, err := w.AdmitRelease("conv-a", "read_kit", 0)
+	require.NoError(t, err)
+	free()
+	assert.Zero(t, admitted(w, "conv-a", "read_kit"))
+	var nilWindow *CallRateWindow
+	_, err = nilWindow.AdmitRelease("conv-a", "read_kit", 1)
+	assert.NoError(t, err)
+}

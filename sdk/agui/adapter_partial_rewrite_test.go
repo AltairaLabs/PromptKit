@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
@@ -165,4 +166,48 @@ func TestPartialAnswer_WithoutARewriterReportsTheAnswerAsGiven(t *testing.T) {
 	assert.Equal(t, "Paris", resultContent(t, evts, "c1"))
 	assert.Equal(t, `{"city":"Rome"}`, resultContent(t, evts, "c3"))
 	assert.Equal(t, `"Paris"`, given["c1"])
+}
+
+// declineWithRetry gives get_location a consent decline strategy, so its
+// rejection reaches the model in the strategy's words.
+func declineWithRetry(t *testing.T, conv *sdk.Conversation) {
+	t.Helper()
+	desc, err := conv.ToolRegistry().GetTool("get_location")
+	require.NoError(t, err)
+	desc.ClientConfig = &tools.ClientConfig{Consent: &tools.ConsentConfig{DeclineStrategy: tools.DeclineStrategyRetry}}
+}
+
+// A rejection a ToolResultProvider gives while other calls are pending is
+// reported as the rejection the model is given, in the words of the tool's
+// decline strategy.
+func TestPartialAnswer_RejectionIsReportedAsTheModelIsGivenIt(t *testing.T) {
+	rw := &countingRedactor{}
+	conv, provider := openPartialConv(t, sdk.WithToolHook(rw))
+	declineWithRetry(t, conv)
+	evts, given := partialRun(t, conv, provider, []ToolResult{
+		{CallID: "c1", Rejected: true, Reason: "not now"},
+		{CallID: "c3", Result: "Rome"},
+	})
+
+	const rejection = "Tool get_location denied: user declined consent. Try a different approach. Reason: not now"
+	assert.Equal(t, rejection, given["c1"])
+	assert.Equal(t, given["c1"], resultContent(t, evts, "c1"), "the client sees what the model is given")
+	assert.Zero(t, rw.rewrites()["c1"], "a rejection is not rewritten")
+}
+
+// An answer after a rejection of the same call is a second answer: it is
+// ignored without being rewritten, and the rejection stands.
+func TestPartialAnswer_AnswerAfterARejectionIsIgnored(t *testing.T) {
+	rw := &countingRedactor{}
+	conv, provider := openPartialConv(t, sdk.WithToolHook(rw))
+	declineWithRetry(t, conv)
+	evts, given := partialRun(t, conv, provider, []ToolResult{
+		{CallID: "c1", Rejected: true, Reason: "not now"},
+		{CallID: "c1", Result: "Paris"},
+		{CallID: "c3", Result: "Rome"},
+	})
+
+	assert.Contains(t, given["c1"], "Reason: not now")
+	assert.Equal(t, given["c1"], resultContent(t, evts, "c1"))
+	assert.Zero(t, rw.rewrites()["c1"], "the ignored answer is not rewritten")
 }

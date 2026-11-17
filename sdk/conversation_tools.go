@@ -530,7 +530,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	}
 	// Store for Continue()/ContinueDuplex() to use
 	if c.resolvedStore != nil {
-		c.resolvedStore.Add(resolution)
+		c.addResolution(resolution)
 	}
 	return resolution, nil
 }
@@ -598,7 +598,7 @@ func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdkt
 	resolution := sdktools.ResolveRejected(id, reason)
 	// Store for Continue() to use
 	if c.resolvedStore != nil {
-		c.resolvedStore.Add(resolution)
+		c.addResolution(resolution)
 	}
 	return resolution, nil
 }
