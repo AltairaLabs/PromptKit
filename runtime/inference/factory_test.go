@@ -52,6 +52,9 @@ func TestResolveCredential_NilConfigPassesThrough(t *testing.T) {
 	// ResolveCredential delegates to credentials.Resolve; with a nil config
 	// the resolver returns a NoOpCredential (Type() == "none") rather than an
 	// error.
+	for _, k := range []string{"OPENAI_API_KEY", "OPENAI_TOKEN"} {
+		t.Setenv(k, "") // an ambient key would resolve to an api_key credential
+	}
 	got, err := inference.ResolveCredential(context.Background(), "openai", "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "none", got.Type())
