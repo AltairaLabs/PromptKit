@@ -101,6 +101,44 @@ func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement
 	return output, err
 }
 
+// StreamExecution is one running execution of a StreamPipeline, started by
+// Start: its output, and the error that ended it once the output has closed.
+type StreamExecution struct {
+	out *callerOutput
+}
+
+// Output returns the execution's output, as Execute returns it.
+func (e *StreamExecution) Output() <-chan StreamElement {
+	return e.out.ch
+}
+
+// Err returns the error that ended the execution: the error of the stage
+// that failed the turn (as its error element on Output carries it), or one
+// wrapping ErrOutputTruncated when output was dropped. It is nil while the
+// output is open, when the execution ended without a stage failing, and when
+// it ended by the caller's own cancellation. An error element a stage
+// emitted and carried on from never makes it non-nil.
+func (e *StreamExecution) Err() error {
+	select {
+	case <-e.out.closed:
+		return e.out.endErr
+	default:
+		return nil
+	}
+}
+
+// Start is Execute, returning the execution so that the caller can learn the
+// error that ended it (StreamExecution.Err) once its output has closed: an
+// error element on the output alone does not say whether the stage carried on
+// from it, and elements may follow the one that failed the turn.
+func (p *StreamPipeline) Start(ctx context.Context, input <-chan StreamElement) (*StreamExecution, error) {
+	_, out, err := p.execute(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return &StreamExecution{out: out}, nil
+}
+
 // execute is Execute, also returning the execution's callerOutput so that
 // ExecuteSync can see an error the reader missed.
 func (p *StreamPipeline) execute(
@@ -240,7 +278,12 @@ func (p *StreamPipeline) executeBackground(
 	// A stream that lost output to a reader that fell behind must not look
 	// complete: end it with an error saying so.
 	out.finish(failure.get(), callerCtx.Done())
+	out.endErr = failure.get()
+	if out.truncation != nil {
+		out.endErr = out.truncation
+	}
 	close(out.ch)
+	close(out.closed)
 
 	firstError := p.waitForStageErrors(stageErrors)
 	if err := failure.get(); err != nil {
@@ -285,6 +328,12 @@ type callerOutput struct {
 	// none was lost. It is set before ch closes, so a reader that has seen the
 	// close can read it.
 	truncation error
+	// endErr is the error that ended the execution (see StreamExecution.Err),
+	// set before ch and closed close.
+	endErr error
+	// closed is closed with ch, so Err can tell an ended execution from a
+	// running one without reading ch.
+	closed chan struct{}
 }
 
 // minReaderStall is the least a send waits for the reader once the execution
@@ -295,6 +344,7 @@ const minReaderStall = 100 * time.Millisecond
 func (p *StreamPipeline) newCallerOutput(ch chan StreamElement) *callerOutput {
 	return &callerOutput{
 		ch:        ch,
+		closed:    make(chan struct{}),
 		abandoned: p.abandoned,
 		stall:     max(p.config.GracefulShutdownTimeout, minReaderStall),
 		newTimer:  p.stallTimerFunc,

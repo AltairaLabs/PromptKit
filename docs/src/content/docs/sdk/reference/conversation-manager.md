@@ -716,6 +716,12 @@ The nested call is recognized by its context, so a handler must pass on the cont
 var ErrReentrantTurn = errors.New("sdk: a turn was started on a conversation from inside its own turn")
 ```
 
+<a name="ErrSessionClosed"></a>ErrSessionClosed is returned by a duplex conversation's input methods \(SendChunk, SendText, SendFrame, SendVideoChunk, TriggerStart, ContinueDuplex\) once the session has ended without an error of its own: Close was called, or the provider closed the session. It is session.ErrSessionClosed; match it with errors.Is.
+
+```go
+var ErrSessionClosed = session.ErrSessionClosed
+```
+
 <a name="ErrShutdownManagerClosed"></a>ErrShutdownManagerClosed is returned when Register is called after Shutdown.
 
 ```go
@@ -1719,7 +1725,7 @@ AudioMonitor returns the channel that carries the conversation's monitored audio
 Delivery never slows the conversation: the channel is buffered, and a frame that finds it full is dropped. Close closes the channel.
 
 <a name="Conversation.Clear"></a>
-### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1460>)
+### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1468>)
 
 ```go
 func (c *Conversation) Clear() error
@@ -1730,7 +1736,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1695>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1703>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1745,7 +1751,7 @@ Close cancels the session context; it does not drain work already in flight. On 
 An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to one second for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
 
 <a name="Conversation.Complete"></a>
-### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1714>)
+### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1722>)
 
 ```go
 func (c *Conversation) Complete() error
@@ -1822,7 +1828,7 @@ resp, _ = conv.Resume(ctx)
 It is the same binding as OnClientTool\(name, nil\).
 
 <a name="Conversation.Done"></a>
-### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1324>)
+### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1329>)
 
 ```go
 func (c *Conversation) Done() (<-chan struct{}, error)
@@ -1831,7 +1837,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2004>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2012>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1861,7 +1867,7 @@ FailClientTool reports that a deferred client tool failed.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
 
 <a name="Conversation.Fork"></a>
-### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1520>)
+### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1528>)
 
 ```go
 func (c *Conversation) Fork() (*Conversation, error)
@@ -1976,7 +1982,7 @@ Alice true
 </details>
 
 <a name="Conversation.GetVar"></a>
-### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1430>)
+### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1438>)
 
 ```go
 func (c *Conversation) GetVar(name string) (string, bool)
@@ -2000,7 +2006,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1990>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1998>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2009,7 +2015,7 @@ func (c *Conversation) ID() string
 ID returns the conversation's unique identifier.
 
 <a name="Conversation.Messages"></a>
-### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1443>)
+### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1451>)
 
 ```go
 func (c *Conversation) Messages(ctx context.Context) []types.Message
@@ -2436,7 +2442,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2014>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2022>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -2659,7 +2665,7 @@ resp, _ = conv.Continue(ctx)
 ```
 
 <a name="Conversation.Response"></a>
-### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1311>)
+### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1316>)
 
 ```go
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error)
@@ -2837,7 +2843,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.SendChunk"></a>
-### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1199>)
+### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1204>)
 
 ```go
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
@@ -2845,8 +2851,10 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 
 SendChunk sends a streaming chunk in duplex mode. Only available when the conversation was opened with OpenDuplex\(\).
 
+Once the session has ended \(Close, the idle timeout, a provider error, the provider closing the session\) it returns at once: with the error that ended the session, as SessionError reports it, else with [ErrSessionClosed](<#ErrSessionClosed>). SendText, SendFrame, SendVideoChunk and TriggerStart do the same.
+
 <a name="Conversation.SendFrame"></a>
-### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1238>)
+### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1243>)
 
 ```go
 func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame) error
@@ -2866,7 +2874,7 @@ conv.SendFrame(ctx, frame)
 ```
 
 <a name="Conversation.SendText"></a>
-### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1216>)
+### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1221>)
 
 ```go
 func (c *Conversation) SendText(ctx context.Context, text string) error
@@ -2903,7 +2911,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult, SendToolResultMultimodal, or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendVideoChunk"></a>
-### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1261>)
+### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1266>)
 
 ```go
 func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoChunk) error
@@ -2924,16 +2932,16 @@ conv.SendVideoChunk(ctx, chunk)
 ```
 
 <a name="Conversation.SessionError"></a>
-### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1338>)
+### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1346>)
 
 ```go
 func (c *Conversation) SessionError() error
 ```
 
-SessionError returns any error from the duplex session. Only available when the conversation was opened with OpenDuplex\(\). Note: This is named SessionError to avoid conflict with the Error interface method.
+SessionError returns the error that ended the duplex session \(the idle timeout, a provider error\): nil while the session runs, and nil when it ended without one \(Close, or the provider closing the session\). The error is also delivered on Response\(\) before it closes. Only available when the conversation was opened with OpenDuplex\(\). Note: This is named SessionError to avoid conflict with the Error interface method.
 
 <a name="Conversation.SetVar"></a>
-### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1363>)
+### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1371>)
 
 ```go
 func (c *Conversation) SetVar(name, value string)
@@ -2952,7 +2960,7 @@ conv.SetVar("customer_name", "Alice")
 A unary conversation renders the system prompt on every Send, so a value changed between sends changes the next prompt. A duplex conversation \(OpenDuplex\) renders it once, when the first input starts the session, and the provider session is created with that render as its system instruction. Set duplex variables before the first SendChunk/SendText; a later SetVar is stored but never reaches the provider, and the first one is logged at Warn.
 
 <a name="Conversation.SetVars"></a>
-### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1381>)
+### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1389>)
 
 ```go
 func (c *Conversation) SetVars(vars map[string]any)
@@ -2969,7 +2977,7 @@ conv.SetVars(map[string]any{
 ```
 
 <a name="Conversation.SetVarsFromEnv"></a>
-### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1403>)
+### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1411>)
 
 ```go
 func (c *Conversation) SetVarsFromEnv(prefix string)
@@ -3155,7 +3163,7 @@ for name, desc := range conv.ToolRegistry().GetTools() {
 ```
 
 <a name="Conversation.TriggerStart"></a>
-### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1283>)
+### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1288>)
 
 ```go
 func (c *Conversation) TriggerStart(ctx context.Context, message string) error
@@ -6054,7 +6062,7 @@ func WithoutContentValidation() Option
 WithoutContentValidation turns off the check made before every provider call that each image, audio, video and document part of the request is a modality and MIME type the provider's adapter can send. A provider config's capabilities list never narrows the check. By default an unsupported part fails the Send with a \*providers.UnsupportedContentError before any request is sent. Use this for a custom provider whose declared capabilities are narrower than what it sends; the parts are then passed to the provider as they are.
 
 <a name="PackError"></a>
-## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L135-L141>)
+## type [PackError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L144-L150>)
 
 PackError represents an error loading or parsing a pack file. Open and its variants, ValidatePack and Evaluate return one when the pack file is missing, unreadable, malformed or fails validation; Cause is the underlying error, so errors.Is\(err, ErrPackNotFound\) still matches a missing file.
 
@@ -6069,7 +6077,7 @@ type PackError struct {
 ```
 
 <a name="PackError.Error"></a>
-### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L144>)
+### func \(\*PackError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L153>)
 
 ```go
 func (e *PackError) Error() string
@@ -6078,7 +6086,7 @@ func (e *PackError) Error() string
 Error implements the error interface.
 
 <a name="PackError.Unwrap"></a>
-### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L149>)
+### func \(\*PackError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L158>)
 
 ```go
 func (e *PackError) Unwrap() error
@@ -6449,7 +6457,7 @@ func WithPlatformRegion(region string) PlatformOption
 WithPlatformRegion sets the cloud region.
 
 <a name="ProviderError"></a>
-## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L158-L170>)
+## type [ProviderError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L167-L179>)
 
 ProviderError represents an error from the LLM provider. Send, Stream and their Resume and Continue counterparts return one when the provider's API answered with an error status \(\*providers.ProviderHTTPError\) or the connection failed \(\*providers.ProviderTransportError\). Cause is that runtime error, so errors.As and providers.IsTransient still see it.
 
@@ -6470,7 +6478,7 @@ type ProviderError struct {
 ```
 
 <a name="ProviderError.Error"></a>
-### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L173>)
+### func \(\*ProviderError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L182>)
 
 ```go
 func (e *ProviderError) Error() string
@@ -6479,7 +6487,7 @@ func (e *ProviderError) Error() string
 Error implements the error interface.
 
 <a name="ProviderError.Unwrap"></a>
-### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L182>)
+### func \(\*ProviderError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L191>)
 
 ```go
 func (e *ProviderError) Unwrap() error
@@ -7479,7 +7487,7 @@ type ToolDescriptorPatchFn func(d *tools.ToolDescriptor)
 ```
 
 <a name="ToolError"></a>
-## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L189-L195>)
+## type [ToolError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L198-L204>)
 
 ToolError represents an error executing a tool. ResolveTool and ResolveToolWithArgs set one as the ToolResolution's Error when the approved tool's handler fails.
 
@@ -7494,7 +7502,7 @@ type ToolError struct {
 ```
 
 <a name="ToolError.Error"></a>
-### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L198>)
+### func \(\*ToolError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L207>)
 
 ```go
 func (e *ToolError) Error() string
@@ -7503,7 +7511,7 @@ func (e *ToolError) Error() string
 Error implements the error interface.
 
 <a name="ToolError.Unwrap"></a>
-### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L203>)
+### func \(\*ToolError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L212>)
 
 ```go
 func (e *ToolError) Unwrap() error
@@ -7639,7 +7647,7 @@ type ValidateEvalTypesOpts struct {
 ```
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L91-L103>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L100-L112>)
 
 ValidationError represents a validation failure. Send, Stream and their Resume and Continue counterparts return one when a hook or guardrail denies the turn: it wraps the runtime's \*hooks.HookDeniedError \(a provider hook denied the call\) or \*providers.ValidationAbortError \(a chunk hook aborted the stream\), so errors.As still finds those.
 
@@ -7658,7 +7666,7 @@ type ValidationError struct {
 ```
 
 <a name="AsValidationError"></a>
-### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L123>)
+### func [AsValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L132>)
 
 ```go
 func AsValidationError(err error) (*ValidationError, bool)
@@ -7718,7 +7726,7 @@ matched: false
 </details>
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L106>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L115>)
 
 ```go
 func (e *ValidationError) Error() string
@@ -7727,7 +7735,7 @@ func (e *ValidationError) Error() string
 Error implements the error interface.
 
 <a name="ValidationError.Unwrap"></a>
-### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L111>)
+### func \(\*ValidationError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/errors.go#L120>)
 
 ```go
 func (e *ValidationError) Unwrap() error
