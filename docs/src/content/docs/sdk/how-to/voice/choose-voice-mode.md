@@ -134,6 +134,7 @@ Canceling `ctx` does not end the session; `conv.Close` does. A deadline on `ctx`
 In ASM mode the pipeline runs the model's tool calls and sends their results to the session, as a text turn does:
 
 - The session is offered the tools a text turn would be: the prompt's tools, capability tools such as `memory__recall`, and tools a skill grants. Tools in `StreamingInputConfig.Tools` are added, and a tool declared there replaces a conversation tool of the same name.
+- A call to a tool the session was not offered is refused, even when the tool is registered: it gets the result `Tool <name> was not run: it is not available this turn` and its handler does not run. A tool the session held earlier in the tool turn, such as one excluded after repeated failures, still runs.
 - OpenAI Realtime is given new tools mid-session when a skill grants them. Gemini Live fixes its tools when the session starts, so a call to a tool granted later is refused, and so is a call to a tool the conversation has since withdrawn, such as one whose skill grant was revoked.
 - The session is sent only `StreamingInputConfig.ToolChoice`. A tool policy `tool_choice` of `none` offers no tools; the policy's other choices are not sent, because they would force a tool call after every tool result.
 - The calls of one model turn run in parallel, up to the tool policy's `MaxParallelToolCalls`.

@@ -92,7 +92,7 @@ Skills compose with the tool system in a hierarchy:
 
 When a skill activates, its `allowed-tools` extend the prompt's tool set, capped at the tools the pack declares. A skill cannot grant a tool the pack does not define. Deactivating a skill withdraws the tools it granted, unless another active skill still grants them.
 
-Controlling which skills a conversation can activate therefore controls which extra tools the model can reach.
+Controlling which skills a conversation can activate therefore controls which extra tools the model can reach. A call to a skill's tool before the skill is active is refused, with the result `Tool <name> was not run: it is not available this turn`, and the tool does not run. A call made in a later round of the same turn, after `skill__activate` returns, runs.
 
 ## Skill tools
 

@@ -412,6 +412,7 @@ func (s *ProviderStage) runner() *toolRunner {
 		}
 	}
 	cfg.CallRate = s.callRate
+	offers := s.offerState()
 	return &toolRunner{
 		registry:      s.toolRegistry,
 		policy:        s.policy,
@@ -420,7 +421,8 @@ func (s *ProviderStage) runner() *toolRunner {
 		turnState:     s.turnState,
 		cfg:           cfg,
 		stateResolver: s.stateResolver,
-		offers:        s.offerState(),
+		offers:        offers,
+		offered:       offers.has,
 	}
 }
 

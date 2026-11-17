@@ -19,12 +19,20 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// weatherCallingProvider asks for get_weather on its first call and answers
-// in text after that.
+// weatherCallingProvider is a tool-calling provider that asks for get_weather
+// on its first call and answers in text after that.
 type weatherCallingProvider struct {
-	*mock.Provider
+	*mock.ToolProvider
 	mu    sync.Mutex
 	calls int
+}
+
+// PredictWithTools is Predict, whatever tools the step offers.
+func (p *weatherCallingProvider) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	resp, err := p.Predict(ctx, req)
+	return resp, resp.ToolCalls, err
 }
 
 func (p *weatherCallingProvider) SupportsStreaming() bool { return false }
@@ -68,7 +76,7 @@ func TestComposition_AgentStepHonorsTheApprovalChecker(t *testing.T) {
 	}))
 	var held atomic.Int32
 	cfg := &Config{
-		Provider:       &weatherCallingProvider{Provider: mock.NewProvider("p", "m", false)},
+		Provider:       &weatherCallingProvider{ToolProvider: mock.NewToolProvider("p", "m", false, nil)},
 		ToolRegistry:   reg,
 		PromptRegistry: createTestRegistry("chat"),
 		ApprovalGate: func(_ context.Context, _, name string, _ map[string]any) (*tools.PendingToolInfo, error) {

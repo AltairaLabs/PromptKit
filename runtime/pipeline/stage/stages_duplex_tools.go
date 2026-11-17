@@ -243,7 +243,11 @@ func (s *DuplexProviderStage) seedToolSpend(prior []types.Message) {
 // named by offered so far, and returns it. Called with dt.mu held.
 func (s *DuplexProviderStage) startToolTurnLocked(offered []string) *duplexToolTurn {
 	dt := s.tools
-	dt.turn = &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, s.maxToolRounds())}
+	turn := &duplexToolTurn{}
+	r := s.toolRunner()
+	r.offered = func(name string) bool { return dt.wasOffered(turn, name) }
+	turn.toolTurn = r.newTurn(nil, s.maxToolRounds())
+	dt.turn = turn
 	recordOfferedLocked(dt.turn, offered)
 	dt.round = 0
 	return dt.turn

@@ -139,7 +139,7 @@ for _, name := range conv.ToolRegistry().List() {
 }
 ```
 
-Each MCP tool appears as `mcp__{serverName}__{toolName}`. A tool that is registered but missing from the prompt's `tools` is never offered to the model.
+Each MCP tool appears as `mcp__{serverName}__{toolName}`. A tool that is registered but missing from the prompt's `tools` is never offered to the model, and a call the model makes to it anyway is refused.
 
 ## Troubleshoot
 

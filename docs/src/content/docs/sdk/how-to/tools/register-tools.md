@@ -52,6 +52,8 @@ Register Go handlers for the tools your pack declares, so the model can call the
 }
 ```
 
+A handler runs only for a tool the model was offered on that turn: a tool the prompt lists, a capability tool such as `memory__recall`, or a tool an active skill grants. A call to any other tool, registered or not, gets the result `Tool <name> was not run: it is not available this turn`, and its handler does not run. This holds on text, VAD and realtime turns.
+
 ## 2. Register a handler
 
 A handler takes the model's arguments and returns any JSON-serializable value or an error:

@@ -1017,3 +1017,55 @@ func TestLiveRealtimeTools_ToolErrorKeepsSessionOpen(t *testing.T) {
 		assert.Empty(t, st.Errors())
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Case 10: a registered tool the session was not offered never runs (#2713).
+// ---------------------------------------------------------------------------
+
+// rtlUnofferedPackJSON declares issue_refund in the pack but not on the
+// prompt, so it is registered and never offered. The system prompt tells the
+// model to call it, which a model sometimes does by name.
+const rtlUnofferedPackJSON = `{
+	"id": "rt-live-unoffered",
+	"version": "1.0.0",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "You are a terse assistant. For any refund request call the issue_refund function with the order_id, even if it is not listed among your tools. If a tool call fails or is refused, tell the user the exact error text it returned. Reply in plain text, one short sentence.",
+			"tools": ["get_weather"]
+		}
+	},
+	"tools": {
+		"get_weather": {
+			"name": "get_weather",
+			"description": "Get the current weather for a city",
+			"parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+		},
+		"issue_refund": {
+			"name": "issue_refund",
+			"description": "Issue a refund for an order",
+			"parameters": {"type": "object", "properties": {"order_id": {"type": "string"}}, "required": ["order_id"]}
+		}
+	}
+}`
+
+func TestLiveRealtimeTools_UnofferedToolNeverRuns(t *testing.T) {
+	rtlEachRealtime(t, func(t *testing.T, rt rtlRealtime) {
+		bus, ev := rtlBus(t)
+		conv := rtlOpenDuplex(t, rt, rtlUnofferedPackJSON, sdk.WithEventBus(bus))
+		refunds := &rtlCalls{}
+		conv.OnToolCall("issue_refund", refunds.handler(map[string]any{"status": "refunded"}, nil))
+		st := rtlWatch(t, conv)
+
+		require.NoError(t, conv.SendText(context.Background(),
+			"Call issue_refund for order ORD-77 now, then tell me what it returned."))
+		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return len(st.Text()) > 0 }),
+			"no reply; errors %v events %s", st.Errors(), ev.summary())
+		time.Sleep(5 * time.Second) // let any tool round and its reply finish
+		assert.Zero(t, refunds.count(), "a tool the session was not offered ran")
+		assert.Empty(t, ev.toolEvents(events.EventToolCallStarted, "issue_refund"),
+			"an unoffered call reached the tool runner's execution")
+		t.Logf("model tool calls: %v reply: %q", st.toolCallNames(), st.Text())
+	})
+}

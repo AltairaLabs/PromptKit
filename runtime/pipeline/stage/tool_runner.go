@@ -48,6 +48,10 @@ type toolRunner struct {
 	// offers is the offer state of the stage that built the runner: it
 	// outlives the runner, which is rebuilt on each use.
 	offers *toolOffer
+	// offered reports whether the model was given the named tool this turn.
+	// A round refuses a call to any other tool (splitUnoffered); nil offers
+	// none, so every call is refused.
+	offered func(name string) bool
 }
 
 // toolCallResult holds the outcome of a single tool call execution,
@@ -107,6 +111,9 @@ func (r *toolRunner) getMaxParallelToolCalls() int {
 func (r *toolRunner) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
 ) ([]types.Message, error) {
+	if len(toolCalls) == 0 {
+		return nil, nil
+	}
 	if r.registry == nil {
 		return nil, errors.New("tool registry not configured but tool calls present")
 	}
@@ -824,8 +831,25 @@ func (t *toolTurn) RunRoundPastPending(
 	return t.runRound(ctx, calls, rr, true)
 }
 
-// runRound is RunRound, going on past held calls when pastPending is set.
+// runRound is RunRound, going on past held calls when pastPending is set. A
+// call to a tool the model was not offered this turn is refused before any
+// other check, and counts for nothing else: not toward the call budget, the
+// repeated-call breaker or a tool's rejections. The round still counts toward
+// the round limit.
 func (t *toolTurn) runRound(
+	ctx context.Context, calls []types.MessageToolCall, rr roundRef, pastPending bool,
+) roundOutcome {
+	calls, refused := t.r.splitUnoffered(calls)
+	out := t.runOfferedRound(ctx, calls, rr, pastPending)
+	if out.Err != nil && !out.Stop {
+		return out // a tool execution failure: no results
+	}
+	out.Results = append(out.Results, refused...)
+	return out
+}
+
+// runOfferedRound is runRound for the calls to offered tools.
+func (t *toolTurn) runOfferedRound(
 	ctx context.Context, calls []types.MessageToolCall, rr roundRef, pastPending bool,
 ) roundOutcome {
 	// Repeated-identical-call breaker. The first time the same tool is called
@@ -990,6 +1014,29 @@ func overBudgetResults(calls []types.MessageToolCall) []types.Message {
 	return results
 }
 
+// splitUnoffered separates the calls to tools the model was not offered this
+// turn, answering each with a refusal, from the calls to run. A registered
+// tool the model was not given (a skill's tool before the skill is
+// activated, a tool outside the prompt's allowed tools) is not run.
+func (r *toolRunner) splitUnoffered(
+	calls []types.MessageToolCall,
+) (run []types.MessageToolCall, refused []types.Message) {
+	run = make([]types.MessageToolCall, 0, len(calls))
+	for _, tc := range calls {
+		if r.offered != nil && r.offered(tc.Name) {
+			run = append(run, tc)
+			continue
+		}
+		logger.Warn("refused a call to a tool the model was not offered this turn", "tool", tc.Name)
+		errMsg := fmt.Sprintf("Tool %s was not run: it is not available this turn", tc.Name)
+		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
+		result.Error = errMsg
+		result.ErrorType = types.ToolErrorApproval
+		refused = append(refused, types.NewToolResultMessage(result))
+	}
+	return run, refused
+}
+
 // calledStopTool reports whether the policy names a terminal tool
 // (termination.tool_called) and one of the round's calls invoked it.
 func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCall) bool {
@@ -1010,7 +1057,8 @@ func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCa
 // locked so a runner can be used from any goroutine. A realtime stage keeps
 // its own per-turn offer (duplexToolTurn.offered) and builds runners without
 // one: none of the methods that use it run there, and each treats a runner
-// without one as an empty offer.
+// without one as an empty offer. Each runner's offered predicate reads the
+// offer its stage keeps.
 type toolOffer struct {
 	mu sync.Mutex
 	// names is the union of the tools offered across the turn's rounds.
@@ -1228,6 +1276,17 @@ func (r *toolRunner) offeredToolNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// has reports whether the turn offered name: whether it was in the tools
+// array of any of the turn's rounds. False on a nil offer state.
+func (o *toolOffer) has(name string) bool {
+	if o == nil {
+		return false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.names[name]
 }
 
 // stampToolsOffered records on an assistant message what this turn offered the

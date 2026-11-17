@@ -59,6 +59,21 @@ func newRecordingMCPRegistry(tag string, hits *[]string) *mockMCPRegistry {
 	return reg
 }
 
+// mcpPackJSON is a pack whose prompt allows every tool of the "srv" MCP
+// server, so the model is offered them.
+const mcpPackJSON = `{
+	"id": "mcp-routing-test",
+	"version": "1.0.0",
+	"prompts": {
+		"chat": {
+			"id": "chat",
+			"name": "Chat",
+			"system_template": "You are a support agent.",
+			"tools": ["mcp__srv__*"]
+		}
+	}
+}`
+
 // Two conversations sharing one tools.Registry must route their MCP tool calls
 // through their OWN mcp.Registry.
 //
@@ -70,7 +85,7 @@ func newRecordingMCPRegistry(tag string, hits *[]string) *mockMCPRegistry {
 // SDK simply never called it. See #2011.
 func TestMCPRouting_DoesNotLeakAcrossASharedRegistry(t *testing.T) {
 	shared := sharedPackRegistry(t)
-	packPath := writeWorkflowTestPack(t, toolGrantPackJSON)
+	packPath := writeWorkflowTestPack(t, mcpPackJSON)
 
 	var hits []string
 

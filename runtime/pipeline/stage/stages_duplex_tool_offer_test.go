@@ -194,6 +194,60 @@ func TestDuplexToolOffer_GrantMidSessionUpdatesTheSession(t *testing.T) {
 	assert.Equal(t, []string{"activate", "refund", "weather"}, msgs[1].Meta[types.MetaToolsOffered])
 }
 
+// A call to a registered tool the session was never offered is refused, not
+// run, and the same tool runs once a grant has put it on the session (#2713).
+func TestDuplexToolOffer_NeverOfferedToolIsRefusedUntilGranted(t *testing.T) {
+	exec := &grantingExec{grant: []string{"refund"}}
+	reg := registryWithTools(t, "weather", "activate", "refund")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		cfg:       DuplexToolConfig{ToolGrants: exec.grants},
+		turnState: &TurnState{AllowedTools: []string{"weather", "activate"}},
+		updatable: true,
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "refund"), namedCall("c2", "weather")))
+	h.awaitSent(1)
+	h.emit(toolCallTurn(namedCall("c3", "activate")))
+	h.awaitSent(2)
+	h.emit(toolCallTurn(namedCall("c4", "refund")))
+	sent := h.awaitSent(3)
+	elems := h.finish()
+
+	const refusal = "Tool refund was not run: it is not available this turn"
+	assert.Equal(t, []providers.ToolResponse{
+		{ToolCallID: "c2", Result: "ok"},
+		{ToolCallID: "c1", Result: refusal, IsError: true},
+	}, sent[0])
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c4", Result: "ok"}}, sent[2])
+	assert.Equal(t, []string{"weather", "activate", "refund"}, exec.calls(), "refund runs only once granted")
+	results := toolResultMessages(elems)
+	require.Len(t, results, 4)
+	assert.Equal(t, refusal, results[1].Error)
+	assert.Equal(t, types.ToolErrorApproval, results[1].ErrorType)
+}
+
+// A tool the host declares on the session alone is offered: a call to it
+// runs, though the conversation's offer does not name it.
+func TestDuplexToolOffer_HostDeclaredToolRuns(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather", "host_only")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:     reg,
+		turnState:    &TurnState{AllowedTools: []string{"weather"}},
+		sessionTools: []providers.StreamingToolDefinition{{Name: "host_only", Description: "host tool"}},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "host_only")))
+	sent := h.awaitSent(1)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{ToolCallID: "c1", Result: "ok"}}, sent[0])
+	assert.Equal(t, []string{"host_only"}, exec.calls())
+}
+
 // A session that cannot change its tools keeps the ones it was created with,
 // and a call to a tool granted after that is refused, not run.
 func TestDuplexToolOffer_WithoutUpdaterAGrantedToolIsRefused(t *testing.T) {
