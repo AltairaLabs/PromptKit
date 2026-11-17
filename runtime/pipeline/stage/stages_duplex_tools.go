@@ -135,11 +135,12 @@ type duplexTools struct {
 	turn  *duplexToolTurn
 	round int
 	open  *duplexRound
-	// gens maps the provider's generations to the calls they completed, so
-	// usage reported later lands on its own call (stages_duplex_cost.go);
-	// genOrder bounds it.
-	gens     map[int64]generationCall
+	// gens maps the provider's generations to the calls opened for them, so
+	// cost reported for a generation lands on its own call; last is the call
+	// started last (stages_duplex_cost.go). genOrder bounds gens.
+	gens     map[int64]*duplexRound
 	genOrder []int64
+	last     *duplexRound
 	spent    float64
 	// terminal is set once a limit closes the session: nothing more is run
 	// or reported.
@@ -162,6 +163,13 @@ type duplexTools struct {
 type duplexRound struct {
 	rr    roundRef
 	start time.Time
+	// turn is the tool turn the call belongs to; gen is the provider
+	// generation it is for (0 until a chunk names it); pending is cost the
+	// provider reported for it while it was open, which its
+	// provider.call.completed carries. Guarded by duplexTools.mu.
+	turn    *duplexToolTurn
+	gen     int64
+	pending *types.CostInfo
 }
 
 // duplexToolTurn is a tool turn on a realtime session.
@@ -339,7 +347,9 @@ func (dt *duplexTools) openRoundLocked() *duplexRound {
 	dt.open = &duplexRound{
 		rr:    roundRef{round: dt.round, providerCallID: newProviderCallID()},
 		start: time.Now(),
+		turn:  dt.turn,
 	}
+	dt.last = dt.open
 	return dt.open
 }
 
@@ -443,16 +453,18 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	if opened {
 		round = dt.openRoundLocked()
 	}
+	dt.bindGenerationLocked(s.chunkGen)
 	dt.open = nil
 	turn := dt.turn
+	reported := *msg
+	reported.CostInfo = addCost(msg.CostInfo, round.pending)
 	dt.mu.Unlock()
 	dt.replyDue.Store(false)
 	s.syncStartedTurn(ctx, started)
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
 	}
-	s.recordGeneration(round, turn)
-	s.emitRoundCompleted(ctx, msg, round, time.Since(round.start))
+	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start))
 	return turn, round.rr
 }
 
@@ -570,6 +582,7 @@ func (s *DuplexProviderStage) prepareToolRound(ctx context.Context, elem *Stream
 	}
 	dt := s.tools
 	turn, rr := s.completeRound(ctx, msg)
+	s.costReported = true // the message's cost, the chunk's when it had one
 	dt.stampToolsOffered(turn, msg)
 	stampWorkflowStateMeta(dt.resolver, msg)
 	if err := s.charge(turn, msg.CostInfo); err != nil {
@@ -608,6 +621,7 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 	}
 	if s.tools.isTerminal() {
 		s.chargeSpend(chunk.CostInfo)
+		s.costReported = true
 		return nil
 	}
 	msg := elem.Message
@@ -618,6 +632,7 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 	withCost.CostInfo = chunk.CostInfo
 	turn, rr := s.completeRound(ctx, &withCost)
 	s.tools.endTurn(turn)
+	s.costReported = true
 	if err := s.charge(turn, chunk.CostInfo); err != nil {
 		return s.budgetSpent(turn, nil, rr, err)
 	}

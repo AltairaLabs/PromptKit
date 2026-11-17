@@ -147,6 +147,10 @@ type indexState struct {
 	lastUserContent string
 	pendingTurn     *recordedTurn
 	pendingIdx      int // pendingTurn's index in p.turns
+	// pendingCall is a provider.call.completed recorded before the assistant
+	// message it belongs to (a realtime session records the call, then its
+	// message); the next assistant message takes it.
+	pendingCall *events.ProviderCallCompletedData
 	// callTurns maps a provider call's CallID to the turn its
 	// provider.call.completed was attached to, for its later usage events.
 	callTurns map[string]int
@@ -212,6 +216,10 @@ func (p *Provider) addAssistantTurn(
 	p.turns = append(p.turns, turn)
 	state.pendingTurn = &p.turns[turnIdx]
 	state.pendingIdx = turnIdx
+	if state.pendingCall != nil { // the call recorded ahead of its message
+		p.attachCall(state, state.pendingCall)
+		state.pendingCall = nil
+	}
 
 	if state.lastUserContent != "" {
 		p.contentMap[state.lastUserContent] = turnIdx
@@ -220,16 +228,21 @@ func (p *Provider) addAssistantTurn(
 
 // processProviderCallEvent attaches cost info to pending turn.
 func (p *Provider) processProviderCallEvent(event *recording.RecordedEvent, state *indexState) {
-	if state.pendingTurn == nil {
-		return
-	}
-
 	var callData events.ProviderCallCompletedData
 	if json.Unmarshal(event.Data, &callData) != nil {
 		return
 	}
+	if state.pendingTurn == nil {
+		// A realtime session records the call ahead of its message.
+		state.pendingCall = &callData
+		return
+	}
+	p.attachCall(state, &callData)
+}
 
-	state.pendingTurn.callInfo = &callData
+// attachCall gives the pending turn the call's cost, and maps the call to it.
+func (p *Provider) attachCall(state *indexState, callData *events.ProviderCallCompletedData) {
+	state.pendingTurn.callInfo = callData
 	if callData.CallID != "" {
 		state.callTurns[callData.CallID] = state.pendingIdx
 	}
@@ -244,11 +257,15 @@ func (p *Provider) processProviderUsageEvent(event *recording.RecordedEvent, sta
 	if json.Unmarshal(event.Data, &usage) != nil {
 		return
 	}
-	idx, ok := state.callTurns[usage.CallID]
-	if !ok || p.turns[idx].callInfo == nil {
+	var info *events.ProviderCallCompletedData
+	if idx, ok := state.callTurns[usage.CallID]; ok {
+		info = p.turns[idx].callInfo
+	} else if state.pendingCall != nil && state.pendingCall.CallID == usage.CallID {
+		info = state.pendingCall // its message is still to come
+	}
+	if info == nil {
 		return
 	}
-	info := p.turns[idx].callInfo
 	info.InputTokens += usage.InputTokens
 	info.OutputTokens += usage.OutputTokens
 	info.CachedTokens += usage.CachedTokens

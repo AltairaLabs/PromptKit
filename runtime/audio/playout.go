@@ -120,26 +120,27 @@ func (p *Playout) Stop() []PlayoutCut {
 }
 
 // prune drops the stretches fully heard by now, remembering how much of
-// their item they played. It forgets that for items with no stretch left,
-// except the one that played last (it may resume after a stall), so the
-// record stays bounded.
+// their item they played (an item can resume after a stall).
 func (p *Playout) prune(now time.Time) {
 	i := 0
-	var last itemKey
 	for i < len(p.items) && !p.items[i].start.Add(p.items[i].dur).After(now) {
 		if p.before == nil {
 			p.before = map[itemKey]time.Duration{}
 		}
-		last = p.items[i].itemKey
-		p.before[last] += p.items[i].dur
+		p.before[p.items[i].itemKey] += p.items[i].dur
 		i++
 	}
 	p.items = p.items[i:]
-	if i == 0 {
-		return
-	}
+}
+
+// NewResponse marks the start of a new response: what earlier stretches
+// played is forgotten for the items with nothing left to play, which belong
+// to earlier responses and cannot resume. Call it when a response begins, so
+// the record stays bounded by the items of one response.
+func (p *Playout) NewResponse() {
+	p.prune(p.now())
 	for key := range p.before {
-		if key != last && !p.holds(key) {
+		if !p.holds(key) {
 			delete(p.before, key)
 		}
 	}

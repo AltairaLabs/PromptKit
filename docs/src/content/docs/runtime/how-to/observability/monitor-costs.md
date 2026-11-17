@@ -152,7 +152,7 @@ The check runs before the call, so the call that crosses the limit still complet
 Alerts and dashboards belong in your metrics backend rather than in process. Two exports carry cost:
 
 - A `metrics.Collector` attached with `sdk.WithMetrics` increments a `provider_cost_total` counter per provider call (usage a provider reports for a call after it completed, `provider.call.usage`, is added to the token and cost counters but not counted as a request), plus per-capability counters for TTS, STT, embeddings, image generation and inference. See [Prometheus metrics](/runtime/how-to/observability/prometheus-metrics/).
-- The OTel listener sets `promptkit.provider.cost` on each provider span and `promptkit.pipeline.cost` on the pipeline span. A `provider.call.usage` becomes a `promptkit.provider.usage` span event with its tokens and cost: on the call's span while it is open, otherwise on the session span. See [Export traces with OTLP](/runtime/how-to/observability/export-traces-otlp/).
+- The OTel listener sets `promptkit.provider.cost` on each provider span and `promptkit.pipeline.cost` on the pipeline span. A `provider.call.usage` becomes a `promptkit.provider.usage` span event with its tokens and cost: on the call's span while it is open, otherwise on the session span. A provider span's own cost attributes exclude usage reported after it ended; the session span's `promptkit.session.cost`, `promptkit.session.input_tokens` and `promptkit.session.output_tokens`, set when the session ends, include it. See [Export traces with OTLP](/runtime/how-to/observability/export-traces-otlp/).
 
 ## Verify
 

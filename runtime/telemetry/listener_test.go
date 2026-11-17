@@ -1638,3 +1638,27 @@ func TestOTelEventListener_ProviderUsageWhileTheCallIsOpen(t *testing.T) {
 		}
 	}
 }
+
+// The session's root span totals its provider calls, late usage included.
+func TestOTelEventListener_SessionTotalsIncludeLateUsage(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	listener.StartSession(context.Background(), "sess-1")
+	listener.OnEvent(providerEvent(events.EventProviderCallStarted, "call-1"))
+	completed := providerEvent(events.EventProviderCallCompleted, "call-1")
+	completed.Data.(*events.ProviderCallCompletedData).InputTokens = 100
+	completed.Data.(*events.ProviderCallCompletedData).OutputTokens = 5
+	completed.Data.(*events.ProviderCallCompletedData).Cost = 0.0005
+	listener.OnEvent(completed)
+	listener.OnEvent(usageEvent("call-1"))
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	session := findSpan(t, spans, "promptkit invoke_agent")
+	got := map[string]string{}
+	for _, a := range session.Attributes {
+		got[string(a.Key)] = a.Value.Emit()
+	}
+	assert.Equal(t, "0.001745", got["promptkit.session.cost"])
+	assert.Equal(t, "761", got["promptkit.session.input_tokens"])
+	assert.Equal(t, "17", got["promptkit.session.output_tokens"])
+}

@@ -377,3 +377,23 @@ func TestStreamingProvider_GetSessions(t *testing.T) {
 		assert.Equal(t, session2, sessions[1])
 	})
 }
+
+// The mock numbers its generations as a realtime provider does: output after
+// a turn ended starts a new one; a finish- or cost-only chunk belongs to the
+// current one; a chunk that names its generation keeps it.
+func TestMockStreamSession_TagsGenerations(t *testing.T) {
+	session := NewMockStreamSession()
+	stop := "stop"
+	chunks := []providers.StreamChunk{
+		{Content: "a"}, {FinishReason: &stop},
+		{CostInfo: &types.CostInfo{TotalCost: 1}}, // late usage: still generation 1
+		{Content: "b"}, {Interrupted: true}, {FinishReason: &stop},
+		{Content: "c", Generation: 9}, {Content: "d"},
+	}
+	var got []int64
+	for i := range chunks {
+		session.EmitChunk(&chunks[i])
+		got = append(got, (<-session.Response()).Generation)
+	}
+	assert.Equal(t, []int64{1, 1, 1, 2, 2, 2, 9, 9}, got)
+}

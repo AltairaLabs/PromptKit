@@ -76,8 +76,14 @@ type MockStreamSession struct {
 	// via the promoted SignalBargeIn() to simulate server-side barge-in.
 	providers.BargeInSignal
 
-	chunks      []*types.MediaChunk
-	texts       []string
+	chunks []*types.MediaChunk
+	texts  []string
+
+	// gen numbers the session's generations (StreamChunk.Generation), as a
+	// realtime provider does; genEnded is set once the current one ended.
+	genMu       sync.Mutex
+	gen         int64
+	genEnded    bool
 	responses   chan providers.StreamChunk
 	doneCh      chan struct{}
 	err         error
@@ -337,12 +343,35 @@ func (m *MockStreamSession) EndInput() {
 	}
 }
 
+// tag stamps a chunk with the generation it belongs to, as a realtime
+// provider does: output (text, media, tool calls) after a turn ended starts a
+// new generation; a chunk with only a finish reason or a cost belongs to the
+// current one. A chunk that names its generation keeps it.
+func (m *MockStreamSession) tag(c providers.StreamChunk) providers.StreamChunk {
+	m.genMu.Lock()
+	defer m.genMu.Unlock()
+	if c.Generation != 0 {
+		m.gen, m.genEnded = c.Generation, false
+	} else {
+		output := c.Content != "" || c.Delta != "" || c.MediaData != nil || len(c.ToolCalls) > 0
+		if m.gen == 0 || (output && m.genEnded) {
+			m.gen++
+			m.genEnded = false
+		}
+		c.Generation = m.gen
+	}
+	if c.FinishReason != nil || c.Interrupted {
+		m.genEnded = true
+	}
+	return c
+}
+
 // EmitChunk sends a response chunk (for testing).
 func (m *MockStreamSession) EmitChunk(chunk *providers.StreamChunk) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if !m.closeCalled {
-		m.responses <- *chunk
+		m.responses <- m.tag(*chunk)
 	}
 }
 
@@ -383,7 +412,7 @@ func (m *MockStreamSession) emitAutoResponse() {
 	} else if len(m.responseChunks) > 0 {
 		// Emit custom chunks
 		for i := range m.responseChunks {
-			m.responses <- m.responseChunks[i]
+			m.responses <- m.tag(m.responseChunks[i])
 		}
 	} else {
 		m.emitTurnResponse(currentTurn)
@@ -409,7 +438,7 @@ func (m *MockStreamSession) emitInterruption(currentTurn int) {
 		Delta:   partialText,
 	}
 	select {
-	case m.responses <- partialChunk:
+	case m.responses <- m.tag(partialChunk):
 	default:
 	}
 
@@ -418,7 +447,7 @@ func (m *MockStreamSession) emitInterruption(currentTurn int) {
 		Interrupted: true,
 	}
 	select {
-	case m.responses <- interruptChunk:
+	case m.responses <- m.tag(interruptChunk):
 	default:
 	}
 
@@ -428,7 +457,7 @@ func (m *MockStreamSession) emitInterruption(currentTurn int) {
 		FinishReason: &finishReason,
 	}
 	select {
-	case m.responses <- emptyComplete:
+	case m.responses <- m.tag(emptyComplete):
 	default:
 	}
 
@@ -487,7 +516,7 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 	// a full buffer races into a deadlock — DuplexProviderStage parks on
 	// the response channel forever after draining the queued audio chunks.
 	select {
-	case m.responses <- chunk:
+	case m.responses <- m.tag(chunk):
 	case <-m.doneCh:
 	}
 }
@@ -644,7 +673,7 @@ func (m *MockStreamSession) emitAudioChunks(fixture *mockAudioFixture) {
 		// pace their emission via the network frame rate; the mock relies on
 		// the consumer (DuplexProviderStage) to drain the channel.
 		select {
-		case m.responses <- chunk:
+		case m.responses <- m.tag(chunk):
 		case <-m.doneCh:
 			return
 		}

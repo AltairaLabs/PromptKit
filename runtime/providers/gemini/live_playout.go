@@ -55,6 +55,7 @@ func (s *StreamSession) replyStarted() {
 	}
 	s.turnOpen = true
 	s.gen++ // a new generation: the reply
+	s.playoutEstimate().NewResponse()
 	s.lateInput = !s.inputClosed && !s.inputLastAt.IsZero() && s.clock().Sub(s.inputLastAt) < inputLateWindow
 }
 

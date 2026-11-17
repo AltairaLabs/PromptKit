@@ -53,6 +53,19 @@ type spanEntry struct {
 type sessionState struct {
 	span trace.Span
 	ctx  context.Context //nolint:containedctx // needed to parent child spans
+	// cost and the token counts total the session's provider calls, their
+	// late usage included; set on the root span when the session ends.
+	cost         float64
+	inputTokens  int
+	outputTokens int
+}
+
+// addUsage adds a provider call's (or its late usage's) tokens and cost to
+// the session's totals. Caller holds l.mu.
+func (ss *sessionState) addUsage(in, out int, cost float64) {
+	ss.inputTokens += in
+	ss.outputTokens += out
+	ss.cost += cost
 }
 
 // pendingEnd buffers a span completion that arrived before the corresponding start.
@@ -199,6 +212,13 @@ func (l *OTelEventListener) EndSession(sessionID string) {
 	}
 	l.mu.Unlock()
 	if ok {
+		// The session's totals include usage reported after a call's span
+		// ended; a provider span's own cost attributes do not.
+		ss.span.SetAttributes(
+			attribute.Float64("promptkit.session.cost", ss.cost),
+			attribute.Int("promptkit.session.input_tokens", ss.inputTokens),
+			attribute.Int("promptkit.session.output_tokens", ss.outputTokens),
+		)
 		ss.span.End()
 	}
 }
@@ -448,9 +468,13 @@ func (l *OTelEventListener) recordProviderUsage(evt *events.Event) {
 	)
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	ss, haveSession := l.sessions[evt.SessionID]
+	if haveSession {
+		ss.addUsage(data.InputTokens, data.OutputTokens, data.Cost)
+	}
 	if entry, ok := l.inflight[spanKeyProvider+evt.ExecutionID]; ok && entry.callID != "" && entry.callID == data.CallID {
 		entry.span.AddEvent(eventProviderUsage, attrs)
-	} else if ss, ok := l.sessions[evt.SessionID]; ok {
+	} else if haveSession {
 		ss.span.AddEvent(eventProviderUsage, attrs)
 	}
 }
@@ -463,6 +487,11 @@ func (l *OTelEventListener) completeProvider(evt *events.Event) {
 	if !ok {
 		return
 	}
+	l.mu.Lock()
+	if ss, ok := l.sessions[evt.SessionID]; ok {
+		ss.addUsage(data.InputTokens, data.OutputTokens, data.Cost)
+	}
+	l.mu.Unlock()
 	l.endSpan(spanKeyProvider+evt.ExecutionID,
 		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),

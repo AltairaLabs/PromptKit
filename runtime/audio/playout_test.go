@@ -99,14 +99,31 @@ func TestPlayout_InterleavedItemsCountEveryHeardStretch(t *testing.T) {
 	assert.Equal(t, []PlayoutCut{{ItemID: "X", Heard: 1500 * time.Millisecond}}, p.Stop())
 }
 
-// What earlier stretches played is kept only for items still playing and
-// the one that played last.
-func TestPlayout_RemembersABoundedSetOfItems(t *testing.T) {
+// A, B, A: A plays 1 s, B 1 s, then A resumes after both ran out. Stopped
+// 500 ms into A's second stretch, the listener heard 1.5 s of A.
+func TestPlayout_ItemResumesAfterAnotherItemPlayed(t *testing.T) {
+	c := &testClock{t: playoutT0}
+	p := NewPlayout(c.now)
+	p.Add("A", 0, time.Second)
+	p.Add("B", 0, time.Second)
+	c.t = playoutT0.Add(3 * time.Second)
+	p.Add("A", 0, time.Second)
+	c.t = playoutT0.Add(3500 * time.Millisecond)
+
+	assert.Equal(t, []PlayoutCut{{ItemID: "A", Heard: 1500 * time.Millisecond}}, p.Stop())
+}
+
+// What earlier stretches played is forgotten, when a new response begins,
+// for items with nothing left to play.
+func TestPlayout_NewResponseBoundsTheRecord(t *testing.T) {
 	c := &testClock{t: playoutT0}
 	p := NewPlayout(c.now)
 	for i := 0; i < 50; i++ {
 		c.t = playoutT0.Add(time.Duration(i) * 2 * time.Second)
 		p.Add(fmt.Sprint("item", i), 0, time.Second)
 	}
-	assert.Equal(t, 1, p.tracked(), "only the item that played last")
+	assert.Equal(t, 49, p.tracked(), "within a response every item is remembered")
+	p.Add("live", 0, 10*time.Second)
+	p.NewResponse()
+	assert.Zero(t, p.tracked(), "a new response forgets items that cannot resume")
 }

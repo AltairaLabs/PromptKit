@@ -42,11 +42,12 @@ func costedReplies(elems []StreamElement) []*types.Message {
 	return out
 }
 
-// callEvents collects provider.call.completed and provider.call.usage events.
+// callEvents collects provider.call.started, completed and usage events.
 type callEvents struct {
-	mu    sync.Mutex
-	done  []*events.ProviderCallCompletedData
-	usage []*events.ProviderCallUsageData
+	mu      sync.Mutex
+	started []*events.ProviderCallStartedData
+	done    []*events.ProviderCallCompletedData
+	usage   []*events.ProviderCallUsageData
 }
 
 func newCallEvents() (*events.Emitter, *callEvents) {
@@ -56,6 +57,8 @@ func newCallEvents() (*events.Emitter, *callEvents) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		switch d := e.Data.(type) {
+		case *events.ProviderCallStartedData:
+			c.started = append(c.started, d)
 		case *events.ProviderCallCompletedData:
 			c.done = append(c.done, d)
 		case *events.ProviderCallUsageData:
@@ -341,24 +344,26 @@ func TestDuplexCost_CarriedCostGoesOnTheBlockedTurnFlushedAtClose(t *testing.T) 
 	assert.Equal(t, []string{"half a reply=none", "Not here.=5/1"}, got)
 }
 
-// A turn's end with a cost and nothing to build a message from completes the
-// call in progress with that cost.
-func TestDuplexCost_TurnEndWithoutAMessageCompletesItsCall(t *testing.T) {
+// A turn's end with a cost and nothing to build a message from leaves the
+// call open, as before (ending turns follows the chunk's flags); its cost goes
+// on that call's completion, and on the next message.
+func TestDuplexCost_CostOnACallStillOpenIsOnItsCompletion(t *testing.T) {
 	h, ev := costHarness(t, 0)
 	user := types.Message{Role: roleUser, Content: "hello?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	stop := "stop"
-	h.emit([]providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(0, 0)}})
-	h.emit(textTurn("hello", usd(20, 5)))
-	done, _ := ev.await(t, 2, 0)
-	h.finish()
+	h.emit([]providers.StreamChunk{{FinishReason: &stop, CostInfo: &types.CostInfo{TotalCost: 0.02}, Generation: 1}})
+	h.emit(gen(1, textTurn("hello", usd(20, 5))))
+	done, _ := ev.await(t, 1, 0)
+	msgs := costedReplies(h.finish())
 
-	require.Len(t, done, 2)
-	assert.Equal(t, "stop", done[0].FinishReason)
-	assert.Zero(t, done[0].ToolCallCount)
-	assertCall(t, done[1], 20, 5)
-	assert.NotEqual(t, done[0].CallID, done[1].CallID)
+	done, usage := ev.await(t, 1, 0)
+	require.Len(t, done, 1, "one call")
+	assert.Empty(t, usage)
+	assert.InDelta(t, 0.045, done[0].Cost, 1e-12, "the call's completion carries both")
+	require.Len(t, msgs, 1)
+	assert.InDelta(t, 0.045, msgs[0].CostInfo.TotalCost, 1e-12)
 }
 
 // An interruption with nothing under way (no call open, no reply, no cost)
@@ -376,7 +381,7 @@ func TestDuplexCost_InterruptionWithNothingUnderWayReportsNoCall(t *testing.T) {
 }
 
 // Late usage is matched to the most recent generations only: one too old to
-// remember is charged and kept in the history, with no usage event.
+// remember goes to the call started last.
 func TestDuplexCost_OnlyRecentGenerationsAreRemembered(t *testing.T) {
 	h, ev := costHarness(t, 0)
 	for g := int64(1); g <= maxTrackedGenerations+1; g++ {
@@ -385,10 +390,11 @@ func TestDuplexCost_OnlyRecentGenerationsAreRemembered(t *testing.T) {
 	ev.await(t, maxTrackedGenerations+1, 0)
 	h.emit(gen(1, []providers.StreamChunk{{CostInfo: usd(5, 0)}}))
 	h.emit(gen(2, []providers.StreamChunk{{CostInfo: usd(7, 0)}}))
-	done, usage := ev.await(t, maxTrackedGenerations+1, 1)
+	done, usage := ev.await(t, maxTrackedGenerations+1, 2)
 	h.finish()
 
-	_, usage = ev.await(t, maxTrackedGenerations+1, 1)
-	require.Len(t, usage, 1, "generation 1 is forgotten, 2 is not")
-	assertUsage(t, usage[0], done[1].CallID, 7, 0)
+	_, usage = ev.await(t, maxTrackedGenerations+1, 2)
+	require.Len(t, usage, 2)
+	assertUsage(t, usage[0], done[maxTrackedGenerations].CallID, 5, 0) // forgotten: the call started last
+	assertUsage(t, usage[1], done[1].CallID, 7, 0)
 }

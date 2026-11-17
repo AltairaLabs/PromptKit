@@ -114,6 +114,7 @@ for chunk := range audioStream {
 - [type Playout](<#Playout>)
   - [func NewPlayout\(now func\(\) time.Time\) \*Playout](<#NewPlayout>)
   - [func \(p \*Playout\) Add\(itemID string, contentIndex int, d time.Duration\)](<#Playout.Add>)
+  - [func \(p \*Playout\) NewResponse\(\)](<#Playout.NewResponse>)
   - [func \(p \*Playout\) Playing\(\) bool](<#Playout.Playing>)
   - [func \(p \*Playout\) Stop\(\) \[\]PlayoutCut](<#Playout.Stop>)
 - [type PlayoutCut](<#PlayoutCut>)
@@ -854,6 +855,15 @@ func (p *Playout) Add(itemID string, contentIndex int, d time.Duration)
 ```
 
 Add records d of audio for the item \(itemID, contentIndex\) handed to the player now. Non\-positive d is ignored.
+
+<a name="Playout.NewResponse"></a>
+### func \(\*Playout\) [NewResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L140>)
+
+```go
+func (p *Playout) NewResponse()
+```
+
+NewResponse marks the start of a new response: what earlier stretches played is forgotten for the items with nothing left to play, which belong to earlier responses and cannot resume. Call it when a response begins, so the record stays bounded by the items of one response.
 
 <a name="Playout.Playing"></a>
 ### func \(\*Playout\) [Playing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L98>)

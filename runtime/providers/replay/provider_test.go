@@ -669,3 +669,44 @@ func TestProvider_CostIncludesLateUsage(t *testing.T) {
 	assert.Equal(t, 12, resp.CostInfo.OutputTokens)
 	assert.InDelta(t, 0.001245, resp.CostInfo.TotalCost, 1e-12)
 }
+
+// A recorded duplex session: each call is recorded before its assistant
+// message (the stage completes the call, then saves the message), and a
+// Gemini 3 tool-call turn's usage arrives after both. Each replayed turn costs
+// what its call did.
+func TestProvider_DuplexOrderCallBeforeMessage(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "weather?"}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "call-1"}),
+			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: ""}),
+			mk(4, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "call-1",
+				InputTokens: 661, OutputTokens: 12, Cost: 0.001245}),
+			mk(5, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "call-2",
+				InputTokens: 728, OutputTokens: 81, Cost: 0.002339}),
+			mk(6, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "call-2",
+				InputTokens: 1, OutputTokens: 1, Cost: 0.000001}),
+			mk(7, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hazy."}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	first, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, first.CostInfo)
+	assert.Equal(t, 661, first.CostInfo.InputTokens)
+	assert.InDelta(t, 0.001245, first.CostInfo.TotalCost, 1e-12)
+
+	second, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, second.CostInfo)
+	assert.Equal(t, 729, second.CostInfo.InputTokens, "its usage arrived before its message")
+	assert.InDelta(t, 0.00234, second.CostInfo.TotalCost, 1e-12)
+}

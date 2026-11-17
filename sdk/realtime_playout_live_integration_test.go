@@ -5,6 +5,7 @@ package sdk_test
 import (
 	"context"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"testing"
@@ -186,7 +187,9 @@ func TestLiveRealtimePlayout_BargeInWhileTheFinishedReplyPlays(t *testing.T) {
 				t.Skipf("%s not set", rc.envKey)
 			}
 			speech := rtpSpeech(t, "Wait, stop. I have a question.", rc.inputRate)
+			bus, ev := rtlBus(t)
 			conv, err := sdk.OpenDuplex(rtlWritePack(t, rtpPackJSON), "chat",
+				sdk.WithEventBus(bus),
 				sdk.WithProvider(rc.provider()),
 				sdk.WithSkipSchemaValidation(),
 				sdk.WithStreamingConfig(&providers.StreamingInputConfig{
@@ -232,8 +235,40 @@ func TestLiveRealtimePlayout_BargeInWhileTheFinishedReplyPlays(t *testing.T) {
 			assert.Truef(t, at.Before(until), "the interruption (%v) came after the reply's playout end (%v)",
 				at.Format(time.StampMilli), until.Format(time.StampMilli))
 			t.Logf("interrupted %v before the reply's estimated playout end", until.Sub(at))
+			// The interrupted reply's and the reply to the caller's cost are
+			// all accounted: the events total equals the messages' once the
+			// session settles.
+			rtpAssertCostsAgree(t, conv, ev)
 		})
 	}
+}
+
+// rtpCosts returns the provider call events' total (completed + usage) and
+// the conversation's messages' total.
+func rtpCosts(conv *sdk.Conversation, ev *rtlEvents) (eventCost, messageCost float64) {
+	for _, d := range ev.providerCompleted() {
+		eventCost += d.Cost
+	}
+	for _, e := range ev.ofType(events.EventProviderCallUsage) {
+		eventCost += e.Data.(*events.ProviderCallUsageData).Cost
+	}
+	for _, m := range conv.Messages(context.Background()) {
+		if m.CostInfo != nil {
+			messageCost += m.CostInfo.TotalCost
+		}
+	}
+	return eventCost, messageCost
+}
+
+func rtpAssertCostsAgree(t *testing.T, conv *sdk.Conversation, ev *rtlEvents) {
+	t.Helper()
+	var e, m float64
+	agreed := rtlWaitUntil(30*time.Second, func() bool {
+		e, m = rtpCosts(conv, ev)
+		return e > 0 && math.Abs(e-m) < 1e-9
+	})
+	t.Logf("events total $%.6f, messages total $%.6f", e, m)
+	assert.True(t, agreed, "events total $%.6f != messages total $%.6f", e, m)
 }
 
 // A Gemini Live two-tool chain is charged in full: one provider.call.completed

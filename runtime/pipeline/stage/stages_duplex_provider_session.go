@@ -144,9 +144,11 @@ type DuplexProviderStage struct {
 	// (stages_duplex_cost.go). Response goroutine only.
 	costPlaced  bool
 	carriedCost *types.CostInfo
-	// chunkGen is the generation of the chunk being handled. Response
+	// chunkGen is the generation of the chunk being handled; costReported is
+	// set once its cost is charged and on a provider call event. Response
 	// goroutine only.
-	chunkGen int64
+	chunkGen     int64
+	costReported bool
 
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
@@ -1388,26 +1390,51 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 		s.dropBlockedTurns()
 		return nil
 	}
-	if msg == nil {
-		return s.flushBlockedTurns(ctx, output)
+	blocked := s.drainBlockedTurns()
+	// Cost still carried goes on the last message emitted now.
+	if carrier := lastCostCarrier(msg, blocked); carrier != nil {
+		s.takeCarriedCost(carrier)
 	}
-	if len(s.blockedTurns) == 0 { // else the last blocked turn takes it
-		s.takeCarriedCost(msg)
+	if msg != nil {
+		logger.Debug("DuplexProviderStage: emitting partial response on session close",
+			"textLen", len(msg.Content))
+		select {
+		case output <- StreamElement{Message: msg, EndOfStream: true}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	elem := StreamElement{
-		Message:     msg,
-		EndOfStream: true,
+	for _, turn := range blocked {
+		if err := s.emitBlockedTurn(ctx, turn, output); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	logger.Debug("DuplexProviderStage: emitting partial response on session close",
-		"textLen", len(msg.Content))
-
-	select {
-	case output <- elem:
-		return s.flushBlockedTurns(ctx, output)
-	case <-ctx.Done():
-		return ctx.Err()
+// drainBlockedTurns takes every blocked turn queued for emission.
+func (s *DuplexProviderStage) drainBlockedTurns() []*duplexBlockedTurn {
+	var out []*duplexBlockedTurn
+	for {
+		select {
+		case turn := <-s.blockedTurns:
+			out = append(out, turn)
+		default:
+			return out
+		}
 	}
+}
+
+// lastCostCarrier is the last message among partial (emitted first) and the
+// blocked turns (emitted after it) that can carry a cost: a blocked turn's
+// reply, not a turn that only keeps a user's input in order. Nil when none.
+func lastCostCarrier(partial *types.Message, blocked []*duplexBlockedTurn) *types.Message {
+	for i := len(blocked) - 1; i >= 0; i-- {
+		if !blocked[i].userOnly {
+			return &blocked[i].msg
+		}
+	}
+	return partial
 }
 
 // logTurnCompleted logs a chunk's turn completion, if it carries one.
@@ -1449,6 +1476,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 ) error {
 	// Whatever the chunk did to the turn, input-side hooks see it next.
 	defer s.syncReplyStreaming()
+	s.chunkGen = chunk.Generation
 	if chunk.Error != nil {
 		return s.emitChunkError(ctx, chunk, output)
 	}
@@ -1574,7 +1602,7 @@ func (s *DuplexProviderStage) completeChunkTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement, turnDone bool,
 ) (*duplexToolJob, error) {
 	unplaced := chunk.CostInfo != nil && !s.costPlaced
-	s.chunkGen = chunk.Generation
+	s.costReported = false
 	round := s.chargeInterruptedTurn(ctx, chunk, elem)
 	if turnDone {
 		if err := s.guardCompletedTurn(ctx, elem); err != nil {
@@ -1582,8 +1610,10 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		}
 		round = s.prepareToolRound(ctx, elem)
 	}
-	if job := s.reportLateCost(ctx, chunk, elem, unplaced); job != nil {
-		round = job
+	if unplaced && !s.costReported {
+		if job := s.attributeCost(ctx, chunk); job != nil {
+			round = job
+		}
 	}
 	s.placeCarriedCost(chunk, elem, unplaced)
 	return round, nil
@@ -1772,6 +1802,7 @@ func (s *DuplexProviderStage) accumulateResponseChunk(
 	// input that started it could not be seen.
 	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
 		s.openToolRoundIfIdle(ctx)
+		s.bindGeneration(chunk.Generation)
 	}
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it

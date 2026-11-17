@@ -302,3 +302,27 @@ func TestRealtimePlayout_TwoTruncatesForOneItem(t *testing.T) {
 	assert.True(t, tr.rejected("evt_2"))
 	assert.Zero(t, tr.len())
 }
+
+// Every chunk of a response names the response's generation, its
+// response.done (the cost) included, even when it arrives after the next
+// response began.
+func TestRealtimeSession_ChunksCarryTheirResponsesGeneration(t *testing.T) {
+	emitCh := make(chan providers.StreamChunk, 16)
+	s := &RealtimeSession{emitCh: emitCh, StreamPump: providers.NewStreamPump(context.Background(), emitCh, 16)}
+	audio := base64.StdEncoding.EncodeToString(make([]byte, 480))
+	for _, ev := range []string{
+		`{"type":"response.created","response":{"id":"R1"}}`,
+		`{"type":"response.output_audio.delta","response_id":"R1","item_id":"i1","delta":"` + audio + `"}`,
+		`{"type":"response.created","response":{"id":"R2"}}`,
+		`{"type":"response.done","response":{"id":"R1","status":"cancelled","usage":{"total_tokens":3}}}`,
+		`{"type":"response.done","response":{"id":"R2","status":"completed","usage":{"total_tokens":5}}}`,
+	} {
+		s.handleMessage([]byte(ev))
+	}
+	close(emitCh)
+	var got []int64
+	for c := range emitCh {
+		got = append(got, c.Generation)
+	}
+	assert.Equal(t, []int64{1, 1, 2}, got, "the audio and R1's done are generation 1, R2's done is 2")
+}

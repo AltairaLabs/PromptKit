@@ -10,91 +10,102 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// A realtime session can report a cost that no message the stage builds
-// carries: usage reported once its turn has ended (Gemini 3 reports a
-// tool-call turn's usage after the tool calls; usage after an interruption;
-// an interrupted turn's completion), or a turn's end with a cost but nothing
-// to build a message from. None of it is lost:
+// Cost attribution for realtime sessions. Invariants:
 //
-//   - Attribution: a session tags each chunk with the generation it belongs
-//     to (StreamChunk.Generation). The stage remembers which call each
-//     generation completed, so late usage lands on its own call whatever
-//     happened in between.
-//   - Events: provider.call.completed goes out when the call completes, as on
-//     ProviderStage. Usage reported for a call after that is a
-//     provider.call.usage event for the call; a call's total cost is its
-//     completed event's Cost plus its usage events'. A turn's end with a cost
-//     and no message completes its call with that cost.
-//   - Spend: it is charged to the budget (MaxCostUSD) when it arrives; a
-//     budget it exceeds refuses on the call it belongs to.
-//   - History: it is added to the next assistant message the stage emits, so
-//     the messages' CostInfo (what a resumed conversation's budget is rebuilt
-//     from) adds up to the session's spend. At session close it goes on the
-//     message emitted last; when none is, it is in no message.
+//   - Every cost-bearing chunk a built-in realtime session sends names its
+//     generation (StreamChunk.Generation): one per provider call (a reply, a
+//     tool-call turn, each reply to tool results; one per OpenAI Realtime
+//     response).
+//   - The stage binds a generation to the provider call (round) open when the
+//     generation's first output arrives, or that a chunk of it completes, so
+//     open, interrupted and closing calls are all attributable. Ending a turn
+//     (completing the call, ending the tool turn) follows the chunk's turn-end
+//     flags; attribution only decides which call a cost goes to.
+//   - Every cost is charged to the spend (MaxCostUSD) once, when it arrives;
+//     a budget it exceeds refuses on the call it belongs to.
+//   - Events: cost for a call still open is carried by its
+//     provider.call.completed; cost for a call already completed is a
+//     provider.call.usage event for it. A call's total is its completed Cost
+//     plus its usage events'. A cost whose generation the stage does not know
+//     (only a third-party provider sends one) goes to the call started last;
+//     with no call at all, it is a usage event with no CallID.
+//   - Messages: a cost lands on exactly one emitted message: its own, or, when
+//     it has none, the next assistant message emitted; at close, the last
+//     message emitted then that can carry a cost. Only cost with no message
+//     emitted after it is in no message.
 
-// generationCall is the call a generation completed, and its tool turn.
-type generationCall struct {
-	round *duplexRound
-	turn  *duplexToolTurn
-}
-
-// maxTrackedGenerations bounds the generations remembered for late usage.
+// maxTrackedGenerations bounds the generations remembered.
 const maxTrackedGenerations = 16
 
-// recordGeneration remembers that the chunk being handled, of generation
-// s.chunkGen, completed round. Response goroutine only.
-func (s *DuplexProviderStage) recordGeneration(round *duplexRound, turn *duplexToolTurn) {
-	gen := s.chunkGen
-	if gen == 0 {
+// bindGeneration binds gen to the call open now, if neither is bound yet.
+// Response goroutine only. Nil-safe without tool execution.
+func (s *DuplexProviderStage) bindGeneration(gen int64) {
+	dt := s.tools
+	if dt == nil {
 		return
 	}
-	dt := s.tools
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
+	dt.bindGenerationLocked(gen)
+}
+
+// bindGenerationLocked binds gen to the open call. Called with dt.mu held.
+func (dt *duplexTools) bindGenerationLocked(gen int64) {
+	if gen == 0 || dt.open == nil || dt.open.gen != 0 {
+		return
+	}
+	if _, bound := dt.gens[gen]; bound {
+		return
+	}
 	if dt.gens == nil {
-		dt.gens = map[int64]generationCall{}
+		dt.gens = map[int64]*duplexRound{}
 	}
-	if _, ok := dt.gens[gen]; !ok {
-		dt.genOrder = append(dt.genOrder, gen)
-		if len(dt.genOrder) > maxTrackedGenerations {
-			delete(dt.gens, dt.genOrder[0])
-			dt.genOrder = dt.genOrder[1:]
-		}
+	dt.open.gen = gen
+	dt.gens[gen] = dt.open
+	dt.genOrder = append(dt.genOrder, gen)
+	if len(dt.genOrder) > maxTrackedGenerations {
+		delete(dt.gens, dt.genOrder[0])
+		dt.genOrder = dt.genOrder[1:]
 	}
-	dt.gens[gen] = generationCall{round: round, turn: turn}
 }
 
-// generationCallFor returns the call generation gen completed.
-func (dt *duplexTools) generationCallFor(gen int64) (generationCall, bool) {
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	gc, ok := dt.gens[gen]
-	return gc, ok && gen != 0
-}
-
-// reportLateCost charges an unplaced cost and reports it on the call it
-// belongs to. Returns the job reporting a spent budget, or nil.
-func (s *DuplexProviderStage) reportLateCost(
-	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement, unplaced bool,
-) *duplexToolJob {
+// attributeCost charges a cost no message or interruption reported and puts
+// it on its call: the call bound to the chunk's generation, or the call
+// started last when the generation is unknown. On a call still open it goes
+// on its completion; on a completed call it is a provider.call.usage. Returns
+// the job reporting a spent budget, or nil. Response goroutine only.
+func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *providers.StreamChunk) *duplexToolJob {
 	dt := s.tools
-	if dt == nil || !unplaced || elem.Meta.Interrupted { // chargeInterruptedTurn took an interruption's
+	if dt == nil {
 		return nil
 	}
 	cost := chunk.CostInfo
-	if gc, ok := dt.generationCallFor(chunk.Generation); ok {
-		s.emitRoundUsage(ctx, cost, gc.round)
-		return s.chargeLate(gc.turn, cost, gc.round.rr)
+	dt.mu.Lock()
+	round := dt.gens[chunk.Generation]
+	if round == nil || chunk.Generation == 0 {
+		round = dt.last
 	}
-	if chunk.FinishReason != nil && !elem.Meta.InterruptedTurnComplete && dt.callInProgress() {
-		// A turn's end with nothing to build a message from: its call
-		// completes with the cost.
-		msg := &types.Message{Role: roleAssistant, FinishReason: *chunk.FinishReason, CostInfo: cost}
-		turn, rr := s.completeRound(ctx, msg)
-		dt.endTurn(turn)
-		return s.chargeLate(turn, cost, rr)
+	open := round != nil && round == dt.open
+	if open {
+		round.pending = addCost(round.pending, cost)
 	}
-	return s.chargeLate(nil, cost, roundRef{})
+	turn := dt.turn
+	var rr roundRef
+	if round != nil {
+		rr = round.rr
+		if round.turn != nil {
+			turn = round.turn
+		}
+	}
+	dt.mu.Unlock()
+	if !open {
+		usageOf := round
+		if usageOf == nil {
+			usageOf = &duplexRound{} // no call was ever started
+		}
+		s.emitRoundUsage(ctx, cost, usageOf)
+	}
+	return s.chargeLate(turn, cost, rr)
 }
 
 // chargeLate charges a late cost against turn (a fresh one when nil), or
@@ -138,8 +149,9 @@ func (s *DuplexProviderStage) emitRoundUsage(ctx context.Context, cost *types.Co
 }
 
 // completeOpenCall completes the provider call still open when the session
-// ends, with msg (the partial reply kept then) or as interrupted. Nil-safe
-// without tool execution.
+// ends, with msg (the partial reply kept then) or as interrupted, carrying
+// the cost reported for it while it was open. Nil-safe without tool
+// execution.
 func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.Message) {
 	dt := s.tools
 	if dt == nil {
@@ -148,14 +160,20 @@ func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.M
 	dt.mu.Lock()
 	round := dt.open
 	dt.open = nil
+	var pending *types.CostInfo
+	if round != nil {
+		pending = round.pending
+	}
 	dt.mu.Unlock()
 	if round == nil {
 		return
 	}
-	if msg == nil {
-		msg = &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
+	reported := types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
+	if msg != nil {
+		reported = *msg
 	}
-	s.emitRoundCompleted(ctx, msg, round, time.Since(round.start))
+	reported.CostInfo = addCost(reported.CostInfo, pending)
+	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start))
 }
 
 // chargeSpend adds cost to the session's spend once a limit is closing the
