@@ -185,3 +185,15 @@ func TestLiveToolResponse_ImageWithoutMIMETypeIsDescribed(t *testing.T) {
 		"response": map[string]any{"result": "[This tool returned an image that was not sent: its image format is not stated.]"},
 	}), got)
 }
+
+// A media part with no media content is described, never sent as nothing.
+func TestLiveToolResponse_PartWithoutMediaIsDescribed(t *testing.T) {
+	got := liveToolResponseWire(t, "gemini-3.8-live", []providers.ToolResponse{{
+		ToolCallID: "call_empty", Parts: []types.ContentPart{{Type: types.ContentTypeImage}},
+	}})
+
+	assert.Equal(t, toolResponseOf(map[string]any{
+		"id":       "call_empty",
+		"response": map[string]any{"result": "[This tool returned an image that was not sent: it has no media content.]"},
+	}), got)
+}

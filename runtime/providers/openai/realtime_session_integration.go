@@ -116,6 +116,12 @@ type RealtimeSession struct {
 	// GA dispatcher doesn't double-emit when both response.function_call_arguments.done
 	// and response.output_item.done arrive for the same call.
 	emittedToolCalls sync.Map
+
+	// toolMediaItems holds the IDs of the user message items the session
+	// created to carry tool media (realtime_tool_media.go); toolMediaSeq
+	// numbers them. A transcript of such an item is not the caller's turn.
+	toolMediaItems sync.Map
+	toolMediaSeq   atomic.Int64
 }
 
 // realtimeSessionOpts carries internal/test-only construction overrides for a
@@ -784,14 +790,12 @@ func (s *RealtimeSession) handleSessionUpdated(e *SessionUpdatedEvent) {
 	logger.Debug("OpenAI Realtime: session updated", "modalities", e.Session.Modalities)
 }
 
-// handleTextDelta emits a text-only reply's text as it arrives. Content
-// carries the same increment as Delta, as on every realtime session's model
-// text (Gemini Live's included): the duplex stage streams and accumulates a
-// reply's text from Content.
+// handleTextDelta emits a text-only reply's text as it arrives, on Delta
+// only, as transcript deltas are; Content stays for the whole text
+// (handleTextDone).
 func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	s.emit(providers.StreamChunk{
-		Content: e.Delta,
-		Delta:   e.Delta,
+		Delta: e.Delta,
 		Metadata: map[string]interface{}{
 			keyItemID:       e.ItemID,
 			keyResponseID:   e.ResponseID,
@@ -800,13 +804,12 @@ func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	})
 }
 
-// handleTextDone marks the end of a text-only reply's text. The whole text,
-// already sent as deltas, is in Metadata["text"], not Content, so a consumer
-// accumulating Content gets it once (as transcript_done does for audio).
+// handleTextDone emits a text-only reply's whole text on Content, marked
+// text_done.
 func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 	s.emit(providers.StreamChunk{
+		Content: e.Text,
 		Metadata: map[string]interface{}{
-			"text":          e.Text,
 			keyItemID:       e.ItemID,
 			keyResponseID:   e.ResponseID,
 			keyContentIndex: e.ContentIndex,
@@ -965,6 +968,10 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 }
 
 func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudioTranscriptionCompletedEvent) {
+	if _, ok := s.toolMediaItems.Load(e.ItemID); ok {
+		// Tool audio the session sent, transcribed: not something the caller said.
+		return
+	}
 	s.emit(providers.StreamChunk{
 		Metadata: map[string]interface{}{
 			keyType:         "input_transcription",

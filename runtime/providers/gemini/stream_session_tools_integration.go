@@ -2,8 +2,8 @@ package gemini
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"log/slog"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -39,20 +39,33 @@ func (s *StreamSession) SendToolResponse(ctx context.Context, toolCallID, result
 // API takes it, and described in its response where it does not
 // (live_tool_media.go).
 func (s *StreamSession) SendToolResponses(ctx context.Context, responses []providers.ToolResponse) error {
+	// Load the media and build the message first: it can take a while, and the
+	// socket to send on is read under the lock only once it is ready.
+	msg := s.toolResponseWire(ctx, responses)
+	logToolResponses(ctx, responses)
+
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return errors.New(ErrSessionClosed)
 	}
-	ws := s.ws // Get local copy under lock to avoid race with reconnect
+	ws := s.ws // the current socket: a reconnect replaces it
 	s.mu.Unlock()
 
-	msg := s.toolResponseWire(ctx, responses)
-
-	// Log tool response for debugging
-	if msgJSON, err := json.MarshalIndent(msg, "", "  "); err == nil {
-		logger.Debug("Gemini sending tool response", "message", string(msgJSON))
-	}
-
 	return ws.Send(msg)
+}
+
+// logToolResponses logs, at debug, which calls a round answers and how many
+// parts each result carries; never their content.
+func logToolResponses(ctx context.Context, responses []providers.ToolResponse) {
+	if !logger.GetLogger().Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+	ids := make([]string, len(responses))
+	parts := make([]int, len(responses))
+	for i := range responses {
+		ids[i] = responses[i].ToolCallID
+		parts[i] = len(responses[i].Parts)
+	}
+	logger.Debug("Gemini sending tool response", "call_ids", ids, "parts", parts)
 }

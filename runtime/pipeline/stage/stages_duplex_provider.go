@@ -55,6 +55,7 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	msg.Reasoning = s.takeReasoning()
 	msg.Validations = guard.validations
 
+	s.textFromDeltas = false
 	s.accumulatedText.Reset()
 	s.accumulatedReasoning.Reset()
 	s.accumulatedOpaqueReasoning = nil

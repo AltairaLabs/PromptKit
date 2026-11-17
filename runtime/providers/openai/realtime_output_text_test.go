@@ -65,19 +65,20 @@ func TestRealtimeSession_GAOutputTextEventsReachResponse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 
-	// Each delta is a chunk whose Content and Delta are that delta; the done
-	// chunk carries the whole text in Metadata["text"] and no Content, so
-	// Content adds up to the text once.
-	type textChunk struct{ content, delta, doneText string }
+	// Each delta is a chunk carrying it on Delta only; the done chunk carries
+	// the whole text on Content.
+	type textChunk struct {
+		content, delta string
+		done           bool
+	}
 	var got []textChunk
 	for done := false; !done; {
 		select {
 		case c, ok := <-session.Response():
 			require.True(t, ok, "Response() closed before the text arrived")
 			d, _ := c.Metadata["text_done"].(bool)
-			text, _ := c.Metadata["text"].(string)
 			if c.Content != "" || c.Delta != "" || d {
-				got = append(got, textChunk{c.Content, c.Delta, text})
+				got = append(got, textChunk{c.Content, c.Delta, d})
 			}
 			done = d
 		case <-ctx.Done():
@@ -85,8 +86,8 @@ func TestRealtimeSession_GAOutputTextEventsReachResponse(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []textChunk{
-		{content: "Hello", delta: "Hello"},
-		{content: " there", delta: " there"},
-		{doneText: "Hello there"},
+		{delta: "Hello"},
+		{delta: " there"},
+		{content: "Hello there", done: true},
 	}, got)
 }

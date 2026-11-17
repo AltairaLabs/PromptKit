@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -39,6 +40,19 @@ var realtimeToolCaps = providers.MultimodalCapabilities{
 	SupportsAudio:  true,
 }
 
+// realtimeMaxEventBytes is OpenAI Realtime's limit on one client event
+// ("up to a maximum of 15 MiB"); realtimeEventOverhead is what the user
+// message around its media takes, at most.
+const (
+	realtimeMaxEventBytes = 15 << 20
+	realtimeEventOverhead = 4 << 10
+	bytesPerMiB           = 1 << 20
+)
+
+// mimeAudioL16 is raw big-endian 16-bit PCM (RFC 2586), lower-cased as
+// mime.ParseMediaType returns it.
+const mimeAudioL16 = "audio/l16"
+
 // realtimeToolAudioFormats says which tool audio Realtime takes.
 const realtimeToolAudioFormats = apiNameRealtime + " takes tool audio only as 16-bit PCM WAV or audio/pcm;rate=N"
 
@@ -70,8 +84,10 @@ func (s *RealtimeSession) buildToolRound(ctx context.Context, responses []provid
 			var content []ConversationContent
 			output, content = s.toolOutputAndMedia(ctx, loader, resp)
 			if len(content) > 0 {
+				id := fmt.Sprintf("pk_tool_media_%d", s.toolMediaSeq.Add(1))
+				s.toolMediaItems.Store(id, struct{}{})
 				round.media = append(round.media, ConversationItem{
-					Type: typeMessage, Role: roleUser,
+					ID: id, Type: typeMessage, Role: roleUser,
 					Content: append([]ConversationContent{{
 						Type: contentInputText,
 						Text: fmt.Sprintf("Media returned by tool call %s:", resp.ToolCallID),
@@ -104,16 +120,21 @@ func (s *RealtimeSession) toolOutputAndMedia(
 	var notes []string
 	var content []ConversationContent
 	var kind string
+	room := realtimeMaxEventBytes - realtimeEventOverhead
 	for i := range resp.Parts {
 		part := &resp.Parts[i]
-		if part.Type == types.ContentTypeText || part.Media == nil {
+		if part.Type == types.ContentTypeText {
 			continue
 		}
 		c, why := realtimeMediaContent(ctx, loader, part)
+		if why == "" {
+			why = eventRoomRefusal(len(c.ImageURL)+len(c.Audio), room)
+		}
 		if why != "" {
 			notes = append(notes, providers.UnsentToolMedia(s.providerID, result, part, why))
 			continue
 		}
+		room -= len(c.ImageURL) + len(c.Audio)
 		content = append(content, c)
 		kind = part.Type
 	}
@@ -123,11 +144,28 @@ func (s *RealtimeSession) toolOutputAndMedia(
 	return providers.JoinToolNotes(resp.Result, notes), content
 }
 
+// eventRoomRefusal says why media of size encoded bytes cannot join a user
+// message with room bytes left of the event limit, or "" when it fits.
+func eventRoomRefusal(size, room int) string {
+	switch {
+	case size > realtimeMaxEventBytes-realtimeEventOverhead:
+		return fmt.Sprintf("it is %.1f MB encoded, over %s's 15 MiB limit for one event",
+			float64(size)/bytesPerMiB, apiNameRealtime)
+	case size > room:
+		return fmt.Sprintf("with the media before it, the message would be over %s's 15 MiB limit for one event",
+			apiNameRealtime)
+	}
+	return ""
+}
+
 // realtimeMediaContent converts a tool result's media part to user message
 // content, or says why it cannot be sent.
 func realtimeMediaContent(
 	ctx context.Context, loader *providers.MediaLoader, part *types.ContentPart,
 ) (ConversationContent, string) {
+	if part.Media == nil {
+		return ConversationContent{}, "it has no media content"
+	}
 	if why := providers.ToolMediaRefusal(apiNameRealtime, realtimeToolCaps, part); why != "" {
 		return ConversationContent{}, why
 	}
@@ -171,19 +209,34 @@ func realtimeInputPCM(mimeType string, raw []byte) ([]byte, string) {
 		if pcm, rate, why = wavPCM16(raw); why != "" {
 			return nil, why
 		}
-	case "audio/pcm", "audio/l16":
+	case "audio/pcm", mimeAudioL16:
 		if rate, err = strconv.Atoi(params["rate"]); err != nil || rate <= 0 {
 			return nil, realtimeToolAudioFormats
 		}
-		pcm = raw
+		pcm = raw[:len(raw)&^1] // whole 16-bit samples only
+		if mediaType == mimeAudioL16 {
+			pcm = swapPCM16(pcm) // L16 is big-endian (RFC 2586)
+		}
 	default:
 		return nil, realtimeToolAudioFormats
+	}
+	if len(pcm) == 0 {
+		return nil, "it holds no audio"
 	}
 	out, err := audio.ResamplePCM16(pcm, rate, DefaultRealtimeSampleRate)
 	if err != nil {
 		return nil, "it could not be resampled: " + err.Error()
 	}
 	return out, ""
+}
+
+// swapPCM16 is 16-bit samples with their byte order swapped.
+func swapPCM16(pcm []byte) []byte {
+	out := make([]byte, len(pcm))
+	for i := 0; i+1 < len(pcm); i += 2 {
+		out[i], out[i+1] = pcm[i+1], pcm[i]
+	}
+	return out
 }
 
 // WAV header layout: the RIFF header, then chunks of a 4-byte ID and a
@@ -193,12 +246,19 @@ const (
 	wavChunkHeaderLen = 8
 	wavFmtLen         = 16
 	wavFormatPCM      = 1
+	wavFormatExt      = 0xFFFE // WAVE_FORMAT_EXTENSIBLE: the format is the subformat GUID's
+	wavFmtExtLen      = 40
+	wavSubFormatAt    = 24
 	wavBitsPCM16      = 16
 	wavUnknownSize    = 0xFFFFFFFF
 	wavChunkFmt       = "fmt "
 	wavChunkData      = "data"
 	wavTruncated      = "its WAV header is truncated"
 )
+
+// ksSubtypeGUIDTail is the part every KSDATAFORMAT_SUBTYPE GUID shares after
+// its leading format code (00000001-0000-0010-8000-00AA00389B71 is PCM).
+var ksSubtypeGUIDTail = []byte{0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71}
 
 // wavPCM16 returns a WAV's samples and rate when it is mono 16-bit PCM, or
 // says why it cannot be sent.
@@ -211,6 +271,10 @@ func wavPCM16(raw []byte) (pcm []byte, rate int, why string) {
 		return nil, 0, wavTruncated
 	}
 	format := binary.LittleEndian.Uint16(fmtBody)
+	if format == wavFormatExt && len(fmtBody) >= wavFmtExtLen &&
+		bytes.Equal(fmtBody[wavSubFormatAt+2:wavFmtExtLen], ksSubtypeGUIDTail) {
+		format = binary.LittleEndian.Uint16(fmtBody[wavSubFormatAt:])
+	}
 	channels := binary.LittleEndian.Uint16(fmtBody[2:])
 	rate = int(binary.LittleEndian.Uint32(fmtBody[4:]))
 	bits := binary.LittleEndian.Uint16(fmtBody[14:])

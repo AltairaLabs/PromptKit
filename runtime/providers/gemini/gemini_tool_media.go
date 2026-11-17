@@ -24,6 +24,9 @@ import (
 // send.
 const apiNameGemini = "Gemini"
 
+// whyNoMediaContent is why a media part with no media content is not sent.
+const whyNoMediaContent = "it has no media content"
+
 // toolResultMedia returns a tool result's text, followed by a note for each
 // media part not sent in its function response, the function response parts
 // carrying its media (Gemini 3 and later), and the user content carrying it
@@ -67,7 +70,7 @@ func (p *Provider) toolMediaPart(
 	ctx context.Context, loader *providers.MediaLoader, caps providers.MultimodalCapabilities, part *types.ContentPart,
 ) (inline map[string]any, why string, err error) {
 	if part.Media == nil {
-		return nil, "it has no media content", nil
+		return nil, whyNoMediaContent, nil
 	}
 	if why := providers.ToolMediaRefusal(apiNameGemini, caps, part); why != "" {
 		return nil, why, nil

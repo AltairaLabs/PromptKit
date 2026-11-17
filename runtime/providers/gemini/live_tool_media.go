@@ -78,7 +78,7 @@ func (s *StreamSession) liveToolMedia(
 	var parts []map[string]any
 	for i := range resp.Parts {
 		part := &resp.Parts[i]
-		if part.Type == types.ContentTypeText || part.Media == nil {
+		if part.Type == types.ContentTypeText {
 			continue
 		}
 		inline, why := s.liveToolPart(ctx, loader, part)
@@ -96,6 +96,9 @@ func (s *StreamSession) liveToolMedia(
 func (s *StreamSession) liveToolPart(
 	ctx context.Context, loader *providers.MediaLoader, part *types.ContentPart,
 ) (map[string]any, string) {
+	if part.Media == nil {
+		return nil, whyNoMediaContent
+	}
 	if !takesToolMedia(s.config.Model) {
 		return nil, fmt.Sprintf("%s does not accept media in a Live tool result (Gemini 3 and later do)",
 			baseModelName(s.config.Model))
