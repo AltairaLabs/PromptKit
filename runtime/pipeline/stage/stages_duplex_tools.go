@@ -733,8 +733,8 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 		return s.refuseStoppedTurn(job, err)
 	}
 	if limit := job.turn.maxRounds; job.rr.round > limit {
-		// Past the limit without having stopped on it: the limit round was a
-		// repeated-call nudge, or did not reach the worker first.
+		// Past the limit without having stopped on it: the limit round held
+		// every call it made, or did not reach the worker first.
 		err := &MaxRoundsError{Rounds: limit}
 		var report error
 		if s.tools.stop(job.turn, err) {

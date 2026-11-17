@@ -376,9 +376,11 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 //
 // A client's result reaches the model as the JSON the client sent, unformatted
 // and not truncated: the stored result is also what an AG-UI consumer is shown
-// as TOOL_CALL_RESULT. This differs from [Conversation.Continue] and
-// [Conversation.ContinueDuplex], which give the model an approved result as a
-// tool the pipeline ran would.
+// as TOOL_CALL_RESULT when the history is replayed. It is passed through the
+// conversation's hooks.ToolResultRewriter hooks (a failed tool's partial
+// output too), so what is stored, and replayed, is the rewritten text. This differs from [Conversation.Continue] and
+// [Conversation.ContinueDuplex], which give the model an approved or answered
+// result as a tool the pipeline ran would, formatted, rewritten and capped.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
@@ -486,53 +488,40 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 // tool-result messages. Shared by Resume() and ResumeStream().
 // It also emits tool.client.resolved events for each resolution.
 func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Message, error) {
-	resolutions := c.takeSettlement(ctx)
+	history, err := c.settlementHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolutions := c.takeSettlement(history)
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
-	callNames := c.lazyCallNames(ctx)
+	calls := callsIn(history)
+	callNames := callNamesOf(calls)
 	c.validateDeferredResults(resolutions, callNames)
 	c.admitDeferredResults(resolutions, callNames)
 
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
-		var toolResult types.MessageToolResult
-
-		switch {
-		case res.Rejected:
-			toolResult = types.NewTextToolResult(res.ID, "", c.rejectionText(callNames()[res.ID], res.RejectionReason))
-		case res.Error != nil:
-			toolResult = types.NewTextToolResult(res.ID, "", toolErrorContent(res))
-			toolResult.Error = toolResultErrorText(res.Error)
-		case len(res.Parts) > 0:
-			toolResult = types.MessageToolResult{
-				ID:    res.ID,
-				Parts: res.Parts,
-			}
-		default:
-			toolResult = types.NewTextToolResult(res.ID, "", string(res.ResultJSON))
-		}
-		// A provider matches a result to its call by the tool's name as well
-		// as the call ID (Gemini's functionResponse carries only the name).
-		toolResult.Name = callNames()[res.ID]
-
-		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(c.resumeResult(ctx, calls, res)))
 	}
+	c.settled(resolutions)
 
 	c.emitClientToolResolvedEvents(resolutions)
 
 	return toolMsgs, nil
 }
 
-// lazyCallNames returns a function that maps each call the suspended assistant
-// message made to its tool name, reading the history on first use only.
-func (c *Conversation) lazyCallNames(ctx context.Context) func() map[string]string {
+// callNamesOf maps each call calls returns to the name of the tool it called,
+// on first use only.
+func callNamesOf(calls func() map[string]types.MessageToolCall) func() map[string]string {
 	var names map[string]string
 	return func() map[string]string {
 		if names == nil {
-			names = map[string]string{}
-			if c.getBaseSession() != nil {
-				names = callNamesOfLastAssistant(c.Messages(ctx))
+			byID := calls()
+			names = make(map[string]string, len(byID))
+			for id := range byID {
+				names[id] = byID[id].Name
 			}
 		}
 		return names
@@ -629,20 +618,20 @@ func (c *Conversation) admitDeferredResults(
 	}
 }
 
-// callNamesOfLastAssistant maps each call the last assistant message in
-// history made to the name of the tool it called.
-func callNamesOfLastAssistant(history []types.Message) map[string]string {
+// callsMadeByLastAssistant maps each call the last assistant message in
+// history made, by call ID, to the call.
+func callsMadeByLastAssistant(history []types.Message) map[string]types.MessageToolCall {
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Role != roleAssistant {
 			continue
 		}
-		names := make(map[string]string, len(history[i].ToolCalls))
+		calls := make(map[string]types.MessageToolCall, len(history[i].ToolCalls))
 		for _, tc := range history[i].ToolCalls {
-			names[tc.ID] = tc.Name
+			calls[tc.ID] = tc
 		}
-		return names
+		return calls
 	}
-	return map[string]string{}
+	return map[string]types.MessageToolCall{}
 }
 
 // emitClientToolResolvedEvents emits a tool.client.resolved event for each
@@ -795,12 +784,31 @@ func (c *Conversation) checkAwaited(ctx context.Context, callID string) error {
 // takeSettlement pops the stored answers for the suspended turn, dropping
 // the ones that would answer a call twice or answer a call the turn did not
 // make.
-func (c *Conversation) takeSettlement(ctx context.Context) []*sdktools.ToolResolution {
-	var history []types.Message
-	if c.getBaseSession() != nil {
-		history = c.Messages(ctx)
-	}
+func (c *Conversation) takeSettlement(history []types.Message) []*sdktools.ToolResolution {
 	return unansweredResolutions(history, c.resolvedStore.PopAll())
+}
+
+// settlementHistory reads the conversation's history once for a batch of
+// settled results: what the batch is checked against and the calls it
+// answers. A store that cannot be read fails the batch, rather than reading
+// as an empty history.
+func (c *Conversation) settlementHistory(ctx context.Context) ([]types.Message, error) {
+	s := c.getBaseSession()
+	if s == nil {
+		return nil, nil
+	}
+	history, err := s.Messages(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the conversation history: %w", err)
+	}
+	return history, nil
+}
+
+// callsIn returns a function that maps each call the last assistant message in
+// history made, by call ID, to the call itself.
+func callsIn(history []types.Message) func() map[string]types.MessageToolCall {
+	calls := callsMadeByLastAssistant(history)
+	return func() map[string]types.MessageToolCall { return calls }
 }
 
 // callsOfLastAssistant returns the ids of the calls the last assistant message
@@ -831,6 +839,7 @@ func (c *Conversation) discardAbandonedResolutions() {
 	if dropped := c.resolvedStore.PopAll(); len(dropped) > 0 {
 		logger.Debug("discarding tool answers for an abandoned suspended turn", "count", len(dropped))
 	}
+	c.forgetSettled()
 }
 
 // answeredSinceLastAssistant lists the calls answered by tool results after the
@@ -843,15 +852,6 @@ func answeredSinceLastAssistant(history []types.Message) []string {
 		}
 	}
 	return ids
-}
-
-// toolErrorContent is what the model is told about a client tool that failed:
-// the partial output it produced, if any, then the error.
-func toolErrorContent(res *sdktools.ToolResolution) string {
-	if len(res.ResultJSON) > 0 {
-		return fmt.Sprintf("%s\n\nTool error: %s", res.ResultJSON, toolResultErrorText(res.Error))
-	}
-	return "Tool error: " + toolResultErrorText(res.Error)
 }
 
 // FailClientTool reports that a deferred client tool failed.

@@ -207,10 +207,38 @@ func (r *toolRunner) getMaxParallelToolCalls() int {
 
 // executeToolCalls runs a round's calls, refusing those refused names (the
 // round's decision; nil refuses none), and returns their results in call
-// order, less those held pending.
+// order, less those held pending. It runs them as a round's calls run
+// (runPlanned).
+//
+//nolint:unused // tests call it
 func (r *toolRunner) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef, refused roundDecision,
 ) ([]types.Message, error) {
+	plan := roundPlan{calls: toolCalls, kinds: make([]callKind, len(toolCalls))} // every call runs
+	slots := make([]*types.Message, len(toolCalls))
+	held, err := r.runPlanned(ctx, plan, rr, refused, slots)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]types.Message, 0, len(toolCalls))
+	for _, m := range slots {
+		if m != nil {
+			results = append(results, *m)
+		}
+	}
+	if len(held) > 0 {
+		return results, &tools.ErrToolsPending{Pending: held}
+	}
+	return results, nil
+}
+
+// runToolCalls runs calls, refusing those refused names, and returns each
+// call's outcome in its slot (toolCallResult.index is its position in
+// toolCalls); a call held pending has pending set. The error is the
+// context's, when it was canceled.
+func (r *toolRunner) runToolCalls(
+	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef, refused roundDecision,
+) ([]toolCallResult, error) {
 	if r.registry == nil {
 		return nil, errors.New("tool registry not configured but tool calls present")
 	}
@@ -220,8 +248,6 @@ func (r *toolRunner) executeToolCalls(
 	defer keepIdleAlive(ctx)()
 
 	resultSlots := make([]toolCallResult, len(toolCalls))
-	var mu sync.Mutex
-	var pendingTools []tools.PendingToolExecution
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(r.getMaxParallelToolCalls())
@@ -235,13 +261,8 @@ func (r *toolRunner) executeToolCalls(
 			// However it was answered (the blocklist, a hook or the refusal), a
 			// call the round refuses did not run, and no budget counts it.
 			_, result.unavailable = refused.refusal(toolCall.Name)
-			mu.Lock()
-			defer mu.Unlock()
 			result.index = idx
-			resultSlots[idx] = result
-			if result.pending != nil {
-				pendingTools = append(pendingTools, *result.pending)
-			}
+			resultSlots[idx] = result // each goroutine writes its own slot
 			return nil
 		})
 	}
@@ -251,30 +272,18 @@ func (r *toolRunner) executeToolCalls(
 		return nil, err
 	}
 
-	// Collect results in original order, excluding pending entries.
-	results := make([]types.Message, 0, len(toolCalls))
-	unavailable := 0
+	// Report what actually ran for the workflow's max_tool_calls budget: not
+	// pending calls, which have not executed and are counted when they run on
+	// resume; errored and policy-blocked calls are, since both consumed a
+	// round. A call to a tool the model may not call is not.
+	ran := 0
 	for i := range resultSlots {
-		if resultSlots[i].pending != nil {
-			continue
+		if resultSlots[i].pending == nil && !resultSlots[i].unavailable {
+			ran++
 		}
-		if resultSlots[i].unavailable {
-			unavailable++
-		}
-		results = append(results, resultSlots[i].message)
 	}
-
-	// Report what actually ran for the workflow's max_tool_calls budget. results
-	// excludes pending calls, which have not executed and are counted when they
-	// run on resume; errored and policy-blocked calls are included, since both
-	// consumed a round. A call to a tool the model may not call is not.
-	r.recordToolCalls(len(results) - unavailable)
-
-	if len(pendingTools) > 0 {
-		return results, &tools.ErrToolsPending{Pending: pendingTools}
-	}
-
-	return results, nil
+	r.recordToolCalls(ran)
+	return resultSlots, nil
 }
 
 // preExecCheck runs policy and hook checks before tool execution.
@@ -521,11 +530,8 @@ func (r *toolRunner) toolCallFailed(
 	startTime time.Time, labels map[string]string, rr roundRef,
 ) toolCallResult {
 	r.emitToolFailed(ctx, toolCall, err, startTime, labels, rr)
-	errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
-	errResult.Error = err.Error()
-	errResult.ErrorType = classifyToolError(err)
 	return toolCallResult{
-		message: types.NewToolResultMessage(errResult),
+		message: types.NewToolResultMessage(tools.ErrorResult(toolCall.ID, toolCall.Name, err)),
 	}
 }
 
@@ -622,6 +628,7 @@ func (r *toolRunner) buildPendingResult(
 			CallID:      toolCall.ID,
 			ToolName:    toolCall.Name,
 			Args:        argsMap,
+			RawArgs:     toolCall.Args,
 			PendingInfo: asyncResult.PendingInfo,
 			ToolResult:  toolResult,
 		},
@@ -835,9 +842,10 @@ type roundOutcome struct {
 	// OfferExhausted reports that max_tool_calls_per_turn is spent, so no
 	// tools should be offered from here on.
 	OfferExhausted bool
-	// Nudged reports that the round was a repeated-call loop answered with
-	// feedback for one self-correction attempt. The round counts for nothing
-	// else: the offer, termination and the round limit are not evaluated.
+	// Nudged reports that the round's repeated-call loop was answered with
+	// feedback for one self-correction attempt. Its other calls ran as any
+	// round's do: the call budget, exclusions, the offer, termination and the
+	// round limit apply to it.
 	Nudged bool
 	// AllRefused reports that the round refused every one of its calls as
 	// to a tool the model may not call: none of them ran.
@@ -908,54 +916,101 @@ func (t *toolTurn) RunRoundPastPending(
 func (t *toolTurn) runRound(
 	ctx context.Context, calls []types.MessageToolCall, rr roundRef, pastPending bool,
 ) roundOutcome {
-	// Repeated-identical-call breaker. The first time the same tool is called
-	// with identical arguments too many times, feed that back to the model once
-	// (a synthetic "you're repeating yourself — stop" result) and let it
-	// self-correct — loops are often transient confusion (e.g. a model retrying
-	// a failing call verbatim). If it loops AGAIN after the nudge, abort.
 	// What the model may call is decided once, before any call runs.
 	refused := t.r.classifyRound(calls, t.excluded)
-	// A refused call counts toward the breaker, but it never ran, so it is
-	// answered with its refusal: it neither gets the nudge nor uses it up.
-	if looping := availableCalls(t.identicalLoopCalls(calls), refused); len(looping) > 0 {
-		return t.identicalLoopOutcome(ctx, calls, looping, rr, refused)
+	plan := t.planRound(calls, refused)
+	looping, loopingAt := plan.callsOf(callLoops)
+	if err := t.nudgeOnce(looping); err != nil {
+		return roundOutcome{Stop: true, Err: err}
 	}
 
+	// The calls the breaker did not answer run as any round's do: under the
+	// per-turn call budget, counted, and tracked for rejection and offer
+	// changes. Each result takes its call's position in the round.
 	grantsBefore := t.r.grantedTools()
-	within, over := t.splitCallBudget(calls, refused)
-	results, err := t.r.executeToolCalls(ctx, within, rr, refused)
-	results = append(results, overBudgetResults(over)...)
-	var held []tools.PendingToolExecution
+	slots := make([]*types.Message, len(calls))
+	held, err := t.r.runPlanned(ctx, plan, rr, refused, slots)
 	if err != nil {
-		pending, ok := tools.IsErrToolsPending(err)
-		if !ok {
-			return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+		return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
+	}
+	nudges := t.loopNudges(looping)
+	for i := range nudges {
+		slots[loopingAt[i]] = &nudges[i]
+	}
+	over, overAt := plan.callsOf(callOverBudget)
+	refusals := overBudgetResults(over)
+	for i := range refusals {
+		slots[overAt[i]] = &refusals[i]
+	}
+	results := make([]types.Message, 0, len(calls))
+	for _, m := range slots {
+		if m != nil {
+			results = append(results, *m)
 		}
-		if !pastPending {
-			return roundOutcome{Results: results, Pending: pending.Pending}
-		}
-		held = pending.Pending
+	}
+	if len(held) > 0 && !pastPending {
+		return roundOutcome{Results: results, Pending: held}
 	}
 
-	out := roundOutcome{Results: results, Pending: held, AllRefused: refused.allRefused(calls)}
+	out := roundOutcome{
+		Results: results, Pending: held, AllRefused: refused.allRefused(calls), Nudged: len(looping) > 0,
+	}
 	// A skill__activate / skill__deactivate call changes the granted set.
 	out.OfferChanged = t.r.updateExcludedTools(ctx, results, t.rejectionCounts, t.excluded, rr.round, refused) ||
 		!stringSlicesEqual(grantsBefore, t.r.grantedTools())
 	if limit := t.r.getMaxToolCallsPerTurn(); limit > 0 && t.toolCallsExecuted >= limit {
 		out.OfferExhausted = true
 	}
-	ran := callsRun(calls, held)
+	out.Stop, out.Err = t.roundStop(plan.rest(), held, refused, rr)
+	return out
+}
+
+// runPlanned runs the calls plan lets run, putting each result in slots at
+// its call's position, and returns the calls held pending. A round the
+// breaker answers entirely runs nothing.
+func (r *toolRunner) runPlanned(
+	ctx context.Context, plan roundPlan, rr roundRef, refused roundDecision, slots []*types.Message,
+) ([]tools.PendingToolExecution, error) {
+	runs, runsAt := plan.callsOf(callRuns)
+	if len(runs) == 0 {
+		return nil, nil
+	}
+	ran, err := r.runToolCalls(ctx, runs, rr, refused)
+	if err != nil {
+		return nil, err
+	}
+	var held []tools.PendingToolExecution
+	for i := range ran {
+		if ran[i].pending != nil {
+			held = append(held, *ran[i].pending)
+			continue
+		}
+		slots[runsAt[ran[i].index]] = &ran[i].message
+	}
+	return held, nil
+}
+
+// roundStop decides whether the turn stops after a round whose calls the
+// breaker did not answer were rest, held those of them held pending: when
+// the termination tool ran, or at the round limit, with its error. A nudged
+// round is no exception: in the last round there is none left for the
+// model's retry.
+func (t *toolTurn) roundStop(
+	rest []types.MessageToolCall, held []tools.PendingToolExecution, refused roundDecision, rr roundRef,
+) (bool, error) {
+	ran := callsRun(rest, held)
 	switch {
 	case len(held) > 0 && len(ran) == 0:
 		// Every call is held: nothing ran, so no limit is reached.
+		return false, nil
 	case calledStopTool(t.r.policy(), availableCalls(ran, refused)):
 		// termination.tool_called: the named tool has run; stop cleanly. A
 		// call refused as unavailable did not.
-		out.Stop = true
+		return true, nil
 	case rr.round == t.maxRounds:
-		out.Stop, out.Err = true, &MaxRoundsError{Rounds: t.maxRounds}
+		return true, &MaxRoundsError{Rounds: t.maxRounds}
 	}
-	return out
+	return false, nil
 }
 
 // callsRun returns calls less those held pending.
@@ -976,98 +1031,120 @@ func callsRun(calls []types.MessageToolCall, held []tools.PendingToolExecution) 
 	return run
 }
 
-// identicalLoopOutcome applies the repeated-identical-call breaker for a round
-// whose calls include looping ones: the first time it feeds the loop back to
-// the model as synthetic results for one self-correction attempt; after that
-// nudge it stops the turn.
-func (t *toolTurn) identicalLoopOutcome(
-	ctx context.Context, calls, looping []types.MessageToolCall, rr roundRef, refused roundDecision,
-) roundOutcome {
+// callKind is how a round answers one of its calls.
+type callKind int
+
+const (
+	// callRuns: the call runs (or gets its refusal): a refused call, or one
+	// within the max_tool_calls_per_turn budget.
+	callRuns callKind = iota
+	// callLoops: the repeated-identical-call breaker answers the call.
+	callLoops
+	// callOverBudget: the call is over the budget, refused without running.
+	callOverBudget
+)
+
+// roundPlan is how a round answers each of its calls, by position.
+type roundPlan struct {
+	calls []types.MessageToolCall
+	kinds []callKind
+}
+
+// callsOf returns the calls the plan answers as kind, in order, with each
+// one's position in the round.
+func (p roundPlan) callsOf(kind callKind) (calls []types.MessageToolCall, at []int) {
+	for i, k := range p.kinds {
+		if k == kind {
+			calls = append(calls, p.calls[i])
+			at = append(at, i)
+		}
+	}
+	return calls, at
+}
+
+// rest returns every call the breaker does not answer, in order.
+func (p roundPlan) rest() []types.MessageToolCall {
+	rest := make([]types.MessageToolCall, 0, len(p.calls))
+	for i, k := range p.kinds {
+		if k != callLoops {
+			rest = append(rest, p.calls[i])
+		}
+	}
+	return rest
+}
+
+// planRound decides, call by call, how the round answers each of its calls,
+// counting each toward the repeated-identical-call breaker and the per-turn
+// budget as it goes:
+//
+//   - A call the round refuses as to a tool the model may not call counts
+//     toward the breaker, but it never runs, so it is answered with its
+//     refusal: it neither gets the nudge nor uses it up, and no budget counts
+//     it.
+//   - A call whose (tool, arguments) pair has reached the breaker's threshold
+//     is looping: the breaker answers it, and it does not run.
+//   - Any other call runs within the budget and counts toward it, or is over
+//     the budget and refused. A call over the budget did not run, so it does
+//     not count toward the breaker either.
+func (t *toolTurn) planRound(calls []types.MessageToolCall, refused roundDecision) roundPlan {
+	threshold := t.r.getMaxIdenticalToolCalls()
+	limit := t.r.getMaxToolCallsPerTurn()
+	p := roundPlan{calls: calls, kinds: make([]callKind, len(calls))}
+	for i, tc := range calls {
+		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
+		t.identicalCallCounts[key]++
+		_, no := refused.refusal(tc.Name)
+		switch {
+		case no:
+			p.kinds[i] = callRuns
+		case t.identicalCallCounts[key] >= threshold:
+			p.kinds[i] = callLoops
+		case limit > 0 && t.toolCallsExecuted >= limit:
+			t.identicalCallCounts[key]--
+			p.kinds[i] = callOverBudget
+		default:
+			t.toolCallsExecuted++
+			p.kinds[i] = callRuns
+		}
+	}
+	return p
+}
+
+// nudgeOnce applies the repeated-identical-call breaker to a round's looping
+// calls. The first time the same tool is called with identical arguments too
+// many times, the loop is fed back to the model once (loopNudges) and it may
+// self-correct: loops are often transient confusion, such as a model retrying
+// a failing call verbatim. If it loops again after the nudge, the error stops
+// the turn.
+func (t *toolTurn) nudgeOnce(looping []types.MessageToolCall) error {
+	if len(looping) == 0 {
+		return nil
+	}
 	if t.nudgedLoop {
-		return roundOutcome{Stop: true, Err: fmt.Errorf(
+		return fmt.Errorf(
 			"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
-			looping[0].Name)}
+			looping[0].Name)
 	}
 	t.nudgedLoop = true
 	logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
 		"tool", looping[0].Name)
-	return roundOutcome{Results: t.loopFeedbackResults(ctx, calls, looping, rr, refused), Nudged: true}
+	return nil
 }
 
-// identicalLoopCalls increments per-call counters and returns the calls whose
-// (tool, args) pair reached the configured threshold.
-func (t *toolTurn) identicalLoopCalls(toolCalls []types.MessageToolCall) []types.MessageToolCall {
+// loopNudges answers each looping call with the breaker's synthetic "you're
+// repeating yourself — stop" result.
+func (t *toolTurn) loopNudges(looping []types.MessageToolCall) []types.Message {
 	threshold := t.r.getMaxIdenticalToolCalls()
-	var looping []types.MessageToolCall
-	for i := range toolCalls {
-		tc := toolCalls[i]
-		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
-		t.identicalCallCounts[key]++
-		if t.identicalCallCounts[key] >= threshold {
-			looping = append(looping, tc)
-		}
-	}
-	return looping
-}
-
-// loopFeedbackResults builds tool-result messages for a round where an identical
-// loop was detected: the looping calls get a synthetic "you repeated this — stop"
-// result (NOT executed, since the result wouldn't change), while any non-looping
-// calls in the same round execute normally so every tool_use still has a result.
-// A call the round refuses is never among looping (runRound): it is
-// answered with its refusal, here as on any round.
-func (t *toolTurn) loopFeedbackResults(
-	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef, refused roundDecision,
-) []types.Message {
-	loopSet := make(map[string]bool, len(looping))
-	for _, c := range looping {
-		loopSet[c.ID] = true
-	}
-	threshold := t.r.getMaxIdenticalToolCalls()
-	results := make([]types.Message, 0, len(all))
-	var toExecute []types.MessageToolCall
-	for i := range all {
-		tc := all[i]
-		if !loopSet[tc.ID] {
-			toExecute = append(toExecute, tc)
-			continue
-		}
+	nudges := make([]types.Message, 0, len(looping))
+	for _, tc := range looping {
 		msg := fmt.Sprintf(
 			"Repeated call ignored: %q has been called %d times with identical arguments and was NOT "+
 				"executed again — the result will not change. Stop repeating this exact call: change the "+
 				"arguments, use a different tool, or finish the task.",
 			tc.Name, threshold)
-		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
+		nudges = append(nudges, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
 	}
-	if len(toExecute) > 0 {
-		executed, _ := t.r.executeToolCalls(ctx, toExecute, rr, refused)
-		results = append(results, executed...)
-	}
-	return results
-}
-
-// splitCallBudget divides a round's tool calls into those within the turn's
-// max_tool_calls_per_turn budget and those over it, in call order, counting
-// the former as executed. A call the round refuses is within, and counted
-// for nothing: it will not run. Without a cap every call is within budget.
-func (t *toolTurn) splitCallBudget(
-	calls []types.MessageToolCall, refused roundDecision,
-) (within, over []types.MessageToolCall) {
-	limit := t.r.getMaxToolCallsPerTurn()
-	within = make([]types.MessageToolCall, 0, len(calls))
-	for _, tc := range calls {
-		if _, no := refused.refusal(tc.Name); no {
-			within = append(within, tc)
-			continue
-		}
-		if limit > 0 && t.toolCallsExecuted >= limit {
-			over = append(over, tc)
-			continue
-		}
-		t.toolCallsExecuted++
-		within = append(within, tc)
-	}
-	return within, over
+	return nudges
 }
 
 // overBudgetResults answers each call over the max_tool_calls_per_turn budget
@@ -1110,6 +1187,9 @@ type toolOffer struct {
 	// describedKey fingerprints the tools array last built, as DescribeTool
 	// shaped it (see describedToolsKey).
 	describedKey string
+	// built holds the names of the tools the provider was last sent
+	// (markSent).
+	built map[string]bool
 	// allowed is the turn's allowed tools as the prompt (or the workflow
 	// state the turn is in) declares them, before a ToolSelector narrows the
 	// tools array: what the model may call is the offer built from them.
@@ -1508,7 +1588,8 @@ func (r *toolRunner) describedChanged(descriptors []*tools.ToolDescriptor) bool 
 	return key != r.offers.describedKey
 }
 
-// markBuilt records descriptors as the tools array last built.
+// markBuilt records descriptors as the tools array last built, as
+// DescribeTool shaped it (describedChanged compares against it).
 func (r *toolRunner) markBuilt(descriptors []*tools.ToolDescriptor) {
 	if r.offers == nil {
 		return
@@ -1517,4 +1598,41 @@ func (r *toolRunner) markBuilt(descriptors []*tools.ToolDescriptor) {
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	r.offers.describedKey = key
+}
+
+// markSent records descriptors as the tools the provider was last sent: none
+// when it was sent no tools array.
+func (r *toolRunner) markSent(descriptors []*tools.ToolDescriptor) {
+	if r.offers == nil {
+		return
+	}
+	sent := make(map[string]bool, len(descriptors))
+	for _, d := range descriptors {
+		sent[d.Name] = true
+	}
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	r.offers.built = sent
+}
+
+// sentTools returns the names of the tools the provider was last sent
+// (markSent).
+func (r *toolRunner) sentTools() map[string]bool {
+	if r.offers == nil {
+		return nil
+	}
+	r.offers.mu.Lock()
+	defer r.offers.mu.Unlock()
+	return r.offers.built
+}
+
+// choiceFits reports whether forced tool choice choice can be given with the
+// tools the provider was last sent (markSent): "required" or "any" needs a
+// tool among them, and a tool's name needs that tool.
+func (r *toolRunner) choiceFits(choice string) bool {
+	sent := r.sentTools()
+	if choice == toolChoiceRequired || choice == toolChoiceAny {
+		return len(sent) > 0
+	}
+	return sent[choice]
 }

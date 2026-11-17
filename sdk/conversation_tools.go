@@ -515,6 +515,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	if limitErr := c.callRate.Admit(call.ConversationID, call.Name, c.callRateLimit()); limitErr != nil {
 		handler = func(map[string]any) (any, error) { return nil, limitErr }
 	}
+	c.admitCall(call.ID, call.Name, call.Arguments)
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}
@@ -593,9 +594,13 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 
 	// Get all resolved tool results
+	history, err := c.settlementHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var resolutions []*sdktools.ToolResolution
 	if c.resolvedStore != nil {
-		resolutions = c.takeSettlement(ctx)
+		resolutions = c.takeSettlement(history)
 	}
 
 	if len(resolutions) == 0 {
@@ -603,38 +608,15 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 	// A client tool answered here rather than through Resume is admitted the
 	// same way.
-	callNames := c.lazyCallNames(ctx)
-	c.admitDeferredResults(resolutions, callNames)
+	calls := callsIn(history)
+	c.admitDeferredResults(resolutions, callNamesOf(calls))
 
 	// Build tool result messages from resolutions
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
-		name := callNames()[res.ID]
-		var content string
-		var errStr string
-		var parts []types.ContentPart
-		switch {
-		case res.Rejected:
-			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
-			errStr = "rejected by user"
-		case res.Error != nil:
-			errStr = toolResultErrorText(res.Error)
-			content = "Tool error: " + errStr
-		default:
-			given := c.modelResult(name, res)
-			content, parts = given.Text, given.Parts
-		}
-
-		// The result names the tool it answers, as an in-turn result does: a
-		// provider can match a result to its call by name (Gemini's
-		// functionResponse carries only the name).
-		toolResult := types.NewTextToolResult(res.ID, name, content)
-		if parts != nil {
-			toolResult = types.MessageToolResult{ID: res.ID, Name: name, Parts: parts}
-		}
-		toolResult.Error = errStr
-		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
+		toolMsgs = append(toolMsgs, types.NewToolResultMessage(c.continuedResult(ctx, calls, res)))
 	}
+	c.settled(resolutions)
 
 	// Give the model every result in one call: a provider that requires each
 	// call of a round to be answered rejects a request missing any of them.
@@ -677,58 +659,32 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	}
 	c.mu.RUnlock()
 
+	history, err := c.settlementHistory(ctx)
+	if err != nil {
+		return err
+	}
 	resolutions := c.resolvedStore.PopAll()
 	if len(resolutions) == 0 {
 		return fmt.Errorf("no resolved tools to continue with")
 	}
-	names := c.lazyCallNames(ctx)
-	c.admitDeferredResults(resolutions, names)
+	calls := callsIn(history)
+	c.admitDeferredResults(resolutions, callNamesOf(calls))
 
+	results := make([]types.MessageToolResult, 0, len(resolutions))
 	responses := make([]providers.ToolResponse, 0, len(resolutions))
 	for _, res := range resolutions {
-		var result string
-		var parts []types.ContentPart
-		var isError bool
-		switch {
-		case res.Rejected:
-			result = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
-			isError = true
-		case res.Error != nil:
-			result = "Tool error: " + toolResultErrorText(res.Error)
-			isError = true
-		default:
-			given := c.modelResult(names()[res.ID], res)
-			result, parts = given.Text, given.Parts
-		}
-		responses = append(responses, providers.ToolResponse{
-			ToolCallID: res.ID,
-			Result:     result,
-			Parts:      parts,
-			IsError:    isError,
-		})
+		tr := c.continuedResult(ctx, calls, res)
+		results = append(results, tr)
+		responses = append(responses, toolResponseOf(tr, len(res.Parts) > 0 && tr.Error == ""))
 	}
+	c.settled(resolutions)
 
+	// The history records each result as Continue's history would, with its
+	// error and error type, where the session can take them.
+	if s, ok := c.duplexSession.(toolResultMessageSubmitter); ok {
+		return s.SubmitToolResultMessages(ctx, responses, results)
+	}
 	return c.duplexSession.SubmitToolResults(ctx, responses)
-}
-
-// modelResult is an approved or answered call's result as the model is given
-// the result of a call the pipeline runs (tools.BuildModelResult): formatted,
-// and capped at the registry's size limit, its parts kept. Rewriting is not applied here (#2723).
-func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution) tools.ModelResult {
-	raw := res.ResultJSON
-	if raw == nil && len(res.Parts) == 0 {
-		if marshaled, err := json.Marshal(res.Result); err == nil {
-			raw = marshaled
-		} else {
-			raw = json.RawMessage(fmt.Sprintf("%v", res.Result))
-		}
-	}
-	opts := tools.ModelResultOptions{ToolName: name}
-	if c.toolRegistry != nil {
-		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
-	}
-	given, _ := tools.BuildModelResult(raw, res.Parts, opts) // no rewrite: no error
-	return given
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this

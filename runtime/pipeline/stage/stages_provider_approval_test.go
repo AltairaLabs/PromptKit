@@ -185,3 +185,22 @@ func TestProviderStage_ApprovalGateRefusalEmitsStartedThenFailed(t *testing.T) {
 		string(events.EventToolCallFailed) + ":c1",
 	}, seen)
 }
+
+// A held call carries its arguments exactly as the model sent them, key order
+// and spacing included, alongside the decoded ones.
+func TestProviderStage_HeldCallCarriesTheModelsRawArguments(t *testing.T) {
+	exec := &delayedExecutor{name: "local-exec", status: tools.ToolStatusComplete, content: []byte(`{"ok":true}`)}
+	stage := setupApprovalStage(t, exec, func(_ context.Context, _, name string, _ map[string]any) *tools.PendingToolInfo {
+		return &tools.PendingToolInfo{Reason: "requires_approval", ToolName: name}
+	})
+	raw := json.RawMessage(`{"z": 1, "a": "two"}`)
+
+	_, err := stage.executeToolCalls(context.Background(),
+		[]types.MessageToolCall{{ID: "c1", Name: "risky", Args: raw}}, roundRef{round: 1})
+
+	var pendErr *tools.ErrToolsPending
+	require.ErrorAs(t, err, &pendErr)
+	require.Len(t, pendErr.Pending, 1)
+	assert.Equal(t, raw, pendErr.Pending[0].RawArgs)
+	assert.Equal(t, map[string]any{"z": float64(1), "a": "two"}, pendErr.Pending[0].Args)
+}

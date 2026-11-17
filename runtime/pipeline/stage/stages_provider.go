@@ -32,6 +32,8 @@ const (
 	defaultMaxParallelToolCalls = 10
 	defaultMaxIdenticalCalls    = 3
 	toolChoiceAuto              = "auto"
+	toolChoiceRequired          = "required"
+	toolChoiceAny               = "any" // Claude's name for a required call
 	toolChoiceNone              = "none"
 
 	// selectionKindTool is the selection.Query Kind for tool selection.
@@ -1217,8 +1219,7 @@ func (s *ProviderStage) applyStateHandoff(
 	}
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
-	loop.providerTools = rebuilt
-	loop.invalidateReserve()
+	loop.useTools(rebuilt)
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
 	}
@@ -1742,19 +1743,17 @@ func (tl *toolLoop) applyRound(
 	}
 	ResetIdleFromContext(ctx)
 	tl.persistMessages(ctx, round)
-	if out.Nudged {
-		return false, tl.messages, nil
-	}
 
 	// Rebuild the tools array when this round changed what the model may call:
 	// a tool crossed the rejection threshold (excluded), or a tool call such as
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
+	// A nudged round's other calls change it as any round's do.
 	if err := tl.rebuildToolsIfChanged(allowedTools, out.OfferChanged); err != nil {
 		return true, tl.messages, err
 	}
 
-	tl.toolChoice = toolChoiceAuto
+	tl.chooseTool(true, out.Nudged)
 
 	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
 	// round is the model's answer rather than more calls to reject.
@@ -1770,6 +1769,38 @@ func (tl *toolLoop) applyRound(
 		return true, tl.messages, out.Err
 	}
 	return false, nil, nil
+}
+
+// useTools makes rebuilt the tools array the next round is offered, and
+// decides the tool choice for it (chooseTool).
+func (tl *toolLoop) useTools(rebuilt interface{}) {
+	tl.providerTools = rebuilt
+	tl.invalidateReserve()
+	tl.chooseTool(false, false)
+}
+
+// chooseTool decides the tool choice for the next round, after a round
+// (roundEnded) or a change to the tools array; every path that changes
+// either goes through it:
+//
+//   - after a round that was not nudged, the choice is auto;
+//   - a forced choice (required, any, or a tool's name) is kept, a nudged
+//     round's retry included, while the tools the provider was last sent fit
+//     it (toolRunner.choiceFits), and falls back to auto when they do not.
+func (tl *toolLoop) chooseTool(roundEnded, nudged bool) {
+	if roundEnded && !nudged {
+		tl.toolChoice = toolChoiceAuto
+		return
+	}
+	if isForcedChoice(tl.toolChoice) && !tl.stage.runner().choiceFits(tl.toolChoice) {
+		tl.toolChoice = toolChoiceAuto
+	}
+}
+
+// isForcedChoice reports whether tool choice choice forces a call: required,
+// or a tool's name.
+func isForcedChoice(choice string) bool {
+	return choice != "" && choice != toolChoiceAuto && choice != toolChoiceNone
 }
 
 // addRoundTokens accumulates a round's token usage for the caching-stall
@@ -1799,8 +1830,7 @@ func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, offerChanged bo
 	if rebuildErr != nil {
 		return fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
 	}
-	tl.providerTools = rebuilt
-	tl.invalidateReserve()
+	tl.useTools(rebuilt)
 	return nil
 }
 
@@ -3188,15 +3218,6 @@ func (s *ProviderStage) offeredToolNames() []string {
 	return s.runner().offeredToolNames()
 }
 
-// classifyToolError determines the ToolErrorType from an execution error.
-func classifyToolError(err error) types.ToolErrorType {
-	var valErr *tools.ValidationError
-	if errors.As(err, &valErr) {
-		return types.ToolErrorValidation
-	}
-	return types.ToolErrorExecution
-}
-
 // collectProviderDescriptors builds the sorted tool-descriptor list for a
 // provider call (see toolRunner.collectDescriptors).
 //
@@ -3342,6 +3363,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 ) (providerTools interface{}, toolChoice string, err error) {
 	r := s.runner()
 	r.markBuilt(offer)
+	r.markSent(nil) // until a tools array is built for the provider
 	if toolProvider == nil {
 		return nil, "", nil
 	}
@@ -3358,6 +3380,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
+	r.markSent(offer)
 
 	// Determine tool choice from policy
 	toolChoice = toolChoiceAuto // default

@@ -804,6 +804,62 @@ func TestLiveRealtimeTools_ApprovalHoldThenResolve(t *testing.T) {
 	})
 }
 
+// rtlRewriteHook replaces every tool result with a fixed text and records the
+// requests it is given.
+type rtlRewriteHook struct {
+	replacement string
+	mu          sync.Mutex
+	reqs        []hooks.ToolRequest
+}
+
+func (h *rtlRewriteHook) Name() string { return "rewrite" }
+
+func (h *rtlRewriteHook) BeforeExecution(context.Context, hooks.ToolRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *rtlRewriteHook) AfterExecution(context.Context, hooks.ToolRequest, hooks.ToolResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+func (h *rtlRewriteHook) RewriteResult(_ context.Context, req hooks.ToolRequest, _ string) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.reqs = append(h.reqs, req)
+	return h.replacement, nil
+}
+
+// A client tool's answer delivered with ContinueDuplex reaches the model as
+// the conversation's rewriter rewrites it, with the call the model made.
+func TestLiveRealtimeTools_ClientToolAnswerIsRewritten(t *testing.T) {
+	rtlEachRealtime(t, func(t *testing.T, rt rtlRealtime) {
+		rw := &rtlRewriteHook{replacement: `{"condition": "violet drizzle", "celsius": 9}`}
+		conv := rtlOpenDuplex(t, rt, rtlWeatherPackJSON, sdk.WithToolHook(rw))
+		conv.DeferClientTool("get_weather")
+		st := rtlWatch(t, conv)
+		ctx := context.Background()
+
+		require.NoError(t, conv.SendText(ctx, rtlWeatherPrompt))
+		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return len(st.Pending()) > 0 }),
+			"no client call surfaced; reply %q errors %v", st.Text(), st.Errors())
+		held := st.Pending()[0]
+		require.Equal(t, "get_weather", held.ToolName)
+
+		offset := len(st.Text())
+		require.NoError(t, conv.SendToolResult(ctx, held.CallID, rtlWeatherResult))
+		require.NoError(t, conv.ContinueDuplex(ctx))
+		require.Truef(t, st.waitText(offset, rtlTimeout, "violet"),
+			"the rewritten answer never reached the model: %q errors %v", st.textSince(offset), st.Errors())
+		assert.NotContains(t, strings.ToLower(st.textSince(offset)), "tangerine")
+		rw.mu.Lock()
+		defer rw.mu.Unlock()
+		require.Len(t, rw.reqs, 1)
+		assert.Equal(t, "get_weather", rw.reqs[0].Name)
+		assert.Equal(t, held.CallID, rw.reqs[0].CallID)
+		assert.Contains(t, strings.ToLower(string(rw.reqs[0].Args)), "paris")
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Case 6: capability tools (memory) are offered and callable (#2697).
 // ---------------------------------------------------------------------------

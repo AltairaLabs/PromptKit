@@ -29,9 +29,11 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func CallIDFromContext\(ctx context.Context\) string](<#CallIDFromContext>)
+- [func ClassifyError\(err error\) types.ToolErrorType](<#ClassifyError>)
 - [func ConsentDeclinedMessage\(toolName, strategy string\) string](<#ConsentDeclinedMessage>)
 - [func ContentTypeToMediaType\(contentType string\) string](<#ContentTypeToMediaType>)
 - [func DecodeArgsExtras\(args json.RawMessage, typed any, knownKeys ...string\) \(map\[string\]any, error\)](<#DecodeArgsExtras>)
+- [func ErrorResult\(id, name string, err error\) types.MessageToolResult](<#ErrorResult>)
 - [func FormatResultText\(raw json.RawMessage\) string](<#FormatResultText>)
 - [func IsBinaryContentType\(contentType string, acceptTypes \[\]string\) bool](<#IsBinaryContentType>)
 - [func IsImplicitTool\(name string\) bool](<#IsImplicitTool>)
@@ -302,6 +304,15 @@ func CallIDFromContext(ctx context.Context) string
 
 CallIDFromContext extracts the tool call ID from the context. Returns an empty string if no call ID is set.
 
+<a name="ClassifyError"></a>
+## func [ClassifyError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/error_result.go#L12>)
+
+```go
+func ClassifyError(err error) types.ToolErrorType
+```
+
+ClassifyError is the class of a tool call's error: a validation error when err wraps a \*ValidationError, an execution error otherwise.
+
 <a name="ConsentDeclinedMessage"></a>
 ## func [ConsentDeclinedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L348>)
 
@@ -334,6 +345,15 @@ Hosts use sdk.WithToolDescriptorOverride to extend a capability tool's InputSche
 knownKeys must list every top\-level JSON key the executor's typed struct owns; passing the wrong list causes typed fields to be duplicated into extras \(annoying but harmless — typed values still win when merged\).
 
 Returns an empty map \(not nil\) when args contains no extras, so callers can merge unconditionally without nil checks. Returns nil \+ nil when args is empty or "null" — both mean "no args at all".
+
+<a name="ErrorResult"></a>
+## func [ErrorResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/error_result.go#L25>)
+
+```go
+func ErrorResult(id, name string, err error) types.MessageToolResult
+```
+
+ErrorResult is the tool result the model is given for call id of tool name that failed with err: "Error: \<err\>" as its text, err as its error, and err's class \(ClassifyError\). The provider stage answers a failed call with it, and the SDK answers a result a host settled outside the turn with it when the result cannot be prepared.
 
 <a name="FormatResultText"></a>
 ## func [FormatResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L21>)
@@ -715,7 +735,7 @@ func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathEx
 MapResponse applies a JMESPath expression to extract or reshape a JSON response.
 
 <a name="ErrToolsPending"></a>
-## type [ErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L54-L56>)
+## type [ErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L58-L60>)
 
 ErrToolsPending is returned by the provider stage when one or more tool calls returned ToolStatusPending. The pipeline should suspend: completed tool results are still returned alongside this error so they can be appended to the message history.
 
@@ -726,7 +746,7 @@ type ErrToolsPending struct {
 ```
 
 <a name="IsErrToolsPending"></a>
-### func [IsErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L67>)
+### func [IsErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L71>)
 
 ```go
 func IsErrToolsPending(err error) (*ErrToolsPending, bool)
@@ -735,7 +755,7 @@ func IsErrToolsPending(err error) (*ErrToolsPending, bool)
 IsErrToolsPending checks whether err is or wraps an \*ErrToolsPending.
 
 <a name="ErrToolsPending.Error"></a>
-### func \(\*ErrToolsPending\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L58>)
+### func \(\*ErrToolsPending\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L62>)
 
 ```go
 func (e *ErrToolsPending) Error() string
@@ -1199,7 +1219,7 @@ type MockToolResponseConfig struct {
 ```
 
 <a name="ModelResult"></a>
-## type [ModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L89-L95>)
+## type [ModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L92-L98>)
 
 ModelResult is a completed tool result as the model is given it.
 
@@ -1214,7 +1234,7 @@ type ModelResult struct {
 ```
 
 <a name="BuildModelResult"></a>
-### func [BuildModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L102-L104>)
+### func [BuildModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L105-L107>)
 
 ```go
 func BuildModelResult(raw json.RawMessage, parts []types.ContentPart, opts ModelResultOptions) (ModelResult, error)
@@ -1223,7 +1243,7 @@ func BuildModelResult(raw json.RawMessage, parts []types.ContentPart, opts Model
 BuildModelResult prepares a completed tool result for the model: the one place a result's formatting, rewriting and size limit are applied, for a call the pipeline ran and for one a caller resolved. A result with parts is its parts, each text part rewritten and capped and media parts kept in place; otherwise it is raw formatted as text. The error is Rewrite's.
 
 <a name="ModelResultOptions"></a>
-## type [ModelResultOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L78-L86>)
+## type [ModelResultOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L78-L89>)
 
 ModelResultOptions says how a completed tool result is prepared for the model.
 
@@ -1236,6 +1256,9 @@ type ModelResultOptions struct {
     MaxSize int
     // Rewrite, when set, rewrites each text before the size limit applies.
     Rewrite func(string) (string, error)
+    // Unformatted takes a text result's raw content as its text, as it is,
+    // instead of formatting it (FormatResultText).
+    Unformatted bool
 }
 ```
 
@@ -1272,15 +1295,18 @@ type MultimodalExecutor interface {
 ```
 
 <a name="PendingToolExecution"></a>
-## type [PendingToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L42-L48>)
+## type [PendingToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L43-L52>)
 
 PendingToolExecution captures a single tool call that returned ToolStatusPending.
 
 ```go
 type PendingToolExecution struct {
-    CallID      string                  `json:"call_id"`
-    ToolName    string                  `json:"tool_name"`
-    Args        map[string]any          `json:"args"`
+    CallID   string         `json:"call_id"`
+    ToolName string         `json:"tool_name"`
+    Args     map[string]any `json:"args"`
+    // RawArgs are the call's arguments exactly as the model sent them, which
+    // Args decodes.
+    RawArgs     json.RawMessage         `json:"raw_args,omitempty"`
     PendingInfo *PendingToolInfo        `json:"pending_info,omitempty"`
     ToolResult  types.MessageToolResult `json:"tool_result"`
 }
