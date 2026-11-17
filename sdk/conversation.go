@@ -205,10 +205,13 @@ type Conversation struct {
 	// prepared holds the results SettleClientTool prepared, by resolution,
 	// which Resume and Continue give the model without rewriting them again.
 	prepared map[*sdktools.ToolResolution]preparedAnswer
-	// settleMu guards every record of an answer in resolvedStore, so
-	// SettleClientTool's check for an earlier answer and its record of the
-	// new one are one step no other answer can come between.
+	// settleMu guards every record of an answer in resolvedStore and the
+	// calls SettleClientTool is settling, so no answer comes between a
+	// settle's check for an earlier one and its own.
 	settleMu sync.Mutex
+	// settling holds the calls a SettleClientTool has claimed and is
+	// preparing an answer for, under settleMu.
+	settling map[string]bool
 
 	// Session hook dispatcher for lifecycle events (start, update, end)
 	sessionHooks *sessionHookDispatcher

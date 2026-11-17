@@ -967,12 +967,16 @@ func (c *Conversation) FailClientTool(ctx context.Context, callID string, partia
 }
 
 // addResolution records res, an answer to a held or deferred call, for
-// Continue or Resume to use, under settleMu: SettleClientTool's check for an
-// earlier answer and its record of its own are one step no other answer can
-// come between.
+// Continue or Resume to use, under settleMu. An answer to a call a
+// SettleClientTool is settling is a second answer and is dropped.
 func (c *Conversation) addResolution(res *sdktools.ToolResolution) {
 	c.settleMu.Lock()
 	defer c.settleMu.Unlock()
+	if c.settling[res.ID] {
+		// A settle is preparing this call's answer: this is a second answer.
+		logger.Debug("dropping a second answer for a tool call being settled", "call_id", res.ID)
+		return
+	}
 	c.resolvedStore.Add(res)
 }
 

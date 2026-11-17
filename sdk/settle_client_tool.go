@@ -31,9 +31,8 @@ func (c *Conversation) HasToolResultRewriters() bool {
 // Resume will give the model for it: checked against the tool's output schema
 // when it sets validate_output, admitted under ToolPolicy.MaxCallsPerMinute
 // and the tool registry's rate limit, and passed through the
-// ToolResultRewriter hooks. It returns that result. Resume gives it to the
-// model as it is, and Continue formats and caps it as it does any result,
-// neither of them rewriting it again. If the turn is abandoned instead (Send
+// ToolResultRewriter hooks, then capped at the registry's result size limit.
+// It returns that result, which Resume and Continue give the model as it is. If the turn is abandoned instead (Send
 // starts a new one), the answer is discarded and its admissions taken back.
 //
 // Use it to report an answer before the turn resumes with the content the
@@ -96,17 +95,20 @@ func (c *Conversation) settle(
 		return types.MessageToolResult{}, false, awaitErr
 	}
 
-	c.settleMu.Lock()
-	defer c.settleMu.Unlock()
-	if c.resolvedStore.Has(res.ID) || answeredInHistory(history, res.ID) {
+	// Claim the call under settleMu, then prepare its result without the
+	// lock: rewriter hooks may record other answers, which take it.
+	if !c.claimSettling(res.ID, history) {
 		return types.MessageToolResult{}, false, nil
 	}
 	calls := callsIn(history)
 	names := callNamesOf(calls)
 	c.validateDeferredResults([]*sdktools.ToolResolution{res}, names)
 	admission := c.admitPrepared(res, names()[res.ID])
-	prepared := c.resumeResult(ctx, calls, res)
+	prepared := c.cappedPrepared(c.resumeResult(ctx, calls, res))
 
+	c.settleMu.Lock()
+	defer c.settleMu.Unlock()
+	delete(c.settling, res.ID)
 	c.settledMu.Lock()
 	if c.prepared == nil {
 		c.prepared = make(map[*sdktools.ToolResolution]preparedAnswer)
@@ -115,6 +117,43 @@ func (c *Conversation) settle(
 	c.settledMu.Unlock()
 	c.resolvedStore.Add(res)
 	return prepared, true, nil
+}
+
+// claimSettling claims call id for a settle, under settleMu: it fails when
+// the call already has an answer (recorded, in history, or being settled).
+// While claimed, another answer to the call is a second answer
+// (addResolution drops it).
+func (c *Conversation) claimSettling(id string, history []types.Message) bool {
+	c.settleMu.Lock()
+	defer c.settleMu.Unlock()
+	if c.settling[id] || c.resolvedStore.Has(id) || answeredInHistory(history, id) {
+		return false
+	}
+	if c.settling == nil {
+		c.settling = make(map[string]bool)
+	}
+	c.settling[id] = true
+	return true
+}
+
+// cappedPrepared is prepared with each text capped at the registry's result
+// size limit, so the text the client is shown is final: Continue and Resume
+// give the model the prepared result as it is. A failure is left as it is.
+func (c *Conversation) cappedPrepared(prepared types.MessageToolResult) types.MessageToolResult {
+	if prepared.Error != "" || c.toolRegistry == nil || c.toolRegistry.MaxToolResultSize() <= 0 {
+		return prepared
+	}
+	limit := c.toolRegistry.MaxToolResultSize()
+	parts := make([]types.ContentPart, len(prepared.Parts))
+	for i, p := range prepared.Parts {
+		if p.Type == types.ContentTypeText && p.Text != nil {
+			text := tools.TruncateResultText(prepared.Name, *p.Text, limit)
+			p.Text = &text
+		}
+		parts[i] = p
+	}
+	prepared.Parts = parts
+	return prepared
 }
 
 // admitPrepared admits res, an answer to a call of tool name, as
@@ -131,33 +170,6 @@ func (c *Conversation) admitPrepared(res *sdktools.ToolResolution, name string) 
 		return nil
 	}
 	return release
-}
-
-// formattedPrepared is a result SettleClientTool prepared as Continue gives a
-// result: its text formatted and capped at the registry's size limit
-// (tools.BuildModelResult), not rewritten again. A failure is given as it is.
-func (c *Conversation) formattedPrepared(prepared types.MessageToolResult) types.MessageToolResult {
-	if prepared.Error != "" {
-		return prepared
-	}
-	opts := tools.ModelResultOptions{ToolName: prepared.Name}
-	if c.toolRegistry != nil {
-		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
-	}
-	var given tools.ModelResult
-	var err error
-	if prepared.HasMedia() {
-		given, err = tools.BuildModelResult(nil, prepared.Parts, opts)
-	} else {
-		given, err = tools.BuildModelResult(json.RawMessage(prepared.GetTextContent()), nil, opts)
-	}
-	if err != nil { // only a rewrite fails, and there is none
-		return prepared
-	}
-	if given.Parts != nil {
-		return types.MessageToolResult{ID: prepared.ID, Name: prepared.Name, Parts: given.Parts}
-	}
-	return types.NewTextToolResult(prepared.ID, prepared.Name, given.Text)
 }
 
 // clientResolution is the resolution recorded for an answer to callID:

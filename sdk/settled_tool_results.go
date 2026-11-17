@@ -34,13 +34,12 @@ type toolResultMessageSubmitter interface {
 // prepares it. The result names the tool it answers, as an in-turn result
 // does: a provider can match a result to its call by name (Gemini's
 // functionResponse carries only the name). A result SettleClientTool prepared
-// is formatted and capped as any result Continue gives, but not rewritten
-// again (formattedPrepared).
+// is given as it was prepared: its text is what the client was shown.
 func (c *Conversation) continuedResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
 	if prepared, ok := c.preparedResult(res); ok {
-		return c.formattedPrepared(prepared)
+		return prepared
 	}
 	call, known := c.callFor(calls, res)
 	switch {

@@ -143,10 +143,11 @@ func (g *gatedRewriter) RewriteResult(ctx context.Context, req hooks.ToolRequest
 	return g.wrappingRewriter.RewriteResult(ctx, req, content)
 }
 
-// An answer recorded while a settle prepares its own waits for it, so the
-// settled answer is the one the model is given and the other is dropped as a
-// second answer: the client is never shown an answer the model does not get.
-func TestSettleClientTool_AnotherAnswerWaitsForTheSettle(t *testing.T) {
+// An answer recorded while a settle prepares its own is a second answer: it
+// is dropped at once, without waiting for the settle, and the settled answer
+// is the one the model is given: the client is never shown an answer the
+// model does not get.
+func TestSettleClientTool_AnotherAnswerDuringASettleIsASecondAnswer(t *testing.T) {
 	rw := &gatedRewriter{entered: make(chan struct{}), release: make(chan struct{})}
 	conv, id := suspendOnClientSend(t, 0, WithToolHook(rw))
 	ctx := context.Background()
@@ -163,18 +164,68 @@ func TestSettleClientTool_AnotherAnswerWaitsForTheSettle(t *testing.T) {
 	go func() { sent <- conv.SendToolResult(ctx, id, "raw") }()
 	select {
 	case err := <-sent:
-		t.Fatalf("SendToolResult returned (%v) while the settle was preparing its answer", err)
-	case <-time.After(50 * time.Millisecond):
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("SendToolResult waited for the settle")
 	}
 	close(rw.release)
 	prepared := <-settled
-	require.NoError(t, <-sent)
 
 	_, err := conv.Resume(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, `<redacted:"settled">`, prepared.GetTextContent())
 	assert.Equal(t, prepared.GetTextContent(), toolResultFor(t, conv, id).GetTextContent())
 	assert.Len(t, rw.requests(), 1, "the dropped answer is never rewritten")
+}
+
+// answeringRewriter wraps every result's text in "<redacted:...>" and, on its
+// first rewrite, records an answer to another pending call, as a hook that
+// answers a call itself might.
+type answeringRewriter struct {
+	wrappingRewriter
+	conv  *Conversation
+	other string
+	once  sync.Once
+	err   error
+}
+
+func (a *answeringRewriter) RewriteResult(ctx context.Context, req hooks.ToolRequest, content string) (string, error) {
+	a.once.Do(func() { a.err = a.conv.SendToolResult(context.Background(), a.other, "from the hook") })
+	return a.wrappingRewriter.RewriteResult(ctx, req, content)
+}
+
+// A rewriter that records an answer to another pending call while a settle
+// runs it does not deadlock: the settle completes and both answers reach the
+// model.
+func TestSettleClientTool_RewriterMayRecordAnotherAnswer(t *testing.T) {
+	rw := &answeringRewriter{}
+	conv := openSendMessageConv(t, 0, 2, WithToolHook(rw))
+	conv.DeferClientTool("send_message")
+	ctx := context.Background()
+	resp, err := conv.Send(ctx, "send two")
+	require.NoError(t, err)
+	require.Len(t, resp.ClientTools(), 2)
+	first, second := resp.ClientTools()[0].CallID, resp.ClientTools()[1].CallID
+	rw.conv, rw.other = conv, second
+
+	done := make(chan bool, 1)
+	go func() {
+		_, answered, settleErr := conv.SettleClientTool(ctx, first, "settled", nil)
+		assert.NoError(t, settleErr)
+		done <- answered
+	}()
+	select {
+	case answered := <-done:
+		require.True(t, answered)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the settle deadlocked on its rewriter's answer")
+	}
+	require.NoError(t, rw.err)
+
+	_, err = conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, `<redacted:"settled">`, toolResultFor(t, conv, first).GetTextContent())
+	assert.Equal(t, `<redacted:"from the hook">`, toolResultFor(t, conv, second).GetTextContent())
 }
 
 // A call ID a later turn reuses (call_0, call_0, ...) is answered afresh: the
@@ -249,22 +300,45 @@ func TestSettleClientToolRejection_IsTheRejectionTheModelIsGiven(t *testing.T) {
 	assert.Empty(t, rw.requests(), "a rejection is not rewritten")
 }
 
-// A settled answer Continue gives the model is formatted and capped as any
-// result Continue gives, from the rewritten value, not rewritten again.
-func TestSettleClientTool_ContinueCapsThePreparedResult(t *testing.T) {
-	rw := &wrappingRewriter{}
-	conv, id := suspendOnClientSend(t, 0, WithToolHook(rw), limitedTools(t, 15, "send_message"))
-	ctx := context.Background()
-	prepared, answered, err := conv.SettleClientTool(ctx, id, "a long answer to cap", nil)
-	require.NoError(t, err)
-	require.True(t, answered)
-	assert.Equal(t, `<redacted:"a long answer to cap">`, prepared.GetTextContent(), "the client sees it whole")
+// A settled answer's text is final when it is settled: capped at the
+// registry's size limit then, and given to the model as it is by Continue and
+// Resume alike, a plain-text or a long rewritten result byte for byte what
+// the client was shown.
+func TestSettleClientTool_ClientAndModelGetTheSameText(t *testing.T) {
+	for name, tc := range map[string]struct {
+		answer any
+		want   string
+	}{
+		"long": {answer: "a long answer to cap",
+			want: tools.TruncateResultText("send_message", `<redacted:"a long answer to cap">`, 15)},
+		"plain text": {answer: map[string]any{"a": 1}, want: `<redacted:{"a":1}>`},
+	} {
+		for _, deliver := range []string{"Continue", "Resume"} {
+			t.Run(name+"/"+deliver, func(t *testing.T) {
+				rw := &wrappingRewriter{}
+				limit := 15
+				if name == "plain text" {
+					limit = 1000
+				}
+				conv, id := suspendOnClientSend(t, 0, WithToolHook(rw), limitedTools(t, limit, "send_message"))
+				ctx := context.Background()
+				prepared, answered, err := conv.SettleClientTool(ctx, id, tc.answer, nil)
+				require.NoError(t, err)
+				require.True(t, answered)
+				assert.Equal(t, tc.want, prepared.GetTextContent())
 
-	_, err = conv.Continue(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, tools.TruncateResultText("send_message", prepared.GetTextContent(), 15),
-		toolResultFor(t, conv, id).GetTextContent())
-	assert.Len(t, rw.requests(), 1, "rewritten once")
+				if deliver == "Continue" {
+					_, err = conv.Continue(ctx)
+				} else {
+					_, err = conv.Resume(ctx)
+				}
+				require.NoError(t, err)
+				assert.Equal(t, prepared.GetTextContent(), toolResultFor(t, conv, id).GetTextContent(),
+					"the model gets the text the client was shown")
+				assert.Len(t, rw.requests(), 1, "rewritten once")
+			})
+		}
+	}
 }
 
 // An answer for a call the history already answers (a server tool of the
