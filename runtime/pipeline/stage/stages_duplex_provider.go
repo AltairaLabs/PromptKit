@@ -152,6 +152,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// Keep the partial reply (and clear the accumulators either way) —
 		// the provider will start a new response.
 		if msg := s.takeInterruptedTurn("barge-in"); msg != nil {
+			msg.CostInfo = chunk.CostInfo // what the cut-short turn cost so far
 			elem.Message = msg
 		}
 

@@ -200,6 +200,11 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil
 	}
 
+	// A turn's usage can arrive on any of its messages (a usage-only message,
+	// a model turn before the last, the toolCall); it is held and reported on
+	// the chunk that ends the turn.
+	s.holdUsage(msg.UsageMetadata)
+
 	if msg.ToolCall != nil && len(msg.ToolCall.FunctionCalls) > 0 {
 		s.toolCallTurn = true
 		return s.handleToolCalls(msg.ToolCall)
@@ -209,13 +214,11 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil
 	}
 
-	costInfo := s.buildCostInfo(msg.UsageMetadata)
-
 	if msg.ServerContent == nil {
-		return s.sendCostInfoIfPresent(costInfo)
+		return nil
 	}
 
-	return s.processServerContent(msg.ServerContent, costInfo)
+	return s.processServerContent(msg.ServerContent)
 }
 
 // carryToolCallUsage holds the usage of a tool-call turn that Gemini reports
@@ -232,9 +235,9 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 // FinishReason tool_use: the model waits for their results). Gemini 3.x Live
 // then sends turnComplete carrying only the tool-call generation's usage;
 // reported as a turn, it would read as an empty reply after every tool call.
-// Its usage goes on the next turn completion instead, which is where Gemini
-// 2.5 Live reports it natively: one turnComplete after the reply, with the
-// usage of both.
+// Its usage stays held (processServerMessage) for the next turn completion,
+// which is where Gemini 2.5 Live reports it natively: one turnComplete after
+// the reply, with the usage of both.
 func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 	sc := msg.ServerContent
 	if sc != nil && (sc.ModelTurn != nil || sc.Interrupted ||
@@ -252,13 +255,6 @@ func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 	s.ClearDrop()
 	if err := s.handleInputTranscription(sc); err != nil {
 		logger.Debug("StreamSession: input transcription not delivered", "error", err)
-	}
-	if msg.UsageMetadata != nil {
-		tokens := msg.UsageMetadata.tokens()
-		if s.carriedUsage != nil {
-			tokens = addTokenUsage(tokens, *s.carriedUsage)
-		}
-		s.carriedUsage = &tokens
 	}
 	return true
 }
@@ -284,8 +280,32 @@ func reportsToolCallTurnComplete(model string) bool {
 	return major >= firstToolCallTurnCompleteMajor
 }
 
-// flushCarriedUsage reports a tool-call turn's held usage that no later turn
-// completion took (the session ended first) as a usage-only chunk, without
+// holdUsage adds a server message's usage to the usage held for the chunk
+// that ends the turn. Receive goroutine only.
+func (s *StreamSession) holdUsage(usage *UsageMetadata) {
+	if usage == nil {
+		return
+	}
+	tokens := usage.tokens()
+	if s.carriedUsage != nil {
+		tokens = addTokenUsage(tokens, *s.carriedUsage)
+	}
+	s.carriedUsage = &tokens
+}
+
+// takeTurnCost prices the usage held for the turn and clears it; nil when
+// none is held. Receive goroutine only.
+func (s *StreamSession) takeTurnCost() *types.CostInfo {
+	if s.carriedUsage == nil {
+		return nil
+	}
+	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, *s.carriedUsage, nil, 0)
+	s.carriedUsage = nil
+	return &ci
+}
+
+// flushCarriedUsage reports held usage that no turn's end took (the session
+// ended first, as after a tool-call turn) as a usage-only chunk, without
 // blocking: the receive loop is exiting. Receive goroutine only.
 func (s *StreamSession) flushCarriedUsage() {
 	if s.carriedUsage == nil {
@@ -313,14 +333,6 @@ func addTokenUsage(a, b base.TokenUsage) base.TokenUsage {
 	}
 }
 
-// sendCostInfoIfPresent sends a chunk with cost info if present.
-func (s *StreamSession) sendCostInfoIfPresent(costInfo *types.CostInfo) error {
-	if costInfo == nil {
-		return nil
-	}
-	return s.sendChunk(&providers.StreamChunk{CostInfo: costInfo})
-}
-
 // sendChunk hands a chunk to the shared pump (via the session-owned emitCh),
 // which drains it to Response() without back-pressuring this receive loop.
 func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
@@ -333,7 +345,7 @@ func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
 }
 
 // processServerContent handles server content including transcriptions and model turns.
-func (s *StreamSession) processServerContent(content *ServerContent, costInfo *types.CostInfo) error {
+func (s *StreamSession) processServerContent(content *ServerContent) error {
 	if content.Interrupted {
 		// Barge-in handled by the shared StreamPump (consistent with every
 		// provider): fire the out-of-band signal so a paced consumer flushes
@@ -346,7 +358,8 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 		if err := s.sendChunk(&marker); err != nil {
 			return err
 		}
-		return s.sendChunk(&providers.StreamChunk{Interrupted: true})
+		// The interruption ends the turn: it carries the usage held for it.
+		return s.sendChunk(&providers.StreamChunk{Interrupted: true, CostInfo: s.takeTurnCost()})
 	}
 
 	// A completed turn (clean, or the canceled one after barge-in) ends the
@@ -376,12 +389,12 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 		finishReason := finishReasonComplete
 		return s.sendChunk(&providers.StreamChunk{
 			FinishReason: &finishReason,
-			CostInfo:     costInfo,
+			CostInfo:     s.takeTurnCost(),
 		})
 	}
 
 	if content.ModelTurn != nil {
-		return s.processModelTurn(content.ModelTurn, content.TurnComplete, costInfo)
+		return s.processModelTurn(content.ModelTurn, content.TurnComplete)
 	}
 
 	return nil
@@ -464,7 +477,7 @@ func (s *StreamSession) handleOutputTranscription(content *ServerContent) error 
 }
 
 // processModelTurn processes a model turn from the server
-func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, costInfo *types.CostInfo) error {
+func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
 	response := providers.StreamChunk{
 		Content: "",
 	}
@@ -487,11 +500,11 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 		}
 	}
 
-	// Mark turn completion and include cost info
+	// Mark turn completion and include the turn's cost
 	if turnComplete {
 		finishReason := finishReasonComplete
 		response.FinishReason = &finishReason
-		response.CostInfo = costInfo
+		response.CostInfo = s.takeTurnCost()
 	}
 
 	// Send response to the shared pump via the session-owned emitCh.

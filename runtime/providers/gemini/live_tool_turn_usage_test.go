@@ -261,9 +261,9 @@ func TestLiveToolCallTurn_CarriedUsageIsReportedWhenTheSessionEnds(t *testing.T)
 }
 
 // On Gemini 3.x Live each tool call is followed by its own usage-only
-// turnComplete. It is carried to the reply even when it reaches the client
-// after the tool response was sent (a fast tool), here every time; a chain of
-// tool calls carries each one's usage.
+// turnComplete. It is carried to the next turn's end even when it reaches the
+// client after the tool response was sent (a fast tool), here every time; in
+// a chain of tool calls each one's usage is reported once.
 func TestLiveToolCallTurn_ChainedToolCallsCarryEachUsage(t *testing.T) {
 	session := scriptedLiveServer(t, "gemini-3.8-live", func(conn *websocket.Conn) {
 		for i, id := range []string{"call_1", "call_2"} {
@@ -302,9 +302,15 @@ func TestLiveToolCallTurn_ChainedToolCallsCarryEachUsage(t *testing.T) {
 	assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
 	assert.Equal(t, types.FinishReasonToolUse, *ends[1].FinishReason)
 	assert.Equal(t, finishReasonComplete, *ends[2].FinishReason)
+	// Each usage goes on the next turn's end: the first tool-call turn's on
+	// the second tool call, the second's on the reply.
+	assert.Nil(t, ends[0].CostInfo)
+	require.NotNil(t, ends[1].CostInfo)
+	assert.Equal(t, 100, ends[1].CostInfo.InputTokens)
+	assert.Equal(t, 10, ends[1].CostInfo.OutputTokens)
 	require.NotNil(t, ends[2].CostInfo)
-	assert.Equal(t, 700, ends[2].CostInfo.InputTokens, "the reply carries both tool-call turns' usage")
-	assert.Equal(t, 40, ends[2].CostInfo.OutputTokens)
+	assert.Equal(t, 600, ends[2].CostInfo.InputTokens, "the reply carries the second tool-call turn's usage")
+	assert.Equal(t, 30, ends[2].CostInfo.OutputTokens)
 }
 
 // Which Live models end a tool-call turn with their own turnComplete.

@@ -584,9 +584,10 @@ func (s *DuplexProviderStage) budgetSpent(
 
 // chargeInterruptedTurn is the response goroutine's part of a turn a barge-in
 // cut short: the provider call it was completes, its cost counts toward the
-// budget, and the tool turn ends (a user turn is under way). An interrupted
-// turn completion that arrives later with the cost charges that cost. Returns
-// the job reporting a spent budget, or nil.
+// budget, and the tool turn ends (a user turn is under way). Cost that arrives
+// outside a turn of its own (an interrupted turn's completion after its
+// Interrupted chunk, or a usage-only chunk) is charged when it arrives.
+// Returns the job reporting a spent budget, or nil.
 func (s *DuplexProviderStage) chargeInterruptedTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement,
 ) *duplexToolJob {
@@ -594,7 +595,8 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 		return nil
 	}
 	interrupted := elem.Meta.Interrupted && (elem.Message != nil || chunk.CostInfo != nil)
-	if !interrupted && (!elem.Meta.InterruptedTurnComplete || chunk.CostInfo == nil) {
+	unplaced := chunk.CostInfo != nil && (elem.Meta.InterruptedTurnComplete || usageOnly(chunk, elem))
+	if !interrupted && !unplaced {
 		return nil
 	}
 	var turn *duplexToolTurn

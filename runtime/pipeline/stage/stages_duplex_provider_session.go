@@ -139,6 +139,11 @@ type DuplexProviderStage struct {
 	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
 	wasInterrupted bool
 
+	// carriedCost is cost the session reported that no assistant message the
+	// stage emitted carries yet (stages_duplex_cost.go). Response goroutine
+	// only.
+	carriedCost *types.CostInfo
+
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
 	// The input goroutine sets it and the response goroutine reads it, under
@@ -1255,7 +1260,8 @@ func (s *DuplexProviderStage) processResponseChunk(
 // stage needs a chance to receive even though context is canceled. This is
 // critical for capturing partial responses.
 func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output chan<- StreamElement) {
-	msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx)))
+	cause := fmt.Sprintf("context canceled: %v", context.Cause(ctx))
+	msg := s.withCarriedCost(s.takeInterruptedTurn(cause), cause)
 	if msg == nil {
 		return
 	}
@@ -1369,7 +1375,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 			"accumulated_media_len", len(s.accumulatedMedia))
 	}
 
-	msg := s.takeInterruptedTurn(cause)
+	msg := s.withCarriedCost(s.takeInterruptedTurn(cause), cause)
 	if s.inputFailed.Load() {
 		// An input hook denied: its error element is the session's last
 		// output, so the partial reply is not emitted after it.
@@ -1541,6 +1547,9 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		}
 		round = s.prepareToolRound(ctx, &elem)
 	}
+	// After the charges above, so carried cost (charged when it arrived) is
+	// not charged again.
+	s.placeCost(chunk, &elem)
 
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,

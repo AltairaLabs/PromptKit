@@ -23,7 +23,8 @@ import (
 )
 
 // Live verification of barge-in after a realtime reply finished generating
-// but is still playing (#2702), on OpenAI Realtime and Gemini Live.
+// but is still playing (#2702), on OpenAI Realtime and Gemini Live, and of a
+// Gemini Live tool turn's cost (#2706).
 //
 // Run (keys loaded from .env into the test process only):
 //
@@ -232,4 +233,38 @@ func TestLiveRealtimePlayout_BargeInWhileTheFinishedReplyPlays(t *testing.T) {
 			t.Logf("interrupted %v before the reply's estimated playout end", until.Sub(at))
 		})
 	}
+}
+
+// A Gemini Live tool turn is charged: its provider calls carry tokens and cost.
+func TestLiveRealtimePlayout_GeminiToolTurnCost(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	rt := rtlRealtimeProviders()[1]
+	bus, ev := rtlBus(t)
+	conv := rtlOpenDuplex(t, rt, rtlWeatherPackJSON, sdk.WithEventBus(bus))
+	calls := &rtlCalls{}
+	conv.OnToolCall("get_weather", calls.handler(rtlWeatherResult, nil))
+	st := rtlWatch(t, conv)
+
+	require.NoError(t, conv.SendText(context.Background(), rtlWeatherPrompt))
+	require.Truef(t, st.waitText(0, rtlTimeout, "tangerine"), "the reply never used the tool result: %q", st.Text())
+	var cost float64
+	var in, out int
+	require.Truef(t, rtlWaitUntil(10*time.Second, func() bool {
+		cost, in, out = 0, 0, 0
+		for _, d := range ev.providerCompleted() {
+			cost += d.Cost
+			in += d.InputTokens
+			out += d.OutputTokens
+		}
+		return len(ev.providerCompleted()) >= 2 && cost > 0
+	}), "the tool turn's provider calls carry no cost (events %s)", ev.summary())
+	for _, d := range ev.providerCompleted() {
+		t.Logf("provider.call.completed round=%d tools=%d in=%d out=%d cost=%.6f finish=%s",
+			d.Round, d.ToolCallCount, d.InputTokens, d.OutputTokens, d.Cost, d.FinishReason)
+	}
+	assert.Positive(t, in)
+	assert.Positive(t, out)
+	assert.Positive(t, cost)
 }
