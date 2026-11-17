@@ -517,25 +517,47 @@ func signCurrentTurnCalls(contents []map[string]any) {
 // signFirstCall gives a model content's first functionCall part the
 // placeholder signature when it carries none.
 func signFirstCall(content map[string]any) {
-	parts, _ := content[wireKeyParts].([]any)
-	for _, part := range parts {
-		pm, ok := part.(map[string]any)
-		if !ok || pm["functionCall"] == nil {
+	for _, part := range contentParts(content) {
+		if part["functionCall"] == nil {
 			continue
 		}
-		if _, signed := pm["thoughtSignature"]; !signed {
-			pm["thoughtSignature"] = placeholderThoughtSignature
+		if _, signed := part["thoughtSignature"]; !signed {
+			part["thoughtSignature"] = placeholderThoughtSignature
 		}
 		return
 	}
 }
 
-// onlyFunctionResponses reports whether a user content is a turn of function
-// responses (toolResultsTurn), which continues the model's turn rather than
-// starting one.
+// contentParts returns a content's parts. toolContentForMessage builds them as
+// []any and toolResultsTurn as []map[string]any; both hold part maps, which are
+// returned by reference so a caller can annotate them in place.
+func contentParts(content map[string]any) []map[string]any {
+	switch parts := content[wireKeyParts].(type) {
+	case []map[string]any:
+		return parts
+	case []any:
+		out := make([]map[string]any, 0, len(parts))
+		for _, part := range parts {
+			if pm, ok := part.(map[string]any); ok {
+				out = append(out, pm)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// onlyFunctionResponses reports whether every part of a content is a function
+// response: such a user turn continues the model's turn rather than starting
+// one.
 func onlyFunctionResponses(content map[string]any) bool {
-	_, ok := content[wireKeyParts].([]map[string]any)
-	return ok
+	for _, part := range contentParts(content) {
+		if part["functionResponse"] == nil {
+			return false
+		}
+	}
+	// buildToolContents never emits a content without parts.
+	return true
 }
 
 // foldToolContent adds one message to contents. A tool result joins

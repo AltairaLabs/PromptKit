@@ -107,3 +107,28 @@ func TestBuildToolContents_NoUserTextSignsFromTheStart(t *testing.T) {
 		{"role":"user","parts":[{"functionResponse":{"name":"f","response":{"result":1}}}]}
 	]`, got)
 }
+
+// History from another provider: calls without signatures, a user turn with
+// media between rounds, and a final round of function responses. Only the
+// call after the latest user turn (text or media, not function responses) is
+// signed; the earlier call is left alone.
+func TestBuildToolContents_CrossProviderHistorySignsOnlyTheCurrentTurn(t *testing.T) {
+	got := contentsJSON(t, []types.Message{
+		{Role: "user", Content: "q"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "toolu_1", Name: "f", Args: json.RawMessage(`{"n":1}`)}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "toolu_1", Name: "f", Parts: []types.ContentPart{types.NewTextPart("1")}}},
+		{Role: "user", Parts: []types.ContentPart{types.NewTextPart("look"),
+			types.NewImagePartFromData("aW1n", types.MIMETypeImagePNG, nil)}},
+		{Role: "assistant", Content: "Again.", ToolCalls: []types.MessageToolCall{{ID: "toolu_2", Name: "f", Args: json.RawMessage(`{"n":2}`)}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "toolu_2", Name: "f", Parts: []types.ContentPart{types.NewTextPart("2")}}},
+	})
+	assert.JSONEq(t, `[
+		{"role":"user","parts":[{"text":"q"}]},
+		{"role":"model","parts":[{"functionCall":{"name":"f","args":{"n":1}}}]},
+		{"role":"user","parts":[{"functionResponse":{"name":"f","response":{"result":1}}}]},
+		{"role":"user","parts":[{"text":"look"},{"inlineData":{"mimeType":"image/png","data":"aW1n"}}]},
+		{"role":"model","parts":[{"text":"Again."},
+			{"functionCall":{"name":"f","args":{"n":2}},"thoughtSignature":"skip_thought_signature_validator"}]},
+		{"role":"user","parts":[{"functionResponse":{"name":"f","response":{"result":2}}}]}
+	]`, got)
+}
