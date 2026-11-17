@@ -13,7 +13,7 @@ const (
 	wireKeyError    = "error"
 )
 
-// buildToolResponseMessage constructs Gemini's BidiGenerateContentToolResponse
+// toolResponseMessage constructs Gemini's BidiGenerateContentToolResponse
 // wire message from a set of tool execution results.
 //
 // Per the Gemini docs the shape is:
@@ -25,12 +25,18 @@ const (
 // text turn's function response is. A failed call (IsError) is sent as
 // {"error": "<text>"}: FunctionResponse has no error flag, and the model reads
 // a failure from the response's "error" key.
-func buildToolResponseMessage(responses []providers.ToolResponse) map[string]interface{} {
+//
+// parts[i], when present, is the function response parts of responses[i]
+// (a result's images, as inline data; see live_tool_media.go).
+func toolResponseMessage(responses []providers.ToolResponse, parts [][]map[string]any) map[string]interface{} {
 	functionResponses := make([]map[string]interface{}, len(responses))
 	for i, resp := range responses {
 		functionResponses[i] = map[string]interface{}{
 			"id":            resp.ToolCallID,
 			wireKeyResponse: liveToolResponseObject(resp),
+		}
+		if i < len(parts) && len(parts[i]) > 0 {
+			functionResponses[i][wireKeyParts] = parts[i]
 		}
 	}
 

@@ -84,6 +84,8 @@ Each provider sends a tool result's media in the form its API takes:
 | OpenAI Responses | `input_image` items in the `function_call_output` | PDF `input_file` items in the `function_call_output` | described |
 | OpenAI Chat Completions | a user message after the round's tool messages, one per result, because a tool message takes only text | described | audio on an audio model in that user message; otherwise described |
 | vLLM, Ollama | described | described | described |
+| OpenAI Realtime | PNG and JPEG in a user message after the round's `function_call_output` items, one per result | described | audio as `input_audio` in that user message, when it is 16-bit mono PCM (WAV, or raw PCM with its rate); video described |
+| Gemini Live | in the function response's parts on Gemini 3 and later models; described on Gemini 2.x | described | described |
 
 A request sent without tools serializes its history with the same code as a request with tools, so on every provider a tool result keeps its link to the call that produced it: the call ID on Claude, OpenAI and Ollama, the function name on Gemini. Gemini sends a round's function responses in a user turn of their own, never in the same turn as the next user message.
 

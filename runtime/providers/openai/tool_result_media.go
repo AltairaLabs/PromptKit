@@ -52,15 +52,26 @@ func (p *Provider) toolMessageText(result *types.MessageToolResult) string {
 		lifted++
 		liftedKind = part.Type
 	}
+	if note := attachedMediaNote(lifted, liftedKind); note != "" {
+		notes = append([]string{note}, notes...)
+	}
+	return withToolNotes(result.GetTextContent(), notes)
+}
+
+// attachedMediaNote is the note saying a tool's media follows in the next
+// user message: lifted parts, of kind when there is one; "" when none.
+func attachedMediaNote(lifted int, kind string) string {
 	switch {
 	case lifted == 1:
-		notes = append([]string{fmt.Sprintf(
-			"[The %s this tool returned is attached in the next user message.]", liftedKind)}, notes...)
+		return fmt.Sprintf("[The %s this tool returned is attached in the next user message.]", kind)
 	case lifted > 1:
-		notes = append([]string{fmt.Sprintf(
-			"[The %d media parts this tool returned are attached in the next user message.]", lifted)}, notes...)
+		return fmt.Sprintf("[The %d media parts this tool returned are attached in the next user message.]", lifted)
 	}
-	text := result.GetTextContent()
+	return ""
+}
+
+// withToolNotes is a tool result's text followed by notes, one per line.
+func withToolNotes(text string, notes []string) string {
 	if len(notes) == 0 {
 		return text
 	}

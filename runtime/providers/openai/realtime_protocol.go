@@ -111,10 +111,11 @@ type ConversationItem struct {
 
 // ConversationContent represents content within a conversation item.
 type ConversationContent struct {
-	Type       string `json:"type"` // "input_text", "input_audio", "text", "audio"
+	Type       string `json:"type"` // "input_text", "input_audio", "input_image", "text", "audio"
 	Text       string `json:"text,omitempty"`
 	Audio      string `json:"audio,omitempty"`      // Base64-encoded
 	Transcript string `json:"transcript,omitempty"` // For audio content
+	ImageURL   string `json:"image_url,omitempty"`  // For input_image: a base64 data URI
 }
 
 // ResponseCreateEvent triggers a response from the model.

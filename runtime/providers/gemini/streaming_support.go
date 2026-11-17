@@ -170,6 +170,7 @@ func (p *Provider) buildStreamSessionConfig(req *providers.StreamingInputConfig)
 		SystemInstruction: req.SystemInstruction,
 		AutoReconnect:     true,
 		MaxReconnectTries: defaultMaxReconnectTries,
+		mediaLoader:       p.MediaLoader,
 	}
 
 	// Seed the provider-level default modality (from additional_config); per-request

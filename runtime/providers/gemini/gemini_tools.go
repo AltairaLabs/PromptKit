@@ -30,6 +30,8 @@ const (
 	wireKeyRole     = "role"
 	wireKeyMimeType = "mimeType"
 	wireKeyData     = "data"
+	// wireKeyInlineData is a part's inline media: {"mimeType", "data"}.
+	wireKeyInlineData = "inlineData"
 
 	// Gemini function-calling modes (toolConfig.functionCallingConfig.mode).
 	functionCallingModeAuto = "AUTO"
@@ -285,8 +287,8 @@ func (p *Provider) buildMultimodalToolResponse(
 		}
 		if mediaMap != nil {
 			// mediaMap is {"inlineData": {"mimeType": ..., "data": ...}}
-			if inlineData, ok := mediaMap["inlineData"]; ok {
-				response["inlineData"] = inlineData
+			if inlineData, ok := mediaMap[wireKeyInlineData]; ok {
+				response[wireKeyInlineData] = inlineData
 				break
 			}
 		}
@@ -413,7 +415,7 @@ func (p *Provider) convertMediaPartToMap(
 	}
 
 	return map[string]any{
-		"inlineData": map[string]any{
+		wireKeyInlineData: map[string]any{
 			wireKeyMimeType: mimeType,
 			wireKeyData:     base64Data,
 		},

@@ -100,6 +100,11 @@ type RealtimeSession struct {
 	// Configuration stored for the session
 	config RealtimeSessionConfig
 
+	// newLoader makes the media loader for one tool round (nil: a loader with
+	// no media storage); providerID names the provider in its logs.
+	newLoader  func() *providers.MediaLoader
+	providerID string
+
 	// Cost tracking (can be overridden via provider config)
 	inputCostPer1K  float64
 	outputCostPer1K float64
@@ -124,6 +129,11 @@ type realtimeSessionOpts struct {
 	dialHeaders func(context.Context) (http.Header, error)
 	// now, when set, is the session's clock for the playout estimate.
 	now func() time.Time
+	// mediaLoader, when set, makes the loader a tool round's media is read
+	// through (the provider's, with its media storage); providerID names the
+	// provider in what the session logs about that media.
+	mediaLoader func() *providers.MediaLoader
+	providerID  string
 }
 
 // NewRealtimeSession creates a new OpenAI Realtime streaming session.
@@ -168,6 +178,8 @@ func newRealtimeSession(
 		errCh:      make(chan error, 1),
 		config:     *config,
 		now:        opts.now,
+		newLoader:  opts.mediaLoader,
+		providerID: opts.providerID,
 	}
 
 	// Wait for session.created event
