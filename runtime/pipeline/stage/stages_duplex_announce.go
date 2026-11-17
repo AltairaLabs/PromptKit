@@ -91,6 +91,18 @@ func (s *DuplexProviderStage) takeAnnouncementChunk(chunk *providers.StreamChunk
 	return chunk.Generation == a.gen
 }
 
+// guardReplyChunk runs the streaming output guardrails on a reply chunk, and
+// then, for the spoken message, drops what it adds beyond its audio
+// (stripAnnouncementChunk).
+func (s *DuplexProviderStage) guardReplyChunk(
+	ctx context.Context, chunk *providers.StreamChunk, isOutputTranscription, announcing bool,
+) {
+	s.guardOutputChunk(ctx, chunk, isOutputTranscription)
+	if announcing {
+		stripAnnouncementChunk(chunk, isOutputTranscription)
+	}
+}
+
 // stripAnnouncementChunk drops what the spoken message's chunk adds beyond
 // its audio, once the output guardrails have seen its text: the blocked turn
 // already carries the text, and the message makes no tool calls.

@@ -1618,10 +1618,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 
 	// Streaming guardrails check the chunk's assistant text before it is
 	// accumulated or forwarded.
-	s.guardOutputChunk(ctx, chunk, isOutputTranscription)
-	if announcing {
-		stripAnnouncementChunk(chunk, isOutputTranscription)
-	}
+	s.guardReplyChunk(ctx, chunk, isOutputTranscription, announcing)
 
 	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
 		return err
