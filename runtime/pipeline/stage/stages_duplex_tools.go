@@ -161,6 +161,18 @@ type duplexTools struct {
 	// cleared when the next assistant turn completes: the reply they start.
 	inflight atomic.Int64
 	replyDue atomic.Bool
+
+	// stopWorker cancels the worker's context and workerDone closes once the
+	// worker has returned (startToolWorker); undelivered are the rounds it
+	// finished and could not hand over before it was stopped
+	// (finishToolRounds).
+	stopWorker context.CancelFunc
+	workerDone chan struct{}
+	// workerMu guards undelivered and abandoned, set once finishToolRounds
+	// has gone on without the worker.
+	workerMu    sync.Mutex
+	undelivered []*duplexToolResult
+	abandoned   bool
 }
 
 // duplexRound is a realtime provider call in progress: the round it is and
@@ -688,9 +700,23 @@ func (s *DuplexProviderStage) toolJob(settled *settledCall) *duplexToolJob {
 	}
 	if len(calls) == 0 || dt.isTerminal() {
 		dt.endTurn(settled.turn)
-		return nil
+		return closingRefusal(settled.turn, calls, settled.rr)
 	}
 	return &duplexToolJob{turn: settled.turn, calls: calls, rr: settled.rr}
+}
+
+// errSessionClosing is the cause recorded for a call made once a limit is
+// closing the session.
+var errSessionClosing = errors.New("a limit is closing the session")
+
+// closingRefusal is the job for calls made once a limit is closing the
+// session: they are refused, recorded and not sent, so each still has its
+// result. Nil without calls.
+func closingRefusal(turn *duplexToolTurn, calls []types.MessageToolCall, rr roundRef) *duplexToolJob {
+	if len(calls) == 0 {
+		return nil
+	}
+	return &duplexToolJob{turn: turn, calls: calls, rr: rr, refuse: errSessionClosing, terminal: true}
 }
 
 // budgetSpent is the job for a provider call that took the session past
@@ -700,7 +726,7 @@ func (s *DuplexProviderStage) budgetSpent(
 	turn *duplexToolTurn, calls []types.MessageToolCall, rr roundRef, err error,
 ) *duplexToolJob {
 	if !s.tools.setTerminal() {
-		return nil
+		return closingRefusal(turn, calls, rr)
 	}
 	s.tools.stop(turn, err)
 	return &duplexToolJob{turn: turn, calls: calls, rr: rr, refuse: err, report: err, terminal: true}
@@ -822,25 +848,99 @@ func (dt *duplexTools) roundOutstanding() bool {
 	return dt.inflight.Load() > 0 || dt.replyDue.Load()
 }
 
+// startToolWorker starts the worker that runs the session's tool rounds, on a
+// context of its own derived from ctx. Nil-safe without tool execution.
+func (s *DuplexProviderStage) startToolWorker(ctx context.Context) {
+	dt := s.tools
+	if dt == nil {
+		return
+	}
+	workerCtx, stop := context.WithCancel(ctx)
+	dt.stopWorker = stop
+	dt.workerDone = make(chan struct{})
+	go s.runToolWorker(workerCtx)
+}
+
 // runToolWorker runs queued rounds one at a time until ctx ends, handing each
-// one's results to the input goroutine. Results it cannot hand over before ctx
-// ends are dropped.
+// one's results to the input goroutine. A round it cannot hand over before ctx
+// ends is kept in undelivered, for finishToolRounds to record.
 func (s *DuplexProviderStage) runToolWorker(ctx context.Context) {
 	dt := s.tools
-	for {
+	defer close(dt.workerDone)
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return
 		case job := <-dt.jobs:
+			if ctx.Err() != nil {
+				return // never run once stopped: finishToolRounds refuses its calls
+			}
 			res := s.runToolJob(ctx, job)
 			res.turn = job.turn
 			select {
 			case dt.results <- res:
 			case <-ctx.Done():
+				dt.keepUndelivered(res)
 				return
 			}
 		}
 	}
+}
+
+// keepUndelivered keeps a round the worker finished once stopped, for
+// finishToolRounds to record, unless finishToolRounds has already gone on
+// without the worker: it is then dropped.
+func (dt *duplexTools) keepUndelivered(res *duplexToolResult) {
+	dt.workerMu.Lock()
+	defer dt.workerMu.Unlock()
+	if dt.abandoned {
+		logger.Warn("DuplexProviderStage: a tool round finished after the session ended; its result is dropped")
+		return
+	}
+	dt.undelivered = append(dt.undelivered, res)
+}
+
+// takeUndelivered returns the rounds the worker kept, and stops it keeping
+// any more.
+func (dt *duplexTools) takeUndelivered() []*duplexToolResult {
+	dt.workerMu.Lock()
+	defer dt.workerMu.Unlock()
+	dt.abandoned = true
+	out := dt.undelivered
+	dt.undelivered = nil
+	return out
+}
+
+// finishToolRounds ends the session's tool execution once nothing else is
+// emitting: it stops the worker and waits for it to return, for the stage's
+// input grace at most (a running tool is canceled; a round it returns in time
+// is recorded, one it returns later is dropped), answers every call left with
+// no result (a round cut short or still queued, a call held for approval)
+// with a refusal, emits what was held behind them, and completes the provider
+// call still open, so its provider.call.started has its
+// provider.call.completed. Nil-safe without tool execution.
+func (s *DuplexProviderStage) finishToolRounds(ctx context.Context, output chan<- StreamElement) {
+	dt := s.tools
+	if dt == nil {
+		return
+	}
+	dt.markClosed()
+	if dt.stopWorker != nil {
+		dt.stopWorker()
+		select {
+		case <-dt.workerDone:
+		case <-time.After(s.inputGrace()):
+			logger.Warn("DuplexProviderStage: a tool call did not return when canceled; the session ends without it")
+		}
+	}
+	deadline := newCloseDeadline()
+	for _, res := range dt.takeUndelivered() {
+		// A result not taken in time is not recorded; its calls are answered
+		// below.
+		_ = s.recordToolRoundBy(ctx, res, output, sendMode{recorded: true, deadline: deadline})
+	}
+	s.exchange.closeOut(ctx, output, deadline)
+	s.completeOpenCall(ctx, nil, false)
 }
 
 // runToolJob runs one round, or refuses its calls, and returns its results.
@@ -1064,7 +1164,7 @@ func droppedPartTypes(responses []providers.ToolResponse) []string {
 // tools ran and the assistant message that called them was already sent, so
 // the history keeps a result for each call), its held calls and its error
 // surfaced; only its responses are not sent. A round that finishes after the
-// stage stopped delivering (Process returned) is dropped.
+// input goroutine stopped delivering is recorded by finishToolRounds.
 func (s *DuplexProviderStage) deliverToolRound(
 	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
 ) error {
@@ -1072,27 +1172,51 @@ func (s *DuplexProviderStage) deliverToolRound(
 	// Delivered once this returns: a reply its responses start is then
 	// counted by the provider call it opened (openNextToolRound).
 	defer dt.inflight.Add(-1)
-	if err := s.forwardInputMessages(ctx, &res.elem, output); err != nil {
+	if err := s.recordToolRound(ctx, res, output); err != nil {
 		return err
 	}
 	closing := dt.isClosed()
-	if pending := res.elem.Meta.PendingTools; len(pending) > 0 {
-		var held StreamElement
-		held.Meta.PendingTools = pending
-		if err := sendStreamElement(ctx, held, output); err != nil {
-			return err
-		}
-	}
 	if responses := res.elem.Meta.ToolResponses; len(responses) > 0 { // not sent once closing (sendToolRound)
 		s.sendToolRound(ctx, res, responses)
 	}
 	if res.err != nil {
-		if err := sendStreamElement(ctx, NewErrorElement(res.err), output); err != nil {
+		if err := s.emit(ctx, NewErrorElement(res.err), output); err != nil {
 			return err
 		}
 	}
 	if res.closeSession && !closing {
 		s.closeSessionIfOpen()
+	}
+	return nil
+}
+
+// recordToolRound emits a finished round's result messages (into the hooks'
+// history too) and the calls it holds for the caller. The results go out even
+// once ctx is canceled (emitRecorded): the assistant message that made the
+// calls is already out, and the transcript keeps a result for each.
+func (s *DuplexProviderStage) recordToolRound(
+	ctx context.Context, res *duplexToolResult, output chan<- StreamElement,
+) error {
+	return s.recordToolRoundBy(ctx, res, output, sendMode{recorded: true})
+}
+
+// recordToolRoundBy is recordToolRound sending in mode.
+func (s *DuplexProviderStage) recordToolRoundBy(
+	ctx context.Context, res *duplexToolResult, output chan<- StreamElement, mode sendMode,
+) error {
+	for i := range res.elem.Meta.ToolResultMessages {
+		msg := &res.elem.Meta.ToolResultMessages[i]
+		s.recordHistory(msg) // first, so a held result's entry follows it (toolExchangeOrder)
+		if err := s.exchange.send(ctx, StreamElement{Message: msg}, output, mode); err != nil {
+			return err
+		}
+	}
+	if pending := res.elem.Meta.PendingTools; len(pending) > 0 {
+		var held StreamElement
+		held.Meta.PendingTools = pending
+		if err := s.exchange.send(ctx, held, output, mode); err != nil {
+			return err
+		}
 	}
 	return nil
 }

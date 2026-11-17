@@ -157,7 +157,9 @@ func (p *Provider) prepareResponsesMessages(
 ) (providers.PredictionRequest, error) {
 	msgs := make([]types.Message, len(req.Messages))
 	for i := range req.Messages {
-		msgs[i] = req.Messages[i]
+		// The Responses API takes no audio: a spoken reply goes as its
+		// transcript.
+		msgs[i] = providers.WithoutAssistantAudio(req.Messages[i])
 		if result := msgs[i].ToolResult; result != nil && result.HasMedia() {
 			resolved, err := p.resolveToolResultMedia(ctx, result)
 			if err != nil {

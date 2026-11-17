@@ -99,6 +99,7 @@ The package provides:
 - [func ValidatePredictWithToolsReturnsLatency\(t \*testing.T, provider Provider\)](<#ValidatePredictWithToolsReturnsLatency>)
 - [func ValidateSamplingParamsAccepted\(t \*testing.T, provider Provider\)](<#ValidateSamplingParamsAccepted>)
 - [func WarnUnsentParams\(providerID string, req \*PredictionRequest, params ...string\)](<#WarnUnsentParams>)
+- [func WithoutAssistantAudio\(msg types.Message\) types.Message](<#WithoutAssistantAudio>)
 - [type AudioStreamingCapabilities](<#AudioStreamingCapabilities>)
 - [type BargeInSignal](<#BargeInSignal>)
   - [func NewBargeInSignal\(\) BargeInSignal](<#NewBargeInSignal>)
@@ -1281,6 +1282,15 @@ func WarnUnsentParams(providerID string, req *PredictionRequest, params ...strin
 ```
 
 WarnUnsentParams logs, once per provider and parameter, each of params \(ParamTemperature, ParamTopP, ParamTopK, ParamFrequencyPenalty, ParamPresencePenalty\) that req sets but providerID does not send, because its API rejects or has no such parameter. A parameter req leaves unset logs nothing.
+
+<a name="WithoutAssistantAudio"></a>
+## func [WithoutAssistantAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/assistant_audio.go#L12>)
+
+```go
+func WithoutAssistantAudio(msg types.Message) types.Message
+```
+
+WithoutAssistantAudio returns msg without its audio parts when msg is an assistant message, for an API that takes no audio there: a realtime session stores each spoken reply with its audio and its transcript, and the transcript is what such a model is sent. Any other message is returned unchanged, so user audio meets the provider's own rule. The caller's message is not modified. An assistant message left with no parts keeps its Content.
 
 <a name="AudioStreamingCapabilities"></a>
 ## type [AudioStreamingCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L271-L293>)

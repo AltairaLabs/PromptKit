@@ -79,6 +79,9 @@ type duplexTurnGuard struct {
 type duplexHistory struct {
 	mu   sync.Mutex
 	msgs []types.Message
+	// src is the message each entry of msgs was copied from, so an entry can
+	// be taken out while its message is held (remove).
+	src []*types.Message
 }
 
 // add keeps a text-only copy of m: the guardrails judge text, and a realtime
@@ -90,6 +93,22 @@ func (h *duplexHistory) add(m *types.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.msgs = append(h.msgs, c)
+	h.src = append(h.src, m)
+}
+
+// remove takes out the entry copied from m, the latest one, and reports
+// whether there was one.
+func (h *duplexHistory) remove(m *types.Message) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := len(h.src) - 1; i >= 0; i-- {
+		if h.src[i] == m {
+			h.msgs = append(h.msgs[:i], h.msgs[i+1:]...)
+			h.src = append(h.src[:i], h.src[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // fillUserTranscript gives the latest user turn that has no text yet its
@@ -125,6 +144,7 @@ func (h *duplexHistory) insert(i int, m *types.Message) {
 	defer h.mu.Unlock()
 	i = max(0, min(i, len(h.msgs)))
 	h.msgs = append(h.msgs[:i], append([]types.Message{c}, h.msgs[i:]...)...)
+	h.src = append(h.src[:i], append([]*types.Message{m}, h.src[i:]...)...)
 }
 
 // textOnlyParts returns the text parts of parts.
@@ -444,7 +464,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	ctx context.Context, turn *duplexBlockedTurn, output chan<- StreamElement,
 ) error {
 	if turn.user != nil {
-		if err := emitTypedUserTurn(ctx, turn.user, output); err != nil {
+		if err := s.emitTypedUserTurn(ctx, turn.user, output); err != nil {
 			return err
 		}
 	}
@@ -466,7 +486,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	s.takeCarriedCost(blocked)
 	end := StreamElement{Message: blocked, EndOfStream: true, Timestamp: timeNow()}
 	end.Meta.FinishReason = &fr
-	return sendStreamElement(ctx, end, output)
+	return s.emit(ctx, end, output)
 }
 
 // failInput reports a hook denial on the input side: the error goes
@@ -479,7 +499,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 // at the error.
 func (s *DuplexProviderStage) failInput(ctx context.Context, err error, output chan<- StreamElement) {
 	s.inputFailed.Store(true)
-	_ = sendStreamElement(ctx, NewErrorElement(err), output)
+	_ = s.emit(ctx, NewErrorElement(err), output)
 	s.closeSessionIfOpen()
 }
 
@@ -559,7 +579,7 @@ func (s *DuplexProviderStage) failTurn(ctx context.Context, err error, output ch
 	if flushErr := s.flushBlockedTurns(ctx, output); flushErr != nil {
 		return flushErr
 	}
-	if sendErr := sendStreamElement(ctx, NewErrorElement(err), output); sendErr != nil {
+	if sendErr := s.emit(ctx, NewErrorElement(err), output); sendErr != nil {
 		return sendErr
 	}
 	return err
