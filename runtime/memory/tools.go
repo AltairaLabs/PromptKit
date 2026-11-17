@@ -128,10 +128,7 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		return nil, fmt.Errorf("memory recall: %w", err)
 	}
 
-	return json.Marshal(map[string]any{
-		resultMemories: memories,
-		resultCount:    len(memories),
-	})
+	return memoriesResult(memories)
 }
 
 func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
@@ -208,6 +205,15 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		return nil, fmt.Errorf("memory list: %w", err)
 	}
 
+	return memoriesResult(memories)
+}
+
+// memoriesResult marshals a recall or list result. An empty result is an
+// empty array, not null: the tools' output schema requires an array.
+func memoriesResult(memories []*Memory) (json.RawMessage, error) {
+	if memories == nil {
+		memories = []*Memory{}
+	}
 	return json.Marshal(map[string]any{
 		resultMemories: memories,
 		resultCount:    len(memories),
