@@ -111,7 +111,7 @@ func IsKnownCategory(s string) bool
 IsKnownCategory reports whether s exactly matches one of the canonical category strings. The storage layer does not reject unknown values, so this helper is for consumer validation.
 
 <a name="RegisterMemoryTools"></a>
-## func [RegisterMemoryTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L255>)
+## func [RegisterMemoryTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/memory/tools.go#L261>)
 
 ```go
 func RegisterMemoryTools(registry *tools.Registry)
