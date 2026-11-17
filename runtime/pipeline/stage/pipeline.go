@@ -985,7 +985,9 @@ func (t *completionTotals) observe(elem *StreamElement) bool {
 			t.signals = append(t.signals, e)
 		}
 	}
-	if elem.Message == nil {
+	if elem.Message == nil || elem.Meta.PlayoutRelease {
+		// A PlayoutRelease repeats a Message already counted on the element
+		// PlayoutHoldStage held it from.
 		return true
 	}
 	t.messageCount++

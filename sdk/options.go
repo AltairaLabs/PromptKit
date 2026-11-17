@@ -265,6 +265,10 @@ type config struct {
 	// the capture→pipeline→playback pump in Conversation.Start.
 	audioSession audio.Session
 
+	// playoutTracking: the host plays the duplex session's reply audio to a
+	// listener in real time (WithPlayoutTracking).
+	playoutTracking bool
+
 	// voiceObserver, if set, is called with every response chunk during
 	// Conversation.Start — text deltas, transcription metadata, tool events —
 	// so an app can display the conversation while Start manages the audio.
@@ -4204,6 +4208,25 @@ func WithTelemetryContentCapture(enabled bool) Option {
 func WithEventRedactor(r events.Redactor) Option {
 	return func(c *config) error {
 		c.eventRedactor = r
+		return nil
+	}
+}
+
+// WithPlayoutTracking tells a realtime (ASM) duplex conversation that the
+// host plays its reply audio to a listener in real time, as it arrives on
+// Response(). The conversation then records each spoken reply as it was heard:
+// a reply reaches the state store, the recording and message.created once its
+// audio has played, and a reply the caller barged in on (or that was still
+// playing when the session closed) keeps its text and finish reason but gets
+// Message.Meta heard_ms, audio_ms, played_fraction and playout_cut.
+//
+// It is on already when the conversation drives a speaker itself (OpenVoice,
+// WithAudioSession). Without either, nothing is held: a headless consumer
+// that does not play the audio would otherwise have every last reply marked
+// cut at close.
+func WithPlayoutTracking() Option {
+	return func(c *config) error {
+		c.playoutTracking = true
 		return nil
 	}
 }

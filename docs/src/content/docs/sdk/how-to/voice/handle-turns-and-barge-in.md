@@ -108,24 +108,31 @@ The speech that interrupted the reply is the user's next turn, and it is
 transcribed in full. Speech that starts after the reply has finished playing is
 an ordinary turn, with no `Interrupted` chunk.
 
-In ASM mode the conversation's transcript records a spoken reply as the caller
-heard it. A reply with audio reaches the state store, the recording and
-`message.created` once its audio has played, in the same order as before.
-Everything after it waits behind it, so the order holds. If the caller barges
-in, or the session closes while the reply still plays, the stored reply keeps
-its full text and has `FinishReason` `interrupted`. Its `Meta` then holds:
+In ASM mode, when the reply audio is played to a listener in real time, the
+conversation's transcript records each spoken reply as the caller heard it.
+That is the case when the conversation drives a speaker itself (`OpenVoice`,
+`WithAudioSession`), or when your code plays the audio from `Response()` as it
+arrives and opens the conversation with `sdk.WithPlayoutTracking()`. A reply
+with audio then reaches the state store, the recording and `message.created`
+once its audio has played; everything after it waits behind it, so the order
+holds. The chunks on `Response()` are not delayed.
+
+If the caller barges in, or the session ends while the reply still plays, the
+stored reply keeps its full text and its `FinishReason`, so it stays in model
+context with any tool calls it made. Its `Meta` gains:
 
 | Key | Value |
 |---|---|
 | `heard_ms` | how much of the reply's audio had played, in milliseconds |
 | `audio_ms` | the reply's audio length, in milliseconds |
 | `played_fraction` | `heard_ms` over `audio_ms`, from 0 to 1 |
-| `_interrupted_cause` | `barge-in-playout`, or `session-closed` |
+| `playout_cut` | `barge-in`, or `session-closed` |
 
 The text is not cut to the words heard: neither provider's transcript of the
-reply audio carries timing, so it cannot be aligned with the audio. The chunks
-on `Response()` are not delayed. A reply without audio is stored as soon as it
-completes.
+reply audio carries timing, so it cannot be aligned with the audio. A reply
+without audio is stored as soon as it completes. Without a listener (a
+headless or test consumer that does not play the audio) nothing is held, and
+replies are stored as soon as they complete.
 
 ```go
 for chunk := range responses {

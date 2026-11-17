@@ -2,6 +2,8 @@ package stage
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,6 +12,54 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
+
+// fakeHoldClock is a manual clock: time moves only on advance, which fires
+// the waits it passes.
+type fakeHoldClock struct {
+	mu      sync.Mutex
+	t       time.Time
+	waiters []fakeHoldWait
+}
+
+type fakeHoldWait struct {
+	at time.Time
+	c  chan time.Time
+}
+
+var holdT0 = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+func (f *fakeHoldClock) now() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.t
+}
+
+func (f *fakeHoldClock) after(d time.Duration) <-chan time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c := make(chan time.Time, 1)
+	if d <= 0 {
+		c <- f.t
+		return c
+	}
+	f.waiters = append(f.waiters, fakeHoldWait{at: f.t.Add(d), c: c})
+	return c
+}
+
+func (f *fakeHoldClock) advance(d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.t = f.t.Add(d)
+	kept := f.waiters[:0]
+	for _, w := range f.waiters {
+		if w.at.After(f.t) {
+			kept = append(kept, w)
+			continue
+		}
+		w.c <- f.t
+	}
+	f.waiters = kept
+}
 
 // replyAudio is d of 24 kHz mono PCM16 audio.
 func replyAudio(d time.Duration) StreamElement {
@@ -24,127 +74,164 @@ func replyEnd(text string) StreamElement {
 		FinishReason: "stop", Meta: map[string]interface{}{finishReasonMetaKey: "stop"}}}
 }
 
-// holdRun drives a PlayoutHoldStage, recording each element with when it
-// came out.
-type holdRun struct {
-	in    chan StreamElement
-	out   chan StreamElement
-	start time.Time
-	done  chan error
+func bargeInElem() StreamElement {
+	e := StreamElement{}
+	e.Meta.Interrupted = true
+	return e
 }
 
-func startHold() *holdRun {
-	r := &holdRun{in: make(chan StreamElement, 16), out: make(chan StreamElement, 64), start: time.Now(),
-		done: make(chan error, 1)}
-	go func() { r.done <- NewPlayoutHoldStage().Process(context.Background(), r.in, r.out) }()
+// holdRun drives a PlayoutHoldStage on a fake clock.
+type holdRun struct {
+	clock  *fakeHoldClock
+	in     chan StreamElement
+	out    chan StreamElement
+	cancel context.CancelFunc
+	done   chan error
+}
+
+func startHold(t *testing.T) *holdRun {
+	t.Helper()
+	fc := &fakeHoldClock{t: holdT0}
+	s := NewPlayoutHoldStage()
+	s.clock = holdClock{now: fc.now, after: fc.after}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	r := &holdRun{clock: fc, in: make(chan StreamElement, 16), out: make(chan StreamElement, 64),
+		cancel: cancel, done: make(chan error, 1)}
+	go func() { r.done <- s.Process(ctx, r.in, r.out) }()
 	return r
 }
 
-// next returns the next output element and how long after the start it came.
-func (r *holdRun) next(t *testing.T) (StreamElement, time.Duration) {
+// next returns the next output element (failing after a generous bound).
+func (r *holdRun) next(t *testing.T) StreamElement {
 	t.Helper()
 	select {
 	case e := <-r.out:
-		return e, time.Since(r.start)
+		return e
 	case <-time.After(3 * time.Second):
 		require.FailNow(t, "no element came out")
-		return StreamElement{}, 0
+		return StreamElement{}
 	}
 }
 
-// heard is the heard-playout metadata of a released reply.
-func heard(m *types.Message) (finish string, cause any, heardMs, audioMs int64, fraction float64) {
-	heardMs, _ = m.Meta[MetaHeardMs].(int64)
-	audioMs, _ = m.Meta[MetaAudioMs].(int64)
-	fraction, _ = m.Meta[MetaPlayedFraction].(float64)
-	return m.FinishReason, m.Meta[types.MetaInterruptedCause], heardMs, audioMs, fraction
+// pass sends elems and reads each back as forwarded: the stage has handled
+// them all once this returns.
+func (r *holdRun) pass(t *testing.T, elems ...StreamElement) []StreamElement {
+	t.Helper()
+	var got []StreamElement
+	for _, e := range elems {
+		r.in <- e
+		got = append(got, r.next(t))
+	}
+	return got
+}
+
+// idle reports that nothing is waiting on the output: a marker element sent
+// now comes straight back.
+func (r *holdRun) idle(t *testing.T) bool {
+	t.Helper()
+	marker := "marker"
+	r.in <- StreamElement{Text: &marker}
+	e := r.next(t)
+	return e.Text != nil && *e.Text == marker
+}
+
+// playoutMeta is a released reply's playout metadata.
+type playoutMeta struct {
+	Finish   string
+	Cut      any
+	HeardMs  int64
+	AudioMs  int64
+	Fraction float64
+}
+
+func playoutOf(m *types.Message) playoutMeta {
+	heardMs, _ := m.Meta[MetaHeardMs].(int64)
+	audioMs, _ := m.Meta[MetaAudioMs].(int64)
+	fraction, _ := m.Meta[MetaPlayedFraction].(float64)
+	return playoutMeta{Finish: m.FinishReason, Cut: m.Meta[MetaPlayoutCut], HeardMs: heardMs, AudioMs: audioMs,
+		Fraction: fraction}
 }
 
 // A reply the caller hears to the end reaches the transcript unchanged once
-// its audio has played: the turn-end goes on at once, its Message held, and
-// is released when the playout ends.
+// its audio has played: the turn-end goes on at once, its Message held and
+// stamped with the time it was held, and is released when the playout ends.
 func TestPlayoutHold_FullyPlayedReplyReleasedUnchanged(t *testing.T) {
-	r := startHold()
-	r.in <- replyAudio(150 * time.Millisecond)
-	r.in <- replyEnd("All done.")
-
-	_, _ = r.next(t) // the audio
-	end, _ := r.next(t)
-	assert.True(t, end.EndOfStream)
+	r := startHold(t)
+	got := r.pass(t, replyAudio(150*time.Millisecond), replyEnd("All done."))
+	end := got[1]
 	assert.True(t, end.Meta.PlayoutHeld, "the turn-end goes on at once, its Message held")
-	assert.Equal(t, "All done.", end.Message.Content)
+	assert.Equal(t, holdT0, end.Timestamp, "stamped when held")
+	r.clock.advance(100 * time.Millisecond)
+	assert.True(t, r.idle(t), "nothing released while the audio still plays")
 
-	rel, at := r.next(t)
+	r.clock.advance(50 * time.Millisecond)
+	rel := r.next(t)
 	assert.True(t, rel.Meta.PlayoutRelease)
-	assert.GreaterOrEqual(t, at, 140*time.Millisecond, "released only after the audio played")
-	assert.Equal(t, "All done.", rel.Message.Content)
-	assert.Equal(t, "stop", rel.Message.FinishReason)
-	assert.Equal(t, map[string]interface{}{finishReasonMetaKey: "stop"}, rel.Message.Meta)
+	assert.True(t, rel.EndOfStream, "released with the element's own flags")
+	assert.Equal(t, holdT0, rel.Timestamp, "the release keeps the held time")
+	assert.Equal(t, types.Message{Role: roleAssistant, Content: "All done.", FinishReason: "stop",
+		Meta: map[string]interface{}{finishReasonMetaKey: "stop"}}, *rel.Message)
 	close(r.in)
 	require.NoError(t, <-r.done)
 }
 
 // A reply cut by barge-in while it plays is released at once with its full
-// text, finish reason interrupted, and what the caller heard of it.
-func TestPlayoutHold_BargeInMarksWhatWasHeard(t *testing.T) {
-	r := startHold()
-	r.in <- replyAudio(time.Second)
-	r.in <- replyEnd("A long story.")
-	time.Sleep(300 * time.Millisecond)
-	barge := StreamElement{}
-	barge.Meta.Interrupted = true
-	r.in <- barge
-
-	_, _ = r.next(t)
-	end, _ := r.next(t)
-	require.True(t, end.Meta.PlayoutHeld)
-	b, _ := r.next(t)
+// text and finish reason, and what the caller heard of it.
+func TestPlayoutHold_BargeInRecordsWhatWasHeard(t *testing.T) {
+	r := startHold(t)
+	got := r.pass(t, replyAudio(time.Second), replyEnd("A long story."))
+	r.clock.advance(300 * time.Millisecond)
+	b := r.pass(t, bargeInElem())[0]
 	assert.True(t, b.Meta.Interrupted, "the barge-in itself goes on")
-	rel, _ := r.next(t)
+	rel := r.next(t)
 	require.True(t, rel.Meta.PlayoutRelease)
 	assert.Equal(t, "A long story.", rel.Message.Content, "the text is not cut")
-	finish, cause, heardMs, audioMs, fraction := heard(rel.Message)
-	assert.Equal(t, types.FinishReasonInterrupted, finish)
-	assert.Equal(t, InterruptedCausePlayout, cause)
-	assert.Equal(t, finishReasonInterrupted, rel.Message.Meta[finishReasonMetaKey])
-	assert.InDelta(t, 300, heardMs, 80)
-	assert.Equal(t, int64(1000), audioMs)
-	assert.InDelta(t, 0.3, fraction, 0.08)
-	assert.Equal(t, "stop", end.Message.FinishReason, "the caller's copy is untouched")
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 300, AudioMs: 1000, Fraction: 0.3},
+		playoutOf(rel.Message))
+	assert.Equal(t, "stop", rel.Message.Meta[finishReasonMetaKey])
+	assert.Nil(t, got[1].Message.Meta[MetaHeardMs], "the caller's copy is untouched")
 	close(r.in)
 	require.NoError(t, <-r.done)
 }
 
 // A session that ends while a reply plays releases it with what was heard so
 // far.
-func TestPlayoutHold_SessionCloseReleasesWhatWasHeard(t *testing.T) {
-	r := startHold()
-	r.in <- replyAudio(time.Second)
-	r.in <- replyEnd("A long story.")
-	time.Sleep(200 * time.Millisecond)
+func TestPlayoutHold_InputCloseReleasesWhatWasHeard(t *testing.T) {
+	r := startHold(t)
+	r.pass(t, replyAudio(time.Second), replyEnd("A long story."))
+	r.clock.advance(200 * time.Millisecond)
 	close(r.in)
+	rel := r.next(t)
+	require.True(t, rel.Meta.PlayoutRelease)
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutSessionClosed, HeardMs: 200, AudioMs: 1000, Fraction: 0.2},
+		playoutOf(rel.Message))
 	require.NoError(t, <-r.done)
+}
 
-	var rel StreamElement
-	for e := range r.out {
-		if e.Meta.PlayoutRelease {
-			rel = e
-		}
-	}
-	require.NotNil(t, rel.Message)
-	finish, cause, heardMs, audioMs, _ := heard(rel.Message)
-	assert.Equal(t, types.FinishReasonInterrupted, finish)
-	assert.Equal(t, InterruptedCauseSessionClosed, cause)
-	assert.InDelta(t, 200, heardMs, 80)
-	assert.Equal(t, int64(1000), audioMs)
+// Cancellation releases what is held (with what was heard) before the stage
+// returns, and the stage still reads its input to the end.
+func TestPlayoutHold_CancelReleasesAndDrains(t *testing.T) {
+	r := startHold(t)
+	r.pass(t, replyAudio(time.Second), replyEnd("A long story."))
+	r.clock.advance(400 * time.Millisecond)
+	r.cancel()
+	rel := r.next(t)
+	require.True(t, rel.Meta.PlayoutRelease, "a held message is never lost")
+	assert.Equal(t, int64(400), playoutOf(rel.Message).HeardMs)
+	late := "after cancel"
+	r.in <- StreamElement{Text: &late}
+	assert.Equal(t, "after cancel", *r.next(t).Text, "input after cancellation still passes")
+	close(r.in)
+	assert.ErrorIs(t, <-r.done, context.Canceled)
 }
 
 // A reply without audio passes unchanged and is not held.
 func TestPlayoutHold_TextReplyPassesUnchanged(t *testing.T) {
-	r := startHold()
-	r.in <- replyEnd("Text only.")
-	end, _ := r.next(t)
+	r := startHold(t)
+	end := r.pass(t, replyEnd("Text only."))[0]
 	assert.False(t, end.Meta.PlayoutHeld)
+	assert.True(t, end.Timestamp.IsZero())
 	close(r.in)
 	require.NoError(t, <-r.done)
 	_, more := <-r.out
@@ -152,31 +239,62 @@ func TestPlayoutHold_TextReplyPassesUnchanged(t *testing.T) {
 }
 
 // Messages after a held reply are held behind it, so the transcript keeps
-// its order; a barge-in releases them all, cutting only the reply it cut.
+// its order; a barge-in releases them all, recording only the reply it cut.
 func TestPlayoutHold_LaterMessagesKeepTheirPlace(t *testing.T) {
-	r := startHold()
-	r.in <- replyAudio(50 * time.Millisecond)
-	r.in <- replyEnd("Short.")
-	r.in <- StreamElement{Message: &types.Message{Role: roleUser, Content: "and then?"}}
-	r.in <- replyAudio(time.Second)
-	r.in <- replyEnd("Long.")
-	time.Sleep(250 * time.Millisecond)
-	barge := StreamElement{}
-	barge.Meta.Interrupted = true
-	r.in <- barge
-	close(r.in)
-	require.NoError(t, <-r.done)
-
+	r := startHold(t)
+	r.pass(t, replyAudio(50*time.Millisecond), replyEnd("Short."))
+	r.clock.advance(10 * time.Millisecond)
+	r.pass(t, StreamElement{Message: &types.Message{Role: roleUser, Content: "and then?"}},
+		replyAudio(time.Second), replyEnd("Long."))
+	r.clock.advance(240 * time.Millisecond)
+	r.pass(t, bargeInElem())
 	var released []string
-	for e := range r.out {
-		if !e.Meta.PlayoutRelease {
-			continue
-		}
-		_, cause, heardMs, _, _ := heard(e.Message)
-		released = append(released, e.Message.Role+":"+e.Message.Content+":"+string(e.Message.FinishReason))
-		if cause != nil {
-			assert.InDelta(t, 200, heardMs, 80, "the second reply started after the first played")
+	var cut playoutMeta
+	for range 3 {
+		e := r.next(t)
+		require.True(t, e.Meta.PlayoutRelease)
+		released = append(released, e.Message.Role+":"+e.Message.Content)
+		if e.Message.Meta[MetaPlayoutCut] != nil {
+			cut = playoutOf(e.Message)
 		}
 	}
-	assert.Equal(t, []string{"assistant:Short.:stop", "user:and then?:", "assistant:Long.:interrupted"}, released)
+	assert.Equal(t, []string{"assistant:Short.", "user:and then?", "assistant:Long."}, released)
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 200, AudioMs: 1000, Fraction: 0.2}, cut,
+		"the second reply started playing when the first ended, 40 ms after it arrived")
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
+// Audio of a reply that ended without a message (an error) is not credited
+// to the next reply.
+func TestPlayoutHold_ErroredReplyAudioNotCarriedOver(t *testing.T) {
+	r := startHold(t)
+	r.pass(t, replyAudio(500*time.Millisecond), StreamElement{Error: errors.New("provider dropped")})
+	r.clock.advance(500 * time.Millisecond)
+	r.pass(t, replyAudio(100*time.Millisecond), replyEnd("Second."))
+	r.clock.advance(50 * time.Millisecond)
+	r.pass(t, bargeInElem())
+	rel := r.next(t)
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 50, AudioMs: 100, Fraction: 0.5},
+		playoutOf(rel.Message))
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
+// The pipeline's completion totals count a held message once: the release
+// repeats it.
+func TestCompletionTotals_CountHeldMessageOnce(t *testing.T) {
+	msg := &types.Message{Role: roleAssistant, Content: "x",
+		CostInfo: &types.CostInfo{InputTokens: 3, OutputTokens: 4, TotalCost: 0.5}}
+	held := StreamElement{Message: msg, EndOfStream: true}
+	held.Meta.PlayoutHeld = true
+	release := StreamElement{Message: msg, EndOfStream: true}
+	release.Meta.PlayoutRelease = true
+	totals := &completionTotals{}
+	assert.True(t, totals.observe(&held))
+	assert.True(t, totals.observe(&release))
+	assert.Equal(t, 1, totals.messageCount)
+	assert.Equal(t, 3, totals.inputTokens)
+	assert.Equal(t, 4, totals.outputTokens)
+	assert.InDelta(t, 0.5, totals.totalCost, 1e-9)
 }

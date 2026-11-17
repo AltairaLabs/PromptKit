@@ -18,8 +18,8 @@ import (
 )
 
 // Live: the caller barges in about 15 s into a long OpenAI Realtime reply
-// that finished generating. The stored reply keeps its full text and is
-// marked interrupted, with heard_ms matching how much of it had played.
+// that finished generating. The stored reply keeps its full text and finish
+// reason, with heard_ms matching how much of it had played.
 //
 //	go -C sdk test -tags integration -run 'TestLiveRealtimeHeardReply' -count=1 -v .
 func TestLiveRealtimeHeardReply_StoredAsHeard(t *testing.T) {
@@ -31,6 +31,7 @@ func TestLiveRealtimeHeardReply_StoredAsHeard(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	conv, err := sdk.OpenDuplex(rtlWritePack(t, rtpPackJSON), "chat",
 		sdk.WithProvider(rc.provider()), sdk.WithSkipSchemaValidation(), sdk.WithStateStore(store),
+		sdk.WithPlayoutTracking(), // the test's player estimate stands in for real-time playback
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
 			Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio, ChunkSize: 3200,
 				SampleRate: rc.inputRate, Channels: 1, BitDepth: 16, Encoding: rc.encoding},
@@ -76,8 +77,8 @@ func TestLiveRealtimeHeardReply_StoredAsHeard(t *testing.T) {
 		return false
 	}), "the reply was never stored")
 	t.Logf("stored: finish=%q meta=%v len=%d", reply.FinishReason, reply.Meta, len(reply.GetContent()))
-	assert.Equal(t, types.FinishReasonInterrupted, string(reply.FinishReason))
-	assert.Equal(t, "barge-in-playout", reply.Meta[types.MetaInterruptedCause])
+	assert.Equal(t, "stop", reply.FinishReason, "the reply completed; only its playback was cut")
+	assert.Equal(t, "barge-in", reply.Meta["playout_cut"])
 	heardMs, _ := reply.Meta["heard_ms"].(int64)
 	audioMs, _ := reply.Meta["audio_ms"].(int64)
 	assert.InDelta(t, float64(wantHeard.Milliseconds()), float64(heardMs), 1500)
