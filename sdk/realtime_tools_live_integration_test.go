@@ -1079,9 +1079,28 @@ func TestLiveRealtimeTools_UnofferedToolNeverRuns(t *testing.T) {
 		require.Error(t, failed[0].Error)
 		assert.Equal(t, refusal, failed[0].Error.Error())
 		assert.Zero(t, refunds.count(), "a tool the session was not offered ran")
-		assert.True(t, strings.Contains(st.textSince(0), "not available") || strings.Contains(st.textSince(0), "not run"),
-			"the model was not told of the refusal: %q", st.Text())
+		// What the model was told is the tool response the stage sent the
+		// session, built from this call's tool result: its text, flagged as an
+		// error. The model's own wording of it is its choice.
+		var sent *types.MessageToolResult
+		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool {
+			sent = rtlToolResult(conv, failed[0].CallID)
+			return sent != nil
+		}), "no tool result for call %s in the history", failed[0].CallID)
+		assert.Equal(t, refusal, sent.GetTextContent(), "the session was not sent the refusal")
+		assert.Equal(t, refusal, sent.Error, "the refusal was not sent as an error")
+		t.Logf("reply: %q", st.Text())
 	})
+}
+
+// rtlToolResult returns the tool result for callID in conv's history, or nil.
+func rtlToolResult(conv *sdk.Conversation, callID string) *types.MessageToolResult {
+	for _, m := range conv.Messages(context.Background()) {
+		if m.ToolResult != nil && m.ToolResult.ID == callID {
+			return m.ToolResult
+		}
+	}
+	return nil
 }
 
 // rtlUnofferedAttempts is how many times the unoffered-tool case asks.
