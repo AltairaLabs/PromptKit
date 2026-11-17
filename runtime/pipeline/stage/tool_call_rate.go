@@ -223,22 +223,6 @@ func (a *callRateAdmission) withdraw() {
 	}
 }
 
-// callRateAdmission returns the admission for toolCall: the zero value when
-// no limit is set.
-func (s *ProviderStage) callRateAdmission(toolCall types.MessageToolCall) *callRateAdmission {
-	p := s.policy()
-	if p == nil || p.MaxCallsPerMinute <= 0 || s.callRate == nil {
-		return &callRateAdmission{}
-	}
-	var conversationID string
-	if s.turnState != nil {
-		conversationID = s.turnState.ConversationID
-	}
-	return &callRateAdmission{
-		window: s.callRate, conversationID: conversationID, tool: toolCall.Name, limit: p.MaxCallsPerMinute,
-	}
-}
-
 // callRateRefusal reports whether err is the window's refusal of toolCall
 // and, if so, returns the result the model is answered with, in the shape of
 // the other tool-policy refusals.

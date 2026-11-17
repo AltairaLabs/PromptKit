@@ -7,14 +7,11 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"sort"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
@@ -95,32 +92,21 @@ type ProviderStage struct {
 	// turn ending with the origin state still in control. Nil for
 	// non-workflow runs. See state_handoff.go.
 	stateResolver WorkflowStateResolver
-	// offeredTools accumulates the tool names handed to the provider across
-	// this turn's rounds, stamped onto each assistant message. Reset per turn
-	// by newToolLoop; see resetOffered for why that matters.
-	//
-	// A turn runs on one goroutine, so it needs no lock.
+	// offers is the stage's offer state: the tool names handed to the provider
+	// across this turn's rounds, stamped onto each assistant message and reset
+	// per turn by newToolLoop (see toolRunner.resetOffered), and the
+	// fingerprint of the tools array last built. Every runner the stage builds
+	// shares it. Created by the constructor, or on first use (offerState).
 	//
 	// Held behind a pointer deliberately: a map field of its own would make
 	// ProviderStage non-comparable, which is an incompatible API change for a
 	// published exported type and blocks every subsequent minor release.
-	offeredTools *offeredToolSet
-
-	// describedKey fingerprints the tools array last built, as DescribeTool
-	// shaped it (see describedToolsKey). Like offeredTools it is turn state
-	// read and written on the turn's one goroutine.
-	describedKey string
+	offers *toolOffer
 
 	// callRate counts the calls admitted under ToolPolicy.MaxCallsPerMinute,
 	// per conversation and tool, across turns. A pointer for the same reason
 	// as offeredTools.
 	callRate *CallRateWindow
-}
-
-// offeredToolSet is the set of tool names offered during a turn. It exists so
-// ProviderStage can hold it by pointer and stay comparable; see offeredTools.
-type offeredToolSet struct {
-	names map[string]bool
 }
 
 // currentTurn returns the 1-based number of the turn being processed, or 0 when
@@ -398,32 +384,87 @@ func NewProviderStageWithTurnState(
 		hookRegistry: hookRegistry,
 		turnState:    turnState,
 		callRate:     callRate,
+		offers:       &toolOffer{},
 	}
 }
 
-// toolLabels returns the Labels from the ToolDescriptor for the given tool name,
-// or nil if the tool is not found or has no labels.
-func (s *ProviderStage) toolLabels(name string) map[string]string {
-	if s.toolRegistry == nil {
-		return nil
+// offerState returns the stage's offer state, creating it for a stage built
+// without the constructor. Called on the turn's goroutine.
+func (s *ProviderStage) offerState() *toolOffer {
+	if s.offers == nil {
+		s.offers = &toolOffer{}
 	}
-	desc := s.toolRegistry.Get(name)
-	if desc == nil {
-		return nil
-	}
-	return desc.Labels
+	return s.offers
 }
 
-// toolDeclaration returns the pack declaration the registry holds for a tool,
-// or nil when the tool is undeclared or unknown.
-func (s *ProviderStage) toolDeclaration(name string) *packspec.Tool {
-	if s.toolRegistry == nil {
-		return nil
+// runner returns the tool runner for the stage's current state. It is built on
+// each use, from the fields as they are now, so it never runs on a stale copy
+// of a field set after construction.
+func (s *ProviderStage) runner() *toolRunner {
+	var cfg toolRunnerConfig
+	if s.config != nil {
+		cfg = toolRunnerConfig{
+			ApprovalGate:    s.config.ApprovalGate,
+			ApprovalChecker: s.config.ApprovalChecker,
+			Caller:          s.config.Caller,
+			ToolGrants:      s.config.ToolGrants,
+			DescribeTool:    s.config.DescribeTool,
+		}
 	}
-	if desc := s.toolRegistry.Get(name); desc != nil {
-		return desc.Declaration
+	cfg.CallRate = s.callRate
+	return &toolRunner{
+		registry:      s.toolRegistry,
+		policy:        s.policy,
+		emitter:       s.emitter,
+		hookRegistry:  s.hookRegistry,
+		turnState:     s.turnState,
+		cfg:           cfg,
+		stateResolver: s.stateResolver,
+		offers:        s.offerState(),
 	}
-	return nil
+}
+
+// executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls).
+//
+//nolint:unused // tests call it on the stage
+func (s *ProviderStage) executeToolCalls(
+	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
+) ([]types.Message, error) {
+	return s.runner().executeToolCalls(ctx, toolCalls, rr)
+}
+
+// updateExcludedTools records a round's rejections (see
+// toolRunner.updateExcludedTools).
+//
+//nolint:unused // tests call it on the stage
+func (s *ProviderStage) updateExcludedTools(
+	ctx context.Context, results []types.Message, rejectionCounts map[string]int,
+	excluded map[string]bool, round int,
+) bool {
+	return s.runner().updateExcludedTools(ctx, results, rejectionCounts, excluded, round)
+}
+
+// getMaxParallelToolCalls returns the max concurrency for parallel tool execution.
+//
+//nolint:unused // tests call it on the stage
+func (s *ProviderStage) getMaxParallelToolCalls() int {
+	return s.runner().getMaxParallelToolCalls()
+}
+
+// handleToolResult converts tool execution result to MessageToolResult.
+//
+//nolint:unused // tests call it on the stage
+func (s *ProviderStage) handleToolResult(
+	call types.MessageToolCall, asyncResult *tools.ToolExecutionResult,
+) types.MessageToolResult {
+	return s.runner().handleToolResult(call, asyncResult)
+}
+
+// enforceResultSizeLimit truncates a tool result over the registry's size limit.
+//
+//nolint:unused // tests call it on the stage
+func (s *ProviderStage) enforceResultSizeLimit(toolName, content string) string {
+	return s.runner().enforceResultSizeLimit(toolName, content)
 }
 
 // activeCall is the provider and parameters the next round runs with.
@@ -1060,19 +1101,6 @@ func (s *ProviderStage) stampWorkflowState(response *types.Message) {
 	response.Meta[workflowStateMetaKey] = meta
 }
 
-// recordToolCalls reports a round's executed tool-call count to the resolver
-// when it implements ToolCallRecorder, feeding the workflow's max_tool_calls
-// budget. No-op without a resolver, or when the resolver does not enforce a
-// budget — the ordinary non-workflow case.
-func (s *ProviderStage) recordToolCalls(n int) {
-	if n <= 0 || s.stateResolver == nil {
-		return
-	}
-	if rec, ok := s.stateResolver.(ToolCallRecorder); ok {
-		rec.RecordToolCalls(n)
-	}
-}
-
 // applyStateHandoff commits a workflow transition left pending by this round's
 // tool calls, then swaps the turn's system prompt and tool set to the
 // destination state's so the next round runs as that state. This is what makes
@@ -1150,26 +1178,23 @@ func (s *ProviderStage) applyStateHandoff(
 
 // toolLoop holds shared state for multi-round tool execution.
 type toolLoop struct {
-	stage               *ProviderStage
-	messages            []types.Message
-	providerTools       interface{}
-	toolChoice          string
-	maxRounds           int
-	excluded            map[string]bool
-	rejectionCounts     map[string]int
-	identicalCallCounts map[string]int // keyed by "toolName\x00<canonical-args>"
-	lastPersistedSeq    int            // messages in the MessageLog: LogAppend's next start seq
-	persistedIdx        int            // tl.messages[:persistedIdx] are already in the log
-	reserve             int            // tokens the system prompt and tools take (reservedTokens)
-	reserveValid        bool           // reserve is current
-	warnedReserve       bool           // one-time warning that the reserve fills the window
-	cumulativeCost      float64        // accumulated cost across rounds
-	cumulativeInput     int            // accumulated input tokens across this loop's rounds
-	cumulativeCached    int            // accumulated cache-read tokens across this loop's rounds
-	cachingSupported    bool           // provider advertises prompt caching (gates the stall warning)
-	warnedNoCaching     bool           // one-time guard for the caching-stalled warning
-	nudgedLoop          bool           // already fed an identical-loop back to the model once
-	toolCallsExecuted   int            // tool calls let through this turn, for max_tool_calls_per_turn
+	// toolTurn is the turn's tool-round state: exclusions, call counts, the
+	// round limit and the run's spend.
+	*toolTurn
+
+	stage            *ProviderStage
+	messages         []types.Message
+	providerTools    interface{}
+	toolChoice       string
+	lastPersistedSeq int  // messages in the MessageLog: LogAppend's next start seq
+	persistedIdx     int  // tl.messages[:persistedIdx] are already in the log
+	reserve          int  // tokens the system prompt and tools take (reservedTokens)
+	reserveValid     bool // reserve is current
+	warnedReserve    bool // one-time warning that the reserve fills the window
+	cumulativeInput  int  // accumulated input tokens across this loop's rounds
+	cumulativeCached int  // accumulated cache-read tokens across this loop's rounds
+	cachingSupported bool // provider advertises prompt caching (gates the stall warning)
+	warnedNoCaching  bool // one-time guard for the caching-stalled warning
 
 	// acc is the live turn input. Held as a pointer rather than copied because
 	// applyStateHandoff can swap the system prompt mid-loop, and the
@@ -1422,22 +1447,12 @@ func (s *ProviderStage) getMaxRounds() int {
 	return defaultMaxRounds
 }
 
-// getMaxToolCallsPerTurn returns the cap on tool calls across all of a turn's
-// rounds, or 0 for no cap.
-func (s *ProviderStage) getMaxToolCallsPerTurn() int {
-	if p := s.policy(); p != nil {
-		return p.MaxToolCallsPerTurn
-	}
-	return 0
-}
-
 // getMaxIdenticalToolCalls returns the threshold for aborting a loop where the
 // same tool is called repeatedly with identical arguments.
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) getMaxIdenticalToolCalls() int {
-	if p := s.policy(); p != nil && p.MaxIdenticalToolCalls > 0 {
-		return p.MaxIdenticalToolCalls
-	}
-	return defaultMaxIdenticalCalls
+	return s.runner().getMaxIdenticalToolCalls()
 }
 
 // canonicalArgs returns a stable, order-insensitive string representation of
@@ -1457,56 +1472,6 @@ func canonicalArgs(raw json.RawMessage) string {
 		return string(raw)
 	}
 	return string(b)
-}
-
-// checkIdenticalToolCalls increments per-call counters and returns an error if
-// any single (tool, args) pair exceeds the configured threshold.
-func (tl *toolLoop) identicalLoopCalls(toolCalls []types.MessageToolCall) []types.MessageToolCall {
-	threshold := tl.stage.getMaxIdenticalToolCalls()
-	var looping []types.MessageToolCall
-	for i := range toolCalls {
-		tc := toolCalls[i]
-		key := tc.Name + "\x00" + canonicalArgs(tc.Args)
-		tl.identicalCallCounts[key]++
-		if tl.identicalCallCounts[key] >= threshold {
-			looping = append(looping, tc)
-		}
-	}
-	return looping
-}
-
-// loopFeedbackResults builds tool-result messages for a round where an identical
-// loop was detected: the looping calls get a synthetic "you repeated this — stop"
-// result (NOT executed, since the result wouldn't change), while any non-looping
-// calls in the same round execute normally so every tool_use still has a result.
-func (tl *toolLoop) loopFeedbackResults(
-	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef,
-) []types.Message {
-	loopSet := make(map[string]bool, len(looping))
-	for _, c := range looping {
-		loopSet[c.ID] = true
-	}
-	threshold := tl.stage.getMaxIdenticalToolCalls()
-	results := make([]types.Message, 0, len(all))
-	var toExecute []types.MessageToolCall
-	for i := range all {
-		tc := all[i]
-		if !loopSet[tc.ID] {
-			toExecute = append(toExecute, tc)
-			continue
-		}
-		msg := fmt.Sprintf(
-			"Repeated call ignored: %q has been called %d times with identical arguments and was NOT "+
-				"executed again — the result will not change. Stop repeating this exact call: change the "+
-				"arguments, use a different tool, or finish the task.",
-			tc.Name, threshold)
-		results = append(results, types.NewToolResultMessage(types.NewTextToolResult(tc.ID, tc.Name, msg)))
-	}
-	if len(toExecute) > 0 {
-		executed, _ := tl.stage.executeToolCalls(ctx, toExecute, rr)
-		results = append(results, executed...)
-	}
-	return results
 }
 
 func (s *ProviderStage) executeStreamingMultiRound(
@@ -1612,46 +1577,30 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	// The one place both multi-round paths pass through exactly once per turn,
 	// and therefore where the turn's offered set begins.
 	s.resetOffered()
-	excluded := map[string]bool{}
-	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, excluded)
+	// Seeded with the cost already incurred in this conversation (prior
+	// turns), so MaxCostUSD bounds the whole RUN, not just this turn's loop.
+	// Arena builds a fresh pipeline (and toolLoop) per turn, so without this
+	// seed the cap would reset every turn and a multi-turn run could spend
+	// MaxCostUSD per turn. History cost is carried on the input messages'
+	// CostInfo.
+	turn := s.runner().newTurn(acc.messages, s.getMaxRounds())
+	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, turn.excluded)
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 	cachingSupported := supportsPromptCaching(s.callProvider())
 	return &toolLoop{
-		stage:               s,
-		acc:                 acc,
-		schemaWithheld:      s.withholdsSchema(providerTools),
-		messages:            acc.messages,
-		providerTools:       providerTools,
-		toolChoice:          toolChoice,
-		maxRounds:           s.getMaxRounds(),
-		excluded:            excluded,
-		rejectionCounts:     map[string]int{},
-		identicalCallCounts: map[string]int{},
-		cachingSupported:    cachingSupported,
-		lastPersistedSeq:    len(acc.messages), // history already in store
-		persistedIdx:        len(acc.messages),
-		// Seed with the cost already incurred in this conversation (prior
-		// turns), so MaxCostUSD bounds the whole RUN, not just this turn's
-		// loop. Arena builds a fresh pipeline (and toolLoop) per turn, so
-		// without this seed the cap would reset every turn and a multi-turn
-		// run could spend MaxCostUSD per turn. History cost is carried on the
-		// input messages' CostInfo.
-		cumulativeCost: sumHistoryCost(acc.messages),
+		toolTurn:         turn,
+		stage:            s,
+		acc:              acc,
+		schemaWithheld:   s.withholdsSchema(providerTools),
+		messages:         acc.messages,
+		providerTools:    providerTools,
+		toolChoice:       toolChoice,
+		cachingSupported: cachingSupported,
+		lastPersistedSeq: len(acc.messages), // history already in store
+		persistedIdx:     len(acc.messages),
 	}, nil
-}
-
-// sumHistoryCost totals the CostInfo across the conversation history fed into
-// this turn — i.e. the run's spend before this turn's loop begins.
-func sumHistoryCost(messages []types.Message) float64 {
-	var total float64
-	for i := range messages {
-		if messages[i].CostInfo != nil {
-			total += messages[i].CostInfo.TotalCost
-		}
-	}
-	return total
 }
 
 // afterRound handles tool execution, rejection tracking, and loop control after
@@ -1680,14 +1629,19 @@ func (tl *toolLoop) afterRound(
 		tl.stage.emitter.ReasoningCompletedCtx(ctx, response.Reasoning, rr.round, rr.providerCallID)
 	}
 
+	// The turn's runner is rebuilt from the stage's current fields each round,
+	// as every other use of it is (runner).
+	if tl.toolTurn != nil {
+		tl.r = tl.stage.runner()
+	}
+
 	// Track cumulative cost for budget enforcement
-	tl.addRoundCost(response.CostInfo)
+	tl.addRoundTokens(response.CostInfo)
+	costErr := tl.AddCost(response.CostInfo)
 	tl.warnIfCachingStalled(round)
-	policy := tl.stage.policy()
-	if policy != nil && policy.MaxCostUSD > 0 && tl.cumulativeCost > policy.MaxCostUSD {
+	if costErr != nil {
 		tl.persistMessages(ctx, round)
-		return true, tl.messages, fmt.Errorf(
-			"provider stage: cost budget exceeded (%.4f > %.4f USD)", tl.cumulativeCost, policy.MaxCostUSD)
+		return true, tl.messages, costErr
 	}
 
 	if !hasToolCalls {
@@ -1702,37 +1656,41 @@ func (tl *toolLoop) afterRound(
 		return true, tl.messages, nil
 	}
 
-	// Repeated-identical-call breaker. The first time the same tool is called with
-	// identical arguments too many times, feed that back to the model once (a
-	// synthetic "you're repeating yourself — stop" result) and let it self-correct
-	// — loops are often transient confusion (e.g. a model retrying a failing call
-	// verbatim). If it loops AGAIN after the nudge, abort.
-	if looping := tl.identicalLoopCalls(response.ToolCalls); len(looping) > 0 {
-		return tl.handleIdenticalLoop(ctx, response.ToolCalls, looping, rr)
-	}
+	return tl.applyRound(ctx, allowedTools, tl.RunRound(ctx, response.ToolCalls, rr), round)
+}
 
-	grantsBefore := tl.stage.grantedTools()
-	calls, overBudget := tl.splitCallBudget(response.ToolCalls)
-	toolResults, err := tl.stage.executeToolCalls(ctx, calls, rr)
-	toolResults = append(toolResults, overBudgetResults(overBudget)...)
-	if err != nil {
-		if _, ok := tools.IsErrToolsPending(err); ok {
-			tl.messages = append(tl.messages, toolResults...)
-			tl.persistMessages(ctx, round)
-			return true, tl.messages, err
-		}
-		return true, tl.messages, fmt.Errorf("provider stage: tool execution failed: %w", err)
+// applyRound folds a tool round's outcome into the loop: appends its results,
+// persists them, rebuilds the offered tools when the round changed them, and
+// ends the turn when the round says to. Returns afterRound's (done, messages,
+// error).
+func (tl *toolLoop) applyRound(
+	ctx context.Context, allowedTools []string, out roundOutcome, round int,
+) (bool, []types.Message, error) {
+	if out.Err != nil && !out.Stop {
+		return true, tl.messages, out.Err
 	}
-
-	tl.messages = append(tl.messages, toolResults...)
+	tl.messages = append(tl.messages, out.Results...)
+	if len(out.Pending) > 0 {
+		tl.persistMessages(ctx, round)
+		return true, tl.messages, &tools.ErrToolsPending{Pending: out.Pending}
+	}
+	var maxRounds *MaxRoundsError
+	if out.Err != nil && !errors.As(out.Err, &maxRounds) {
+		// A repeated-call loop that survived the nudge.
+		tl.persistMessages(ctx, round)
+		return true, tl.messages, out.Err
+	}
 	ResetIdleFromContext(ctx)
 	tl.persistMessages(ctx, round)
+	if out.Nudged {
+		return false, tl.messages, nil
+	}
 
 	// Rebuild the tools array when this round changed what the model may call:
 	// a tool crossed the rejection threshold (excluded), or a tool call such as
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
-	if err := tl.rebuildToolsIfChanged(ctx, allowedTools, toolResults, grantsBefore, round); err != nil {
+	if err := tl.rebuildToolsIfChanged(allowedTools, out.OfferChanged); err != nil {
 		return true, tl.messages, err
 	}
 
@@ -1740,73 +1698,38 @@ func (tl *toolLoop) afterRound(
 
 	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
 	// round is the model's answer rather than more calls to reject.
-	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 && tl.toolCallsExecuted >= limit {
+	if out.OfferExhausted {
 		tl.providerTools = nil
 		tl.invalidateReserve()
 		tl.toolChoice = ""
 	}
 
-	// termination.tool_called: stop cleanly after the round in which
-	// the named terminal tool fired. The tool has already executed and its result
-	// is recorded in tl.messages — now stop before the next provider round.
-	if calledStopTool(policy, response.ToolCalls) {
-		return true, tl.messages, nil
+	// termination.tool_called, or the round limit. The round's results are
+	// already recorded in tl.messages.
+	if out.Stop {
+		return true, tl.messages, out.Err
 	}
-
-	if round == tl.maxRounds {
-		return true, tl.messages, &MaxRoundsError{Rounds: tl.maxRounds}
-	}
-
 	return false, nil, nil
 }
 
-// addRoundCost accumulates a round's cost and token usage for budget
-// enforcement and the caching-stall warning. A nil cost adds nothing.
-func (tl *toolLoop) addRoundCost(cost *types.CostInfo) {
+// addRoundTokens accumulates a round's token usage for the caching-stall
+// warning. A nil cost adds nothing.
+func (tl *toolLoop) addRoundTokens(cost *types.CostInfo) {
 	if cost == nil {
 		return
 	}
-	tl.cumulativeCost += cost.TotalCost
 	tl.cumulativeInput += cost.InputTokens
 	tl.cumulativeCached += cost.CachedTokens
 }
 
-// handleIdenticalLoop applies the repeated-identical-call breaker for a round
-// whose calls include looping ones: the first time it feeds the loop back to
-// the model as synthetic results for one self-correction attempt; after that
-// nudge it aborts. Returns afterRound's (done, messages, error).
-func (tl *toolLoop) handleIdenticalLoop(
-	ctx context.Context,
-	toolCalls, looping []types.MessageToolCall,
-	rr roundRef,
-) (bool, []types.Message, error) {
-	if tl.nudgedLoop {
-		tl.persistMessages(ctx, rr.round)
-		return true, tl.messages, fmt.Errorf(
-			"provider stage: tool loop persisted after a self-correction nudge: %q called with identical arguments",
-			looping[0].Name)
-	}
-	tl.nudgedLoop = true
-	logger.Warn("identical tool-call loop detected; feeding it back to the model for one self-correction attempt",
-		"tool", looping[0].Name)
-	tl.messages = append(tl.messages, tl.loopFeedbackResults(ctx, toolCalls, looping, rr)...)
-	ResetIdleFromContext(ctx)
-	tl.persistMessages(ctx, rr.round)
-	return false, tl.messages, nil
-}
-
 // rebuildToolsIfChanged rebuilds the tools array when this round changed what
-// the model may call: a tool crossed the rejection threshold (excluded), a
-// tool call such as skill__activate / skill__deactivate changed the granted
-// set, or DescribeTool now describes the tools differently (a mid-turn
-// workflow transition narrowing the skill index). Rebuilding busts the
+// the model may call: the round reported an offer change (a tool excluded, the
+// granted set moved), or DescribeTool now describes the tools differently (a
+// mid-turn workflow transition narrowing the skill index). Rebuilding busts the
 // provider's cached prefix, so it happens only on a real change.
-func (tl *toolLoop) rebuildToolsIfChanged(
-	ctx context.Context, allowedTools []string, toolResults []types.Message, grantsBefore []string, round int,
-) error {
-	excludedChanged := tl.stage.updateExcludedTools(ctx, toolResults, tl.rejectionCounts, tl.excluded, round)
+func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, offerChanged bool) error {
 	var offered *describedTools
-	if !excludedChanged && stringSlicesEqual(grantsBefore, tl.stage.grantedTools()) {
+	if !offerChanged {
 		var describedChanged bool
 		if describedChanged, offered = tl.stage.describedToolsChanged(allowedTools, tl.excluded); !describedChanged {
 			return nil
@@ -1819,51 +1742,6 @@ func (tl *toolLoop) rebuildToolsIfChanged(
 	tl.providerTools = rebuilt
 	tl.invalidateReserve()
 	return nil
-}
-
-// calledStopTool reports whether the policy names a terminal tool
-// (termination.tool_called) and one of the round's calls invoked it.
-func calledStopTool(policy *pipeline.ToolPolicy, toolCalls []types.MessageToolCall) bool {
-	if policy == nil || policy.StopOnTool == "" {
-		return false
-	}
-	for _, tc := range toolCalls {
-		if tc.Name == policy.StopOnTool {
-			return true
-		}
-	}
-	return false
-}
-
-// splitCallBudget divides a round's tool calls into those within the turn's
-// max_tool_calls_per_turn budget and those over it, counting the former as
-// executed. Without a cap every call is within budget.
-func (tl *toolLoop) splitCallBudget(
-	calls []types.MessageToolCall,
-) (within, over []types.MessageToolCall) {
-	if limit := tl.stage.getMaxToolCallsPerTurn(); limit > 0 {
-		remaining := max(limit-tl.toolCallsExecuted, 0)
-		if len(calls) > remaining {
-			calls, over = calls[:remaining], calls[remaining:]
-		}
-	}
-	tl.toolCallsExecuted += len(calls)
-	return calls, over
-}
-
-// overBudgetResults answers each call over the max_tool_calls_per_turn budget
-// with a policy rejection. Every call the model made still gets a result, so
-// the history stays valid to replay.
-func overBudgetResults(calls []types.MessageToolCall) []types.Message {
-	results := make([]types.Message, 0, len(calls))
-	for _, tc := range calls {
-		errMsg := fmt.Sprintf("Tool %s not executed: the tool call limit for this turn is reached", tc.Name)
-		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		results = append(results, types.NewToolResultMessage(result))
-	}
-	return results
 }
 
 // preSeedLog writes the history messages that were already present in
@@ -2821,350 +2699,6 @@ func StreamMediaToElement(media *providers.StreamMediaData) StreamElement {
 	return elem
 }
 
-// toolCallResult holds the outcome of a single tool call execution,
-// including its original index for preserving result ordering.
-type toolCallResult struct {
-	index   int
-	message types.Message
-	pending *tools.PendingToolExecution // non-nil if tool returned pending status
-}
-
-// getMaxParallelToolCalls returns the max concurrency for parallel tool execution.
-func (s *ProviderStage) getMaxParallelToolCalls() int {
-	if p := s.policy(); p != nil && p.MaxParallelToolCalls > 0 {
-		return p.MaxParallelToolCalls
-	}
-	return defaultMaxParallelToolCalls
-}
-
-func (s *ProviderStage) executeToolCalls(
-	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
-) ([]types.Message, error) {
-	if s.toolRegistry == nil {
-		return nil, errors.New("tool registry not configured but tool calls present")
-	}
-
-	// Running tools is activity, so hold the idle timer open until they finish.
-	// Each tool is still bounded by its own TimeoutMs.
-	defer keepIdleAlive(ctx)()
-
-	resultSlots := make([]toolCallResult, len(toolCalls))
-	var mu sync.Mutex
-	var pendingTools []tools.PendingToolExecution
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(s.getMaxParallelToolCalls())
-
-	for i, tc := range toolCalls {
-		idx := i
-		toolCall := tc
-
-		g.Go(func() error {
-			result := s.executeSingleToolCall(gctx, toolCall, rr)
-			mu.Lock()
-			defer mu.Unlock()
-			result.index = idx
-			resultSlots[idx] = result
-			if result.pending != nil {
-				pendingTools = append(pendingTools, *result.pending)
-			}
-			return nil
-		})
-	}
-
-	// errgroup goroutines always return nil, so this only errors on ctx cancel.
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	// Collect results in original order, excluding pending entries.
-	results := make([]types.Message, 0, len(toolCalls))
-	for i := range resultSlots {
-		if resultSlots[i].pending != nil {
-			continue
-		}
-		results = append(results, resultSlots[i].message)
-	}
-
-	// Report what actually ran for the workflow's max_tool_calls budget. results
-	// excludes pending calls, which have not executed and are counted when they
-	// run on resume; errored and policy-blocked calls are included, since both
-	// consumed a round.
-	s.recordToolCalls(len(results))
-
-	if len(pendingTools) > 0 {
-		return results, &tools.ErrToolsPending{Pending: pendingTools}
-	}
-
-	return results, nil
-}
-
-// preExecCheck runs policy and hook checks before tool execution.
-// Returns (hookDecision, blocked result, shouldSkip).
-// When shouldSkip is true the caller should return the blocked result directly.
-func (s *ProviderStage) preExecCheck(
-	ctx context.Context, toolCall types.MessageToolCall, toolReq hooks.ToolRequest,
-) (hooks.Decision, toolCallResult, bool) {
-	if p := s.policy(); p != nil && isToolBlocked(toolCall.Name, p.Blocklist) {
-		errMsg := fmt.Sprintf("Tool %s is blocked by policy", toolCall.Name)
-		result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		return hooks.Decision{}, toolCallResult{
-			message: types.NewToolResultMessage(result),
-		}, true
-	}
-
-	var hookDecision hooks.Decision
-	if s.hookRegistry != nil {
-		hookDecision = s.hookRegistry.RunBeforeToolExecution(ctx, toolReq)
-		if !hookDecision.Allow {
-			errMsg := fmt.Sprintf(
-				"Tool %s blocked by hook: %s", toolCall.Name, hookDecision.Reason,
-			)
-			hookResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
-			hookResult.Error = errMsg
-			hookResult.ErrorType = types.ToolErrorApproval
-			msg := types.NewToolResultMessage(hookResult)
-			if hookDecision.Metadata != nil {
-				msg.Meta = hookDecision.Metadata
-			}
-			return hookDecision, toolCallResult{message: msg}, true
-		}
-	}
-	return hookDecision, toolCallResult{}, false
-}
-
-// holdForApproval is the human-in-the-loop approval gate: if a checker holds
-// this call, it is surfaced as pending (via ErrToolsPending / PendingTools
-// metadata) instead of executing, and ok is true. The caller resolves it
-// (approve / approve-with-edits / reject) and resumes.
-//
-// A gate that refuses the call (ApprovalGate returned an error) also sets ok:
-// the call does not run, and its result is the refusal.
-func (s *ProviderStage) holdForApproval(
-	ctx context.Context, toolCall types.MessageToolCall, rr roundRef,
-) (toolCallResult, bool) {
-	gate := s.approvalGate()
-	if gate == nil {
-		return toolCallResult{}, false
-	}
-	var argsMap map[string]any
-	if len(toolCall.Args) > 0 {
-		_ = json.Unmarshal(toolCall.Args, &argsMap)
-	}
-	info, err := gate(ctx, toolCall.ID, toolCall.Name, argsMap)
-	if err != nil {
-		return s.approvalRefused(ctx, toolCall, err, rr), true
-	}
-	if info == nil {
-		return toolCallResult{}, false
-	}
-	if info.ToolName == "" {
-		info.ToolName = toolCall.Name
-	}
-	return s.buildPendingResult(ctx, toolCall, &tools.ToolExecutionResult{
-		Status:      tools.ToolStatusPending,
-		PendingInfo: info,
-	}), true
-}
-
-// approvalGate is the configured approval gate: ApprovalGate when set, else
-// ApprovalChecker as a gate that never refuses, else nil.
-func (s *ProviderStage) approvalGate() tools.ApprovalGate {
-	if s.config == nil {
-		return nil
-	}
-	if s.config.ApprovalGate != nil {
-		return s.config.ApprovalGate
-	}
-	if checker := s.config.ApprovalChecker; checker != nil {
-		return func(ctx context.Context, callID, name string, args map[string]any) (*tools.PendingToolInfo, error) {
-			return checker(ctx, callID, name, args), nil
-		}
-	}
-	return nil
-}
-
-// approvalRefused is the result of a call the approval gate refused: an
-// approval error naming the cause, which the model is given in place of the
-// call's result. A tool.call.started event and a tool.call.failed event
-// report it.
-func (s *ProviderStage) approvalRefused(
-	ctx context.Context, toolCall types.MessageToolCall, cause error, rr roundRef,
-) toolCallResult {
-	errMsg := fmt.Sprintf("Tool %s was not run: the approval gate refused it: %v", toolCall.Name, cause)
-	result := types.NewTextToolResult(toolCall.ID, toolCall.Name, errMsg)
-	result.Error = errMsg
-	result.ErrorType = types.ToolErrorApproval
-	labels := s.toolLabels(toolCall.Name)
-	s.emitToolStarted(ctx, toolCall, labels, rr) // paired with the failure, as on every other failure path
-	s.emitToolFailed(ctx, toolCall, cause, time.Now(), labels, rr)
-	return toolCallResult{message: types.NewToolResultMessage(result)}
-}
-
-// executeSingleToolCall handles policy checks, hooks, execution, and event
-// emission for a single tool call. It never returns an error — failures are
-// captured as error results in the returned message, matching the previous
-// sequential behavior where one tool failure does not cancel others.
-func (s *ProviderStage) executeSingleToolCall(
-	ctx context.Context,
-	toolCall types.MessageToolCall,
-	rr roundRef,
-) toolCallResult {
-	toolReq := s.toolRequest(toolCall)
-	hookDecision, blocked, skip := s.preExecCheck(ctx, toolCall, toolReq)
-	if skip {
-		return blocked
-	}
-
-	if held, ok := s.holdForApproval(ctx, toolCall, rr); ok {
-		return held // admitted under ToolPolicy.MaxCallsPerMinute when the host approves it
-	}
-
-	labels := s.toolLabels(toolCall.Name)
-	s.emitToolStarted(ctx, toolCall, labels, rr)
-
-	startTime := time.Now()
-	ctx = tools.WithCallID(ctx, toolCall.ID)
-	// The registry admits the call under ToolPolicy.MaxCallsPerMinute once its
-	// own checks pass, immediately before the executor runs it.
-	admission := s.callRateAdmission(toolCall)
-	asyncResult, err := s.toolRegistry.ExecuteCallAsyncAdmitted(ctx, s.registryCall(toolCall), admission.admit)
-	ResetIdleFromContext(ctx)
-	if refusal, limited := callRateRefusal(toolCall, err); limited {
-		s.emitToolFailed(ctx, toolCall, err, startTime, labels, rr)
-		return toolCallResult{message: refusal}
-	}
-	if err != nil {
-		return s.toolCallFailed(ctx, toolCall, err, startTime, labels, rr)
-	}
-
-	if asyncResult.Status == tools.ToolStatusPending {
-		admission.withdraw() // a deferred call is admitted when its result is used
-		return s.buildPendingResult(ctx, toolCall, asyncResult)
-	}
-
-	result, err := s.buildToolResult(toolCall, asyncResult, s.resultRewriter(ctx, toolReq))
-	if err != nil {
-		return s.toolCallFailed(ctx, toolCall, err, startTime, labels, rr)
-	}
-	if s.emitter != nil {
-		s.emitter.ToolCallEventCtx(ctx, events.EventToolCallCompleted, &events.ToolCallEventData{
-			ToolName:       toolCall.Name,
-			CallID:         toolCall.ID,
-			Duration:       time.Since(startTime),
-			Status:         string(asyncResult.Status),
-			Parts:          result.Parts,
-			Labels:         labels,
-			Round:          rr.round,
-			ProviderCallID: rr.providerCallID,
-		})
-	}
-	resultMsg := types.NewToolResultMessage(result)
-	if hookDecision.Metadata != nil {
-		resultMsg.Meta = hookDecision.Metadata
-	}
-
-	s.runAfterToolHooks(ctx, toolReq, result, startTime)
-
-	return toolCallResult{message: resultMsg}
-}
-
-// toolRequest is the hook request for a tool call, built once per call.
-func (s *ProviderStage) toolRequest(toolCall types.MessageToolCall) hooks.ToolRequest {
-	if s.hookRegistry == nil {
-		return hooks.ToolRequest{}
-	}
-	return hooks.ToolRequest{
-		Name: toolCall.Name, Args: toolCall.Args, CallID: toolCall.ID,
-		Declaration: s.toolDeclaration(toolCall.Name),
-		Caller:      s.caller(),
-	}
-}
-
-// registryCall is the registry request for a tool call: the call with the
-// conversation's caller.
-func (s *ProviderStage) registryCall(toolCall types.MessageToolCall) tools.ToolCall {
-	return tools.ToolCall{Name: toolCall.Name, Args: toolCall.Args, ID: toolCall.ID, Caller: s.caller()}
-}
-
-// caller is who the conversation acts for (ProviderConfig.Caller).
-func (s *ProviderStage) caller() types.Caller {
-	if s.config == nil {
-		return types.Caller{}
-	}
-	return s.config.Caller
-}
-
-// toolCallFailed emits tool.call.failed and returns the error result the
-// model sees.
-func (s *ProviderStage) toolCallFailed(
-	ctx context.Context, toolCall types.MessageToolCall, err error,
-	startTime time.Time, labels map[string]string, rr roundRef,
-) toolCallResult {
-	s.emitToolFailed(ctx, toolCall, err, startTime, labels, rr)
-	errResult := types.NewTextToolResult(toolCall.ID, toolCall.Name, fmt.Sprintf("Error: %v", err))
-	errResult.Error = err.Error()
-	errResult.ErrorType = classifyToolError(err)
-	return toolCallResult{
-		message: types.NewToolResultMessage(errResult),
-	}
-}
-
-// emitToolFailed emits tool.call.failed.
-func (s *ProviderStage) emitToolFailed(
-	ctx context.Context, toolCall types.MessageToolCall, err error,
-	startTime time.Time, labels map[string]string, rr roundRef,
-) {
-	if s.emitter == nil {
-		return
-	}
-	s.emitter.ToolCallEventCtx(ctx, events.EventToolCallFailed, &events.ToolCallEventData{
-		ToolName:       toolCall.Name,
-		CallID:         toolCall.ID,
-		Error:          err,
-		Duration:       time.Since(startTime),
-		Labels:         labels,
-		Round:          rr.round,
-		ProviderCallID: rr.providerCallID,
-	})
-}
-
-// resultRewriter returns the function that passes a result's text through
-// the hook registry's ToolResultRewriters, or nil when there are none.
-func (s *ProviderStage) resultRewriter(
-	ctx context.Context, toolReq hooks.ToolRequest,
-) func(string) (string, error) {
-	if !s.hookRegistry.HasToolResultRewriters() {
-		return nil
-	}
-	return func(content string) (string, error) {
-		return s.hookRegistry.RunToolResultRewriters(ctx, toolReq, content)
-	}
-}
-
-// emitToolStarted emits the tool call started event if an emitter is configured.
-func (s *ProviderStage) emitToolStarted(
-	ctx context.Context, toolCall types.MessageToolCall, labels map[string]string, rr roundRef,
-) {
-	if s.emitter == nil {
-		return
-	}
-	var argsMap map[string]interface{}
-	if toolCall.Args != nil {
-		_ = json.Unmarshal(toolCall.Args, &argsMap)
-	}
-	s.emitter.ToolCallEventCtx(ctx, events.EventToolCallStarted, &events.ToolCallEventData{
-		ToolName:       toolCall.Name,
-		CallID:         toolCall.ID,
-		Args:           argsMap,
-		Labels:         labels,
-		Round:          rr.round,
-		ProviderCallID: rr.providerCallID,
-	})
-}
-
 // afterCallParams carries what the AfterCall hook chain needs from either
 // round function. responseMsg and toolCalls are pointers because an enforcing
 // guardrail rewrites the response and drops its tool calls in place.
@@ -3559,340 +3093,41 @@ func blockedTurnMessage(req *hooks.ProviderRequest, d hooks.Decision) types.Mess
 	return msg
 }
 
-// buildPendingResult creates a toolCallResult for a pending tool execution.
-// It emits a tool.client.request event so observers know a client tool is
-// awaiting fulfillment, and a tool.call.completed with status "pending" so
-// every tool.call.started has a matching completion.
-func (s *ProviderStage) buildPendingResult(
-	ctx context.Context, toolCall types.MessageToolCall, asyncResult *tools.ToolExecutionResult,
-) toolCallResult {
-	var argsMap map[string]any
-	if toolCall.Args != nil {
-		_ = json.Unmarshal(toolCall.Args, &argsMap)
-	}
-
-	// Emit client tool request event with consent/category metadata
-	if s.emitter != nil {
-		reqData := &events.ClientToolRequestData{
-			CallID:   toolCall.ID,
-			ToolName: toolCall.Name,
-			Args:     argsMap,
-		}
-		if asyncResult.PendingInfo != nil {
-			reqData.ConsentMsg = asyncResult.PendingInfo.Message
-			if cats, ok := asyncResult.PendingInfo.Metadata["categories"].([]string); ok {
-				reqData.Categories = cats
-			}
-		}
-		s.emitter.ClientToolRequest(reqData)
-	}
-
-	// Emit tool.call.completed with status "pending" so the started event is paired
-	if s.emitter != nil {
-		labels := s.toolLabels(toolCall.Name)
-		s.emitter.ToolCallCompletedCtx(ctx, toolCall.Name, toolCall.ID, 0, "pending", nil, labels)
-	}
-
-	toolResult := s.handleToolResult(toolCall, asyncResult)
-	return toolCallResult{
-		pending: &tools.PendingToolExecution{
-			CallID:      toolCall.ID,
-			ToolName:    toolCall.Name,
-			Args:        argsMap,
-			PendingInfo: asyncResult.PendingInfo,
-			ToolResult:  toolResult,
-		},
-	}
-}
-
-// runAfterToolHooks runs AfterExecution hooks if a hook registry is configured.
-func (s *ProviderStage) runAfterToolHooks(
-	ctx context.Context,
-	toolReq hooks.ToolRequest,
-	result types.MessageToolResult,
-	startTime time.Time,
-) {
-	if s.hookRegistry == nil {
-		return
-	}
-	toolResp := hooks.ToolResponse{
-		Name:      toolReq.Name,
-		CallID:    toolReq.CallID,
-		Content:   result.GetTextContent(),
-		Error:     result.Error,
-		LatencyMs: time.Since(startTime).Milliseconds(),
-	}
-	s.hookRegistry.RunAfterToolExecution(ctx, toolReq, toolResp)
-}
-
-// handleToolResult converts tool execution result to MessageToolResult
-func (s *ProviderStage) handleToolResult(
-	call types.MessageToolCall,
-	asyncResult *tools.ToolExecutionResult,
-) types.MessageToolResult {
-	result, _ := s.buildToolResult(call, asyncResult, nil)
-	return result
-}
-
-// buildToolResult converts a tool execution result to a MessageToolResult.
-// rewrite, when set, rewrites a completed result's text before the size limit
-// applies: the whole text of a plain result, or each text part of a
-// multimodal one, leaving media parts where they are. Its error is returned.
-func (s *ProviderStage) buildToolResult(
-	call types.MessageToolCall,
-	asyncResult *tools.ToolExecutionResult,
-	rewrite func(string) (string, error),
-) (types.MessageToolResult, error) {
-	switch asyncResult.Status {
-	case tools.ToolStatusPending:
-		// Tool is held pending external resolution (HITL approval or a client-mode
-		// tool awaiting fulfillment). The call is surfaced via ErrToolsPending /
-		// PendingTools metadata and the pipeline suspends; this placeholder result
-		// is only used if the pending execution is inspected before it resolves.
-		pendingMsg := asyncResult.PendingInfo.Message
-		if pendingMsg == "" {
-			pendingMsg = fmt.Sprintf("Tool %s is awaiting approval", call.Name)
-		}
-		return types.NewTextToolResult(call.ID, call.Name, pendingMsg), nil
-
-	case tools.ToolStatusFailed:
-		failResult := types.NewTextToolResult(
-			call.ID, call.Name,
-			fmt.Sprintf("Tool execution failed: %s", asyncResult.Error),
-		)
-		failResult.Error = asyncResult.Error
-		return failResult, nil
-
-	case tools.ToolStatusComplete:
-		// Tool completed successfully
-		content := string(asyncResult.Content)
-
-		// Try to format nicely if it's JSON
-		var resultValue interface{}
-		if json.Unmarshal(asyncResult.Content, &resultValue) == nil {
-			content = formatToolResult(resultValue)
-		}
-
-		// If the executor returned multimodal parts, propagate them directly;
-		// otherwise wrap the text content as a single text ContentPart (legacy path).
-		if len(asyncResult.Parts) > 0 {
-			parts, err := s.rewriteTextParts(call.Name, asyncResult.Parts, rewrite)
-			if err != nil {
-				return types.MessageToolResult{}, err
-			}
-			return types.MessageToolResult{
-				ID:    call.ID,
-				Name:  call.Name,
-				Parts: parts,
-			}, nil
-		}
-
-		if rewrite != nil {
-			var err error
-			if content, err = rewrite(content); err != nil {
-				return types.MessageToolResult{}, err
-			}
-		}
-		// Enforce tool result size limit
-		content = s.enforceResultSizeLimit(call.Name, content)
-		return types.NewTextToolResult(call.ID, call.Name, content), nil
-
-	default:
-		unknownMsg := fmt.Sprintf("Unknown tool status: %v", asyncResult.Status)
-		unknownResult := types.NewTextToolResult(call.ID, call.Name, unknownMsg)
-		unknownResult.Error = unknownMsg
-		return unknownResult, nil
-	}
-}
-
-// rewriteTextParts rewrites each text part of a multimodal result, capped
-// at the size limit, and keeps the media parts in place. Without rewrite the
-// parts are returned as they are.
-func (s *ProviderStage) rewriteTextParts(
-	name string, parts []types.ContentPart, rewrite func(string) (string, error),
-) ([]types.ContentPart, error) {
-	if rewrite == nil {
-		return parts, nil
-	}
-	out := make([]types.ContentPart, len(parts))
-	for i, p := range parts {
-		if p.Type != types.ContentTypeText || p.Text == nil {
-			out[i] = p
-			continue
-		}
-		text, err := rewrite(*p.Text)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = types.NewTextPart(s.enforceResultSizeLimit(name, text))
-	}
-	return out, nil
-}
-
-// enforceResultSizeLimit truncates the tool result content if it exceeds the
-// configured maximum size from the tool registry.
-func (s *ProviderStage) enforceResultSizeLimit(toolName, content string) string {
-	if s.toolRegistry == nil {
-		return content
-	}
-	maxSize := s.toolRegistry.MaxToolResultSize()
-	if maxSize <= 0 {
-		return content
-	}
-	size := len(content)
-	if size <= maxSize {
-		return content
-	}
-	logger.Warn("Tool result truncated",
-		"tool", toolName,
-		"size", size,
-		"limit", maxSize,
-	)
-	truncated := content[:maxSize]
-	return fmt.Sprintf(
-		"%s\n... [truncated, %d bytes exceeded limit of %d bytes]",
-		truncated, size, maxSize,
-	)
-}
-
-// isToolBlocked checks if a tool is in the blocklist
-func isToolBlocked(toolName string, blocklist []string) bool {
-	for _, blocked := range blocklist {
-		if blocked == toolName {
-			return true
-		}
-	}
-	return false
-}
-
-// formatToolResult formats tool result for display
-func formatToolResult(value interface{}) string {
-	switch v := value.(type) {
-	case string:
-		return v
-	case map[string]interface{}:
-		// Pretty print JSON objects
-		bytes, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return string(bytes)
-	case []interface{}:
-		// Pretty print JSON arrays
-		bytes, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return string(bytes)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-// toolExcludedReason is the tool.excluded reason for the rejection rule.
-const toolExcludedReason = "rejected twice in one tool loop"
-
-// updateExcludedTools increments rejection counts for tools whose results have
-// errors and marks them for exclusion after the second rejection, publishing
-// tool.excluded for each. Returns true if the excluded set changed (caller
-// should rebuild provider tools).
-func (s *ProviderStage) updateExcludedTools(
-	ctx context.Context,
-	results []types.Message,
-	rejectionCounts map[string]int,
-	excluded map[string]bool,
-	round int,
-) bool {
-	changed := false
-	for i := range results {
-		tr := results[i].ToolResult
-		if tr == nil || tr.Error == "" {
-			continue
-		}
-		rejectionCounts[tr.Name]++
-		if rejectionCounts[tr.Name] > 1 && !excluded[tr.Name] {
-			excluded[tr.Name] = true
-			changed = true
-			logger.Warn("Tool excluded after repeated rejection",
-				"tool", tr.Name, "rejections", rejectionCounts[tr.Name])
-			if s.emitter != nil {
-				s.emitter.ToolExcludedCtx(ctx, tr.Name, toolExcludedReason, rejectionCounts[tr.Name], round)
-			}
-		}
-	}
-	return changed
-}
-
-// resetOffered starts a fresh offered set for a turn.
-//
-// The union is across a turn's ROUNDS — skill grants widen it mid-turn, which
-// is the whole point — but a ProviderStage outlives the turn: the SDK builds
-// the pipeline once per conversation and every Send reuses it, and
-// processStreaming serves a whole session inside one Process call. Without
-// this, a tool offered once is reported offered for the rest of the
-// conversation and a tools_offered check with absent:true can never fail
-// again.
+// resetOffered starts a fresh offered set for a turn (see
+// toolRunner.resetOffered).
 func (s *ProviderStage) resetOffered() {
-	s.offeredTools = nil
+	s.runner().resetOffered()
 }
 
-// recordOffered accumulates the tool names handed to the provider this turn.
-//
-// The set is a union across rounds, not a snapshot: skill tool grants widen it
-// mid-turn, which is the whole point of them, so "what this turn offered" is
-// everything the model saw at any round. Stamped onto each assistant message as
-// types.MetaToolsOffered, which is what makes the tools_offered eval possible —
-// nothing else records a tool the model was offered but never called.
-//
-// A ProviderStage serves one turn, so no locking is needed: Process and the
-// tool loop run on the same goroutine.
+// recordOffered accumulates the tool names handed to the provider this turn
+// (see toolRunner.recordOffered). Nil descriptors are skipped.
 func (s *ProviderStage) recordOffered(descriptors []*providers.ToolDescriptor) {
-	if len(descriptors) == 0 {
-		return
-	}
-	if s.offeredTools == nil {
-		s.offeredTools = &offeredToolSet{names: make(map[string]bool, len(descriptors))}
-	}
+	names := make([]string, 0, len(descriptors))
 	for _, d := range descriptors {
 		if d != nil {
-			s.offeredTools.names[d.Name] = true
+			names = append(names, d.Name)
 		}
 	}
+	s.runner().recordOffered(names...)
 }
 
 // stampToolsOffered records on an assistant message what this turn offered the
-// model, so an eval can assert on tool availability and not just on what the
-// model chose to call.
+// model (see toolRunner.stampToolsOffered).
 //
 // Both round implementations must call it. A streaming round that skips it
 // leaves the eval with no evidence of the tools offered.
 func (s *ProviderStage) stampToolsOffered(msg *types.Message) {
-	offered := s.offeredToolNames()
-	if len(offered) == 0 {
-		return
-	}
-	if msg.Meta == nil {
-		msg.Meta = map[string]interface{}{}
-	}
-	msg.Meta[types.MetaToolsOffered] = offered
+	s.runner().stampToolsOffered(msg)
 }
 
 // offeredToolNames returns the accumulated set, sorted, or nil when the turn
 // offered no tools at all.
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) offeredToolNames() []string {
-	if s.offeredTools == nil || len(s.offeredTools.names) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(s.offeredTools.names))
-	for name := range s.offeredTools.names {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return s.runner().offeredToolNames()
 }
 
-// buildProviderTools constructs the tool descriptors sent to the provider.
-// Tools in the excluded set are omitted from the result.
 // classifyToolError determines the ToolErrorType from an execution error.
 func classifyToolError(err error) types.ToolErrorType {
 	var valErr *tools.ValidationError
@@ -3902,136 +3137,54 @@ func classifyToolError(err error) types.ToolErrorType {
 	return types.ToolErrorExecution
 }
 
-// collectProviderDescriptors builds the deterministic tool-descriptor list for a
-// provider call: pack-declared tools (allowedTools) plus capability tools
-// (system-namespaced). Order MUST be stable across calls within a run — the
-// tools array is part of the provider's cached prefix (Anthropic caches
-// tools+system+first-message), and capability tools are gathered via IterateTools
-// in Go map-iteration order, which is randomized. A varying order changes the
-// cached-prefix bytes and busts prompt caching entirely, re-billing the full
-// context at full price every round. Sorting by name keeps the prefix byte-stable
-// so caching actually engages.
+// collectProviderDescriptors builds the sorted tool-descriptor list for a
+// provider call (see toolRunner.collectDescriptors).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) collectProviderDescriptors(
 	allowedTools []string, excluded map[string]bool,
 ) []*providers.ToolDescriptor {
-	c := &descriptorCollector{stage: s, excluded: excluded, seen: make(map[string]bool)}
-
-	// 1. Pack-declared tools from the prompt's allowed list (slice order). An
-	//    entry ending in "*" (e.g. mcp__server__*) is a wildcard expanded against
-	//    the registry: MCP servers reveal their tool sets only at connection time,
-	//    so authors can't enumerate exact names.
-	for _, entry := range allowedTools {
-		c.addAllowedEntry(entry)
-	}
-
-	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
-	//    gathered in randomized map order — sorted below to make the whole set
-	//    stable. MCP tools are NOT implicit: they surface only via an explicit
-	//    allowed_tools entry in loop 1 above.
-	s.toolRegistry.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-		if c.skip(name) || !tools.IsImplicitTool(name) {
-			return
-		}
-		c.add(tool)
-	})
-
-	sort.Slice(c.descriptors, func(i, j int) bool {
-		return c.descriptors[i].Name < c.descriptors[j].Name
-	})
-	return c.descriptors
+	return providerDescriptors(s.runner().collectDescriptors(allowedTools, excluded))
 }
 
-// descriptorCollector accumulates one provider call's tool descriptors,
-// skipping excluded and already-added names and applying the configured
-// DescribeTool to each.
-type descriptorCollector struct {
-	stage       *ProviderStage
-	excluded    map[string]bool
-	seen        map[string]bool
-	descriptors []*providers.ToolDescriptor
+// providerDescriptors converts an offer to the descriptors a provider builds
+// its tools array from. Nil for an empty offer.
+func providerDescriptors(offer []*tools.ToolDescriptor) []*providers.ToolDescriptor {
+	if len(offer) == 0 {
+		return nil
+	}
+	out := make([]*providers.ToolDescriptor, len(offer))
+	for i, d := range offer {
+		out[i] = &providers.ToolDescriptor{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
+	}
+	return out
 }
 
-// skip reports whether name is excluded or already collected.
-func (c *descriptorCollector) skip(name string) bool {
-	return c.seen[name] || c.excluded[name]
-}
-
-// addAllowedEntry adds the tool an allowed_tools entry names, expanding a
-// trailing "*" wildcard against the registry.
-func (c *descriptorCollector) addAllowedEntry(entry string) {
-	reg := c.stage.toolRegistry
-	if strings.HasSuffix(entry, "*") {
-		reg.IterateTools(func(name string, tool *tools.ToolDescriptor) {
-			if c.skip(name) || !tools.MatchToolPattern(entry, name) {
-				return
-			}
-			c.add(tool)
-		})
-		return
+// toolDescriptors is the inverse of providerDescriptors.
+//
+//nolint:unused // tests call describedToolsKey on the stage
+func toolDescriptors(descriptors []*providers.ToolDescriptor) []*tools.ToolDescriptor {
+	out := make([]*tools.ToolDescriptor, len(descriptors))
+	for i, d := range descriptors {
+		out[i] = &tools.ToolDescriptor{Name: d.Name, Description: d.Description, InputSchema: d.InputSchema}
 	}
-	if c.excluded[entry] {
-		return
-	}
-	tool, err := reg.GetTool(entry)
-	if err != nil {
-		logger.Warn("Tool not found in registry", "tool", entry, "error", err)
-		return
-	}
-	c.add(tool)
-}
-
-// add records tool, passing it through DescribeTool when one is configured;
-// a nil result withholds the tool.
-func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
-	c.seen[tool.Name] = true
-	if cfg := c.stage.config; cfg != nil && cfg.DescribeTool != nil {
-		if tool = cfg.DescribeTool(tool); tool == nil {
-			return
-		}
-	}
-	c.descriptors = append(c.descriptors, &providers.ToolDescriptor{
-		Name:        tool.Name,
-		Description: tool.Description,
-		InputSchema: tool.InputSchema,
-	})
+	return out
 }
 
 // grantedTools returns the currently granted tool names, sorted, or nil when
-// no grant source is configured.
+// no grant source is configured (see toolRunner.grantedTools).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) grantedTools() []string {
-	if s.config == nil || s.config.ToolGrants == nil {
-		return nil
-	}
-	grants := s.config.ToolGrants()
-	if len(grants) == 0 {
-		return nil
-	}
-	out := make([]string, len(grants))
-	copy(out, grants)
-	sort.Strings(out)
-	return out
+	return s.runner().grantedTools()
 }
 
 // withGrantedTools returns allowedTools extended with the currently granted
-// tools that it does not already name. The input slice is not mutated.
+// tools (see toolRunner.withGrantedTools).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) withGrantedTools(allowedTools []string) []string {
-	grants := s.grantedTools()
-	if len(grants) == 0 {
-		return allowedTools
-	}
-	seen := make(map[string]bool, len(allowedTools))
-	for _, name := range allowedTools {
-		seen[name] = true
-	}
-	out := make([]string, 0, len(allowedTools)+len(grants))
-	out = append(out, allowedTools...)
-	for _, name := range grants {
-		if !seen[name] {
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	return out
+	return s.runner().withGrantedTools(allowedTools)
 }
 
 // stringSlicesEqual reports whether two string slices hold the same elements
@@ -4048,61 +3201,42 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-// offerableDescriptors returns the descriptors a tools build would offer, and
-// the provider to build them for. Nil descriptors and provider when this call
-// offers no tools at all: no registry, a provider without tool support, or
-// tool calling disabled for the turn.
+// offerableDescriptors returns the tools a tools build would offer
+// (toolRunner.offer), and the provider to build them for. Nil offer and
+// provider when this call offers no tools at all: no registry, a provider
+// without tool support, or tool calling disabled for the turn.
 func (s *ProviderStage) offerableDescriptors(
 	allowedTools []string, excluded map[string]bool,
-) ([]*providers.ToolDescriptor, providers.ToolSupport) {
+) ([]*tools.ToolDescriptor, providers.ToolSupport) {
 	if s.toolRegistry == nil {
 		return nil, nil
 	}
-
-	// Check if provider supports tools
 	toolProvider, ok := s.callProvider().(providers.ToolSupport)
 	if !ok {
 		return nil, nil
 	}
-
-	// When tool calling is disabled for this turn (tool_choice: none), send no
-	// tool declarations at all. The model cannot call them, so shipping the
-	// declarations only wastes input tokens and — on some models — primes
-	// spurious tool calls. Returning nil routes the provider to its non-tool
-	// path, which omits both the declarations and any tool_config.
-	policy := s.policy()
-	if policy != nil && policy.ToolChoice == toolChoiceNone {
+	// With tool calling disabled for this turn (tool_choice: none) no tool
+	// declarations are sent at all: a nil provider routes the call to its
+	// non-tool path, which omits both the declarations and any tool_config.
+	r := s.runner()
+	if r.toolsDisabled() {
 		return nil, nil
 	}
-
-	return s.collectProviderDescriptors(s.withGrantedTools(allowedTools), excluded), toolProvider
+	return r.offer(allowedTools, excluded), toolProvider
 }
 
-// describedToolsKey fingerprints what DescribeTool made of a tools build — the
-// name, description and schema of each descriptor, in order — so a later
-// round can tell whether the per-conversation view changed. Empty when no
-// DescribeTool is configured: without one, grants and exclusions are the only
-// things that change the array mid-turn, and they are tracked directly.
+// describedToolsKey fingerprints what DescribeTool made of a tools build (see
+// toolRunner.describedToolsKey).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) describedToolsKey(descriptors []*providers.ToolDescriptor) string {
-	if s.config == nil || s.config.DescribeTool == nil {
-		return ""
-	}
-	var sb strings.Builder
-	for _, d := range descriptors {
-		sb.WriteString(d.Name)
-		sb.WriteByte(0)
-		sb.WriteString(d.Description)
-		sb.WriteByte(0)
-		sb.Write(d.InputSchema)
-		sb.WriteByte(0)
-	}
-	return sb.String()
+	return s.runner().describedToolsKey(toolDescriptors(descriptors))
 }
 
 // describedTools is one computation of what a tools build would offer: the
-// descriptors and the provider to build them for (see offerableDescriptors).
+// offer and the provider to build it for (see offerableDescriptors).
 type describedTools struct {
-	descriptors []*providers.ToolDescriptor
+	descriptors []*tools.ToolDescriptor
 	provider    providers.ToolSupport
 }
 
@@ -4115,12 +3249,13 @@ type describedTools struct {
 func (s *ProviderStage) describedToolsChanged(
 	allowedTools []string, excluded map[string]bool,
 ) (bool, *describedTools) {
-	if s.config == nil || s.config.DescribeTool == nil {
+	r := s.runner()
+	if r.cfg.DescribeTool == nil {
 		return false, nil
 	}
 	descriptors, toolProvider := s.offerableDescriptors(allowedTools, excluded)
 	offered := &describedTools{descriptors: descriptors, provider: toolProvider}
-	return s.describedToolsKey(descriptors) != s.describedKey, offered
+	return r.describedChanged(descriptors), offered
 }
 
 // rebuildProviderTools builds the tools array for allowedTools and excluded,
@@ -4135,23 +3270,27 @@ func (s *ProviderStage) rebuildProviderTools(
 	return s.buildProviderToolsFrom(offered.descriptors, offered.provider)
 }
 
+// buildProviderTools constructs the tools array sent to the provider. Tools in
+// the excluded set are omitted from the result.
 func (s *ProviderStage) buildProviderTools(
 	allowedTools []string, excluded map[string]bool,
 ) (providerTools interface{}, toolChoice string, err error) {
 	return s.buildProviderToolsFrom(s.offerableDescriptors(allowedTools, excluded))
 }
 
-// buildProviderToolsFrom builds the provider's tools array from descriptors
-// offerableDescriptors returned, and records them as the array last built.
+// buildProviderToolsFrom builds the provider's tools array from the offer
+// offerableDescriptors returned, and records it as the array last built.
 func (s *ProviderStage) buildProviderToolsFrom(
-	descriptors []*providers.ToolDescriptor, toolProvider providers.ToolSupport,
+	offer []*tools.ToolDescriptor, toolProvider providers.ToolSupport,
 ) (providerTools interface{}, toolChoice string, err error) {
-	s.describedKey = s.describedToolsKey(descriptors)
+	r := s.runner()
+	r.markBuilt(offer)
 	if toolProvider == nil {
 		return nil, "", nil
 	}
 	policy := s.policy()
 
+	descriptors := providerDescriptors(offer)
 	s.recordOffered(descriptors)
 	if len(descriptors) == 0 {
 		return nil, "", nil
