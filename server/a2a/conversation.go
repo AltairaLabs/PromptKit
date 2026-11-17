@@ -10,7 +10,9 @@
 //
 // There are two ways to supply the agent. NewServer takes a ConversationOpener
 // and owns the conversations: it opens one per context ID, caches it, and
-// expires it when idle. NewStatelessServer takes a MessageHandler and keeps no
+// expires it when idle. NewServerFor does the same with an opener that is
+// given the request opening the context, so the conversation can act for
+// the caller the host's authentication identified. NewStatelessServer takes a MessageHandler and keeps no
 // conversations, so the embedder decides what a conversation is. In both modes
 // the server runs the task state machine, stores tasks in a TaskStore, and
 // streams updates over SSE. The server does not support push notifications.
@@ -18,6 +20,7 @@ package a2aserver
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -140,3 +143,11 @@ type ResumableConversation interface {
 // ConversationOpener creates or retrieves a conversation for a given context ID.
 // NewServer calls it once per context ID and caches the result.
 type ConversationOpener func(contextID string) (Conversation, error)
+
+// RequestConversationOpener is ConversationOpener given the HTTP request that
+// opens the context. The A2A protocol carries no caller identity of its own:
+// the host's authentication puts it on the request (its context or headers),
+// so this is where a host reads who the conversation acts for. NewServerFor
+// calls it once per context ID, with the request whose message first names
+// that context, and caches the result.
+type RequestConversationOpener func(r *http.Request, contextID string) (Conversation, error)

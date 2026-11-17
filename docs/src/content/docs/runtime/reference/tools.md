@@ -152,6 +152,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [type RepositoryToolExecutor](<#RepositoryToolExecutor>)
   - [func NewRepositoryToolExecutor\(baseExecutor Executor, repo ToolResponseRepository, contextKey string\) \*RepositoryToolExecutor](<#NewRepositoryToolExecutor>)
   - [func \(e \*RepositoryToolExecutor\) Execute\(ctx context.Context, descriptor \*ToolDescriptor, args json.RawMessage\) \(json.RawMessage, error\)](<#RepositoryToolExecutor.Execute>)
+  - [func \(e \*RepositoryToolExecutor\) ExecuteCall\(ctx context.Context, descriptor \*ToolDescriptor, call ToolCall\) \(json.RawMessage, \[\]types.ContentPart, error\)](<#RepositoryToolExecutor.ExecuteCall>)
   - [func \(e \*RepositoryToolExecutor\) Name\(\) string](<#RepositoryToolExecutor.Name>)
 - [type RequestMapper](<#RequestMapper>)
 - [type RequestMapping](<#RequestMapping>)
@@ -851,7 +852,7 @@ type Executor interface {
 ```
 
 <a name="FileToolResponseRepository"></a>
-## type [FileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L136-L139>)
+## type [FileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L165-L168>)
 
 FileToolResponseRepository implements ToolResponseRepository from a scenario's configured tool responses. It answers only for calls whose context key equals its scenario ID.
 
@@ -862,7 +863,7 @@ type FileToolResponseRepository struct {
 ```
 
 <a name="NewFileToolResponseRepository"></a>
-### func [NewFileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L156-L158>)
+### func [NewFileToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L185-L187>)
 
 ```go
 func NewFileToolResponseRepository(scenarioID string, toolResponses map[string][]MockToolResponseConfig) *FileToolResponseRepository
@@ -871,7 +872,7 @@ func NewFileToolResponseRepository(scenarioID string, toolResponses map[string][
 NewFileToolResponseRepository creates a repository from scenario tool responses. This is typically used by Arena to provide tool mocking from YAML scenarios.
 
 <a name="FileToolResponseRepository.GetToolResponse"></a>
-### func \(\*FileToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L170-L172>)
+### func \(\*FileToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L199-L201>)
 
 ```go
 func (r *FileToolResponseRepository) GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
@@ -1031,7 +1032,7 @@ type HostExtras map[string]any
 ```
 
 <a name="InMemoryToolResponseRepository"></a>
-## type [InMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L250-L252>)
+## type [InMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L279-L281>)
 
 InMemoryToolResponseRepository implements ToolResponseRepository using in\-memory storage. This is useful for SDK unit tests and programmatic configuration of tool responses.
 
@@ -1042,7 +1043,7 @@ type InMemoryToolResponseRepository struct {
 ```
 
 <a name="NewInMemoryToolResponseRepository"></a>
-### func [NewInMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L255>)
+### func [NewInMemoryToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L284>)
 
 ```go
 func NewInMemoryToolResponseRepository() *InMemoryToolResponseRepository
@@ -1051,7 +1052,7 @@ func NewInMemoryToolResponseRepository() *InMemoryToolResponseRepository
 NewInMemoryToolResponseRepository creates a new in\-memory tool response repository.
 
 <a name="InMemoryToolResponseRepository.AddResponse"></a>
-### func \(\*InMemoryToolResponseRepository\) [AddResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L263>)
+### func \(\*InMemoryToolResponseRepository\) [AddResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L292>)
 
 ```go
 func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string, response *ToolResponseData)
@@ -1060,7 +1061,7 @@ func (r *InMemoryToolResponseRepository) AddResponse(contextKey, toolName string
 AddResponse adds a tool response for a specific context and tool name. This method supports simple responses where argument matching is not needed.
 
 <a name="InMemoryToolResponseRepository.GetToolResponse"></a>
-### func \(\*InMemoryToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L274-L276>)
+### func \(\*InMemoryToolResponseRepository\) [GetToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L303-L305>)
 
 ```go
 func (r *InMemoryToolResponseRepository) GetToolResponse(toolName string, args map[string]any, contextKey string) (*ToolResponseData, error)
@@ -1208,7 +1209,7 @@ func (e *MockStaticExecutor) Name() string
 Name returns the executor name
 
 <a name="MockToolErrorConfig"></a>
-## type [MockToolErrorConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L149-L152>)
+## type [MockToolErrorConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L178-L181>)
 
 MockToolErrorConfig represents an error configuration.
 
@@ -1220,7 +1221,7 @@ type MockToolErrorConfig struct {
 ```
 
 <a name="MockToolResponseConfig"></a>
-## type [MockToolResponseConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L142-L146>)
+## type [MockToolResponseConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L171-L175>)
 
 MockToolResponseConfig represents a single tool response configuration.
 
@@ -1681,9 +1682,9 @@ func WithRateLimit(maxCallsPerMinute int) RegistryOption
 WithRateLimit sets a per\-tool rate limit \(maximum calls per minute\). Pass 0 to disable rate limiting \(the default\).
 
 <a name="RepositoryToolExecutor"></a>
-## type [RepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L15-L19>)
+## type [RepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L18-L22>)
 
-RepositoryToolExecutor wraps existing tool executors to provide repository\-backed mock responses with fallback to real execution. This enables deterministic tool testing while maintaining the ability to fall back to real tool execution when needed.
+RepositoryToolExecutor wraps existing tool executors to provide repository\-backed mock responses with fallback to real execution. A base executor that implements CallExecutor is given the whole call, caller included; any other base runs Execute. This enables deterministic tool testing while maintaining the ability to fall back to real tool execution when needed.
 
 ```go
 type RepositoryToolExecutor struct {
@@ -1692,7 +1693,7 @@ type RepositoryToolExecutor struct {
 ```
 
 <a name="NewRepositoryToolExecutor"></a>
-### func [NewRepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L24-L26>)
+### func [NewRepositoryToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L27-L29>)
 
 ```go
 func NewRepositoryToolExecutor(baseExecutor Executor, repo ToolResponseRepository, contextKey string) *RepositoryToolExecutor
@@ -1701,7 +1702,7 @@ func NewRepositoryToolExecutor(baseExecutor Executor, repo ToolResponseRepositor
 NewRepositoryToolExecutor creates a new repository\-backed tool executor. The executor will first check the repository for configured responses, and fall back to the base executor if no match is found.
 
 <a name="RepositoryToolExecutor.Execute"></a>
-### func \(\*RepositoryToolExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L42-L44>)
+### func \(\*RepositoryToolExecutor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L45-L47>)
 
 ```go
 func (e *RepositoryToolExecutor) Execute(ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -1709,8 +1710,17 @@ func (e *RepositoryToolExecutor) Execute(ctx context.Context, descriptor *ToolDe
 
 Execute executes a tool, first checking the repository for mock responses. If a matching response is found in the repository, it returns that response. Otherwise, it falls back to the base executor for real execution.
 
+<a name="RepositoryToolExecutor.ExecuteCall"></a>
+### func \(\*RepositoryToolExecutor\) [ExecuteCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L59-L61>)
+
+```go
+func (e *RepositoryToolExecutor) ExecuteCall(ctx context.Context, descriptor *ToolDescriptor, call ToolCall) (json.RawMessage, []types.ContentPart, error)
+```
+
+ExecuteCall implements CallExecutor: a repository response for the call's arguments, else the base executor's run of the call. A base that implements CallExecutor is given the whole call, its caller included; any other base runs Execute, exactly as through Execute. The wrapper never suspends a call and never returns content parts, whatever the base implements.
+
 <a name="RepositoryToolExecutor.Name"></a>
-### func \(\*RepositoryToolExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L35>)
+### func \(\*RepositoryToolExecutor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L38>)
 
 ```go
 func (e *RepositoryToolExecutor) Name() string
@@ -2048,7 +2058,7 @@ func (d ToolDescriptor) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the descriptor's schemas \(empty \-\> \{\}\).
 
 <a name="ToolErrorData"></a>
-## type [ToolErrorData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L128-L131>)
+## type [ToolErrorData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L157-L160>)
 
 ToolErrorData represents an error response for tool execution.
 
@@ -2112,7 +2122,7 @@ type ToolRepository interface {
 ```
 
 <a name="ToolResponseData"></a>
-## type [ToolResponseData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L122-L125>)
+## type [ToolResponseData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L151-L154>)
 
 ToolResponseData represents a configured tool response with optional error.
 
@@ -2124,7 +2134,7 @@ type ToolResponseData struct {
 ```
 
 <a name="ToolResponseRepository"></a>
-## type [ToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L115-L119>)
+## type [ToolResponseRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/repository_executor.go#L144-L148>)
 
 ToolResponseRepository defines the interface for repositories that can provide mock tool responses based on tool name, arguments, and context.
 

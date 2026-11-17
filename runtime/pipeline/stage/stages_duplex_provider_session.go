@@ -192,6 +192,9 @@ type DuplexProviderStage struct {
 	// promptDeclarations maps prompt tasks to their pack declarations, for the
 	// hooks' ProviderRequest.Prompt (see SetPromptDeclarations).
 	promptDeclarations map[string]*packspec.Prompt
+	// caller is who the conversation acts for, for the hooks'
+	// ProviderRequest.Caller and ChunkRequest.Caller (see SetCaller).
+	caller types.Caller
 	// history is the conversation the hooks see, kept only while hooks run.
 	history duplexHistory
 	// assistantTurns counts the assistant turns completed this session, for the

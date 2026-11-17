@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // ErrEmptySpec is returned by Spec.Hook for a zero-value Spec — one that never
@@ -184,6 +185,7 @@ func (g *funcGuardrail) BeforeCall(
 		UserInput: last.GetContent(),
 		Messages:  req.Messages,
 		Round:     req.Round,
+		Caller:    req.Caller,
 	}
 	lc := g.lifecycleFor(DirectionInput)
 	start := lc.start()
@@ -207,10 +209,14 @@ func (g *funcGuardrail) BeforeCall(
 
 // AfterCall runs the output func, if any, against the completed response.
 func (g *funcGuardrail) AfterCall(
-	ctx context.Context, _ *hooks.ProviderRequest, resp *hooks.ProviderResponse,
+	ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse,
 ) hooks.Decision {
 	if g.output == nil || resp == nil {
 		return hooks.Allow
+	}
+	var caller types.Caller
+	if req != nil {
+		caller = req.Caller
 	}
 
 	lc := g.lifecycleFor(DirectionOutput)
@@ -221,7 +227,9 @@ func (g *funcGuardrail) AfterCall(
 	// has already moved on with.
 	msg := resp.Message
 	d, err := runBounded(ctx, g.timeout, func(c context.Context) hooks.Decision {
-		return g.output(c, &hooks.OutputRequest{Content: msg.GetContent(), Message: &msg, Round: resp.Round})
+		return g.output(c, &hooks.OutputRequest{
+			Content: msg.GetContent(), Message: &msg, Round: resp.Round, Caller: caller,
+		})
 	})
 	if err != nil {
 		// Nothing was judged: the un-judged response must not ship.

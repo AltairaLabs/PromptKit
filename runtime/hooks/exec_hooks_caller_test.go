@@ -57,3 +57,23 @@ func TestExecSessionHook_StdinCarriesTheCaller(t *testing.T) {
 	assert.Equal(t, "session_start", p["phase"])
 	assert.Equal(t, execCallerJSON, p["event"].(map[string]any)["Caller"])
 }
+
+// An exec provider hook is given the conversation's caller on stdin, before
+// and after the call, under request.Caller.
+func TestExecProviderHook_StdinCarriesTheCaller(t *testing.T) {
+	sb := &recordingSandbox{resp: sandbox.Response{Stdout: []byte(`{"allow":true}`)}}
+	hook := NewExecProviderHook(&ExecHookConfig{
+		Name: "policy", Command: "policy", Phases: []string{"before_call", "after_call"}, Sandbox: sb,
+	})
+	req := &ProviderRequest{ProviderID: "p", Caller: execCaller}
+
+	require.True(t, hook.BeforeCall(context.Background(), req).Allow)
+	p := stdinPayload(t, sb)
+	assert.Equal(t, "before_call", p["phase"])
+	assert.Equal(t, execCallerJSON, p["request"].(map[string]any)["Caller"])
+
+	require.True(t, hook.AfterCall(context.Background(), req, &ProviderResponse{ProviderID: "p"}).Allow)
+	p = stdinPayload(t, sb)
+	assert.Equal(t, "after_call", p["phase"])
+	assert.Equal(t, execCallerJSON, p["request"].(map[string]any)["Caller"])
+}

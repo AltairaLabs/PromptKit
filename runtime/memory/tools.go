@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Tool names in the memory namespace.
@@ -81,28 +82,47 @@ func (e *Executor) scopeFor(ctx context.Context) map[string]string {
 // Name implements tools.Executor.
 func (e *Executor) Name() string { return ExecutorMode }
 
-// Execute implements tools.Executor. Routes by tool name.
+// Execute implements tools.Executor. Routes by tool name. It is ExecuteCall
+// for a call with no caller.
 func (e *Executor) Execute(
 	ctx context.Context, desc *tools.ToolDescriptor, args json.RawMessage,
+) (json.RawMessage, error) {
+	return e.execute(ctx, desc, args, types.Caller{})
+}
+
+// ExecuteCall implements tools.CallExecutor. Routes by tool name and hands
+// the call's caller to the store: on RetrieveOptions, ListOptions and
+// DeleteOptions, and on SaveOptions for a store that implements OptionsSaver.
+func (e *Executor) ExecuteCall(
+	ctx context.Context, desc *tools.ToolDescriptor, call tools.ToolCall,
+) (json.RawMessage, []types.ContentPart, error) {
+	result, err := e.execute(ctx, desc, call.Args, call.Caller)
+	return result, nil, err
+}
+
+func (e *Executor) execute(
+	ctx context.Context, desc *tools.ToolDescriptor, args json.RawMessage, caller types.Caller,
 ) (json.RawMessage, error) {
 	if desc == nil {
 		return nil, fmt.Errorf("memory executor: nil descriptor")
 	}
 	switch desc.Name {
 	case RecallToolName:
-		return e.recall(ctx, args)
+		return e.recall(ctx, args, caller)
 	case RememberToolName:
-		return e.remember(ctx, args)
+		return e.remember(ctx, args, caller)
 	case ListToolName:
-		return e.list(ctx, args)
+		return e.list(ctx, args, caller)
 	case ForgetToolName:
-		return e.forget(ctx, args)
+		return e.forget(ctx, args, caller)
 	default:
 		return nil, fmt.Errorf("memory executor: unknown tool %q", desc.Name)
 	}
 }
 
-func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
+func (e *Executor) recall(
+	ctx context.Context, args json.RawMessage, caller types.Caller,
+) (json.RawMessage, error) {
 	var a struct {
 		Query         string   `json:"query"`
 		Types         []string `json:"types,omitempty"`
@@ -123,6 +143,7 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 		Limit:         a.Limit,
 		MinConfidence: a.MinConfidence,
 		Extras:        extras,
+		Caller:        caller,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory recall: %w", err)
@@ -131,7 +152,9 @@ func (e *Executor) recall(ctx context.Context, args json.RawMessage) (json.RawMe
 	return memoriesResult(memories)
 }
 
-func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
+func (e *Executor) remember(
+	ctx context.Context, args json.RawMessage, caller types.Caller,
+) (json.RawMessage, error) {
 	var a struct {
 		Content    string         `json:"content"`
 		Type       string         `json:"type,omitempty"`
@@ -173,7 +196,7 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 	// Always set provenance — overwrites any LLM-provided value.
 	m.SetProvenance(ProvenanceUserRequested)
 
-	if err := e.store.Save(ctx, m); err != nil {
+	if err := SaveFor(ctx, e.store, m, caller); err != nil {
 		return nil, fmt.Errorf("memory remember: %w", err)
 	}
 
@@ -183,7 +206,9 @@ func (e *Executor) remember(ctx context.Context, args json.RawMessage) (json.Raw
 	})
 }
 
-func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
+func (e *Executor) list(
+	ctx context.Context, args json.RawMessage, caller types.Caller,
+) (json.RawMessage, error) {
 	var a struct {
 		Types  []string `json:"types,omitempty"`
 		Limit  int      `json:"limit,omitempty"`
@@ -200,6 +225,7 @@ func (e *Executor) list(ctx context.Context, args json.RawMessage) (json.RawMess
 		Limit:  a.Limit,
 		Offset: a.Offset,
 		Extras: extras,
+		Caller: caller,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("memory list: %w", err)
@@ -220,7 +246,9 @@ func memoriesResult(memories []*Memory) (json.RawMessage, error) {
 	})
 }
 
-func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMessage, error) {
+func (e *Executor) forget(
+	ctx context.Context, args json.RawMessage, caller types.Caller,
+) (json.RawMessage, error) {
 	var a struct {
 		MemoryID string `json:"memory_id"`
 	}
@@ -235,7 +263,7 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 		return nil, fmt.Errorf("memory forget: memory_id is required")
 	}
 
-	if err := e.delete(ctx, a.MemoryID, extras); err != nil {
+	if err := e.delete(ctx, a.MemoryID, extras, caller); err != nil {
 		return nil, fmt.Errorf("memory forget: %w", err)
 	}
 
@@ -248,9 +276,9 @@ func (e *Executor) forget(ctx context.Context, args json.RawMessage) (json.RawMe
 // delete routes to the store's [ExtrasDeleter] implementation when it has
 // one so backend-specific forget args survive, and to the plain
 // [Store.Delete] otherwise.
-func (e *Executor) delete(ctx context.Context, memoryID string, extras map[string]any) error {
+func (e *Executor) delete(ctx context.Context, memoryID string, extras map[string]any, caller types.Caller) error {
 	if d, ok := e.store.(ExtrasDeleter); ok {
-		return d.DeleteWithOptions(ctx, e.scopeFor(ctx), memoryID, DeleteOptions{Extras: extras})
+		return d.DeleteWithOptions(ctx, e.scopeFor(ctx), memoryID, DeleteOptions{Extras: extras, Caller: caller})
 	}
 	return e.store.Delete(ctx, e.scopeFor(ctx), memoryID)
 }

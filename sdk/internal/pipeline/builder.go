@@ -169,8 +169,10 @@ type Config struct {
 	ApprovalGate tools.ApprovalGate
 
 	// Caller is who the conversation acts for (sdk.WithCaller). The provider
-	// stage puts it on every tool call and tool hook request
-	// (stage.ProviderConfig.Caller). The zero value means none was set.
+	// stages put it on every tool call, tool hook request, provider hook
+	// request and intercepted chunk (stage.ProviderConfig.Caller,
+	// DuplexProviderStage.SetCaller), and the memory stages on every retrieval,
+	// extraction and save. The zero value means none was set.
 	Caller types.Caller
 
 	// CallRate is the window the provider stage counts calls in for
@@ -581,7 +583,7 @@ func collectPipelineStages(
 	// 5.7 Memory extraction stage - extract memories from conversation
 	if cfg.MemoryExtractor != nil && cfg.MemoryStore != nil {
 		stages = append(stages, stage.NewMemoryExtractionStage(
-			cfg.MemoryExtractor, cfg.MemoryStore, cfg.MemoryScope))
+			cfg.MemoryExtractor, cfg.MemoryStore, cfg.MemoryScope).WithCaller(cfg.Caller))
 	}
 
 	// 5.8 Live message broadcast - publishes message.created on the bus as each
@@ -722,7 +724,7 @@ func appendMemoryRetrievalStage(stages []stage.Stage, cfg *Config, turnState *st
 		return stages
 	}
 	retrievalStage := stage.NewMemoryRetrievalStageWithTurnState(
-		cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState)
+		cfg.MemoryRetriever, cfg.MemoryStore, cfg.MemoryScope, turnState).WithCaller(cfg.Caller)
 	if cfg.MemoryContextFormatter != nil {
 		retrievalStage.WithContextFormatter(cfg.MemoryContextFormatter)
 	}
@@ -772,6 +774,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		)
 		duplexStage.SetHookRegistry(cfg.HookRegistry)
 		duplexStage.SetPromptDeclarations(cfg.PromptDeclarations)
+		duplexStage.SetCaller(cfg.Caller)
 		// The session's tool calls run through the same tool runner, under the
 		// same policy, approval gate, rate window and caller, as a text turn's.
 		duplexStage.SetToolExecution(cfg.ToolRegistry, cfg.ToolPolicy, stage.DuplexToolConfig{

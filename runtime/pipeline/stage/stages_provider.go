@@ -237,8 +237,11 @@ type ProviderConfig struct {
 
 	// Caller is who the conversation acts for, as the host set it with
 	// sdk.WithCaller. The stage puts it on every tool call it hands the
-	// registry (tools.ToolCall.Caller) and on every tool hook request
-	// (hooks.ToolRequest.Caller), for the host's executors and hooks. The zero
+	// registry (tools.ToolCall.Caller), on every tool hook request
+	// (hooks.ToolRequest.Caller), on every provider hook request
+	// (hooks.ProviderRequest.Caller) and on every streamed chunk it hands a
+	// chunk interceptor (hooks.ChunkRequest.Caller), for the host's executors
+	// and hooks. The zero
 	// value means none was set. The stage never reads, persists, logs or emits
 	// it.
 	Caller types.Caller
@@ -2607,7 +2610,7 @@ func (s *ProviderStage) interceptChunk(
 	if s.hookRegistry == nil || !s.hookRegistry.HasChunkInterceptors() {
 		return false, nil
 	}
-	d := s.hookRegistry.RunOnChunk(ctx, chunk)
+	d := s.hookRegistry.RunOnChunkRequest(ctx, hooks.ChunkRequest{Chunk: chunk, Caller: s.config.Caller})
 	if d.Allow {
 		return false, nil
 	}
@@ -2831,6 +2834,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		Metadata:     p.metadata,
 		TurnIndex:    s.currentTurn(),
 		Prompt:       s.promptDeclaration(),
+		Caller:       s.config.Caller,
 	}
 	hookResp := &hooks.ProviderResponse{
 		ProviderID: s.callProvider().ID(),
@@ -2909,6 +2913,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 		Metadata:     metadata,
 		TurnIndex:    s.currentTurn(),
 		Prompt:       s.promptDeclaration(),
+		Caller:       s.config.Caller,
 	}
 	hookStart := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, hookReq)

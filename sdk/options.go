@@ -2156,9 +2156,14 @@ func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option {
 }
 
 // WithCaller sets who the conversation acts for. PromptKit puts it on the
-// requests it hands the host's code: tool executors, tool handlers, tool hooks
-// and session hooks, exec hooks included (in the JSON on their stdin), and the
-// workflow transition authorizer. It never travels on context.Context, and is
+// requests it hands the host's code: tool executors, tool handlers, tool
+// hooks, provider hooks (guardrails included) and chunk interceptors
+// (hooks.ChunkRequestInterceptor), session hooks, exec hooks included (in the
+// JSON on their stdin), the workflow transition authorizer, retrievers and
+// memory extractors (memory.ContextRequestRetriever,
+// memory.ContextRequestExtractor), memory stores (on the memory tools'
+// options, and memory.OptionsSaver) and eval handlers
+// (evals.EvalContext.Caller). It never travels on context.Context, and is
 // otherwise never persisted, logged or emitted: it is not in events, spans,
 // the state store or recordings.
 //
@@ -2169,7 +2174,8 @@ func WithTransitionAuthorizer(a workflow.TransitionAuthorizer) Option {
 //
 // Passed in the options of [A2AOpener], WithCaller makes every conversation
 // the opener creates, and so every remote A2A client served, act for that one
-// caller.
+// caller. [A2ACallerOpener] opens each conversation for the caller of the
+// request that opens it instead.
 func WithCaller(caller types.Caller) Option {
 	return func(c *config) error {
 		c.caller = caller

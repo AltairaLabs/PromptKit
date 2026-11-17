@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -78,6 +79,26 @@ type ProviderRequest struct {
 	// Empty falls back to Decision.Metadata["replacement"], then to
 	// prompt.DefaultBlockedMessage.
 	Replacement string
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's provider hooks, guardrails included, and otherwise never
+	// reads, persists, logs or emits it.
+	Caller types.Caller
+}
+
+// ChunkRequest is a streamed response chunk handed to a
+// ChunkRequestInterceptor, with who the call acts for.
+type ChunkRequest struct {
+	// Chunk is the chunk being judged. An interceptor that returns Enforced
+	// rewrites Chunk.Content in place, as OnChunk does.
+	Chunk *providers.StreamChunk
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+	// the host's interceptor and otherwise never reads, persists, logs or
+	// emits it.
+	Caller types.Caller
 }
 
 // ProviderResponse describes a completed LLM call.
@@ -101,6 +122,9 @@ type InputRequest struct {
 	// Replacement supplies the canned assistant text when the check
 	// returns Enforced. Empty falls back to the default blocked message.
 	Replacement string
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set.
+	Caller types.Caller
 }
 
 // OutputRequest is the narrow view of a completed call handed to a func-based
@@ -112,6 +136,9 @@ type OutputRequest struct {
 	Message *types.Message
 	// Round is the provider round this response belongs to (1-based).
 	Round int
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set.
+	Caller types.Caller
 }
 
 // MetadataKeyValidatorDeclaration is the Decision.Metadata key under which a

@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
@@ -24,6 +25,10 @@ type A2AServerOption = a2aserver.Option
 // A2AConversationOpener creates or retrieves a conversation for a context ID.
 type A2AConversationOpener = a2aserver.ConversationOpener
 
+// A2ARequestConversationOpener creates a conversation for a context ID, given
+// the HTTP request that opens it.
+type A2ARequestConversationOpener = a2aserver.RequestConversationOpener
+
 // Re-exported constructors and sentinel errors.
 var (
 	NewInMemoryA2ATaskStore = a2aserver.NewInMemoryTaskStore
@@ -37,6 +42,18 @@ var (
 // NewA2AServer creates a new A2A server with the given opener and options.
 func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2AServer {
 	return a2aserver.NewServer(opener, opts...)
+}
+
+// NewA2AServerFor creates a new A2A server for conversations that act for
+// the caller of each request (see [A2ACallerOpener] and
+// a2aserver.NewServerFor). callerID identifies the caller of a request; a
+// context's conversation belongs to the caller who opened it, and a message
+// from another caller naming that context is refused. Tasks are scoped to
+// the caller that created them, as with a2aserver.WithTaskOwner.
+func NewA2AServerFor(
+	callerID func(*http.Request) string, opener A2ARequestConversationOpener, opts ...A2AServerOption,
+) *A2AServer {
+	return a2aserver.NewServerFor(callerID, opener, opts...)
 }
 
 // Re-exported option functions with backwards-compatible names.

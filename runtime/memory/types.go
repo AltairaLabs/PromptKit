@@ -8,7 +8,11 @@
 // host application or a platform layer.
 package memory
 
-import "time"
+import (
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
 
 // Memory represents a single memory unit.
 // It is thin: domain-specific concerns (purpose, trust model,
@@ -100,6 +104,11 @@ type RetrieveOptions struct {
 	// no untyped args. This mirrors what Memory.Metadata does on the
 	// write side.
 	Extras map[string]any
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller; the zero value means none was set. The memory tools set
+	// it from the tool call. PromptKit never reads, persists, logs or emits
+	// it: a store that keys data on it must not persist it either.
+	Caller types.Caller
 }
 
 // ListOptions configures a memory list query.
@@ -110,13 +119,36 @@ type ListOptions struct {
 	// Extras carries top-level list args the executor does not type.
 	// See [RetrieveOptions.Extras].
 	Extras map[string]any
+	// Caller is who the conversation acts for. See [RetrieveOptions.Caller].
+	Caller types.Caller
 }
 
-// DeleteOptions configures a memory delete. It exists only to carry Extras:
-// [Store.Delete] has no options parameter, so a store that wants the
-// passthrough args implements [ExtrasDeleter] instead.
+// DeleteOptions configures a memory delete. It exists to carry Extras and the
+// caller: [Store.Delete] has no options parameter, so a store that wants them
+// implements [ExtrasDeleter] instead.
 type DeleteOptions struct {
 	// Extras carries top-level forget args the executor does not type.
 	// See [RetrieveOptions.Extras].
 	Extras map[string]any
+	// Caller is who the conversation acts for. See [RetrieveOptions.Caller].
+	Caller types.Caller
+}
+
+// SaveOptions configures a memory save. [Store.Save] has no options
+// parameter, so a store that wants them implements [OptionsSaver].
+type SaveOptions struct {
+	// Caller is who the conversation acts for. See [RetrieveOptions.Caller].
+	Caller types.Caller
+}
+
+// ContextRequest is what a [ContextRequestRetriever] or
+// [ContextRequestExtractor] is given on each turn.
+type ContextRequest struct {
+	// Scope is the conversation's memory scope.
+	Scope map[string]string
+	// Messages is the conversation context, as RetrieveContext or Extract
+	// receives it.
+	Messages []types.Message
+	// Caller is who the conversation acts for. See [RetrieveOptions.Caller].
+	Caller types.Caller
 }

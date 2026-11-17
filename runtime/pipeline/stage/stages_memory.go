@@ -27,6 +27,7 @@ type MemoryRetrievalStage struct {
 	scope     map[string]string
 	turnState *TurnState
 	formatter memory.ContextFormatter
+	caller    types.Caller
 }
 
 // NewMemoryRetrievalStage creates a retrieval stage.
@@ -58,6 +59,14 @@ func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) 
 	return s
 }
 
+// WithCaller sets who the conversation acts for. A retriever that
+// implements [memory.ContextRequestRetriever] is given it on
+// [memory.ContextRequest].Caller.
+func (s *MemoryRetrievalStage) WithCaller(caller types.Caller) *MemoryRetrievalStage {
+	s.caller = caller
+	return s
+}
+
 // Process implements Stage.
 func (s *MemoryRetrievalStage) Process(
 	ctx context.Context,
@@ -77,7 +86,9 @@ func (s *MemoryRetrievalStage) Process(
 	}
 
 	if s.retriever != nil && s.turnState != nil && len(messages) > 0 {
-		memories, err := s.retriever.RetrieveContext(ctx, s.scope, messages)
+		memories, err := memory.RetrieveContextFor(ctx, s.retriever, memory.ContextRequest{
+			Scope: s.scope, Messages: messages, Caller: s.caller,
+		})
 		if err != nil {
 			logger.Error("Memory retrieval failed", "error", err)
 		}
@@ -125,6 +136,7 @@ type MemoryExtractionStage struct {
 	extractor memory.Extractor
 	store     memory.Store
 	scope     map[string]string
+	caller    types.Caller
 }
 
 // NewMemoryExtractionStage creates an extraction stage.
@@ -137,6 +149,15 @@ func NewMemoryExtractionStage(
 		store:     store,
 		scope:     scope,
 	}
+}
+
+// WithCaller sets who the conversation acts for. An extractor that
+// implements [memory.ContextRequestExtractor] is given it on
+// [memory.ContextRequest].Caller, and a store that implements
+// [memory.OptionsSaver] on [memory.SaveOptions].Caller.
+func (s *MemoryExtractionStage) WithCaller(caller types.Caller) *MemoryExtractionStage {
+	s.caller = caller
+	return s
 }
 
 // Process implements Stage.
@@ -174,7 +195,9 @@ func (s *MemoryExtractionStage) Process(
 
 // extractAndSave runs the extractor and saves resulting memories.
 func (s *MemoryExtractionStage) extractAndSave(ctx context.Context, messages []types.Message) {
-	memories, err := s.extractor.Extract(ctx, s.scope, messages)
+	memories, err := memory.ExtractFor(ctx, s.extractor, memory.ContextRequest{
+		Scope: s.scope, Messages: messages, Caller: s.caller,
+	})
 	if err != nil {
 		logger.Error("Memory extraction failed", "error", err)
 		return
@@ -187,7 +210,7 @@ func (s *MemoryExtractionStage) extractAndSave(ctx context.Context, messages []t
 		if m.GetProvenance() == "" {
 			m.SetProvenance(memory.ProvenanceAgentExtracted)
 		}
-		if saveErr := s.store.Save(ctx, m); saveErr != nil {
+		if saveErr := memory.SaveFor(ctx, s.store, m, s.caller); saveErr != nil {
 			logger.Error("Memory save failed", "id", m.ID, "error", saveErr)
 		}
 	}

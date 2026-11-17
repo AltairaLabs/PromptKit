@@ -12,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // defaultExecEvalTimeout is the default timeout for exec eval subprocesses.
@@ -79,6 +80,9 @@ type execEvalCtx struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 	SessionID string         `json:"session_id,omitempty"`
 	PromptID  string         `json:"prompt_id,omitempty"`
+	// Caller is who the conversation acts for (EvalContext.Caller), as
+	// "ID" and "Claims"; omitted when none was set.
+	Caller *types.Caller `json:"caller,omitempty"`
 }
 
 // execEvalResponse is the JSON payload read from the subprocess stdout.
@@ -170,6 +174,10 @@ func (h *ExecEvalHandler) buildRequest(evalCtx *evals.EvalContext, params map[st
 		},
 	}
 
+	if !evalCtx.Caller.IsZero() {
+		caller := evalCtx.Caller
+		req.Context.Caller = &caller
+	}
 	req.Context.Messages = buildMessageViews(evalCtx)
 	req.Context.ToolCalls = buildToolCallViews(evalCtx)
 

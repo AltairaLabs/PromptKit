@@ -20,6 +20,8 @@ Package hooks provides synchronous interception points for provider calls, tool 
 - [func BuildExecHooks\(bindings map\[string\]\*execconfig.ExecHook, sandboxes map\[string\]sandbox.Sandbox\) \(provider \[\]ProviderHook, tool \[\]ToolHook, session \[\]SessionHook, err error\)](<#BuildExecHooks>)
 - [func ResolveSandboxes\(specs map\[string\]\*execconfig.SandboxConfig\) \(map\[string\]sandbox.Sandbox, error\)](<#ResolveSandboxes>)
 - [type ChunkInterceptor](<#ChunkInterceptor>)
+- [type ChunkRequest](<#ChunkRequest>)
+- [type ChunkRequestInterceptor](<#ChunkRequestInterceptor>)
 - [type Decision](<#Decision>)
   - [func Deny\(reason string\) Decision](<#Deny>)
   - [func DenyWithMetadata\(reason string, metadata map\[string\]any\) Decision](<#DenyWithMetadata>)
@@ -64,6 +66,7 @@ Package hooks provides synchronous interception points for provider calls, tool 
   - [func \(r \*Registry\) RunBeforeProviderCall\(ctx context.Context, req \*ProviderRequest\) Decision](<#Registry.RunBeforeProviderCall>)
   - [func \(r \*Registry\) RunBeforeToolExecution\(ctx context.Context, req ToolRequest\) Decision](<#Registry.RunBeforeToolExecution>)
   - [func \(r \*Registry\) RunOnChunk\(ctx context.Context, chunk \*providers.StreamChunk\) Decision](<#Registry.RunOnChunk>)
+  - [func \(r \*Registry\) RunOnChunkRequest\(ctx context.Context, req ChunkRequest\) Decision](<#Registry.RunOnChunkRequest>)
   - [func \(r \*Registry\) RunSessionEnd\(ctx context.Context, event SessionEvent\) error](<#Registry.RunSessionEnd>)
   - [func \(r \*Registry\) RunSessionStart\(ctx context.Context, event SessionEvent\) error](<#Registry.RunSessionStart>)
   - [func \(r \*Registry\) RunSessionUpdate\(ctx context.Context, event SessionEvent\) error](<#Registry.RunSessionUpdate>)
@@ -148,8 +151,38 @@ type ChunkInterceptor interface {
 }
 ```
 
+<a name="ChunkRequest"></a>
+## type [ChunkRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L92-L102>)
+
+ChunkRequest is a streamed response chunk handed to a ChunkRequestInterceptor, with who the call acts for.
+
+```go
+type ChunkRequest struct {
+    // Chunk is the chunk being judged. An interceptor that returns Enforced
+    // rewrites Chunk.Content in place, as OnChunk does.
+    Chunk *providers.StreamChunk
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+    // the host's interceptor and otherwise never reads, persists, logs or
+    // emits it.
+    Caller types.Caller
+}
+```
+
+<a name="ChunkRequestInterceptor"></a>
+## type [ChunkRequestInterceptor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L27-L29>)
+
+ChunkRequestInterceptor is ChunkInterceptor with the caller: a ProviderHook that implements it has InterceptChunk called for each streaming chunk, in place of OnChunk when it implements both, so a per\-tenant output check sees who the turn acts for.
+
+```go
+type ChunkRequestInterceptor interface {
+    InterceptChunk(ctx context.Context, req ChunkRequest) Decision
+}
+```
+
 <a name="Decision"></a>
-## type [Decision](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L11-L20>)
+## type [Decision](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L12-L21>)
 
 Decision is the result of a hook evaluation.
 
@@ -167,7 +200,7 @@ type Decision struct {
 ```
 
 <a name="Deny"></a>
-### func [Deny](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L26>)
+### func [Deny](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L27>)
 
 ```go
 func Deny(reason string) Decision
@@ -176,7 +209,7 @@ func Deny(reason string) Decision
 Deny creates a denial decision with a reason.
 
 <a name="DenyWithMetadata"></a>
-### func [DenyWithMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L31>)
+### func [DenyWithMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L32>)
 
 ```go
 func DenyWithMetadata(reason string, metadata map[string]any) Decision
@@ -185,7 +218,7 @@ func DenyWithMetadata(reason string, metadata map[string]any) Decision
 DenyWithMetadata creates a denial decision with a reason and metadata.
 
 <a name="Enforced"></a>
-### func [Enforced](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L37>)
+### func [Enforced](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L38>)
 
 ```go
 func Enforced(reason string, metadata map[string]any) Decision
@@ -404,7 +437,7 @@ func (e *HookDeniedError) Error() string
 
 
 <a name="InputRequest"></a>
-## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L94-L104>)
+## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L115-L128>)
 
 InputRequest is the narrow view of an about\-to\-be\-sent call handed to a func\-based input guardrail. Use guardrails.InputFunc to build one.
 
@@ -419,6 +452,9 @@ type InputRequest struct {
     // Replacement supplies the canned assistant text when the check
     // returns Enforced. Empty falls back to the default blocked message.
     Replacement string
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set.
+    Caller types.Caller
 }
 ```
 
@@ -459,7 +495,7 @@ func WithToolHook(h ToolHook) Option
 WithToolHook registers a tool hook.
 
 <a name="OutputRequest"></a>
-## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L108-L115>)
+## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L132-L142>)
 
 OutputRequest is the narrow view of a completed call handed to a func\-based output guardrail. Use guardrails.OutputFunc to build one.
 
@@ -471,6 +507,9 @@ type OutputRequest struct {
     Message *types.Message
     // Round is the provider round this response belongs to (1-based).
     Round int
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set.
+    Caller types.Caller
 }
 ```
 
@@ -488,7 +527,7 @@ type ProviderHook interface {
 ```
 
 <a name="ProviderRequest"></a>
-## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L56-L81>)
+## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L57-L88>)
 
 ProviderRequest describes an LLM call about to be made.
 
@@ -518,11 +557,17 @@ type ProviderRequest struct {
     // Empty falls back to Decision.Metadata["replacement"], then to
     // prompt.DefaultBlockedMessage.
     Replacement string
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. PromptKit hands it to
+    // the host's provider hooks, guardrails included, and otherwise never
+    // reads, persists, logs or emits it.
+    Caller types.Caller
 }
 ```
 
 <a name="ProviderResponse"></a>
-## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L84-L90>)
+## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L105-L111>)
 
 ProviderResponse describes a completed LLM call.
 
@@ -557,13 +602,13 @@ func NewRegistry(opts ...Option) *Registry
 NewRegistry creates a Registry with the given options.
 
 <a name="Registry.HasChunkInterceptors"></a>
-### func \(\*Registry\) [HasChunkInterceptors](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L156>)
+### func \(\*Registry\) [HasChunkInterceptors](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L178>)
 
 ```go
 func (r *Registry) HasChunkInterceptors() bool
 ```
 
-HasChunkInterceptors returns true if any registered provider hook implements ChunkInterceptor.
+HasChunkInterceptors returns true if any registered provider hook implements ChunkInterceptor or ChunkRequestInterceptor.
 
 <a name="Registry.HasProviderHooks"></a>
 ### func \(\*Registry\) [HasProviderHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L96>)
@@ -575,7 +620,7 @@ func (r *Registry) HasProviderHooks() bool
 HasProviderHooks reports whether any provider hook is registered.
 
 <a name="Registry.HasToolResultRewriters"></a>
-### func \(\*Registry\) [HasToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L220>)
+### func \(\*Registry\) [HasToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L250>)
 
 ```go
 func (r *Registry) HasToolResultRewriters() bool
@@ -602,7 +647,7 @@ func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderReques
 RunAfterProviderCall executes all provider hooks' AfterCall in order. The first non\-Allow decision wins and short\-circuits.
 
 <a name="Registry.RunAfterToolExecution"></a>
-### func \(\*Registry\) [RunAfterToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L205>)
+### func \(\*Registry\) [RunAfterToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L235>)
 
 ```go
 func (r *Registry) RunAfterToolExecution(ctx context.Context, req ToolRequest, resp ToolResponse) Decision
@@ -676,7 +721,7 @@ false model is not allowed
 </details>
 
 <a name="Registry.RunBeforeToolExecution"></a>
-### func \(\*Registry\) [RunBeforeToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L183>)
+### func \(\*Registry\) [RunBeforeToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L213>)
 
 ```go
 func (r *Registry) RunBeforeToolExecution(ctx context.Context, req ToolRequest) Decision
@@ -685,16 +730,25 @@ func (r *Registry) RunBeforeToolExecution(ctx context.Context, req ToolRequest) 
 RunBeforeToolExecution executes all tool hooks' BeforeExecution in order. First deny wins and short\-circuits.
 
 <a name="Registry.RunOnChunk"></a>
-### func \(\*Registry\) [RunOnChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L165>)
+### func \(\*Registry\) [RunOnChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L188>)
 
 ```go
 func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk) Decision
 ```
 
-RunOnChunk executes all chunk interceptors in order. First deny wins and short\-circuits.
+RunOnChunk executes all chunk interceptors in order. First deny wins and short\-circuits. It is RunOnChunkRequest for a chunk with no caller.
+
+<a name="Registry.RunOnChunkRequest"></a>
+### func \(\*Registry\) [RunOnChunkRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L195>)
+
+```go
+func (r *Registry) RunOnChunkRequest(ctx context.Context, req ChunkRequest) Decision
+```
+
+RunOnChunkRequest executes all chunk interceptors in order: InterceptChunk for one that implements ChunkRequestInterceptor, OnChunk otherwise. First deny wins and short\-circuits.
 
 <a name="Registry.RunSessionEnd"></a>
-### func \(\*Registry\) [RunSessionEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L261>)
+### func \(\*Registry\) [RunSessionEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L291>)
 
 ```go
 func (r *Registry) RunSessionEnd(ctx context.Context, event SessionEvent) error
@@ -703,7 +757,7 @@ func (r *Registry) RunSessionEnd(ctx context.Context, event SessionEvent) error
 RunSessionEnd executes every session hook's OnSessionEnd in order. See runSessionHooks for how failures are handled.
 
 <a name="Registry.RunSessionStart"></a>
-### func \(\*Registry\) [RunSessionStart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L245>)
+### func \(\*Registry\) [RunSessionStart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L275>)
 
 ```go
 func (r *Registry) RunSessionStart(ctx context.Context, event SessionEvent) error
@@ -712,7 +766,7 @@ func (r *Registry) RunSessionStart(ctx context.Context, event SessionEvent) erro
 RunSessionStart executes every session hook's OnSessionStart in order. See runSessionHooks for how failures are handled.
 
 <a name="Registry.RunSessionUpdate"></a>
-### func \(\*Registry\) [RunSessionUpdate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L253>)
+### func \(\*Registry\) [RunSessionUpdate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L283>)
 
 ```go
 func (r *Registry) RunSessionUpdate(ctx context.Context, event SessionEvent) error
@@ -721,7 +775,7 @@ func (r *Registry) RunSessionUpdate(ctx context.Context, event SessionEvent) err
 RunSessionUpdate executes every session hook's OnSessionUpdate in order. See runSessionHooks for how failures are handled.
 
 <a name="Registry.RunToolResultRewriters"></a>
-### func \(\*Registry\) [RunToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L227>)
+### func \(\*Registry\) [RunToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/registry.go#L257>)
 
 ```go
 func (r *Registry) RunToolResultRewriters(ctx context.Context, req ToolRequest, content string) (string, error)
@@ -739,7 +793,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L152-L164>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L179-L191>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -760,7 +814,7 @@ type SessionEvent struct {
 ```
 
 <a name="SessionHook"></a>
-## type [SessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L53-L58>)
+## type [SessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L61-L66>)
 
 SessionHook tracks session lifecycle.
 
@@ -774,7 +828,7 @@ type SessionHook interface {
 ```
 
 <a name="ToolHook"></a>
-## type [ToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L24-L28>)
+## type [ToolHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L32-L36>)
 
 ToolHook intercepts tool execution \(LLM\-initiated calls only\).
 
@@ -787,7 +841,7 @@ type ToolHook interface {
 ```
 
 <a name="ToolRequest"></a>
-## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L124-L140>)
+## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L151-L167>)
 
 ToolRequest describes a tool call about to be executed.
 
@@ -812,7 +866,7 @@ type ToolRequest struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L143-L149>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L170-L176>)
 
 ToolResponse describes a completed tool execution.
 
@@ -827,7 +881,7 @@ type ToolResponse struct {
 ```
 
 <a name="ToolResultRewriter"></a>
-## type [ToolResultRewriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L48-L50>)
+## type [ToolResultRewriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L56-L58>)
 
 ToolResultRewriter is an opt\-in extension for ToolHook. A ToolHook that also implements it may rewrite the text of a tool's successful result before the model sees it, as a test harness does to plant an indirect prompt injection in live tool output.
 

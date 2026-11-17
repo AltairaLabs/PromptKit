@@ -160,9 +160,10 @@ func (a *GuardrailHookAdapter) withJudge(metadata map[string]any) map[string]any
 
 // Compile-time interface checks.
 var (
-	_ hooks.ProviderHook     = (*GuardrailHookAdapter)(nil)
-	_ hooks.ChunkInterceptor = (*GuardrailHookAdapter)(nil)
-	_ hooks.EmitterAware     = (*GuardrailHookAdapter)(nil)
+	_ hooks.ProviderHook            = (*GuardrailHookAdapter)(nil)
+	_ hooks.ChunkInterceptor        = (*GuardrailHookAdapter)(nil)
+	_ hooks.ChunkRequestInterceptor = (*GuardrailHookAdapter)(nil)
+	_ hooks.EmitterAware            = (*GuardrailHookAdapter)(nil)
 )
 
 // SetEmitter implements hooks.EmitterAware. The provider stage calls this with
@@ -214,6 +215,7 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	// history. The hook boundary carries it now, so handlers that read
 	// TurnIndex are no longer unusable as guardrails.
 	evalCtx.TurnIndex = req.TurnIndex
+	evalCtx.Caller = req.Caller
 
 	d := a.evaluate(ctx, evalCtx)
 	if !d.Allow {
@@ -259,6 +261,7 @@ func (a *GuardrailHookAdapter) AfterCall(
 	)
 	if req != nil {
 		evalCtx.TurnIndex = req.TurnIndex
+		evalCtx.Caller = req.Caller
 	}
 
 	return a.evaluateMessage(ctx, evalCtx, &resp.Message)
@@ -419,18 +422,25 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 func (a *GuardrailHookAdapter) OnChunk(
 	ctx context.Context, chunk *providers.StreamChunk,
 ) hooks.Decision {
+	return a.InterceptChunk(ctx, hooks.ChunkRequest{Chunk: chunk})
+}
+
+// InterceptChunk is OnChunk with the caller: a handler that implements
+// evals.StreamableRequestEvalHandler judges the chunk through
+// EvalPartialRequest, given req.Caller; one that implements only
+// evals.StreamableEvalHandler through EvalPartial.
+func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.ChunkRequest) hooks.Decision {
 	if a.direction == DirectionInput {
 		return hooks.Allow
 	}
-
-	streamable, ok := a.handler.(evals.StreamableEvalHandler)
-	if !ok {
-		return hooks.Allow
-	}
+	chunk := req.Chunk
 
 	params, thresholds := a.evalParams()
 
-	result, err := streamable.EvalPartial(ctx, chunk.Content, params)
+	result, ok, err := a.evalPartial(ctx, chunk.Content, params, req.Caller)
+	if !ok {
+		return hooks.Allow
+	}
 	if err != nil {
 		return hooks.Deny("guardrail streaming error: " + err.Error())
 	}
@@ -449,6 +459,25 @@ func (a *GuardrailHookAdapter) OnChunk(
 	}
 
 	return hooks.Allow
+}
+
+// evalPartial runs the handler's streaming entry point on content, the one
+// that takes the caller when it implements it. ok is false when the handler
+// does not evaluate partial content.
+func (a *GuardrailHookAdapter) evalPartial(
+	ctx context.Context, content string, params map[string]any, caller types.Caller,
+) (result *evals.EvalResult, ok bool, err error) {
+	if h, isReq := a.handler.(evals.StreamableRequestEvalHandler); isReq {
+		result, err = h.EvalPartialRequest(ctx, evals.PartialEvalRequest{
+			Content: content, Params: params, Caller: caller,
+		})
+		return result, true, err
+	}
+	if h, isStream := a.handler.(evals.StreamableEvalHandler); isStream {
+		result, err = h.EvalPartial(ctx, content, params)
+		return result, true, err
+	}
+	return nil, false, nil
 }
 
 // enforce modifies the message content based on the validator type.

@@ -120,6 +120,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
 - [type MetricType](<#MetricType>)
 - [type ParamNamer](<#ParamNamer>)
 - [type ParamValidator](<#ParamValidator>)
+- [type PartialEvalRequest](<#PartialEvalRequest>)
 - [type ProviderBinding](<#ProviderBinding>)
   - [func BindingFromContext\(ctx context.Context\) ProviderBinding](<#BindingFromContext>)
 - [type Range](<#Range>)
@@ -134,6 +135,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func ScoreThresholdsFromSpec\(t \*Threshold\) \(ScoreThresholds, error\)](<#ScoreThresholdsFromSpec>)
   - [func \(t ScoreThresholds\) Triggered\(result \*EvalResult\) bool](<#ScoreThresholds.Triggered>)
 - [type StreamableEvalHandler](<#StreamableEvalHandler>)
+- [type StreamableRequestEvalHandler](<#StreamableRequestEvalHandler>)
 - [type Threshold](<#Threshold>)
 - [type ToolCallRecord](<#ToolCallRecord>)
   - [func ExtractToolCalls\(messages \[\]types.Message\) \[\]ToolCallRecord](<#ExtractToolCalls>)
@@ -380,7 +382,7 @@ func ApplyDefaults(evalType string, params map[string]any) map[string]any
 ApplyDefaults merges default params for the given eval type. User\-provided params take precedence over defaults.
 
 <a name="DefaultAliases"></a>
-## func [DefaultAliases](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L143>)
+## func [DefaultAliases](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L153>)
 
 ```go
 func DefaultAliases() [][2]string
@@ -532,7 +534,7 @@ func PassRate(results []bool) float64
 PassRate returns the fraction of true values in results \(0.0 to 1.0\), such as the repeated assertion outcomes of one test. It returns 0 for an empty slice.
 
 <a name="RegisterDefault"></a>
-## func [RegisterDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L123>)
+## func [RegisterDefault](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L133>)
 
 ```go
 func RegisterDefault(h EvalTypeHandler)
@@ -541,7 +543,7 @@ func RegisterDefault(h EvalTypeHandler)
 RegisterDefault adds a handler to the default set used by NewEvalTypeRegistry. It affects only registries created afterward. It is safe to call concurrently, though it is usually called from an init function.
 
 <a name="RegisterDefaultAlias"></a>
-## func [RegisterDefaultAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L134>)
+## func [RegisterDefaultAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L144>)
 
 ```go
 func RegisterDefaultAlias(aliasType, targetType string)
@@ -767,7 +769,7 @@ ValidateParams lets a wrapped eval's own param validation run at load time, the 
 The inner params are also checked for keys the inner check does not read \(see ValidateHandlerParams\). That check runs here, at load, and not on Eval.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L518>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L526>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -810,6 +812,14 @@ type EvalContext struct {
     // The scope is explicit because BuildEvalContext always populates
     // CurrentOutput, so its presence cannot indicate scope.
     ContentScope string `json:"content_scope,omitempty"`
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. The tool_exec
+    // handler puts it on the tool call it runs, so the host's executor sees
+    // it, an exec eval handler receives it on stdin (context.caller), and a
+    // host's own handler can read it. It is not otherwise serialized:
+    // PromptKit never persists, logs or emits it.
+    Caller types.Caller `json:"-"`
 }
 ```
 
@@ -1177,7 +1187,7 @@ type EvalTypeHandler interface {
 ```
 
 <a name="EvalTypeRegistry"></a>
-## type [EvalTypeRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L73-L76>)
+## type [EvalTypeRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L83-L86>)
 
 EvalTypeRegistry provides thread\-safe registration and lookup of EvalTypeHandler implementations by type name.
 
@@ -1188,7 +1198,7 @@ type EvalTypeRegistry struct {
 ```
 
 <a name="NewEmptyEvalTypeRegistry"></a>
-### func [NewEmptyEvalTypeRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L80>)
+### func [NewEmptyEvalTypeRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L90>)
 
 ```go
 func NewEmptyEvalTypeRegistry() *EvalTypeRegistry
@@ -1197,7 +1207,7 @@ func NewEmptyEvalTypeRegistry() *EvalTypeRegistry
 NewEmptyEvalTypeRegistry creates a registry with no handlers registered. Use this in tests to control exactly which handlers are available.
 
 <a name="NewEvalTypeRegistry"></a>
-### func [NewEvalTypeRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L92>)
+### func [NewEvalTypeRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L102>)
 
 ```go
 func NewEvalTypeRegistry() *EvalTypeRegistry
@@ -1210,7 +1220,7 @@ import _ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 ```
 
 <a name="EvalTypeRegistry.Get"></a>
-### func \(\*EvalTypeRegistry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L178>)
+### func \(\*EvalTypeRegistry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L188>)
 
 ```go
 func (r *EvalTypeRegistry) Get(evalType string) (EvalTypeHandler, error)
@@ -1219,7 +1229,7 @@ func (r *EvalTypeRegistry) Get(evalType string) (EvalTypeHandler, error)
 Get returns the handler for the given type, or an error if not found.
 
 <a name="EvalTypeRegistry.Has"></a>
-### func \(\*EvalTypeRegistry\) [Has](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L189>)
+### func \(\*EvalTypeRegistry\) [Has](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L199>)
 
 ```go
 func (r *EvalTypeRegistry) Has(evalType string) bool
@@ -1228,7 +1238,7 @@ func (r *EvalTypeRegistry) Has(evalType string) bool
 Has returns true if a handler is registered for the given type.
 
 <a name="EvalTypeRegistry.ParamNames"></a>
-### func \(\*EvalTypeRegistry\) [ParamNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L200>)
+### func \(\*EvalTypeRegistry\) [ParamNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L210>)
 
 ```go
 func (r *EvalTypeRegistry) ParamNames(evalType string) ([]string, bool)
@@ -1237,7 +1247,7 @@ func (r *EvalTypeRegistry) ParamNames(evalType string) ([]string, bool)
 ParamNames returns the params the handler registered for evalType \(or an alias of it\) reads, sorted, and true. It returns nil and false when the type is not registered or its handler does not implement ParamNamer, which means its params are not known, not that it takes none.
 
 <a name="EvalTypeRegistry.Register"></a>
-### func \(\*EvalTypeRegistry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L155>)
+### func \(\*EvalTypeRegistry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L165>)
 
 ```go
 func (r *EvalTypeRegistry) Register(handler EvalTypeHandler)
@@ -1246,7 +1256,7 @@ func (r *EvalTypeRegistry) Register(handler EvalTypeHandler)
 Register adds a handler to the registry. If a handler with the same type is already registered, it is replaced. A handler that implements GroupDeclarer has its groups recorded for DefaultGroupsForType.
 
 <a name="EvalTypeRegistry.RegisterAlias"></a>
-### func \(\*EvalTypeRegistry\) [RegisterAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L165>)
+### func \(\*EvalTypeRegistry\) [RegisterAlias](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L175>)
 
 ```go
 func (r *EvalTypeRegistry) RegisterAlias(aliasType, targetType string) error
@@ -1255,7 +1265,7 @@ func (r *EvalTypeRegistry) RegisterAlias(aliasType, targetType string) error
 RegisterAlias maps an alias name to an existing handler type. Lookups for aliasType will resolve to the handler registered for targetType. Returns an error if targetType has no registered handler.
 
 <a name="EvalTypeRegistry.Types"></a>
-### func \(\*EvalTypeRegistry\) [Types](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L215>)
+### func \(\*EvalTypeRegistry\) [Types](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L225>)
 
 ```go
 func (r *EvalTypeRegistry) Types() []string
@@ -1597,7 +1607,7 @@ const (
 ```
 
 <a name="ParamNamer"></a>
-## type [ParamNamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L67-L69>)
+## type [ParamNamer](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L77-L79>)
 
 ParamNamer is an optional interface for EvalTypeHandler implementations that list the params they read. A handler that implements it has its params checked for unknown keys wherever ParamValidator runs \(ValidateEvalTypes, the guardrail factory, and the assertion and guardrail wrappers' ValidateParams\), so a misspelled key fails at load instead of being silently ignored. Every built\-in handler implements it; a custom handler that does not is not checked.
 
@@ -1610,7 +1620,7 @@ type ParamNamer interface {
 ```
 
 <a name="ParamValidator"></a>
-## type [ParamValidator](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L48-L54>)
+## type [ParamValidator](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L58-L64>)
 
 ParamValidator is an optional interface for EvalTypeHandler implementations that have required or strictly\-typed params. Handlers without required params need not implement it.
 
@@ -1628,6 +1638,22 @@ type ParamValidator interface {
     // should be self-contained: it is logged or surfaced in a
     // ValidateEvalTypes result without a wrapping prefix.
     ValidateParams(params map[string]any) error
+}
+```
+
+<a name="PartialEvalRequest"></a>
+## type [PartialEvalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L530-L537>)
+
+PartialEvalRequest is the partial content a StreamableRequestEvalHandler judges, with who the conversation acts for.
+
+```go
+type PartialEvalRequest struct {
+    // Content is the partial content accumulated so far.
+    Content string
+    // Params are the eval's params, as EvalPartial receives them.
+    Params map[string]any
+    // Caller is who the conversation acts for (EvalContext.Caller).
+    Caller types.Caller
 }
 ```
 
@@ -1794,6 +1820,20 @@ type StreamableEvalHandler interface {
 }
 ```
 
+<a name="StreamableRequestEvalHandler"></a>
+## type [StreamableRequestEvalHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/registry.go#L38-L43>)
+
+StreamableRequestEvalHandler is StreamableEvalHandler with the caller: a guardrail whose handler implements it calls EvalPartialRequest on each streaming chunk in place of EvalPartial.
+
+```go
+type StreamableRequestEvalHandler interface {
+    EvalTypeHandler
+
+    // EvalPartialRequest evaluates partial content accumulated so far.
+    EvalPartialRequest(ctx context.Context, req PartialEvalRequest) (*EvalResult, error)
+}
+```
+
 <a name="Threshold"></a>
 ## type [Threshold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L341>)
 
@@ -1804,7 +1844,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L534>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L553>)
 
 ToolCallRecord is an alias for types.ToolCallRecord.
 

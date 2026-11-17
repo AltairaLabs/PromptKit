@@ -32,13 +32,15 @@ const (
 // ToolExecHandler invokes a tool by name through the runtime tool
 // registry and asserts the call succeeded. The pass condition is:
 //
-//   - tools.Registry.Execute returns no error, AND
+//   - tools.Registry.ExecuteCall returns no error, AND
 //   - the resulting ToolResult has an empty Error field.
 //
 // This makes it a generic "is this tool happy" gate that works with
 // any registered tool: MCP-backed (e.g. a sandbox's run_tests),
 // HTTP/local executors, custom client tools — whatever the host has
-// wired up. The handler doesn't know or care about the transport.
+// wired up. The handler doesn't know or care about the transport. The
+// call carries EvalContext.Caller, so an executor that implements
+// tools.CallExecutor sees who the conversation acts for.
 //
 // Params:
 //   - tool string (required) — registry name of the tool to invoke
@@ -106,7 +108,11 @@ func (h *ToolExecHandler) Eval(
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, execErr := registry.Execute(execCtx, toolName, args)
+	// The call acts for the eval context's caller, so a host CallExecutor
+	// authorizes it as it would the conversation's own call.
+	result, execErr := registry.ExecuteCall(execCtx, tools.ToolCall{
+		Name: toolName, Args: args, Caller: evalCtx.Caller,
+	})
 	if execErr != nil {
 		return fail(fmt.Sprintf("tool_exec: %q failed: %v", toolName, execErr)), nil
 	}

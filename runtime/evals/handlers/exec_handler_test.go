@@ -303,3 +303,26 @@ func TestJSONSafeMetadata_DropsOnlyUnencodableEntries(t *testing.T) {
 	assert.Len(t, in, 3, "the host's map is not mutated")
 	assert.Nil(t, jsonSafeMetadata(nil))
 }
+
+// An exec eval is given the conversation's caller on stdin, under
+// context.caller, as exec hooks are.
+func TestExecEvalHandler_StdinCarriesTheCaller(t *testing.T) {
+	script := writeExecScript(t, "eval.sh", `#!/bin/sh
+in=$(cat)
+printf '{"score": 1, "data": %s}' "$in"
+`)
+	h := NewExecEvalHandler(&ExecEvalConfig{TypeName: "tenant_check", Command: script})
+	evalCtx := &evals.EvalContext{
+		CurrentOutput: "hi",
+		Caller:        rtypes.Caller{ID: "member@example.com", Claims: map[string]any{"tenant": "acme"}},
+	}
+
+	result, err := h.Eval(context.Background(), evalCtx, nil)
+	require.NoError(t, err)
+
+	execCtx, ok := result.Details["context"].(map[string]any)
+	require.True(t, ok, "stdin echoed back: %v", result.Details)
+	assert.Equal(t,
+		map[string]any{"ID": "member@example.com", "Claims": map[string]any{"tenant": "acme"}},
+		execCtx["caller"])
+}

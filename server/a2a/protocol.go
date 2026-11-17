@@ -32,6 +32,8 @@ type rpcCall struct {
 	req   *a2a.JSONRPCRequest
 	v     a2a.ProtocolVersion
 	owner string
+	// caller is who the request acts for, under NewServerFor (convCaller).
+	caller string
 	// log returns the server's logger; nil means PromptKit's logger.
 	log func() *slog.Logger
 }

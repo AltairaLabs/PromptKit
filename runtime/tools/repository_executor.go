@@ -6,10 +6,13 @@ import (
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // RepositoryToolExecutor wraps existing tool executors to provide
-// repository-backed mock responses with fallback to real execution.
+// repository-backed mock responses with fallback to real execution. A base
+// executor that implements CallExecutor is given the whole call, caller
+// included; any other base runs Execute.
 // This enables deterministic tool testing while maintaining the ability
 // to fall back to real tool execution when needed.
 type RepositoryToolExecutor struct {
@@ -42,6 +45,36 @@ func (e *RepositoryToolExecutor) Name() string {
 func (e *RepositoryToolExecutor) Execute(
 	ctx context.Context, descriptor *ToolDescriptor, args json.RawMessage,
 ) (json.RawMessage, error) {
+	if result, ok, err := e.repositoryResult(descriptor, args); ok {
+		return result, err
+	}
+	return e.baseExecutor.Execute(ctx, descriptor, args)
+}
+
+// ExecuteCall implements CallExecutor: a repository response for the call's
+// arguments, else the base executor's run of the call. A base that implements
+// CallExecutor is given the whole call, its caller included; any other base
+// runs Execute, exactly as through Execute. The wrapper never suspends a call
+// and never returns content parts, whatever the base implements.
+func (e *RepositoryToolExecutor) ExecuteCall(
+	ctx context.Context, descriptor *ToolDescriptor, call ToolCall,
+) (json.RawMessage, []types.ContentPart, error) {
+	if result, ok, err := e.repositoryResult(descriptor, call.Args); ok {
+		return result, nil, err
+	}
+	if callExec, ok := e.baseExecutor.(CallExecutor); ok {
+		return callExec.ExecuteCall(ctx, descriptor, call)
+	}
+	result, err := e.baseExecutor.Execute(ctx, descriptor, call.Args)
+	return result, nil, err
+}
+
+// repositoryResult is the repository's answer to a call with args: its
+// result, or the error it configures. ok is false when the repository has no
+// answer and the base executor must run the call.
+func (e *RepositoryToolExecutor) repositoryResult(
+	descriptor *ToolDescriptor, args json.RawMessage,
+) (result json.RawMessage, ok bool, err error) {
 	logger.Debug("RepositoryToolExecutor Execute",
 		"tool_name", descriptor.Name,
 		"context_key", e.contextKey,
@@ -53,39 +86,35 @@ func (e *RepositoryToolExecutor) Execute(
 		logger.Debug("RepositoryToolExecutor failed to parse args, falling back to base executor",
 			"tool_name", descriptor.Name,
 			"error", err)
-		return e.baseExecutor.Execute(ctx, descriptor, args)
+		return nil, false, nil
 	}
 
 	// Check if we have a repository response for this tool call
-	if repoResponse, _ := e.getRepositoryResponse(descriptor.Name, argsMap); repoResponse != nil {
-		logger.Debug("RepositoryToolExecutor using repository response",
+	repoResponse, _ := e.getRepositoryResponse(descriptor.Name, argsMap)
+	if repoResponse == nil {
+		logger.Debug("RepositoryToolExecutor no repository response found, using base executor",
 			"tool_name", descriptor.Name,
-			"context_key", e.contextKey,
-			"has_error", repoResponse.Error != nil)
+			"context_key", e.contextKey)
+		return nil, false, nil
+	}
+	logger.Debug("RepositoryToolExecutor using repository response",
+		"tool_name", descriptor.Name,
+		"context_key", e.contextKey,
+		"has_error", repoResponse.Error != nil)
 
-		// Handle error responses
-		if repoResponse.Error != nil {
-			return nil, fmt.Errorf("%s: %s", repoResponse.Error.Type, repoResponse.Error.Message)
-		}
-
-		// Return successful response
-		result, err := json.Marshal(repoResponse.Result)
-		if err != nil {
-			logger.Debug("RepositoryToolExecutor failed to marshal repository response",
-				"tool_name", descriptor.Name,
-				"error", err)
-			return e.baseExecutor.Execute(ctx, descriptor, args)
-		}
-
-		return result, nil
+	// Handle error responses
+	if repoResponse.Error != nil {
+		return nil, true, fmt.Errorf("%s: %s", repoResponse.Error.Type, repoResponse.Error.Message)
 	}
 
-	// No repository response found, fallback to base executor
-	logger.Debug("RepositoryToolExecutor no repository response found, using base executor",
-		"tool_name", descriptor.Name,
-		"context_key", e.contextKey)
-
-	return e.baseExecutor.Execute(ctx, descriptor, args)
+	result, marshalErr := json.Marshal(repoResponse.Result)
+	if marshalErr != nil {
+		logger.Debug("RepositoryToolExecutor failed to marshal repository response",
+			"tool_name", descriptor.Name,
+			"error", marshalErr)
+		return nil, false, nil
+	}
+	return result, true, nil
 }
 
 // getRepositoryResponse attempts to get a mock response from the repository.

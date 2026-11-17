@@ -541,6 +541,7 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 		return &evals.EvalContext{
 			TurnIndex: reported,
 			PromptID:  em.conv.promptName,
+			Caller:    em.caller(),
 		}
 	}
 
@@ -565,13 +566,23 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 	// (#1704). Delegating is what stops a third occurrence: a field added to
 	// EvalContext now reaches this path automatically instead of needing a
 	// second edit nobody remembers to make.
-	return evals.BuildEvalContext(
+	evalCtx := evals.BuildEvalContext(
 		em.cachedMessages,
 		reported,
 		em.cachedSessionID,
 		em.conv.promptName,
 		em.hostDefaultJudge(),
 	)
+	evalCtx.Caller = em.caller()
+	return evalCtx
+}
+
+// caller is who the conversation acts for (WithCaller), for its evals.
+func (em *evalMiddleware) caller() types.Caller {
+	if em.conv == nil || em.conv.config == nil {
+		return types.Caller{}
+	}
+	return em.conv.config.caller
 }
 
 // hostDefaultJudge carries a host-supplied default judge to checks whose pack
