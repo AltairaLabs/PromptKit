@@ -219,6 +219,13 @@ type DuplexProviderStage struct {
 	cutPending  bool
 	cutGen      int64
 	blockedLive *string
+	// blockedLiveSpoken is set when blockedLive is a message to speak
+	// (queueAnnouncement), announce is the spoken blocked message's state, and
+	// chunkAnnounces is set while the chunk being handled is part of it.
+	// Response goroutine only.
+	blockedLiveSpoken bool
+	announce          duplexAnnouncement
+	chunkAnnounces    bool
 	// lastReplyGen is the latest generation of the session's replies the
 	// stage has handled, and chunkIsReply whether the chunk being handled is
 	// one of a reply's (not the caller's transcript). Response goroutine only.
@@ -1553,6 +1560,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	//
 	// Check metadata to distinguish the source
 	isOutputTranscription, isInputTranscription := s.classifyResponseChunk(chunk)
+	announcing := s.takeAnnouncementChunk(chunk)
+	s.chunkAnnounces = announcing
 
 	// Fast-path streaming user-turn materialization (provider-agnostic).
 	//
@@ -1610,6 +1619,9 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Streaming guardrails check the chunk's assistant text before it is
 	// accumulated or forwarded.
 	s.guardOutputChunk(ctx, chunk, isOutputTranscription)
+	if announcing {
+		stripAnnouncementChunk(chunk, isOutputTranscription)
+	}
 
 	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
 		return err
@@ -1643,6 +1655,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if err := s.cutReply(ctx, output); err != nil {
 		return err
 	}
+	s.advanceAnnouncement(ctx, &elem, announcing, turnDone)
 	if err := s.reportCanceledReply(ctx, &elem, turnDone, output); err != nil {
 		return err
 	}

@@ -37,7 +37,7 @@ const turnTimeout = 90 * time.Second
 var script = []string{
 	"Say the word pineapple, then tell me one fact about it.",
 	"What is the capital of France? Answer in one sentence.",
-	"I'd like a banana smoothie recipe.",
+	"Tell me about my friend Bruno.",
 	"Show me the picture, and tell me the number on it.",
 }
 

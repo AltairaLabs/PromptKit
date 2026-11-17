@@ -168,14 +168,14 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 
 	// 3. The input guardrail judges what the caller said.
 	assert.Equal(t, []string{
-		`09:30:00.000  assistant message.created #5 "Let's not talk about bananas."`,
+		`09:30:00.000  assistant message.created #5 "We don't talk about Bruno."`,
 		`09:30:00.000  cost      call 3: $0.0030 (300 in / 50 out tokens); session total $0.0200`,
-		`09:30:00.000  guardrail no-banana blocked the user's input ` +
-			`(forbidden content found: turn 4 contains "banana"); the turn ends, the session continues`,
+		`09:30:00.000  guardrail no-bruno blocked the user's input ` +
+			`(forbidden content found: turn 4 contains "Bruno"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
-		`09:30:00.000  interrupt turn ended (safety); text after the cut: "Let's not talk about bananas."`,
-		`09:30:00.000  user      message.created #4 "I like banana bread"`,
-	}, r.step(6, heard("I like banana bread"), said("Banana bread is great.", 100), done(0.003, 300, 50)))
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about Bruno."`,
+		`09:30:00.000  user      message.created #4 "Tell me about Bruno"`,
+	}, r.step(6, heard("Tell me about Bruno"), said("Bruno is a fine name.", 100), done(0.003, 300, 50)))
 
 	// 4. The picture tool returns an image, which is sent to the model.
 	toolUse := types.FinishReasonToolUse

@@ -200,6 +200,27 @@ func (s *realtimeSessionBookkeeping) UpdateTools(
 	return errors.New("realtime session does not support tool updates")
 }
 
+// InterruptResponse forwards to the underlying session if it implements
+// providers.ResponseInterrupter — same reason for the explicit forward:
+// hidden, a guardrail's cut would leave the provider generating the blocked
+// reply and keeping all of it.
+func (s *realtimeSessionBookkeeping) InterruptResponse(ctx context.Context, generation int64) error {
+	if ri, ok := s.StreamInputSession.(providers.ResponseInterrupter); ok {
+		return ri.InterruptResponse(ctx, generation)
+	}
+	return errors.New("realtime session cannot interrupt a response")
+}
+
+// Announce forwards to the underlying session if it implements
+// providers.Announcer — same reason for the explicit forward: hidden, a
+// guardrail's cut would leave the caller in silence.
+func (s *realtimeSessionBookkeeping) Announce(ctx context.Context, text string) (bool, error) {
+	if a, ok := s.StreamInputSession.(providers.Announcer); ok {
+		return a.Announce(ctx, text)
+	}
+	return false, nil
+}
+
 // BargeIn() is promoted from the embedded StreamInputSession (which now includes
 // it as a required method), so the wrapper forwards it automatically — no
 // explicit override needed.

@@ -76,7 +76,7 @@ func runVoice(setup *providerSetup) error {
 
 	fmt.Printf("Realtime showcase - %s (%s)\n", setup.name, setup.model)
 	fmt.Println("Listening. Use headphones. Try: \"tell me a long story\" (then talk over it),")
-	fmt.Println("\"say the word pineapple\", \"I like bananas\", \"show me the picture\". Ctrl+C to quit.")
+	fmt.Println("\"say the word pineapple\", \"tell me about Bruno\", \"show me the picture\". Ctrl+C to quit.")
 	fmt.Println()
 
 	runErr := runUntilSignal(conv)
