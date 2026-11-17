@@ -652,11 +652,6 @@ type openAIMessage struct {
 	// no reasoning while Stream reported it. Routed to Message.Reasoning, never
 	// to content. Omitted on requests — it is a response-only field.
 	ReasoningContent string `json:"reasoning_content,omitempty"`
-	// ToolCalls is the assistant message's calls and ToolCallID the call a
-	// tool message answers. Chat Completions accepts both without a tools
-	// array, and the model needs them to tie each result to its call.
-	ToolCalls  []map[string]interface{} `json:"tool_calls,omitempty"`
-	ToolCallID string                   `json:"tool_call_id,omitempty"`
 }
 
 type openAIResponse struct {
@@ -702,32 +697,14 @@ type openAIError struct {
 	Code    string `json:"code"`
 }
 
-// prepareOpenAIMessages converts predict request messages to OpenAI format with system message
+// prepareOpenAIMessages converts predict request messages to OpenAI format with
+// system message. It is the serializer the tool path uses, so a history keeps its
+// tool call linkage, tool message names and lifted tool media whether or not the
+// request carries tools.
 func (p *Provider) prepareOpenAIMessages(
 	ctx context.Context, req providers.PredictionRequest,
-) ([]openAIMessage, error) {
-	messages := make([]openAIMessage, 0, len(req.Messages)+1)
-	if req.System != "" {
-		messages = append(messages, openAIMessage{
-			Role:    roleSystem,
-			Content: req.System,
-		})
-	}
-
-	// Convert each message, handling both legacy text and multimodal Parts
-	for i := range req.Messages {
-		converted, err := p.convertMessageToOpenAI(ctx, req.Messages[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert message: %w", err)
-		}
-		converted.ToolCalls = openAIToolCalls(req.Messages[i].ToolCalls)
-		if tr := req.Messages[i].ToolResult; tr != nil {
-			converted.ToolCallID = tr.ID
-		}
-		messages = append(messages, converted)
-	}
-
-	return messages, nil
+) ([]map[string]interface{}, error) {
+	return p.convertRequestMessagesToOpenAI(ctx, req)
 }
 
 // applyRequestDefaults applies provider defaults to zero-valued request parameters
@@ -1325,7 +1302,7 @@ func convertOpenAIPart(part interface{}) *types.ContentPart {
 
 // predictWithMessages is a refactored version of Predict that accepts pre-converted messages
 func (p *Provider) predictWithMessages(
-	ctx context.Context, req providers.PredictionRequest, messages []openAIMessage,
+	ctx context.Context, req providers.PredictionRequest, messages []map[string]interface{},
 ) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)
@@ -1464,7 +1441,7 @@ func (p *Provider) decodeChatResponse(
 
 // predictStreamWithMessages is a refactored version of PredictStream that accepts pre-converted messages
 func (p *Provider) predictStreamWithMessages(
-	ctx context.Context, req providers.PredictionRequest, messages []openAIMessage,
+	ctx context.Context, req providers.PredictionRequest, messages []map[string]interface{},
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)

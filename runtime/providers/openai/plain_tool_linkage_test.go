@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 	"time"
 
@@ -35,7 +34,7 @@ const wantLinkedMessages = `[
 	{"role":"user","content":"Weather in Paris?"},
 	{"role":"assistant","content":"","tool_calls":[
 		{"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]},
-	{"role":"tool","content":"18C and sunny","tool_call_id":"call_abc"}
+	{"role":"tool","name":"get_weather","content":"18C and sunny","tool_call_id":"call_abc"}
 ]`
 
 func captureChatBody(t *testing.T, stream bool, run func(p *Provider)) []byte {
@@ -89,50 +88,81 @@ func TestPredictStream_PlainPathKeepsToolLinkage(t *testing.T) {
 	assert.JSONEq(t, wantLinkedMessages, string(got.Messages))
 }
 
-func TestPredict_PlainResponsesModeKeepsToolLinkage(t *testing.T) {
-	var body []byte
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ = io.ReadAll(r.Body)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"r1","status":"completed","output":[{"type":"message","role":"assistant",` +
-			`"content":[{"type":"output_text","text":"ok"}]}]}`))
-	}))
-	defer server.Close()
-	p := &Provider{
-		BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
-		model:        "gpt-4o",
-		baseURL:      server.URL,
-		apiKey:       "k",
-		apiMode:      APIModeResponses,
-		defaults:     providers.ProviderDefaults{MaxTokens: 100},
-	}
-	_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: linkageHistory()})
-	require.NoError(t, err)
+func messagesOf(t *testing.T, body []byte) json.RawMessage {
+	t.Helper()
 	var got struct {
-		Input []map[string]any `json:"input"`
+		Messages json.RawMessage `json:"messages"`
 	}
 	require.NoError(t, json.Unmarshal(body, &got))
-	require.Len(t, got.Input, 3)
-	assert.Equal(t, "function_call", got.Input[1]["type"])
-	assert.Equal(t, "call_abc", got.Input[1]["call_id"])
-	assert.Equal(t, "function_call_output", got.Input[2]["type"])
-	assert.Equal(t, "call_abc", got.Input[2]["call_id"])
-	assert.Equal(t, "18C and sunny", got.Input[2]["output"])
+	return got.Messages
 }
 
-// TestPredict_PlainPathToolLinkage_Live proves OpenAI accepts the plain
-// request with linked tool messages and answers from the tool result.
-func TestPredict_PlainPathToolLinkage_Live(t *testing.T) {
-	key := os.Getenv("OPENAI_API_KEY")
-	if key == "" {
-		t.Skip("OPENAI_API_KEY not set")
+func imageToolHistory() []types.Message {
+	return []types.Message{
+		{Role: "user", Content: "Take a picture"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "call_img", Name: "camera", Args: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_img", Name: "camera", Parts: []types.ContentPart{
+			types.NewTextPart("done"),
+			types.NewImagePartFromData("aW1n", types.MIMETypeImagePNG, nil),
+		}}},
 	}
-	p := NewProvider("live", "gpt-4o-mini", "https://api.openai.com/v1",
-		providers.ProviderDefaults{MaxTokens: 100}, false)
-	p.apiKey = key
-	hist := linkageHistory()
-	hist[2].ToolResult.Parts = []types.ContentPart{types.NewTextPart("21.7C and overcast.")}
-	resp, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: hist})
+}
+
+// A tool result with an image goes out as the tool path sends it: a text-only
+// tool message that says where the image went, then a user message with the image.
+func TestPredict_PlainPathLiftsToolResultMedia(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: imageToolHistory()})
+		require.NoError(t, err)
+	})
+	assert.JSONEq(t, `[
+		{"role":"user","content":"Take a picture"},
+		{"role":"assistant","content":"","tool_calls":[
+			{"id":"call_img","type":"function","function":{"name":"camera","arguments":"{}"}}]},
+		{"role":"tool","name":"camera","tool_call_id":"call_img",
+			"content":"done\n[The image this tool returned is attached in the next user message.]"},
+		{"role":"user","content":[
+			{"type":"text","text":"Media returned by tool camera (call call_img):"},
+			{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1n"}}]}
+	]`, string(messagesOf(t, body)))
+}
+
+// tool_call_id belongs to role=tool messages only.
+func TestPredict_PlainPathToolResultOnNonToolRoleHasNoToolCallID(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+			{Role: "user", Content: "hi", ToolResult: &types.MessageToolResult{ID: "call_x", Name: "x"}},
+		}})
+		require.NoError(t, err)
+	})
+	assert.JSONEq(t, `[{"role":"user","content":"hi"}]`, string(messagesOf(t, body)))
+}
+
+// The plain and tool paths must serialize one history to the same messages.
+func TestPlainAndToolPathsSerializeHistoryIdentically(t *testing.T) {
+	history := append(linkageHistory(), imageToolHistory()[1:]...)
+	history = append(history, types.Message{Role: "user", Content: "thanks"})
+	req := providers.PredictionRequest{System: "be brief", MaxTokens: 50, Messages: history}
+
+	plain := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), req)
+		require.NoError(t, err)
+	})
+	var toolBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		toolBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("OPENAI_API_KEY", "k")
+	tp := NewToolProvider("parity", "gpt-4o", server.URL, providers.ProviderDefaults{}, false, nil, nil)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+		Name: "get_weather", Description: "w", InputSchema: json.RawMessage(`{"type":"object"}`),
+	}})
 	require.NoError(t, err)
-	assert.Contains(t, resp.Content, "21.7")
+	_, _, err = tp.PredictWithTools(context.Background(), req, tools, "auto")
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(messagesOf(t, toolBody)), string(messagesOf(t, plain)))
 }

@@ -296,7 +296,7 @@ func (p *ToolProvider) buildToolRequest(
 }
 
 // convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
-func (p *ToolProvider) convertRequestMessagesToOpenAI(
+func (p *Provider) convertRequestMessagesToOpenAI(
 	ctx context.Context, req providers.PredictionRequest,
 ) ([]map[string]interface{}, error) {
 	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
@@ -335,7 +335,7 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 
 // appendLiftedMedia appends the user messages carrying the media of a run of
 // tool results (liftedMediaMessages) to messages.
-func (p *ToolProvider) appendLiftedMedia(
+func (p *Provider) appendLiftedMedia(
 	ctx context.Context, messages []map[string]interface{}, round []*types.MessageToolResult,
 ) ([]map[string]interface{}, error) {
 	lifted := p.liftedMediaMessages(round)
@@ -352,7 +352,7 @@ func (p *ToolProvider) appendLiftedMedia(
 // convertSingleMessageForTools converts a single message to OpenAI format including tool metadata.
 // A part that cannot be converted is an error, as on the non-tool path: falling
 // back to the message's text used to send the model the question without its media.
-func (p *ToolProvider) convertSingleMessageForTools(
+func (p *Provider) convertSingleMessageForTools(
 	ctx context.Context, msg types.Message,
 ) (map[string]interface{}, error) {
 	// Convert message to OpenAI format (handles both legacy and multimodal)
@@ -393,7 +393,7 @@ func replayArgs(args json.RawMessage) string {
 }
 
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
-func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
+func (p *Provider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
 	return openAIToolCalls(toolCalls)
 }
 

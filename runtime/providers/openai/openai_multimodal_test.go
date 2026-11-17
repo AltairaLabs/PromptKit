@@ -762,28 +762,28 @@ func TestOpenAIProvider_ConvertMessagesToOpenAI(t *testing.T) {
 	}
 
 	// Check system message
-	if messages[0].Role != "system" {
-		t.Errorf("Expected first message role to be 'system', got '%s'", messages[0].Role)
+	if messages[0]["role"] != "system" {
+		t.Errorf("Expected first message role to be 'system', got '%s'", messages[0]["role"])
 	}
-	if messages[0].Content != "You are a helpful assistant." {
+	if messages[0]["content"] != "You are a helpful assistant." {
 		t.Errorf("Unexpected system message content")
 	}
 
 	// Check legacy message format
-	if messages[1].Role != "user" {
-		t.Errorf("Expected second message role to be 'user', got '%s'", messages[1].Role)
+	if messages[1]["role"] != "user" {
+		t.Errorf("Expected second message role to be 'user', got '%s'", messages[1]["role"])
 	}
-	if messages[1].Content != "Hello" {
+	if messages[1]["content"] != "Hello" {
 		t.Errorf("Unexpected user message content")
 	}
 
 	// Check multimodal message format
-	if messages[3].Role != "user" {
-		t.Errorf("Expected fourth message role to be 'user', got '%s'", messages[3].Role)
+	if messages[3]["role"] != "user" {
+		t.Errorf("Expected fourth message role to be 'user', got '%s'", messages[3]["role"])
 	}
-	parts, ok := messages[3].Content.([]interface{})
+	parts, ok := messages[3]["content"].([]interface{})
 	if !ok {
-		t.Fatalf("Expected multimodal content to be []interface{}, got %T", messages[3].Content)
+		t.Fatalf("Expected multimodal content to be []interface{}, got %T", messages[3]["content"])
 	}
 	if len(parts) != 2 {
 		t.Errorf("Expected 2 content parts in multimodal message, got %d", len(parts))
