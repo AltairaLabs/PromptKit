@@ -6081,11 +6081,13 @@ type ToolCallRecorder interface {
 ```
 
 <a name="TranscriptReorderStage"></a>
-## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L34-L55>)
+## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L40-L67>)
 
-TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text, even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
+TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant output, even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
 
-It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime. Only the transcript log is reordered. The turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
+Until the user turn for the current turn arrives it holds everything the model produced in answer: assistant TEXT, the turn\-end, and the messages a tool round adds \(the tool results that follow a tool\-call turn\-end\). Once the user turn arrives \(or a short timeout after a turn\-end elapses\) it emits the user turn, then what it held, in the order received. AUDIO passes through immediately, so playback stays realtime. Only the transcript log is reordered. If the transcript never arrives, a configurable placeholder user turn is emitted.
+
+A turn\-end that makes tool calls does not end the user's turn: the reply after the tool round answers the same utterance, so it is held \(or streamed, once the user turn is shown\) with it rather than waiting for a transcript of its own.
 
 The mechanism is provider\-agnostic; whether it is wired is decided upstream. It is a Transform stage: state is per\-turn and reset on each turn boundary, so a single instance handles one continuous duplex conversation.
 
@@ -6097,7 +6099,7 @@ type TranscriptReorderStage struct {
 ```
 
 <a name="NewTranscriptReorderStage"></a>
-### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L59>)
+### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L71>)
 
 ```go
 func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
@@ -6106,7 +6108,7 @@ func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
 NewTranscriptReorderStage creates a reorder stage with the given missing\-turn placeholder text \(empty to omit the user turn\) and the default hold timeout.
 
 <a name="NewTranscriptReorderStageWithTimeout"></a>
-### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L65>)
+### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L77>)
 
 ```go
 func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.Duration) *TranscriptReorderStage
@@ -6115,7 +6117,7 @@ func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.D
 NewTranscriptReorderStageWithTimeout is like NewTranscriptReorderStage but with an explicit hold timeout \(tests use a short value\).
 
 <a name="TranscriptReorderStage.Process"></a>
-### func \(\*TranscriptReorderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L74-L78>)
+### func \(\*TranscriptReorderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L86-L90>)
 
 ```go
 func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

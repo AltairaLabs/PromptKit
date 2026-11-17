@@ -30,15 +30,31 @@ func drainOrder(out <-chan StreamElement) []string {
 		switch {
 		case e.Message != nil && e.Message.Role == "user":
 			order = append(order, "USER:"+e.Message.Content)
+		case e.Message != nil && e.Message.Role == "tool":
+			order = append(order, "TOOL:"+e.Message.ToolResult.ID)
 		case e.Audio != nil:
 			order = append(order, "AUDIO")
 		case e.Text != nil:
 			order = append(order, "TXT:"+*e.Text)
+		case e.EndOfStream && e.Message != nil && len(e.Message.ToolCalls) > 0:
+			order = append(order, "END:calls")
 		case e.EndOfStream:
 			order = append(order, "END")
 		}
 	}
 	return order
+}
+
+// toolCallEndElem is the turn-end of a model response that made a tool call.
+func toolCallEndElem(id string) StreamElement {
+	return StreamElement{EndOfStream: true, Message: &types.Message{
+		Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: id, Name: "lookup"}}}}
+}
+
+// toolResultElem is the tool result message for call id.
+func toolResultElem(id string) StreamElement {
+	msg := types.NewToolResultMessage(types.NewTextToolResult(id, "lookup", "found"))
+	return StreamElement{Message: &msg}
 }
 
 // TestTranscriptReorderStage_UserBeforeAssistant is the core guarantee: when the
@@ -129,6 +145,8 @@ func collectUntil(out <-chan StreamElement, endMarks int, deadline time.Duration
 			switch {
 			case e.Message != nil && e.Message.Role == "user":
 				order = append(order, "USER:"+e.Message.Content)
+			case e.Message != nil && e.Message.Role == "tool":
+				order = append(order, "TOOL:"+e.Message.ToolResult.ID)
 			case e.Audio != nil:
 				order = append(order, "AUDIO")
 			case e.Text != nil:
@@ -216,4 +234,125 @@ func TestTranscriptReorderStage_MultiTurnResets(t *testing.T) {
 
 	require.NoError(t, s.Process(context.Background(), in, out))
 	assert.Equal(t, []string{"USER:q1", "TXT:A1", "END", "USER:q2", "TXT:A2", "END"}, drainOrder(out))
+}
+
+// A tool round that completes before the late transcript is held with the
+// tool-call turn-end: the tool result follows the call it answers, and the
+// reply after the round answers the same user turn (no placeholder for it).
+func TestTranscriptReorderStage_ToolRoundHeldBehindLateTranscript(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+
+	in <- txtElem("Let me check.")
+	in <- toolCallEndElem("c1") // held: no transcript yet
+	in <- toolResultElem("c1")  // the round's result, before the transcript
+	in <- txtElem("Shipped.")   // the reply to the tool result
+	in <- userElem("where is my order")
+	in <- txtElem(" Today.") // after the user turn: live
+	in <- asstEndElem("Shipped. Today.")
+	close(in)
+
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{
+		"USER:where is my order", "TXT:Let me check.", "END:calls", "TOOL:c1", "TXT:Shipped.", "TXT: Today.", "END",
+	}, drainOrder(out))
+}
+
+// The transcript arrives after the whole tool turn: both turn-ends and the
+// tool result are held behind it, in order.
+func TestTranscriptReorderStage_TranscriptAfterWholeToolTurn(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+
+	in <- toolCallEndElem("c1")
+	in <- toolResultElem("c1")
+	in <- txtElem("Shipped.")
+	in <- asstEndElem("Shipped.")
+	in <- userElem("where is my order")
+	in <- txtElem("Next.") // the next turn
+	in <- userElem("thanks")
+	in <- asstEndElem("Next.")
+	close(in)
+
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{
+		"USER:where is my order", "END:calls", "TOOL:c1", "TXT:Shipped.", "END",
+		"USER:thanks", "TXT:Next.", "END",
+	}, drainOrder(out))
+}
+
+// With the user turn already shown, a tool-call turn-end does not end it:
+// the reply after the round streams live instead of waiting for (and then
+// getting a placeholder for) a transcript of its own.
+func TestTranscriptReorderStage_ToolTurnAfterUserStreamsLive(t *testing.T) {
+	s := NewTranscriptReorderStageWithTimeout("[none]", time.Hour)
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+
+	go func() { _ = s.Process(context.Background(), in, out) }()
+	in <- userElem("where is my order")
+	in <- toolCallEndElem("c1")
+	in <- toolResultElem("c1")
+	in <- txtElem("Shipped.")
+	in <- asstEndElem("Shipped.")
+	got := collectUntil(out, 2, 2*time.Second)
+	close(in)
+	assert.Equal(t, []string{"USER:where is my order", "END", "TOOL:c1", "TXT:Shipped.", "END"}, got,
+		"the reply to a tool round must not be held for a transcript of its own")
+}
+
+// When the hold times out on a tool-call turn-end, the placeholder stands in
+// for the transcript and the rest of the turn streams live.
+func TestTranscriptReorderStage_ToolTurnHoldTimeout(t *testing.T) {
+	t.Parallel()
+	s := NewTranscriptReorderStageWithTimeout("[none]", 40*time.Millisecond)
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+
+	go func() { _ = s.Process(context.Background(), in, out) }()
+	in <- toolCallEndElem("c1")
+	got := collectUntil(out, 1, 2*time.Second)
+	in <- toolResultElem("c1")
+	in <- txtElem("Shipped.")
+	in <- asstEndElem("Shipped.")
+	got = append(got, collectUntil(out, 1, 2*time.Second)...)
+	close(in)
+	assert.Equal(t, []string{"USER:[none]", "END", "TOOL:c1", "TXT:Shipped.", "END"}, got)
+}
+
+// An interrupted response with tool calls ends the turn: the next turn's text
+// resolves it with the placeholder.
+func TestTranscriptReorderStage_InterruptedToolTurnEndsTurn(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+
+	cut := toolCallEndElem("c1")
+	cut.Meta.Interrupted = true
+	in <- cut
+	in <- txtElem("A2")
+	in <- userElem("q2")
+	in <- asstEndElem("A2")
+	close(in)
+
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:[none]", "END:calls", "USER:q2", "TXT:A2", "END"}, drainOrder(out))
+}
+
+// Two finished turns with no transcript and no text between them (an
+// audio-only reply) each keep their turn-end: the second resolves the first.
+func TestTranscriptReorderStage_ConsecutiveTurnEndsBothKept(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 16)
+	out := make(chan StreamElement, 32)
+
+	in <- asstEndElem("A1")
+	in <- asstEndElem("A2")
+	in <- userElem("q2")
+	close(in)
+
+	require.NoError(t, s.Process(context.Background(), in, out))
+	assert.Equal(t, []string{"USER:[none]", "END", "USER:q2", "END"}, drainOrder(out))
 }
