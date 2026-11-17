@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -39,6 +40,9 @@ const (
 	metaKeyType         = "type"
 	metaKeyTurnComplete = "turn_complete"
 )
+
+// pcm16BytesPerSample is the size of one mono PCM16 sample.
+const pcm16BytesPerSample = 2
 
 // defaultOutputSampleRate is the default output sample rate for Gemini native audio models (24kHz).
 const defaultOutputSampleRate = 24000
@@ -336,6 +340,7 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 		// immediately, drop the interrupted response's queued audio, and skip
 		// still-arriving audio until the turn completes — plus the in-band
 		// Interrupted chunk for the pipeline.
+		s.playoutUntil = time.Time{}
 		s.Barge()
 		marker := providers.BargeMarker()
 		if err := s.sendChunk(&marker); err != nil {
@@ -349,9 +354,18 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 	if content.TurnComplete {
 		s.ClearDrop()
 	}
+	if content.ModelTurn != nil || content.OutputTranscription != nil {
+		s.replyDone = false // the model is answering again
+	}
 
+	if err := s.bargeInAfterReply(content); err != nil {
+		return err
+	}
 	if err := s.handleInputTranscription(content); err != nil {
 		return err
+	}
+	if content.TurnComplete {
+		defer func() { s.replyDone = true }()
 	}
 
 	if err := s.handleOutputTranscription(content); err != nil {
@@ -371,6 +385,54 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 	}
 
 	return nil
+}
+
+// clock returns the session's current time.
+func (s *StreamSession) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// extendPlayout adds a delivered audio chunk's duration to the playout
+// estimate: it plays from now, or after the audio still playing.
+func (s *StreamSession) extendPlayout(media *providers.StreamMediaData) {
+	if media.SampleRate <= 0 {
+		return
+	}
+	d := time.Duration(len(media.Data)/pcm16BytesPerSample) * time.Second / time.Duration(media.SampleRate)
+	start := s.playoutUntil
+	if now := s.clock(); now.After(start) {
+		start = now
+	}
+	s.playoutUntil = start.Add(d)
+}
+
+// bargeInAfterReply handles speech while a reply that has finished generating
+// is still playing. Gemini sends serverContent.interrupted only while the
+// model is generating; once its turn is complete there is nothing for the
+// server to interrupt, and it sends no speech-start event, so the first sign
+// of the caller speaking is the transcript of their speech. That is barge-in
+// while the delivered audio is still playing (by the playout estimate): the
+// queued audio is dropped and the interruption reported, as for interrupted.
+// Nothing of the finished reply is still to arrive, so the audio drop ends at
+// once and the reply to the caller's speech plays.
+func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
+	if !s.replyDone || content.InputTranscription == nil || content.InputTranscription.Text == "" ||
+		!s.clock().Before(s.playoutUntil) {
+		return nil
+	}
+	logger.Debug("StreamSession: barge-in while the finished reply is still playing")
+	s.playoutUntil = time.Time{}
+	s.Barge()
+	marker := providers.BargeMarker()
+	err := s.sendChunk(&marker)
+	s.ClearDrop()
+	if err != nil {
+		return err
+	}
+	return s.sendChunk(&providers.StreamChunk{Interrupted: true})
 }
 
 // handleInputTranscription sends input transcription if present.
@@ -420,6 +482,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 		if part.InlineData != nil {
 			if media := s.decodeTurnMedia(part.InlineData); media != nil {
 				response.MediaData = media
+				s.extendPlayout(media)
 			}
 		}
 	}

@@ -51,6 +51,7 @@ const (
 	realtimeEventSessionUpdate  = "session.update"
 	realtimeEventItemCreate     = "conversation.item.create"
 	realtimeEventResponseCreate = "response.create"
+	realtimeEventItemTruncate   = "conversation.item.truncate"
 
 	typeJSONSchema         = "json_schema"
 	typeFunction           = "function"

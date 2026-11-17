@@ -92,6 +92,15 @@ type StreamSession struct {
 	// carryToolCallUsage). Both are touched by the receive goroutine only.
 	toolCallTurn bool
 	carriedUsage *base.TokenUsage
+
+	// playoutUntil estimates when the reply audio delivered so far finishes
+	// playing, assuming the player starts each chunk as it arrives; replyDone
+	// is set once the model's turn completed. Speech the server transcribes in
+	// that window is barge-in (see bargeInAfterReply). now is the clock (nil:
+	// time.Now). Receive goroutine only.
+	playoutUntil time.Time
+	replyDone    bool
+	now          func() time.Time
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.

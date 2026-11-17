@@ -73,6 +73,15 @@ type RealtimeSession struct {
 	// drop state lives on the StreamPump (Dropping/Barge/ClearDrop).
 	responseActive bool
 
+	// playout estimates the delivered audio the caller is still hearing, so
+	// speech after response.done still barges in (realtime_playout.go). now is
+	// its clock (time.Now unless a test injects one). truncates holds the
+	// event IDs of the conversation.item.truncate events sent, so a rejected
+	// one is logged instead of failing the turn. Receive goroutine only.
+	playout   realtimePlayout
+	now       func() time.Time
+	truncates map[string]struct{}
+
 	errCh   chan error
 	mu      sync.Mutex
 	closed  bool
@@ -103,6 +112,8 @@ type realtimeSessionOpts struct {
 	endpoint string
 	// dialHeaders, when set, authenticates each handshake in place of apiKey.
 	dialHeaders func(context.Context) (http.Header, error)
+	// now, when set, is the session's clock for the playout estimate.
+	now func() time.Time
 }
 
 // NewRealtimeSession creates a new OpenAI Realtime streaming session.
@@ -146,6 +157,7 @@ func newRealtimeSession(
 		StreamPump: providers.NewStreamPump(sessionCtx, emitCh, responseChannelSize),
 		errCh:      make(chan error, 1),
 		config:     *config,
+		now:        opts.now,
 	}
 
 	// Wait for session.created event
@@ -418,7 +430,7 @@ func (s *RealtimeSession) CancelResponse() error {
 
 // Response() and BargeIn() are provided by the embedded providers.StreamPump;
 // the session feeds it via emitCh and calls Barge() on server-side
-// speech_started during a response.
+// speech_started while a response is in progress or its audio still plays.
 
 // Config returns the session configuration. Callers can use this to
 // create a new session with the same settings after a connection loss:
@@ -622,20 +634,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 	case *ResponseDoneEvent:
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
-		// server_vad emits speech_started on EVERY user utterance, not only
-		// barge-in. Treat it as barge-in only when a response is in progress —
-		// otherwise it's the normal start of the user's turn and there's nothing
-		// to interrupt. On real barge-in: fire the out-of-band notification (so a
-		// consumer paced to real-time playback reacts immediately rather than
-		// after the audio backlog drains) and stop emitting the interrupted
-		// response's audio (drop what's queued + skip what's still arriving).
-		if s.responseActive {
-			logger.Debug("OpenAI Realtime: barge-in (speech started during response)", "item_id", e.ItemID)
-			s.Barge()
-			s.emitCh <- providers.BargeMarker()
-		} else {
-			logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
-		}
+		s.handleSpeechStarted(e)
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
 	case *ConversationItemInputAudioTranscriptionCompletedEvent:
@@ -651,7 +650,74 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 	}
 }
 
+// clock returns the session's current time.
+func (s *RealtimeSession) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// handleSpeechStarted handles server VAD's speech_started, which arrives on
+// every user utterance. It is barge-in while a response is in progress or
+// its delivered audio is still playing; otherwise it is the normal start of
+// the user's turn and there is nothing to interrupt.
+//
+// On barge-in: fire the out-of-band notification (so a consumer paced to
+// real-time playback reacts at once rather than after the audio backlog
+// drains), drop the reply's queued audio and skip what still arrives, and cut
+// the model's copy of the reply to what the caller heard. A reply that had
+// finished generating gets no canceled response.done to end it, so the
+// interruption is also reported in-band, as an Interrupted chunk.
+func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEvent) {
+	now := s.clock()
+	playing := s.playout.playing(now)
+	if !s.responseActive && !playing {
+		logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
+		return
+	}
+	logger.Debug("OpenAI Realtime: barge-in", "item_id", e.ItemID,
+		"response_active", s.responseActive, "playing", playing)
+	s.Barge()
+	s.emitCh <- providers.BargeMarker()
+	s.truncateHeard(now)
+	if !s.responseActive {
+		s.emitCh <- providers.StreamChunk{Interrupted: true}
+	}
+}
+
+// truncateHeard ends the playout estimate at now and, when the caller had
+// not heard all of the last audio item, sends conversation.item.truncate with
+// the audio_end_ms they had heard.
+func (s *RealtimeSession) truncateHeard(now time.Time) {
+	itemID, contentIndex, heard, cut := s.playout.stop(now)
+	if !cut {
+		return
+	}
+	event := conversationItemTruncateEvent{
+		ClientEvent:  ClientEvent{EventID: s.nextEventID(), Type: realtimeEventItemTruncate},
+		ItemID:       itemID,
+		ContentIndex: contentIndex,
+		AudioEndMs:   int(heard.Milliseconds()),
+	}
+	if s.truncates == nil {
+		s.truncates = map[string]struct{}{}
+	}
+	s.truncates[event.EventID] = struct{}{}
+	if err := s.ws.Send(event); err != nil {
+		logger.Warn("OpenAI Realtime: failed to truncate the interrupted reply", "item_id", itemID, "error", err)
+	}
+}
+
 func (s *RealtimeSession) handleError(e *ErrorEvent) {
+	// A rejected truncate leaves the model's copy of the reply uncut; the
+	// barge-in itself succeeded, so the turn goes on.
+	if _, ok := s.truncates[e.Error.EventID]; ok {
+		delete(s.truncates, e.Error.EventID)
+		logger.Warn("OpenAI Realtime: the server rejected truncating the interrupted reply",
+			"code", e.Error.Code, "message", e.Error.Message)
+		return
+	}
 	logger.Error("OpenAI Realtime: server error",
 		"type", e.Error.Type,
 		"code", e.Error.Code,
@@ -710,6 +776,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 		logger.Warn("failed to decode base64 audio from OpenAI Realtime", "error", err)
 		return
 	}
+	s.playout.add(s.clock(), e.ItemID, e.ContentIndex, pcm16Duration(len(rawBytes), s.outputSampleRate()))
 
 	s.emitCh <- providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{
@@ -815,8 +882,9 @@ func (s *RealtimeSession) handleOutputItemDone(e *ResponseOutputItemDoneEvent) {
 }
 
 func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
-	// The response is over (completed or canceled by barge-in); stop treating
-	// further speech_started as barge-in and stop dropping audio.
+	// The response is over (completed or canceled by barge-in): stop dropping
+	// audio. Speech while its delivered audio still plays is still barge-in
+	// (see handleSpeechStarted).
 	logger.Debug("OpenAI Realtime: response done", "response_id", e.Response.ID, "status", e.Response.Status)
 	s.responseActive = false
 	s.ClearDrop()

@@ -140,6 +140,17 @@ type ResponseCancelEvent struct {
 	ClientEvent
 }
 
+// conversationItemTruncateEvent (conversation.item.truncate) cuts an
+// assistant audio item to the audio_end_ms the caller heard, so the model's
+// context matches it: the server drops the audio after that point and the
+// transcript of it.
+type conversationItemTruncateEvent struct {
+	ClientEvent
+	ItemID       string `json:"item_id"`
+	ContentIndex int    `json:"content_index"`
+	AudioEndMs   int    `json:"audio_end_ms"`
+}
+
 // Server Events - received from server
 
 // ServerEvent is the base structure for all server events.
