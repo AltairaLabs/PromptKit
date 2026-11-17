@@ -323,11 +323,15 @@ func (s *DuplexProviderStage) Process(
 
 	// Create session lazily if not pre-configured
 	if s.session == nil {
-		merged, err := s.createSessionLazily(ctx, input, output)
+		buffered, err := s.createSessionLazily(ctx, input, output)
 		if err != nil {
 			return err
 		}
-		input = merged
+		// The input buffered during creation, then the rest, read until
+		// Process returns: the caller may keep its input open after.
+		forwardCtx, stopForwarding := context.WithCancel(ctx)
+		defer stopForwarding()
+		input = s.replayAndMerge(forwardCtx, buffered, input)
 	}
 	// Close the session (created above or pre-configured) on exit, sending
 	// no tool response after it.
@@ -389,14 +393,13 @@ func (s *DuplexProviderStage) Process(
 
 // createSessionLazily waits for the first input element, creates the session
 // with the TurnState system prompt as its SystemInstruction, and returns the
-// input to read from next: the elements buffered during creation followed by
-// the rest of input. On success s.session is set and the caller owns closing
-// it.
+// elements it read from input meanwhile, to be handled before the rest of
+// input. On success s.session is set and the caller owns closing it.
 func (s *DuplexProviderStage) createSessionLazily(
 	ctx context.Context,
 	input <-chan StreamElement,
 	output chan<- StreamElement,
-) (<-chan StreamElement, error) {
+) ([]StreamElement, error) {
 	if s.provider == nil {
 		return nil, errors.New("duplex provider stage: no provider or session configured")
 	}
@@ -502,8 +505,7 @@ func (s *DuplexProviderStage) createSessionLazily(
 	logger.Debug("DuplexProviderStage: replaying buffered elements",
 		"count", numBuffered)
 
-	// Re-inject buffered elements followed by original input for subsequent turns
-	return s.replayAndMerge(ctx, buffer.elements(), input), nil
+	return buffer.elements(), nil
 }
 
 // preSessionBufferOf starts the pre-session buffer with the held history
@@ -922,9 +924,11 @@ func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
 	}
 }
 
-// replayAndMerge creates a channel that yields buffered elements followed by remaining input.
-// This is used after buffering during session creation to replay buffered elements
-// and then forward any subsequent elements from the original input channel.
+// replayAndMerge creates a channel that yields buffered elements followed by
+// remaining input. This is used after buffering during session creation to
+// replay buffered elements and then forward any subsequent elements from the
+// original input channel. It stops when ctx ends, even while waiting for
+// input that never comes.
 func (s *DuplexProviderStage) replayAndMerge(
 	ctx context.Context,
 	elements []StreamElement,
@@ -933,24 +937,34 @@ func (s *DuplexProviderStage) replayAndMerge(
 	merged := make(chan StreamElement)
 	go func() {
 		defer close(merged)
-		// First, replay buffered elements
 		for i := range elements {
-			select {
-			case merged <- elements[i]:
-			case <-ctx.Done():
+			if !sendUnlessDone(ctx, merged, elements[i]) {
 				return
 			}
 		}
-		// Then, forward remaining elements from original input
-		for elem := range remaining {
+		for {
 			select {
-			case merged <- elem:
+			case elem, ok := <-remaining:
+				if !ok || !sendUnlessDone(ctx, merged, elem) {
+					return
+				}
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 	return merged
+}
+
+// sendUnlessDone sends elem on out and reports whether it did before ctx
+// ended.
+func sendUnlessDone(ctx context.Context, out chan<- StreamElement, elem StreamElement) bool {
+	select {
+	case out <- elem:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // sendElementToSession sends a single element to the WebSocket session.

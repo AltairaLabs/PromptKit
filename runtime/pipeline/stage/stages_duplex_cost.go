@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -205,6 +206,7 @@ func (s *DuplexProviderStage) forwardStaleInterruption(
 // the history. The chunk is not forwarded.
 func (s *DuplexProviderStage) reportStaleCost(ctx context.Context, chunk *providers.StreamChunk) error {
 	// What a completed call accumulates later is not anyone's message.
+	warnStaleToolCalls(chunk)
 	delete(s.parked, chunk.Generation)
 	if s.accGen == chunk.Generation {
 		s.discardAccumulation()
@@ -216,6 +218,22 @@ func (s *DuplexProviderStage) reportStaleCost(ctx context.Context, chunk *provid
 	job := s.attributeCost(ctx, chunk)
 	s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
 	return s.queueToolRound(ctx, job)
+}
+
+// warnStaleToolCalls logs the tool calls a chunk of a completed provider call
+// carries: they are not run (a canceled response's trailing function calls
+// are not answered), and the operator can see which were dropped.
+func warnStaleToolCalls(chunk *providers.StreamChunk) {
+	if len(chunk.ToolCalls) == 0 {
+		return
+	}
+	names := make([]string, len(chunk.ToolCalls))
+	ids := make([]string, len(chunk.ToolCalls))
+	for i, tc := range chunk.ToolCalls {
+		names[i], ids[i] = tc.Name, tc.ID
+	}
+	logger.Warn("duplex provider stage: dropped tool calls of a completed provider call; they are not run",
+		"generation", chunk.Generation, "tools", names, "call_ids", ids)
 }
 
 // isInputTranscriptionChunk reports whether chunk carries the caller's
