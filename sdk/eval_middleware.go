@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -200,9 +201,16 @@ type evalMiddleware struct {
 	turnIndex    atomic.Int32 // atomic for thread safety across concurrent Send() calls
 
 	// Goroutine lifecycle management for async turn evals.
-	wg     sync.WaitGroup     // tracks in-flight turn eval goroutines
-	ctx    context.Context    // canceled on close to stop in-flight evals
-	cancel context.CancelFunc // cancels ctx
+	wg sync.WaitGroup // tracks in-flight turn eval goroutines
+	// lifeMu guards stopped and orders each dispatch's wg.Add with the
+	// setting of stopped: a duplex turn completes on the session's output
+	// goroutine, which can run while Close drains the evals. Once stopped is
+	// set no dispatch adds to wg, so the Wait that follows cannot race an Add,
+	// and lifeMu is never held across a Wait.
+	lifeMu  sync.Mutex
+	stopped bool
+	ctx     context.Context    // canceled on close to stop in-flight evals
+	cancel  context.CancelFunc // cancels ctx
 
 	// Bounded concurrency: sem limits how many eval goroutines run simultaneously.
 	sem chan struct{}
@@ -356,6 +364,9 @@ func hasTrigger(defs []evals.EvalDef, trigger evals.EvalTrigger) bool {
 // state. It counts dispatches in this process, so it is wrong for a resumed
 // conversation — it restarts at 1 while the transcript already holds earlier
 // turns.
+//
+// A completed turn and the evals Close runs are numbered from the transcript
+// they are scored on instead (turnSnapshot), which serves every session shape.
 func (em *evalMiddleware) reportedTurn(dispatchCount int32) int {
 	if em.conv != nil && em.conv.turnState.TurnIndex() > 0 {
 		return em.conv.turnState.TurnIndex()
@@ -363,16 +374,24 @@ func (em *evalMiddleware) reportedTurn(dispatchCount int32) int {
 	return int(dispatchCount)
 }
 
-// dispatchTurnEvals dispatches turn-level evals asynchronously.
-// Nil-safe: no-op if middleware is nil.
-// The goroutine is tracked via a WaitGroup and respects the middleware's
-// cancellation context so that close() can drain in-flight work.
-func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
+// turnSnapshot is the transcript an eval is scored on and the number of the
+// turn it scores, both taken by the caller.
+type turnSnapshot struct {
+	messages []types.Message
+	turn     int
+}
+
+// dispatchTurnEvalsWith dispatches turn-level evals asynchronously, over
+// messages, the transcript the caller has loaded for turn. The goroutine is
+// tracked via a WaitGroup and respects the middleware's cancellation context
+// so that close() can drain in-flight work. Nil-safe: no-op if middleware is
+// nil.
+func (em *evalMiddleware) dispatchTurnEvalsWith(ctx context.Context, messages []types.Message, turn int) {
 	if em == nil {
 		return
 	}
 	em.turnIndex.Add(1)
-	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals)
+	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals, &turnSnapshot{messages: messages, turn: turn})
 }
 
 // recordWorkflowStep notes that a workflow state transition committed during
@@ -399,7 +418,7 @@ func (em *evalMiddleware) dispatchWorkflowStepEvals(ctx context.Context) {
 		return
 	}
 	for range steps {
-		em.dispatchAsync(ctx, "workflow step", em.runner.RunWorkflowStepEvals)
+		em.dispatchAsync(ctx, "workflow step", em.runner.RunWorkflowStepEvals, nil)
 	}
 }
 
@@ -407,27 +426,25 @@ func (em *evalMiddleware) dispatchWorkflowStepEvals(ctx context.Context) {
 // goroutine tracked by the WaitGroup, bounded by the semaphore.
 //
 // The semaphore is acquired without blocking: if every slot is taken the
-// dispatch is skipped, to prevent unbounded goroutine growth.
+// dispatch is skipped, to prevent unbounded goroutine growth. Once Close has
+// stopped dispatch (stopDispatch) nothing is dispatched, and the call returns
+// at once rather than waiting for the evals in flight. snap, when set, is the
+// turn's transcript and number, already taken.
 func (em *evalMiddleware) dispatchAsync(
 	ctx context.Context,
 	kind string,
 	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
+	snap *turnSnapshot,
 ) {
-	select {
-	case em.sem <- struct{}{}:
-		// Acquired — proceed
-	default:
-		logger.Warn("evals: semaphore full, skipping eval dispatch",
-			"kind", kind, "turn", em.turnIndex.Load(), "capacity", cap(em.sem))
+	if !em.admit(kind) {
 		return
 	}
 
-	evalCtx := em.buildEvalContext(ctx)
+	evalCtx := em.buildEvalContextWith(ctx, snap)
 
 	// Use the middleware's lifecycle context so that close() can cancel
 	// in-flight evals. The middleware context is derived from
 	// context.Background() so it outlives any single Send() call.
-	em.wg.Add(1)
 	go func() {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
@@ -436,30 +453,71 @@ func (em *evalMiddleware) dispatchAsync(
 	}()
 }
 
-// dispatchSessionEvals dispatches session-complete evals synchronously.
-// Nil-safe: no-op if middleware is nil.
-// Runs synchronously during Close() to ensure completion.
-func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
+// admit takes a semaphore slot and counts the dispatch on wg, unless dispatch
+// is stopped or every slot is taken. It reports whether the dispatch may run.
+func (em *evalMiddleware) admit(kind string) bool {
+	em.lifeMu.Lock()
+	defer em.lifeMu.Unlock()
+	if em.stopped {
+		return false
+	}
+	select {
+	case em.sem <- struct{}{}:
+	default:
+		logger.Warn("evals: semaphore full, skipping eval dispatch",
+			"kind", kind, "turn", em.turnIndex.Load(), "capacity", cap(em.sem))
+		return false
+	}
+	em.wg.Add(1)
+	return true
+}
+
+// stopDispatch stops turn-eval dispatch and waits for the evals in flight.
+// Nil-safe.
+func (em *evalMiddleware) stopDispatch() {
 	if em == nil {
 		return
 	}
+	em.lifeMu.Lock()
+	em.stopped = true
+	em.lifeMu.Unlock()
+	em.wg.Wait()
+}
 
-	evalCtx := em.buildEvalContext(ctx)
+// closingSnapshot is the transcript the evals Close and Complete run on: the
+// stored transcript as it is now (a reply cut short after the last completed
+// turn included, which no turn's cached transcript holds), numbered by all
+// its user turns. Nil-safe.
+func (em *evalMiddleware) closingSnapshot(ctx context.Context) *turnSnapshot {
+	if em == nil {
+		return nil
+	}
+	messages := em.conv.transcript(ctx)
+	return &turnSnapshot{messages: messages, turn: stage.CountUserTurns(messages)}
+}
+
+// dispatchSessionEvalsWith dispatches session-complete evals synchronously,
+// over snap. Nil-safe: no-op if middleware is nil. Runs synchronously during
+// Close() to ensure completion.
+func (em *evalMiddleware) dispatchSessionEvalsWith(ctx context.Context, snap *turnSnapshot) {
+	if em == nil {
+		return
+	}
+	evalCtx := em.buildEvalContextWith(ctx, snap)
 	results := em.runner.RunSessionEvals(em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
 
-// dispatchConversationEvals dispatches on_conversation_complete evals
-// synchronously, against the whole transcript. Complete() runs them, right
+// dispatchConversationEvalsWith dispatches on_conversation_complete evals
+// synchronously, over snap, the whole transcript. Complete() runs them, right
 // after the session evals; Close() does not, since a closed conversation may
-// be resumed. An empty transcript runs none.
-// Nil-safe: no-op if middleware is nil.
-func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
+// be resumed. An empty transcript runs none. Nil-safe: no-op if middleware is
+// nil.
+func (em *evalMiddleware) dispatchConversationEvalsWith(ctx context.Context, snap *turnSnapshot) {
 	if em == nil || !em.hasConversationEvals {
 		return
 	}
-
-	evalCtx := em.buildEvalContext(ctx)
+	evalCtx := em.buildEvalContextWith(ctx, snap)
 	if len(evalCtx.Messages) == 0 {
 		// Nothing was said: a conversation closed on a failed open, or never
 		// used, has no transcript to score.
@@ -470,15 +528,6 @@ func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 	em.recordMetrics(results)
 }
 
-// wait blocks until all in-flight turn eval goroutines have completed.
-// Nil-safe: no-op if middleware is nil.
-func (em *evalMiddleware) wait() {
-	if em == nil {
-		return
-	}
-	em.wg.Wait()
-}
-
 // close cancels the middleware's context and waits for all in-flight turn
 // eval goroutines to finish. It should be called during conversation Close()
 // to prevent goroutine leaks.
@@ -487,6 +536,9 @@ func (em *evalMiddleware) close() {
 	if em == nil {
 		return
 	}
+	em.lifeMu.Lock()
+	em.stopped = true
+	em.lifeMu.Unlock()
 	em.cancel()
 	em.wg.Wait()
 }
@@ -528,16 +580,22 @@ func (em *evalMiddleware) evalContextWithBinding(base context.Context) context.C
 	return evals.WithProviderBinding(base, newHostBinding(em.conv.config))
 }
 
-func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
+// buildEvalContextWith is buildEvalContext with snap, when set, as the turn's
+// transcript and number instead of loading and deriving them.
+func (em *evalMiddleware) buildEvalContextWith(ctx context.Context, snap *turnSnapshot) *evals.EvalContext {
 	em.cacheMu.Lock()
 	defer em.cacheMu.Unlock()
 
 	currentTurn := em.turnIndex.Load()
 	reported := em.reportedTurn(currentTurn)
+	if snap != nil {
+		reported = snap.turn
+	}
 
 	// Safely get session info — sessions may not be initialized in tests
 	// or when middleware is used standalone.
-	if em.conv.unarySession == nil && em.conv.duplexSession == nil {
+	sessionID, _ := em.conv.sessionIDs()
+	if sessionID == "" {
 		return &evals.EvalContext{
 			TurnIndex: reported,
 			PromptID:  em.conv.promptName,
@@ -545,9 +603,14 @@ func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalConte
 	}
 
 	// Only reload messages if turn count changed since last cache
-	if currentTurn != em.cachedTurnIndex || em.cachedMessages == nil {
+	switch {
+	case snap != nil:
+		em.cachedMessages = snap.messages
+		em.cachedSessionID = sessionID
+		em.cachedTurnIndex = currentTurn
+	case currentTurn != em.cachedTurnIndex || em.cachedMessages == nil:
 		em.cachedMessages = em.conv.Messages(ctx)
-		em.cachedSessionID = em.conv.ID()
+		em.cachedSessionID = sessionID
 		em.cachedTurnIndex = currentTurn
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -29,14 +30,18 @@ type mockUnarySession struct {
 	resumeToolResults   []types.Message
 	executeStreamResult chan providers.StreamChunk
 	executeStreamErr    error
+	// transcript is what Messages returns: the stored conversation.
+	transcript []types.Message
 }
 
-func (m *mockUnarySession) ID() string                                          { return "mock-session" }
-func (m *mockUnarySession) Variables() map[string]string                        { return nil }
-func (m *mockUnarySession) SetVar(_, _ string)                                  {}
-func (m *mockUnarySession) GetVar(_ string) (string, bool)                      { return "", false }
-func (m *mockUnarySession) Messages(_ context.Context) ([]types.Message, error) { return nil, nil }
-func (m *mockUnarySession) Clear(_ context.Context) error                       { return nil }
+func (m *mockUnarySession) ID() string                     { return "mock-session" }
+func (m *mockUnarySession) Variables() map[string]string   { return nil }
+func (m *mockUnarySession) SetVar(_, _ string)             {}
+func (m *mockUnarySession) GetVar(_ string) (string, bool) { return "", false }
+func (m *mockUnarySession) Messages(_ context.Context) ([]types.Message, error) {
+	return m.transcript, nil
+}
+func (m *mockUnarySession) Clear(_ context.Context) error { return nil }
 
 func (m *mockUnarySession) Execute(_ context.Context, _, _ string) (*rtpipeline.ExecutionResult, error) {
 	return m.executeResult, m.executeErr
@@ -161,19 +166,28 @@ func TestSend_SkipsHooksWhenPendingClientTools(t *testing.T) {
 		"IncrementTurn should not fire when pending client tools exist")
 }
 
+// storedTurn is a stored one-turn transcript.
+func storedTurn() []types.Message {
+	return []types.Message{{Role: "user", Content: "Hello"}, {Role: "assistant", Content: "Your location is San Francisco"}}
+}
+
 func TestSend_FiresHooksWhenNoPendingClientTools(t *testing.T) {
 	sess := &mockUnarySession{
 		executeResult: resultWithoutPendingTools(),
+		transcript:    storedTurn(),
 	}
 	conv := newTestConvWithMockSession(sess)
+	updates := &sessionUpdateLog{}
+	conv.sessionHooks = newSessionHookDispatcher(hooks.NewRegistry(hooks.WithSessionHook(updates)), conv.sessionInfo)
 
 	resp, err := conv.Send(context.Background(), "Hello")
 	require.NoError(t, err)
 	require.False(t, resp.HasPendingClientTools())
 
-	// Turn counter SHOULD have been incremented
-	assert.Equal(t, 1, conv.sessionHooks.TurnIndex(),
-		"IncrementTurn should fire for normal responses")
+	// The turn's lifecycle ran, numbered from the stored transcript: its
+	// first user turn.
+	assert.Equal(t, []turnSeen{{Turn: 1, Last: "assistant:Your location is San Francisco"}}, updates.snapshot(),
+		"the completed turn's session update should run for normal responses")
 }
 
 // ---------------------------------------------------------------------------
@@ -204,8 +218,13 @@ func TestResume_SkipsHooksWhenNestedPendingTools(t *testing.T) {
 func TestResume_FiresHooksWhenNoPendingTools(t *testing.T) {
 	sess := &mockUnarySession{
 		resumeResult: resultWithoutPendingTools(),
+		// The stored turn awaits the client tool's result.
+		transcript: []types.Message{{Role: "user", Content: "Where am I?"}, {Role: "assistant",
+			ToolCalls: []types.MessageToolCall{{ID: "call-1", Name: "get_location"}}}},
 	}
 	conv := newTestConvWithMockSession(sess)
+	updates := &sessionUpdateLog{}
+	conv.sessionHooks = newSessionHookDispatcher(hooks.NewRegistry(hooks.WithSessionHook(updates)), conv.sessionInfo)
 
 	err := conv.SendToolResult(context.Background(), "call-1", map[string]any{"lat": 37.7})
 	require.NoError(t, err)
@@ -214,7 +233,8 @@ func TestResume_FiresHooksWhenNoPendingTools(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, resp.HasPendingClientTools())
 
-	// Turn counter SHOULD have been incremented
-	assert.Equal(t, 1, conv.sessionHooks.TurnIndex(),
-		"IncrementTurn should fire when resume completes normally")
+	// The turn's lifecycle ran, numbered from the stored transcript: its
+	// first user turn.
+	require.Len(t, updates.snapshot(), 1, "the completed turn's session update should run when resume completes")
+	assert.Equal(t, 1, updates.snapshot()[0].Turn)
 }

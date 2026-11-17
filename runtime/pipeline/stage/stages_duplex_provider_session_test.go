@@ -186,14 +186,17 @@ func TestSendElementToSession_Audio(t *testing.T) {
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
 	// Pre-set transcriptionCaptured so the reset branch runs.
-	s.transcriptionCaptured = true
+	s.transcriptionCaptured.Store(true)
+	s.inputTranscription.WriteString("previous turn")
 
 	audio := duplexAudioElem(pcm(64))
 	s.sendElementToSession(context.Background(), &audio)
 
 	require.Len(t, sess.chunks, 1)
 	assert.Equal(t, pcm(64), sess.chunks[0].Data)
-	assert.False(t, s.transcriptionCaptured, "transcription reset on new user turn")
+	s.applyUserTurnStart() // the response goroutine's part
+	assert.False(t, s.transcriptionCaptured.Load(), "transcription reset on new user turn")
+	assert.Zero(t, s.inputTranscription.Len(), "the previous turn's transcript is dropped")
 	assert.Equal(t, 1, s.audioChunkCount)
 }
 

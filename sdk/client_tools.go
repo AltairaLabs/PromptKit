@@ -410,9 +410,7 @@ func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 
 	// Skip lifecycle hooks when the resumed pipeline returns more pending tools.
 	if !resp.HasPendingClientTools() {
-		c.sessionHooks.IncrementTurn()
-		c.sessionHooks.SessionUpdate(ctx)
-		c.evalMW.dispatchTurnEvals(ctx)
+		c.completeTurn(ctx)
 	}
 	return resp, nil
 }
@@ -467,17 +465,11 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 			return
 		}
 
+		// The turn's lifecycle runs before ChunkDone.
 		state := &streamState{}
 		if err := c.processAndFinalizeStreamWithState(ctx, streamCh, ch, startTime, state); err != nil {
 			ch <- StreamChunk{Error: err}
 			return
-		}
-
-		// Skip lifecycle hooks when pipeline is suspended for pending tools
-		if len(state.pendingTools) == 0 {
-			c.sessionHooks.IncrementTurn()
-			c.sessionHooks.SessionUpdate(ctx)
-			c.evalMW.dispatchTurnEvals(ctx)
 		}
 	}()
 

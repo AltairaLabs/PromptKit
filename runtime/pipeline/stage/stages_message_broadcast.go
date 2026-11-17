@@ -110,8 +110,13 @@ func (s *MessageBroadcastStage) Process(
 //
 // The index advances for history too, which is what keeps it aligned with the
 // persisted transcript rather than counting only this turn's new messages.
+//
+// A control flag does not make a message any less complete: DuplexProviderStage
+// puts each realtime assistant turn's Message on the element that carries
+// EndOfStream, and the save stage persists it. So every element that carries a
+// Message is counted and published, as the save stage collects every one.
 func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *StreamElement, msgIndex *int) {
-	if elem.Message == nil || elem.EndOfStream {
+	if elem.Message == nil {
 		return
 	}
 

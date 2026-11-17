@@ -26,7 +26,7 @@ func TestSessionHookDispatcher_DispatchesAllLifecycleEvents(t *testing.T) {
 	hook := &recordingSessionHook{name: "lifecycle"}
 	reg := hooks.NewRegistry(hooks.WithSessionHook(hook))
 
-	d := newSessionHookDispatcher(reg, func() (string, string, []types.Message) {
+	d := newSessionHookDispatcher(reg, func(bool) (string, string, []types.Message) {
 		return "sess-1", "conv-1", []types.Message{{Role: "user"}}
 	})
 
@@ -51,7 +51,7 @@ func TestSessionHookDispatcher_BuildEventNilInfo(t *testing.T) {
 	d := newSessionHookDispatcher(nil, nil)
 	d.turns.Store(5)
 
-	event := d.buildEvent()
+	event := d.buildEvent(nil)
 
 	assert.Equal(t, 5, event.TurnIndex)
 	assert.Empty(t, event.SessionID)
@@ -95,7 +95,7 @@ func TestSessionHookDispatcher_FailingHookIsLoggedAndOthersStillRun(t *testing.T
 		hooks.WithSessionHook(failingSessionHook{name: "audit-sink"}),
 		hooks.WithSessionHook(after),
 	)
-	d := newSessionHookDispatcher(reg, func() (string, string, []types.Message) {
+	d := newSessionHookDispatcher(reg, func(bool) (string, string, []types.Message) {
 		return "sess-9", "conv-9", nil
 	})
 

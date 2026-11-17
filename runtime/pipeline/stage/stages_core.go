@@ -236,7 +236,7 @@ func (s *StateStoreLoadStage) Process(
 	// the conversation: rebuild the pipeline per turn and it restarts, and it
 	// cannot know about turns that happened before this process started. The
 	// transcript knows both, which is also what the number has to line up with.
-	s.publishTurnIndex(countUserTurns(historyMessages))
+	s.publishTurnIndex(CountUserTurns(historyMessages))
 
 	if err := s.emitHistoryMessages(ctx, historyMessages, output); err != nil {
 		return err
@@ -259,11 +259,14 @@ func deriveTurnIndex(ctx context.Context, store statestore.Store, convID string)
 	if state == nil {
 		return 0, nil
 	}
-	return countUserTurns(state.Messages), nil
+	return CountUserTurns(state.Messages), nil
 }
 
-// countUserTurns counts the user turns in a transcript.
-func countUserTurns(messages []types.Message) int {
+// CountUserTurns counts the user turns in a transcript: the number every
+// turn-numbered event reports for a turn is the count up to and including
+// that turn's user message (a turn's position among the conversation's user
+// turns), as the load stages derive TurnState.TurnIndex.
+func CountUserTurns(messages []types.Message) int {
 	n := 0
 	for i := range messages {
 		if messages[i].Role == roleUser {

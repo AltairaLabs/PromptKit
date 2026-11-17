@@ -108,8 +108,14 @@ type DuplexProviderStage struct {
 	// Captured from provider's inputTranscription events (if supported)
 	inputTranscription strings.Builder
 
-	// Flag to track if we've already captured transcription for this turn
-	transcriptionCaptured bool
+	// Flag to track if we've already captured transcription for this turn.
+	// Written on the response goroutine, read on the input goroutine too.
+	transcriptionCaptured atomic.Bool
+
+	// userTurnStarted is set by the input goroutine when audio starts a new
+	// user turn after a captured transcript; the response goroutine, which
+	// owns the transcription state, then resets it (applyUserTurnStart).
+	userTurnStarted atomic.Bool
 
 	// Flag to track if we've already popped turn_id for this turn
 	// This prevents double-popping when there are multiple EndOfStream events
@@ -1054,11 +1060,8 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 	// Reset transcription accumulator and chunk counter when starting a new user turn
 	// This prevents late-arriving transcription chunks from the previous turn
 	// from being mixed with this turn's transcription
-	if s.transcriptionCaptured {
-		s.inputTranscription.Reset()
-		s.transcriptionCaptured = false
-		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
-		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
+	if s.transcriptionCaptured.Load() {
+		s.userTurnStarted.Store(true)
 	}
 
 	now := time.Now()
@@ -1487,6 +1490,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Whatever the chunk did to the turn, input-side hooks see it next.
 	defer s.syncReplyStreaming()
 	s.chunkGen, s.chunkCost = chunk.Generation, chunk.CostInfo
+	s.applyUserTurnStart()
 	if chunk.Error != nil {
 		return s.emitChunkError(ctx, chunk, output)
 	}
@@ -1564,7 +1568,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		// Reset + mark captured so late transcription chunks for this utterance are
 		// ignored (sendAudioElement clears the flag when the next user turn starts).
 		s.inputTranscription.Reset()
-		s.transcriptionCaptured = true
+		s.transcriptionCaptured.Store(true)
 	}
 
 	// Streaming guardrails check the chunk's assistant text before it is
@@ -1780,7 +1784,7 @@ func (s *DuplexProviderStage) isFinalUserTranscript(chunk *providers.StreamChunk
 // is waiting to be materialized: not yet captured for this turn, non-empty,
 // and on the streaming path (no turn_id queued).
 func (s *DuplexProviderStage) hasUncapturedStreamingTranscript() bool {
-	return !s.transcriptionCaptured && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID()
+	return !s.transcriptionCaptured.Load() && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID()
 }
 
 // isAssistantContentChunk reports whether a chunk carries assistant content:
@@ -1795,7 +1799,7 @@ func isAssistantContentChunk(chunk *providers.StreamChunk, isOutputTranscription
 // this prevents late-arriving transcription chunks from bleeding into the
 // next turn.
 func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamChunk) {
-	if s.transcriptionCaptured {
+	if s.transcriptionCaptured.Load() {
 		logger.Debug("DuplexProviderStage: ignoring late transcription chunk (turn already complete)")
 		return
 	}
@@ -1904,7 +1908,21 @@ func (s *DuplexProviderStage) resetTurnAccumulation() {
 	s.accumulatedOpaqueReasoning = nil
 	s.accumulatedMedia = nil
 	s.accumulatedToolCalls = nil
-	s.transcriptionCaptured = true
+	s.transcriptionCaptured.Store(true)
+}
+
+// applyUserTurnStart resets the transcription state for the user turn the
+// input goroutine saw start (sendAudioElement): late transcription chunks of
+// the previous turn are no longer mixed into it, and its turn_id can be
+// popped. Response goroutine only.
+func (s *DuplexProviderStage) applyUserTurnStart() {
+	if !s.userTurnStarted.Swap(false) {
+		return
+	}
+	s.inputTranscription.Reset()
+	s.transcriptionCaptured.Store(false)
+	s.turnIDPopped = false
+	logger.Debug("DuplexProviderStage: reset transcription for new user turn")
 }
 
 // chunkToElement, buildAssistantParts, and takeReasoning — the pure transforms —

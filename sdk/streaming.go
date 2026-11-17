@@ -307,25 +307,18 @@ func (c *Conversation) executeStreamingPipeline(
 		return fmt.Errorf("pipeline streaming failed: %w", c.wrapTurnError(err))
 	}
 
-	// Process stream and finalize
+	// Process stream and finalize; the turn's lifecycle runs before ChunkDone.
 	state := &streamState{}
-	if err := c.processAndFinalizeStreamWithState(ctx, streamCh, outCh, startTime, state); err != nil {
-		return err
-	}
-
-	// Skip lifecycle hooks when pipeline is suspended for pending tools
-	if len(state.pendingTools) == 0 {
-		c.sessionHooks.IncrementTurn()
-		c.sessionHooks.SessionUpdate(ctx)
-		c.evalMW.dispatchTurnEvals(ctx)
-	}
-
-	return nil
+	return c.processAndFinalizeStreamWithState(ctx, streamCh, outCh, startTime, state)
 }
 
 // processAndFinalizeStreamWithState processes the streaming response, emits chunks, and sends
 // the final ChunkDone. Uses a caller-provided state
 // so the caller can inspect pendingTools after the stream completes.
+//
+// A completed turn (one not suspended for pending tools) runs its lifecycle
+// (completeTurn) before ChunkDone, so a caller that has seen ChunkDone sees
+// the turn's session update and turn-eval dispatch done.
 func (c *Conversation) processAndFinalizeStreamWithState(
 	ctx context.Context,
 	streamCh <-chan providers.StreamChunk,
@@ -343,6 +336,11 @@ func (c *Conversation) processAndFinalizeStreamWithState(
 
 	// Build response from accumulated data
 	resp := c.buildStreamingResponse(state, startTime)
+
+	// Skip lifecycle hooks when pipeline is suspended for pending tools
+	if len(state.pendingTools) == 0 {
+		c.completeTurn(ctx)
+	}
 
 	// Emit final ChunkDone with complete response, respecting context cancellation
 	// to avoid blocking indefinitely when the consumer has gone away.

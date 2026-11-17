@@ -209,6 +209,26 @@ type Conversation struct {
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
 
+	// activeSession is the conversation's session, set once when it is
+	// opened. It is read without c.mu: a duplex session's turns complete on
+	// its own goroutine, which must never wait on c.mu (a caller may hold it
+	// while blocked on that session).
+	activeSession atomic.Pointer[sessionRef]
+
+	// turnMu guards the turn lifecycle's state, never held while a hook or an
+	// eval runs. turnsEnded is set once the session has drained: no turn
+	// completing after it runs hooks or evals. turnsInFlight counts
+	// completions in progress (turnCond is signaled when it drops to zero),
+	// hooksRunning the session hooks executing within them, and pendingEnd is
+	// a session end left, by a Close made while a hook ran, to the completion
+	// that ran it.
+	turnMu        sync.Mutex
+	turnCond      *sync.Cond
+	turnsEnded    bool
+	turnsInFlight int
+	hooksRunning  int
+	pendingEnd    func()
+
 	// turnState is the per-Turn state shared with the pipeline's stages.
 	// Owned here rather than by the builder so the eval dispatch can read the
 	// turn number the pipeline derived from the transcript, and report the
@@ -379,11 +399,106 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 	// Skip lifecycle hooks when pipeline is suspended for pending client tools.
 	// The hooks will fire when Resume() completes the turn instead.
 	if !resp.HasPendingClientTools() {
-		c.sessionHooks.IncrementTurn()
-		c.sessionHooks.SessionUpdate(ctx)
-		c.evalMW.dispatchTurnEvals(ctx) // nil-safe, no-op if middleware is nil
+		c.completeTurn(ctx)
 	}
 	return resp, nil
+}
+
+// completeTurn is the work done once each turn of the conversation completes:
+// the turn is numbered, OnSessionUpdate runs, and the per-turn evals are
+// dispatched. It runs once per completed turn the state store holds, before
+// the caller sees the turn end: Send returns, Stream and ResumeStream send
+// ChunkDone, and a duplex session forwards the turn's completing output after
+// it (a duplex turn whose write failed runs nothing: see
+// session.DuplexSessionConfig.OnTurnComplete). It runs on the caller's ctx,
+// whose deadline bounds a hung store or hook: the caller is still waiting on
+// the turn.
+//
+// The turn's stored transcript is loaded once, for the session hooks and the
+// turn evals alike, and the turn is numbered from it (turnOrdinal). With no
+// session hook and no eval nothing is loaded. The hooks run with no lock
+// held. Once the session has drained (see end) a completing turn does
+// nothing.
+func (c *Conversation) completeTurn(ctx context.Context) {
+	c.turnMu.Lock()
+	if c.turnsEnded {
+		c.turnMu.Unlock()
+		return
+	}
+	c.turnsInFlight++
+	c.turnMu.Unlock()
+	defer c.turnDone()
+
+	if !c.sessionHooks.dispatches() && c.evalMW == nil {
+		// Nothing reads the transcript. A text turn's number is the one its
+		// pipeline derived from the store (the same CountUserTurns ordinal).
+		if c.mode == UnaryMode {
+			c.sessionHooks.SetTurn(c.turnState.TurnIndex())
+		}
+		return
+	}
+	messages := c.transcript(ctx)
+	number := turnOrdinal(messages)
+	c.sessionHooks.SetTurn(number)
+	c.runSessionUpdate(ctx, messages)
+	c.evalMW.dispatchTurnEvalsWith(ctx, messages, number) // nil-safe, no-op if middleware is nil
+}
+
+// runSessionUpdate runs OnSessionUpdate, counted in hooksRunning while it
+// does: a Close made then (by the hook itself, or concurrently) leaves the
+// session's end to this completion rather than waiting on it.
+func (c *Conversation) runSessionUpdate(ctx context.Context, messages []types.Message) {
+	c.turnMu.Lock()
+	c.hooksRunning++
+	c.turnMu.Unlock()
+	defer func() {
+		c.turnMu.Lock()
+		c.hooksRunning--
+		c.turnMu.Unlock()
+	}()
+	c.sessionHooks.SessionUpdateWith(ctx, messages)
+}
+
+// turnSignal is the condition turnDone signals when no completion is in
+// progress. Called with turnMu held.
+func (c *Conversation) turnSignal() *sync.Cond {
+	if c.turnCond == nil {
+		c.turnCond = sync.NewCond(&c.turnMu)
+	}
+	return c.turnCond
+}
+
+// turnDone ends a completion. When none is left in progress it wakes a Close
+// waiting for them, and starts a session end decided while it ran, on its
+// own goroutine: a duplex completion runs on the session's output goroutine,
+// which must go on to deliver the turn's output.
+func (c *Conversation) turnDone() {
+	c.turnMu.Lock()
+	c.turnsInFlight--
+	var pending func()
+	if c.turnsInFlight == 0 {
+		c.turnSignal().Broadcast()
+		pending, c.pendingEnd = c.pendingEnd, nil
+	}
+	c.turnMu.Unlock()
+	if pending != nil {
+		go pending()
+	}
+}
+
+// turnOrdinal is the number of the turn messages' last reply answers: the
+// count of user turns up to and including that turn's user message
+// (stage.CountUserTurns), the number the pipeline and its guardrails report
+// for it. A transcript without a reply is numbered by all its user turns.
+func turnOrdinal(messages []types.Message) int {
+	end := len(messages)
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == roleAssistant {
+			end = i
+			break
+		}
+	}
+	return stage.CountUserTurns(messages[:end])
 }
 
 // validateSendState checks if the conversation is in a valid state for Send().
@@ -1197,14 +1312,11 @@ func (c *Conversation) newEmitter(bus events.Bus) *events.Emitter {
 // SendChunk sends a streaming chunk in duplex mode.
 // Only available when the conversation was opened with OpenDuplex().
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if err := c.requireDuplex("SendChunk()"); err != nil {
+	duplex, ctx, err := c.duplexForSend(ctx, "SendChunk()")
+	if err != nil {
 		return err
 	}
-
-	return c.duplexSession.SendChunk(c.withConversationState(ctx), chunk)
+	return duplex.SendChunk(ctx, chunk)
 }
 
 // SendText sends text in duplex mode.
@@ -1214,14 +1326,11 @@ func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChu
 // (WithRecording) as a user message, ahead of the reply. It is not echoed on
 // Response().
 func (c *Conversation) SendText(ctx context.Context, text string) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if err := c.requireDuplex("SendText()"); err != nil {
+	duplex, ctx, err := c.duplexForSend(ctx, "SendText()")
+	if err != nil {
 		return err
 	}
-
-	return c.duplexSession.SendText(c.withConversationState(ctx), text)
+	return duplex.SendText(ctx, text)
 }
 
 // SendFrame sends an image frame in duplex mode for realtime video scenarios.
@@ -1236,14 +1345,11 @@ func (c *Conversation) SendText(ctx context.Context, text string) error {
 //	}
 //	conv.SendFrame(ctx, frame)
 func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if err := c.requireDuplex("SendFrame()"); err != nil {
+	duplex, ctx, err := c.duplexForSend(ctx, "SendFrame()")
+	if err != nil {
 		return err
 	}
-
-	return c.duplexSession.SendFrame(c.withConversationState(ctx), frame)
+	return duplex.SendFrame(ctx, frame)
 }
 
 // SendVideoChunk sends a video chunk in duplex mode for encoded video streaming.
@@ -1259,14 +1365,11 @@ func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame)
 //	}
 //	conv.SendVideoChunk(ctx, chunk)
 func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoChunk) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if err := c.requireDuplex("SendVideoChunk()"); err != nil {
+	duplex, ctx, err := c.duplexForSend(ctx, "SendVideoChunk()")
+	if err != nil {
 		return err
 	}
-
-	return c.duplexSession.SendVideoChunk(c.withConversationState(ctx), chunk)
+	return duplex.SendVideoChunk(ctx, chunk)
 }
 
 // TriggerStart sends a text message to make the model initiate the conversation.
@@ -1281,14 +1384,24 @@ func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoC
 //	// Trigger the model to begin
 //	conv.TriggerStart(ctx, "Please introduce yourself and begin the interview.")
 func (c *Conversation) TriggerStart(ctx context.Context, message string) error {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	if err := c.requireDuplex("TriggerStart()"); err != nil {
+	duplex, ctx, err := c.duplexForSend(ctx, "TriggerStart()")
+	if err != nil {
 		return err
 	}
+	return duplex.SendText(ctx, message)
+}
 
-	return c.duplexSession.SendText(c.withConversationState(ctx), message)
+// duplexForSend returns the duplex session and the context to send on, read
+// under c.mu, which is released before the send: a send blocks while the
+// session's input is full, and holding c.mu then would stall a caller waiting
+// to write it, and every reader queued behind that caller.
+func (c *Conversation) duplexForSend(ctx context.Context, op string) (session.DuplexSession, context.Context, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if err := c.requireDuplex(op); err != nil {
+		return nil, nil, err
+	}
+	return c.duplexSession, c.withConversationState(ctx), nil
 }
 
 // Response returns the response channel for duplex streaming.
@@ -1441,7 +1554,17 @@ func (c *Conversation) GetVar(name string) (string, bool) {
 //
 // The returned slice is a copy - modifying it does not affect the conversation.
 func (c *Conversation) Messages(ctx context.Context) []types.Message {
-	messages, err := c.getBaseSession().Messages(ctx)
+	return c.transcript(ctx)
+}
+
+// transcript returns a copy of the conversation's stored messages, or nil. It
+// takes no lock (see activeSession).
+func (c *Conversation) transcript(ctx context.Context) []types.Message {
+	base := c.session()
+	if base == nil {
+		return nil
+	}
+	messages, err := base.Messages(ctx)
 	if err != nil {
 		return nil
 	}
@@ -1624,6 +1747,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 			return nil, fmt.Errorf("fork: failed to fork unary session: %w", err)
 		}
 		fork.unarySession = forkSession
+		fork.setSession()
 
 	case DuplexMode:
 		// For duplex mode, create pipeline builder for the fork
@@ -1639,11 +1763,13 @@ func (c *Conversation) Fork() (*Conversation, error) {
 			return fork.buildStreamPipelineWithParams(stateStore, convID, streamProvider, streamConfig)
 		}
 
-		forkSession, err := c.duplexSession.ForkSession(ctx, forkID, pipelineBuilder)
+		// The fork's turns run the fork's lifecycle, over its transcript.
+		forkSession, err := session.ForkDuplexSession(ctx, c.duplexSession, forkID, pipelineBuilder, fork.completeTurn)
 		if err != nil {
 			return nil, fmt.Errorf("fork: failed to fork duplex session: %w", err)
 		}
 		fork.duplexSession = forkSession
+		fork.setSession()
 	}
 
 	// The fork publishes to the parent's bus, so it holds a reference too:
@@ -1672,7 +1798,14 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // Close ends the conversation's session and releases its resources. It runs
 // the pack's on_session_complete (and sample_sessions) evals, and not its
 // on_conversation_complete evals: closing ends a session, and a closed
-// conversation can be resumed. A host that suspends a conversation (for
+// conversation can be resumed.
+//
+// Close returns once the session has ended (a turn completing meanwhile has
+// run its session update and turn evals, OnSessionEnd and the session evals
+// have run) and returns the errors of ending it. The exception is a Close
+// made while a session hook is executing, from the hook itself or from
+// another goroutine: Close then returns at once, the session ends as soon as
+// that hook's turn has completed, and the errors of ending it are logged. A host that suspends a conversation (for
 // example, while a held tool call waits for a human's approval) closes it
 // at each suspension, and calls [Conversation.Complete] instead of Close
 // once the conversation is finished.
@@ -1707,6 +1840,12 @@ func (c *Conversation) Close() error {
 // decision arrives; when the interaction is over, the host calls Complete
 // once, and the conversation evals score it once.
 //
+// Complete returns as Close does: once the session has ended and the
+// conversation evals have run, with the errors of ending it, unless it is
+// made while a session hook is executing; it then returns at once, and the
+// session ends, conversation evals included, as soon as that hook's turn has
+// completed.
+//
 // Complete on a conversation that is already closed or completed runs no
 // evals and returns [ErrConversationClosed]: the session evals ran on the
 // earlier close. To complete a conversation that was suspended, resume it
@@ -1722,18 +1861,82 @@ func (c *Conversation) Complete() error {
 // end closes the conversation, running its conversation evals as well when
 // complete is set. Reports whether this call closed it.
 func (c *Conversation) end(complete bool) (bool, error) {
-	busRef, first, err := c.closeLocked(complete)
+	convID, evalMW, duplex, first := c.markClosed()
 	if !first {
-		return false, err
+		return false, nil
 	}
-	// Outside c.mu: both steps wait on work that may call back into the
-	// conversation (a pipeline stage, or a subscriber draining the bus).
-	c.awaitPipelines()
-	c.closeAudioMonitor()
-	if busRef != nil {
-		busRef.release()
+	if c.deferEnd(func() {
+		if err := c.drainAndFinish(convID, evalMW, duplex, complete); err != nil {
+			logger.Warn("ending the session after its turn's completion", "id", convID, "error", err)
+		}
+	}) {
+		return true, nil
 	}
-	return true, err
+	return true, c.drainAndFinish(convID, evalMW, duplex, complete)
+}
+
+// deferEnd leaves the session's end to the turn completion running a session
+// hook now (possibly the hook calling Close), which runs it once done, and
+// reports true; with no hook executing it reports false, and Close waits for
+// completions in progress instead.
+func (c *Conversation) deferEnd(end func()) bool {
+	c.turnMu.Lock()
+	defer c.turnMu.Unlock()
+	if c.hooksRunning == 0 {
+		return false
+	}
+	c.pendingEnd = end
+	return true
+}
+
+// drainAndFinish drains a duplex session, outside c.mu, and ends the
+// session: a turn the drain completes runs its session update and turn evals
+// (on the session's goroutine, which reads the conversation); then no turn
+// completes any more, the end waits for a completion still in progress, and
+// the session ends and its session evals run. The wait is unbounded: a
+// session hook that never returns holds Close.
+func (c *Conversation) drainAndFinish(
+	convID string, evalMW *evalMiddleware, duplex session.DuplexSession, complete bool,
+) error {
+	errs := drainDuplex(duplex)
+	c.turnMu.Lock()
+	c.turnsEnded = true
+	c.awaitCompletionsLocked()
+	c.turnMu.Unlock()
+	return errors.Join(append(errs, c.finishClose(convID, evalMW, complete))...)
+}
+
+// turnWaitLimit, when set, bounds awaitCompletionsLocked, which panics when
+// it is exceeded. It is unset (no bound) outside tests: a session hook that
+// never returns holds Close. The SDK's tests set it so a regression that
+// leaves a completion counted forever crashes the run in seconds instead of
+// hanging every later Close.
+var turnWaitLimit time.Duration
+
+// awaitCompletionsLocked waits until no turn completion is in progress.
+// Called with turnMu held.
+func (c *Conversation) awaitCompletionsLocked() {
+	cond := c.turnSignal()
+	if turnWaitLimit > 0 {
+		expired := false
+		timer := time.AfterFunc(turnWaitLimit, func() {
+			c.turnMu.Lock()
+			expired = true
+			cond.Broadcast()
+			c.turnMu.Unlock()
+		})
+		defer timer.Stop()
+		for c.turnsInFlight > 0 && !expired {
+			cond.Wait()
+		}
+		if expired {
+			panic(fmt.Sprintf("Close waited %s for a turn completion that never finished", turnWaitLimit))
+		}
+		return
+	}
+	for c.turnsInFlight > 0 {
+		cond.Wait()
+	}
 }
 
 // takeBusRef hands over this conversation's event bus reference, leaving it
@@ -1832,52 +2035,67 @@ func shutdownPipelines[P pipelineShutdowner](pipelines []P, timeout time.Duratio
 	wg.Wait()
 }
 
-// closeLocked releases everything Close releases except the pipelines and
-// the event bus, which Close handles after releasing c.mu; it hands over the
-// bus reference for that. Reports whether this call closed the conversation
-// (false when it was already closed). complete also runs the conversation
-// evals (Complete rather than Close).
-//
-// The session and conversation evals run between two critical sections, with
-// c.mu released: a slow judge must not block every other call on the
-// Conversation, and those calls see it closed and return at once. Resources
-// are released only after the evals finish, since a judge may use the
-// conversation's providers.
-func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error) {
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil, false, nil
-	}
-	c.closed = true
-	var convID string
-	if (c.mode == UnaryMode && c.unarySession != nil) || (c.mode == DuplexMode && c.duplexSession != nil) {
-		convID = c.ID()
-	}
-	c.finishSession(convID)
-	evalMW := c.evalMW
-	c.mu.Unlock()
-
-	runCloseEvals(evalMW, complete)
-
+// markClosed marks the conversation closed and returns what closing it needs:
+// its session's ID, its eval middleware and its duplex session (nil for a
+// unary one). first reports whether this call closed it.
+func (c *Conversation) markClosed() (
+	convID string, evalMW *evalMiddleware, duplex session.DuplexSession, first bool,
+) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed {
+		return "", nil, nil, false
+	}
+	c.closed = true
+	if base := c.sessionLocked(); base != nil {
+		convID = base.ID()
+	}
+	if c.mode == DuplexMode {
+		duplex = c.duplexSession
+	}
+	return convID, c.evalMW, duplex, true
+}
+
+// finishClose ends the session once no turn is completing: turn evals in
+// flight finish, the session ends (OnSessionEnd), the session evals (and the
+// conversation evals when complete is set) run, and the conversation's
+// resources are released, the event bus last.
+//
+// The session and conversation evals run with c.mu released: a slow judge
+// must not block every other call on the Conversation, and those calls see it
+// closed and return at once. Resources are released only after the evals
+// finish, since a judge may use the conversation's providers.
+func (c *Conversation) finishClose(convID string, evalMW *evalMiddleware, complete bool) error {
+	evalMW.stopDispatch()
+	c.finishSession(convID)
+	c.runCloseEvals(evalMW, complete)
+
+	c.mu.Lock()
 	// Collect all errors and always execute all cleanup steps.
 	errs := c.releaseResources()
-
-	// State is automatically persisted by the StateStore middleware in the pipeline
-	// No explicit save needed here
-
+	busRef := c.takeBusRef()
+	c.mu.Unlock()
 	logger.Info("conversation closed", "id", convID)
-	return c.takeBusRef(), true, errors.Join(errs...)
+
+	// Outside c.mu: both steps wait on work that may call back into the
+	// conversation (a pipeline stage, or a subscriber draining the bus).
+	c.awaitPipelines()
+	c.closeAudioMonitor()
+	if busRef != nil {
+		busRef.release()
+	}
+	return errors.Join(errs...)
 }
 
 // finishSession ends the conversation's session for its observers: it
 // deregisters from the shutdown manager, ends the OTel session span and runs
-// session-end hooks. Caller must hold c.mu.
+// session-end hooks. convID is the session's ID, "" for none. Caller must not
+// hold c.mu: the session-end hooks read the conversation.
 func (c *Conversation) finishSession(convID string) {
 	// Deregister from shutdown manager if configured
-	c.deregisterFromShutdownManager()
+	if convID != "" && c.config != nil && c.config.shutdownManager != nil {
+		c.config.shutdownManager.Deregister(convID)
+	}
 
 	// End the OTel session span (deferred to Close so late-arriving async events
 	// from the EventBus still have a parent context).
@@ -1889,19 +2107,35 @@ func (c *Conversation) finishSession(convID string) {
 	c.sessionHooks.SessionEnd(context.Background())
 }
 
-// runCloseEvals waits for any in-flight turn evals, then dispatches the
-// session-complete evals, and the conversation-complete evals when complete
-// is set: Close ends a session, Complete ends the conversation. Finally it
-// closes the middleware to cancel its context and release resources.
-// Nil-safe. Caller must not hold c.mu: the evals may call a model.
-func runCloseEvals(evalMW *evalMiddleware, complete bool) {
+// drainDuplex drains a duplex session (graceful shutdown with timeout) and
+// returns the failure, if any. Nil-safe.
+func drainDuplex(duplex session.DuplexSession) []error {
+	if duplex == nil {
+		return nil
+	}
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
+	defer drainCancel()
+	if err := duplex.Drain(drainCtx); err != nil {
+		return []error{fmt.Errorf("failed to drain duplex session: %w", err)}
+	}
+	return nil
+}
+
+// runCloseEvals dispatches the session-complete evals, and the
+// conversation-complete evals when complete is set, over the stored
+// transcript as it is now, loaded once for both: Close ends a session,
+// Complete ends the conversation. Finally it closes the middleware to cancel
+// its context and release resources. Nil-safe on evalMW. Caller must not hold
+// c.mu: the evals may call a model.
+func (c *Conversation) runCloseEvals(evalMW *evalMiddleware, complete bool) {
 	if evalMW == nil {
 		return
 	}
-	evalMW.wait()
-	evalMW.dispatchSessionEvals(context.Background())
+	ctx := context.Background()
+	snap := evalMW.closingSnapshot(ctx)
+	evalMW.dispatchSessionEvalsWith(ctx, snap)
 	if complete {
-		evalMW.dispatchConversationEvals(context.Background())
+		evalMW.dispatchConversationEvalsWith(ctx, snap)
 	}
 	evalMW.close()
 }
@@ -1910,15 +2144,6 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 // bus, attempting every step and returning the errors. Caller must hold c.mu.
 func (c *Conversation) releaseResources() []error {
 	var errs []error
-
-	// Drain duplex session if in duplex mode (graceful shutdown with timeout)
-	if c.mode == DuplexMode && c.duplexSession != nil {
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
-		if err := c.duplexSession.Drain(drainCtx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to drain duplex session: %w", err))
-		}
-		drainCancel()
-	}
 
 	// Close capabilities
 	for _, cap := range c.capabilities {
@@ -1975,17 +2200,6 @@ func (c *Conversation) closeOwnedServices() []error {
 	return errs
 }
 
-// deregisterFromShutdownManager removes the conversation from its shutdown
-// manager, if one is configured. Must be called while c.mu is held.
-func (c *Conversation) deregisterFromShutdownManager() {
-	if c.config == nil || c.config.shutdownManager == nil {
-		return
-	}
-	if (c.mode == UnaryMode && c.unarySession != nil) || (c.mode == DuplexMode && c.duplexSession != nil) {
-		c.config.shutdownManager.Deregister(c.ID())
-	}
-}
-
 // ID returns the conversation's unique identifier.
 func (c *Conversation) ID() string {
 	return c.getBaseSession().ID()
@@ -2024,16 +2238,59 @@ func (c *Conversation) OwnSubscription(unsubscribe func()) {
 
 // sessionInfo returns the dynamic session state needed by the sessionHookDispatcher
 // to build hooks.SessionEvent payloads. It is used as a sessionInfoFunc callback.
-func (c *Conversation) sessionInfo() (sessionID, conversationID string, messages []types.Message) {
-	// Safely access session IDs
-	if c.unarySession != nil || c.duplexSession != nil {
-		sessionID = c.ID()
-		messages = c.Messages(context.Background())
+func (c *Conversation) sessionInfo(withMessages bool) (sessionID, conversationID string, messages []types.Message) {
+	sessionID, conversationID = c.sessionIDs()
+	if withMessages && sessionID != "" {
+		messages = c.transcript(context.Background())
+	}
+	return sessionID, conversationID, messages
+}
+
+// sessionIDs returns the session and conversation IDs session hook events
+// carry. It takes no lock (see activeSession).
+func (c *Conversation) sessionIDs() (sessionID, conversationID string) {
+	if base := c.session(); base != nil {
+		sessionID = base.ID()
 	}
 	if c.config != nil {
 		conversationID = c.config.conversationID
 	}
-	return sessionID, conversationID, messages
+	return sessionID, conversationID
+}
+
+// sessionRef holds the conversation's session for activeSession.
+type sessionRef struct{ base session.BaseSession }
+
+// setSession publishes the session the conversation has just opened, for
+// readers that take no lock (session).
+func (c *Conversation) setSession() {
+	if base := c.sessionLocked(); base != nil {
+		c.activeSession.Store(&sessionRef{base: base})
+	}
+}
+
+// session returns the conversation's session, or nil before it has one,
+// without taking c.mu.
+//
+// A Conversation assembled without opening it (as some tests do) has none
+// published, and the session fields are read as they stand.
+func (c *Conversation) session() session.BaseSession {
+	if ref := c.activeSession.Load(); ref != nil {
+		return ref.base
+	}
+	return c.getBaseSession()
+}
+
+// sessionLocked returns the conversation's session, or nil before it has one.
+// Caller must hold c.mu.
+func (c *Conversation) sessionLocked() session.BaseSession {
+	if c.mode == UnaryMode && c.unarySession != nil {
+		return c.unarySession
+	}
+	if c.mode == DuplexMode && c.duplexSession != nil {
+		return c.duplexSession
+	}
+	return nil
 }
 
 // buildVideoStreamConfig converts SDK VideoStreamConfig to stage.FrameRateLimitConfig.

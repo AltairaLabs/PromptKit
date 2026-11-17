@@ -8,9 +8,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// sessionInfoFunc returns the dynamic session state needed to build a SessionEvent.
-// It is called at dispatch time so the event always reflects the latest state.
-type sessionInfoFunc func() (sessionID, conversationID string, messages []types.Message)
+// sessionInfoFunc returns the dynamic session state needed to build a
+// SessionEvent: the session and conversation IDs, and the transcript when
+// withMessages is set. It is called at dispatch time so the event always
+// reflects the latest state.
+type sessionInfoFunc func(withMessages bool) (sessionID, conversationID string, messages []types.Message)
 
 // sessionHookDispatcher encapsulates session lifecycle hook dispatching.
 // It tracks the turn index and builds SessionEvent payloads via a callback,
@@ -37,40 +39,47 @@ func newSessionHookDispatcher(registry *hooks.Registry, info sessionInfoFunc) *s
 
 // SessionStart dispatches OnSessionStart to all registered session hooks.
 func (d *sessionHookDispatcher) SessionStart(ctx context.Context) {
-	if d == nil {
-		return
+	if d.dispatches() {
+		_ = d.registry.RunSessionStart(ctx, d.buildEvent(nil))
 	}
-	d.dispatch(ctx, func(ctx context.Context, e hooks.SessionEvent) error {
-		return d.registry.RunSessionStart(ctx, e)
-	})
 }
 
 // SessionUpdate dispatches OnSessionUpdate to all registered session hooks.
 func (d *sessionHookDispatcher) SessionUpdate(ctx context.Context) {
-	if d == nil {
-		return
+	if d.dispatches() {
+		_ = d.registry.RunSessionUpdate(ctx, d.buildEvent(nil))
 	}
-	d.dispatch(ctx, func(ctx context.Context, e hooks.SessionEvent) error {
-		return d.registry.RunSessionUpdate(ctx, e)
-	})
+}
+
+// SessionUpdateWith dispatches OnSessionUpdate with messages as the event's
+// transcript, for a caller that has loaded it already.
+func (d *sessionHookDispatcher) SessionUpdateWith(ctx context.Context, messages []types.Message) {
+	if d.dispatches() {
+		_ = d.registry.RunSessionUpdate(ctx, d.buildEvent(&messages))
+	}
 }
 
 // SessionEnd dispatches OnSessionEnd to all registered session hooks.
 func (d *sessionHookDispatcher) SessionEnd(ctx context.Context) {
-	if d == nil {
-		return
+	if d.dispatches() {
+		_ = d.registry.RunSessionEnd(ctx, d.buildEvent(nil))
 	}
-	d.dispatch(ctx, func(ctx context.Context, e hooks.SessionEvent) error {
-		return d.registry.RunSessionEnd(ctx, e)
-	})
 }
 
-// IncrementTurn advances the turn counter by one. Safe for concurrent use.
-func (d *sessionHookDispatcher) IncrementTurn() {
+// dispatches reports whether a session event would reach a registry. The
+// registry has already logged each failing hook by name at WARN and run the
+// remaining hooks, so a dispatch discards the error: hook failures never
+// block SDK operations.
+func (d *sessionHookDispatcher) dispatches() bool {
+	return d != nil && d.registry != nil
+}
+
+// SetTurn sets the turn the next events report. Safe for concurrent use.
+func (d *sessionHookDispatcher) SetTurn(n int) {
 	if d == nil {
 		return
 	}
-	d.turns.Add(1)
+	d.turns.Store(int32(n)) //nolint:gosec // a turn number fits
 }
 
 // TurnIndex returns the current turn count. Safe for concurrent use.
@@ -81,28 +90,19 @@ func (d *sessionHookDispatcher) TurnIndex() int {
 	return int(d.turns.Load())
 }
 
-// dispatch builds a SessionEvent and calls fn. The returned error is discarded so
-// that hook failures never block SDK operations; the registry has already logged
-// each failing hook by name at WARN and run the remaining hooks.
-func (d *sessionHookDispatcher) dispatch(
-	ctx context.Context,
-	fn func(context.Context, hooks.SessionEvent) error,
-) {
-	if d.registry == nil {
-		return
-	}
-	_ = fn(ctx, d.buildEvent())
-}
-
-// buildEvent constructs a hooks.SessionEvent from the current dispatcher state
-// plus the dynamic info callback.
-func (d *sessionHookDispatcher) buildEvent() hooks.SessionEvent {
+// buildEvent constructs a hooks.SessionEvent from the current dispatcher
+// state plus the info callback. messages, when set, is the transcript, and
+// info then loads none.
+func (d *sessionHookDispatcher) buildEvent(messages *[]types.Message) hooks.SessionEvent {
 	event := hooks.SessionEvent{
 		TurnIndex: int(d.turns.Load()),
 		Caller:    d.caller,
 	}
 	if d.info != nil {
-		event.SessionID, event.ConversationID, event.Messages = d.info()
+		event.SessionID, event.ConversationID, event.Messages = d.info(messages == nil)
+	}
+	if messages != nil {
+		event.Messages = *messages
 	}
 	return event
 }

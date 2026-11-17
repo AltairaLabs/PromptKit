@@ -844,9 +844,10 @@ func appendStateStoreSaveStages(
 		SummarizeThreshold: cfg.SummarizeThreshold,
 		SummarizeBatchSize: cfg.SummarizeBatchSize,
 		MessageLog:         messageLog,
-		// A duplex session's input stays open for the whole session: persist
-		// each turn as it completes, not at hang-up.
-		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil,
+		// A duplex session's input (realtime, VAD or an ingestion sub-graph)
+		// stays open for the whole session: persist each turn as it
+		// completes, not at hang-up.
+		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil || cfg.Ingestion != nil,
 	}))
 }
 

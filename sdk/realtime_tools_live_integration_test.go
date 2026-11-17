@@ -519,6 +519,63 @@ func TestLiveRealtimeTools_BasicRound(t *testing.T) {
 	})
 }
 
+// rtlUpdates records the turn index of each OnSessionUpdate.
+type rtlUpdates struct {
+	mu    sync.Mutex
+	turns []int
+}
+
+func (h *rtlUpdates) Name() string                                             { return "rtl-updates" }
+func (h *rtlUpdates) OnSessionStart(context.Context, hooks.SessionEvent) error { return nil }
+func (h *rtlUpdates) OnSessionEnd(context.Context, hooks.SessionEvent) error   { return nil }
+func (h *rtlUpdates) OnSessionUpdate(_ context.Context, e hooks.SessionEvent) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.turns = append(h.turns, e.TurnIndex)
+	return nil
+}
+
+func (h *rtlUpdates) snapshot() []int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]int(nil), h.turns...)
+}
+
+// A realtime tool turn publishes message.created for every message it adds
+// (the user turn, the tool call, its result and the reply) at transcript
+// indices 0 to 3, and completes once: one OnSessionUpdate, for turn 1.
+func TestLiveRealtimeTools_MessageCreatedAndTurnLifecycle(t *testing.T) {
+	rtlEachRealtime(t, func(t *testing.T, rt rtlRealtime) {
+		bus, ev := rtlBus(t)
+		updates := &rtlUpdates{}
+		conv := rtlOpenDuplex(t, rt, rtlWeatherPackJSON, sdk.WithEventBus(bus), sdk.WithSessionHook(updates))
+		calls := &rtlCalls{}
+		conv.OnToolCall("get_weather", calls.handler(rtlWeatherResult, nil))
+		st := rtlWatch(t, conv)
+
+		require.NoError(t, conv.SendText(context.Background(), rtlWeatherPrompt))
+		require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return len(updates.snapshot()) > 0 }),
+			"the turn never completed; reply so far %q errors %v", st.Text(), st.Errors())
+		require.True(t, rtlWaitUntil(5*time.Second, func() bool {
+			return len(ev.ofType(events.EventMessageCreated)) >= 4
+		}), "message.created events: %d", len(ev.ofType(events.EventMessageCreated)))
+
+		roles := map[int]string{}
+		var reply string
+		for _, e := range ev.ofType(events.EventMessageCreated) {
+			d := e.Data.(*events.MessageCreatedData)
+			roles[d.Index] = d.Role
+			if d.Role == "assistant" && len(d.ToolCalls) == 0 {
+				reply = d.GetContent()
+			}
+		}
+		assert.Equal(t, map[int]string{0: "user", 1: "assistant", 2: "tool", 3: "assistant"}, roles)
+		assert.Contains(t, strings.ToLower(reply), "tangerine", "the reply's message.created carries its text")
+		assert.Equal(t, []int{1}, updates.snapshot())
+		t.Logf("reply: %q", reply)
+	})
+}
+
 func TestLiveRealtimeTools_BasicRound_Text(t *testing.T) {
 	bus, ev := rtlBus(t)
 	conv := rtlOpenText(t, sdk.WithEventBus(bus))

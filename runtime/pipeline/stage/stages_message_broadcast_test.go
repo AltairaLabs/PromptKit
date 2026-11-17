@@ -202,6 +202,35 @@ func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
 	assert.Equal(t, "the answer", got[3].GetContent(), "the final answer is a separate event")
 }
 
+// TestMessageBroadcastStage_PublishesMessageOnEndOfStreamElement covers the
+// realtime (duplex) shape: DuplexProviderStage puts each completed assistant
+// turn's Message on the element that carries EndOfStream. The save stage
+// persists it, so the bus must publish it too, once, at the index it holds in
+// the persisted transcript. A bare EndOfStream signal carries no message and
+// publishes nothing.
+func TestMessageBroadcastStage_PublishesMessageOnEndOfStreamElement(t *testing.T) {
+	t.Parallel()
+	reply := realMessage("assistant", "realtime reply")
+	turnEnd := NewMessageElement(&reply)
+	turnEnd.EndOfStream = true
+
+	got := runBroadcast(t, []StreamElement{
+		historyMsgElem("user", "old q"),
+		historyMsgElem("assistant", "old a"),
+		liveMsgElem("user", "new q"),
+		turnEnd,
+		NewEndOfStreamElement(),
+	}, 2)
+
+	require.Len(t, got, 2, "the user turn and the realtime reply, each once")
+	assert.Equal(t, "user", got[0].Role)
+	assert.Equal(t, "new q", got[0].GetContent())
+	assert.Equal(t, 2, got[0].Index)
+	assert.Equal(t, "assistant", got[1].Role)
+	assert.Equal(t, "realtime reply", got[1].GetContent())
+	assert.Equal(t, 3, got[1].Index, "the reply's index is its position in the persisted transcript")
+}
+
 // TestMessageBroadcastStage_IndexIsArrivalPosition pins the precondition the
 // stage depends on, by showing what happens when it is violated.
 //

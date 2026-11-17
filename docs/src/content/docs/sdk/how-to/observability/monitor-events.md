@@ -78,7 +78,7 @@ Subscribe to the runtime events a conversation publishes, using the `hooks` pack
 
    `Enforced` is true when the guardrail modified the content. `hooks.OnValidationFailed` delivers only the validator name and error.
 
-4. Watch the conversation as it happens. `message.created` publishes each complete message: the user turn, every tool-calling round and the final answer.
+4. Watch the conversation as it happens. `message.created` publishes each complete message: the user turn, every tool-calling round and the final answer. A duplex conversation publishes the same messages, the realtime model's replies included.
 
    ```go
    hooks.On(conv, events.EventMessageCreated, func(e *events.Event) {

@@ -65,10 +65,13 @@ type duplexSession struct {
 	toolRegistry      *tools.Registry
 	asyncToolChecker  AsyncToolChecker
 	caller            types.Caller // who the conversation acts for; on every tool call the session runs
-	variables         map[string]string
-	varsMu            sync.RWMutex
-	closeMu           sync.Mutex
-	closed            bool
+	// onTurnComplete is called for each turn the session completes
+	// (DuplexSessionConfig.OnTurnComplete); nil for none.
+	onTurnComplete func(ctx context.Context)
+	variables      map[string]string
+	varsMu         sync.RWMutex
+	closeMu        sync.Mutex
+	closed         bool
 
 	// Internal pipeline channel (stage.StreamElement)
 	stageInput chan stage.StreamElement // Feeds converted elements to pipeline
@@ -223,6 +226,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		toolRegistry:      cfg.ToolRegistry,
 		asyncToolChecker:  cfg.AsyncToolChecker,
 		caller:            cfg.Caller,
+		onTurnComplete:    cfg.OnTurnComplete,
 		variables:         vars,
 		stageInput:        stageInput,
 		streamOutput:      streamOutput,
@@ -438,6 +442,7 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 				if action == streaming.ResponseActionComplete {
 					s.turnsCompleted.Add(1)
 				}
+				s.noteTurnComplete(ctx, &elem)
 				chunk := streamElementToStreamChunk(&elem)
 				if !s.forwardChunk(ctx, chunk) {
 					return
@@ -931,11 +936,43 @@ func (s *duplexSession) Clear(ctx context.Context) error {
 	return clearSession(ctx, s.store, s.id)
 }
 
-// ForkSession implements DuplexSession.
+// ForkSession implements DuplexSession. The fork reports no completed turns;
+// ForkDuplexSession gives it a function to report them to.
 func (s *duplexSession) ForkSession(
 	ctx context.Context,
 	forkID string,
 	pipelineBuilder PipelineBuilder,
+) (DuplexSession, error) {
+	return s.fork(ctx, forkID, pipelineBuilder, nil)
+}
+
+// ForkDuplexSession forks s as s.ForkSession does, with onTurnComplete as the
+// fork's DuplexSessionConfig.OnTurnComplete. A DuplexSession this package did
+// not create is forked with its own ForkSession and a warning: such a session
+// must report its fork's completed turns itself (its ForkSession wiring an
+// OnTurnComplete), or the fork runs no per-turn lifecycle.
+func ForkDuplexSession(
+	ctx context.Context,
+	s DuplexSession,
+	forkID string,
+	pipelineBuilder PipelineBuilder,
+	onTurnComplete func(ctx context.Context),
+) (DuplexSession, error) {
+	if ds, ok := s.(*duplexSession); ok {
+		return ds.fork(ctx, forkID, pipelineBuilder, onTurnComplete)
+	}
+	logger.Warn("session: forking a DuplexSession this package did not create; "+
+		"its fork runs no per-turn lifecycle unless the session wires OnTurnComplete itself",
+		"fork", forkID)
+	return s.ForkSession(ctx, forkID, pipelineBuilder)
+}
+
+// fork creates the fork, reporting its completed turns to onTurnComplete.
+func (s *duplexSession) fork(
+	ctx context.Context,
+	forkID string,
+	pipelineBuilder PipelineBuilder,
+	onTurnComplete func(ctx context.Context),
 ) (DuplexSession, error) {
 	if err := forkOrCreate(ctx, s.store, s.id, forkID); err != nil {
 		return nil, err
@@ -965,6 +1002,7 @@ func (s *duplexSession) ForkSession(
 		AsyncToolChecker:  s.asyncToolChecker,
 		Caller:            s.caller,
 		Variables:         forkVars,
+		OnTurnComplete:    onTurnComplete,
 	})
 }
 
@@ -1165,6 +1203,45 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	}
 
 	return chunk
+}
+
+// noteTurnComplete calls onTurnComplete when elem completes a turn
+// (completesTurn) the state store holds, before the element's output reaches
+// the caller. A turn whose write failed (Meta.TurnStored false) completes no
+// lifecycle.
+func (s *duplexSession) noteTurnComplete(ctx context.Context, elem *stage.StreamElement) {
+	if s.onTurnComplete == nil || !completesTurn(elem) {
+		return
+	}
+	if stored := elem.Meta.TurnStored; stored != nil && !*stored {
+		return
+	}
+	s.onTurnComplete(ctx)
+}
+
+// completesTurn reports whether elem completes a turn of the conversation, as
+// a returning Send completes a text turn.
+//
+//   - Cascaded (VAD) and ingestion sessions: the EndOfTurn boundary the
+//     streaming ProviderStage emits once the turn's tool loop has finished,
+//     unless it carries FinishReasonInterrupted: a turn whose stream failed or
+//     a barge-in cut off after the model had begun keeps its partial reply
+//     and closes with that boundary, but did not complete. A turn that failed
+//     or was cut off before the model said anything, or holds a call pending,
+//     emits no boundary at all.
+//   - Realtime sessions: the EndOfStream element carrying an assistant reply
+//     that was not cut short (a reply kept when the session or the context
+//     ended mid-turn is marked FinishReasonInterrupted). A reply that makes
+//     tool calls never gets here: the turn continues with their results
+//     (handleToolCalls).
+func completesTurn(elem *stage.StreamElement) bool {
+	if elem.EndOfTurn {
+		fr := elem.Meta.FinishReason
+		return fr == nil || *fr != types.FinishReasonInterrupted
+	}
+	m := elem.Message
+	return elem.EndOfStream && m != nil && m.Role == streamRoleAssistant &&
+		m.FinishReason != types.FinishReasonInterrupted
 }
 
 // isAssistantTurnBoundary reports whether an element closes an assistant turn.

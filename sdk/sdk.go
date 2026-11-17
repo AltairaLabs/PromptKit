@@ -904,6 +904,7 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 
 	conv.mode = UnaryMode
 	conv.unarySession = unarySession
+	conv.setSession()
 	conv.sessionStore = store
 	return nil
 }
@@ -980,6 +981,8 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Caller:            cfg.caller,
 		Metadata:          cfg.sessionMetadata,
 		Variables:         initialVars,
+		// Each completed duplex turn does what a completed text turn does.
+		OnTurnComplete: conv.completeTurn,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)
@@ -987,6 +990,7 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 
 	conv.mode = DuplexMode
 	conv.duplexSession = duplexSession
+	conv.setSession()
 	return nil
 }
 

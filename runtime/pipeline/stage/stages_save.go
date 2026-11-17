@@ -143,8 +143,9 @@ func (s *IncrementalSaveStage) saveCollected(
 	convID := s.config.StateStoreConfig.ConversationID
 
 	// Strip model reasoning before persistence unless explicitly retained, so it
-	// never lands in the conversation store (default off).
-	toPersist := collected.messages
+	// never lands in the conversation store (default off). Only what is not
+	// stored yet is persisted.
+	toPersist := collected.messages[collected.stored:]
 	if !s.config.PersistReasoning {
 		toPersist = types.StripReasoning(toPersist)
 	}
@@ -152,25 +153,29 @@ func (s *IncrementalSaveStage) saveCollected(
 	// When MessageLog is NOT active, persist messages via the store.
 	// When MessageLog IS active, messages are already persisted per-round
 	// by the provider stage write-through — skip message append.
-	if s.config.MessageLog == nil {
+	if s.config.MessageLog == nil && len(toPersist) > 0 {
 		if err := s.persistMessages(ctx, convID, toPersist); err != nil {
 			return err
 		}
 	}
+	collected.stored = len(collected.messages)
 
-	if !followUp {
-		return nil
+	if followUp {
+		s.followUp(ctx, collected.messages)
 	}
+	return nil
+}
 
-	// Index and summarize regardless of persistence path
+// followUp indexes and summarizes stored messages, whichever path persisted
+// them. Both can be model calls.
+func (s *IncrementalSaveStage) followUp(ctx context.Context, messages []types.Message) {
+	convID := s.config.StateStoreConfig.ConversationID
 	if s.config.MessageIndex != nil {
-		s.indexNewMessages(ctx, convID, collected.messages)
+		s.indexNewMessages(ctx, convID, messages)
 	}
 	if s.config.Summarizer != nil && s.config.SummarizeThreshold > 0 {
 		s.maybeSummarize(ctx, convID)
 	}
-
-	return nil
 }
 
 // persistMessages saves new messages to the store via MessageAppender or
@@ -194,7 +199,15 @@ type incrementalCollectedData struct {
 	// messages contains only the new (non-history) messages produced by
 	// this Send. History elements coming through the stream are filtered
 	// out at collect time so we don't duplicate the conversation in memory.
+	// With FlushEachTurn it holds the turn in progress.
 	messages []types.Message
+	// stored counts the leading messages already persisted (a tool round
+	// stored mid-turn).
+	stored int
+	// replyStored records, for the turn whose completing reply was flushed
+	// last, whether its write succeeded, until an EndOfTurn boundary carries
+	// it on (nil: none since the last boundary).
+	replyStored *bool
 }
 
 // collectAndForward collects new messages while forwarding all elements.
@@ -225,25 +238,84 @@ func (s *IncrementalSaveStage) collectAndForward(
 			continue
 		}
 
-		fwd.forward(ctx, output, elem)
-
 		if newMessage && s.config.FlushEachTurn && elem.Message.Role == roleAssistant {
-			s.flushTurn(ctx, collected)
+			s.flushAssistant(ctx, &fwd, output, elem, collected)
+			continue
 		}
+		if elem.EndOfTurn && collected.replyStored != nil {
+			// The boundary ends the turn its reply completed: it carries
+			// whether that turn was stored.
+			elem.Meta.TurnStored = collected.replyStored
+			collected.replyStored = nil
+		}
+		fwd.forward(ctx, output, elem)
 	}
 	return collected
 }
 
-// flushTurn persists what the turn collected so far and starts a new batch. A
-// failed write is logged and the messages are kept for the final save, so
-// nothing is lost to a transient store error.
-func (s *IncrementalSaveStage) flushTurn(ctx context.Context, collected *incrementalCollectedData) {
-	if err := s.saveCollected(ctx, collected, ctx.Err() == nil); err != nil {
+// flushAssistant passes an assistant message on and stores the turn so far
+// (FlushEachTurn). Every assistant message but a cut-short reply is stored
+// before it is passed on (see storeTurn); a cut-short reply is passed on first
+// and stored after, as nothing reads the turn back on it. The turn is indexed
+// and summarized once, when its reply completes it (a cut-short reply's turn
+// goes with the next completed one). Anything collected after the last
+// completed turn is saved and indexed when the stream ends (saveCollected).
+// The completing reply carries whether its turn was stored (TurnStored).
+func (s *IncrementalSaveStage) flushAssistant(
+	ctx context.Context, fwd *cancelForwarder, output chan<- StreamElement,
+	elem StreamElement, collected *incrementalCollectedData,
+) {
+	storeFirst := elem.Message.FinishReason != types.FinishReasonInterrupted
+	stored := storeFirst && s.storeTurn(ctx, collected)
+	completes := completesReply(elem.Message)
+	if completes {
+		// The reply completes its turn: it carries whether the turn was
+		// stored, as does the EndOfTurn boundary that may follow it.
+		turnStored := stored
+		elem.Meta.TurnStored = &turnStored
+		collected.replyStored = &turnStored
+	}
+	fwd.forward(ctx, output, elem)
+	if !storeFirst {
+		stored = s.storeTurn(ctx, collected)
+	}
+	if stored && completes {
+		s.followUpTurn(ctx, collected)
+	}
+}
+
+// completesReply reports whether an assistant message completes its turn: it
+// makes no tool calls (the turn continues with their results) and was not cut
+// short.
+func completesReply(m *types.Message) bool {
+	return len(m.ToolCalls) == 0 && m.FinishReason != types.FinishReasonInterrupted
+}
+
+// storeTurn persists what the turn collected so far. For the reply that
+// completes a turn, or an assistant message making tool calls, it runs before
+// the message is passed on, so whoever sees it can read the turn back: a
+// duplex session completing the turn (and the hooks and evals it then runs),
+// or a client resolving the message's tool call IDs. It reports whether the turn was stored. A failed write
+// is logged and the messages are kept for the final save, so nothing is lost
+// to a transient store error.
+func (s *IncrementalSaveStage) storeTurn(ctx context.Context, collected *incrementalCollectedData) bool {
+	if err := s.saveCollected(ctx, collected, false); err != nil {
 		logger.Warn("Incremental save: persisting a turn mid-session failed; will retry at session end",
 			"conversation", s.config.StateStoreConfig.ConversationID, "error", err)
-		return
+		return false
+	}
+	return true
+}
+
+// followUpTurn indexes and summarizes a stored turn, once its assistant
+// message has been passed on (both can be model calls, which the reply does
+// not wait for), and starts a new batch.
+func (s *IncrementalSaveStage) followUpTurn(ctx context.Context, collected *incrementalCollectedData) {
+	if ctx.Err() == nil {
+		s.followUp(ctx, collected.messages)
 	}
 	collected.messages = nil
+	collected.stored = 0
 }
 
 // isNewMessage reports whether a message originated from this Send (true)

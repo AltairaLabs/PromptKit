@@ -246,6 +246,13 @@ type ElementMetadata struct {
 	// synthesizing per fragment would be one request per token and choppy audio.
 	StreamingDelta bool
 
+	// TurnStored is set by IncrementalSaveStage, with FlushEachTurn, on the
+	// element that ends a turn (the reply that completes it, or an EndOfTurn
+	// boundary): whether the turn's messages were written to the state store
+	// before the element was passed on. Nil when no save stage flushed the
+	// turn.
+	TurnStored *bool
+
 	// TokenCount is the per-chunk token count emitted by streaming providers.
 	// Zero when the chunk did not include a token count.
 	TokenCount int

@@ -1401,7 +1401,7 @@ func TestSessionHookDispatcher_BuildEvent(t *testing.T) {
 		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
 		conv.sessionHooks.turns.Store(7)
 
-		event := conv.sessionHooks.buildEvent()
+		event := conv.sessionHooks.buildEvent(nil)
 
 		assert.Equal(t, conv.ID(), event.SessionID)
 		assert.Equal(t, "conv-456", event.ConversationID)
@@ -1416,7 +1416,7 @@ func TestSessionHookDispatcher_BuildEvent(t *testing.T) {
 		conv.sessionHooks = newSessionHookDispatcher(nil, conv.sessionInfo)
 		conv.sessionHooks.turns.Store(2)
 
-		event := conv.sessionHooks.buildEvent()
+		event := conv.sessionHooks.buildEvent(nil)
 
 		assert.Equal(t, "", event.SessionID)
 		assert.Nil(t, event.Messages)
