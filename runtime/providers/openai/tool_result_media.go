@@ -95,7 +95,7 @@ func (p *Provider) liftedMediaMessages(results []*types.MessageToolResult) []typ
 // responsesToolCaps is what a Responses API function_call_output takes:
 // images as on a user message, and PDF documents as input_file.
 func (p *Provider) responsesToolCaps() providers.MultimodalCapabilities {
-	caps := p.SendableMultimodalCapabilities()
+	caps := p.GetMultimodalCapabilities()
 	caps.SupportsDocuments = true
 	caps.DocumentFormats = []string{types.MIMETypePDF}
 	return caps
