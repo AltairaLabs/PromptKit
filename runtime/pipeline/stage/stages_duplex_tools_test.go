@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,6 +95,8 @@ func (p *realtimeToolProvider) session() *realtimeToolSession {
 // batch with the next scripted assistant turn.
 type realtimeToolSession struct {
 	*providersmock.MockStreamSession
+	// emitted counts the chunks emitted on the session (EmitChunk).
+	emitted    atomic.Int64
 	onClose    func()
 	closeOnce  sync.Once
 	replyDelay time.Duration
@@ -166,6 +169,12 @@ func (s *realtimeToolSession) SendToolResponses(_ context.Context, resp []provid
 	s.log = append(s.log, "responses")
 	s.mu.Unlock()
 	return nil
+}
+
+// EmitChunk emits a chunk on the session, counting it.
+func (s *realtimeToolSession) EmitChunk(chunk *providers.StreamChunk) {
+	s.emitted.Add(1)
+	s.MockStreamSession.EmitChunk(chunk)
 }
 
 func (s *realtimeToolSession) Close() error {
@@ -297,6 +306,8 @@ type realtimeHarness struct {
 	output   chan StreamElement
 	cancel   context.CancelFunc
 	done     chan error
+	// handled counts the response chunks the stage has handled.
+	handled atomic.Int64
 }
 
 type realtimeOpts struct {
@@ -384,6 +395,7 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		output: make(chan StreamElement, max(o.outputBuffer, 256)),
 		done:   make(chan error, 1),
 	}
+	st.chunkHandled = func() { h.handled.Add(1) }
 	t.Cleanup(cancel)
 	for i := range o.history {
 		h.input <- StreamElement{Message: &o.history[i], Meta: ElementMetadata{FromHistory: true}}
@@ -430,6 +442,17 @@ func (h *realtimeHarness) emit(turn []providers.StreamChunk) {
 	for i := range turn {
 		h.sess().EmitChunk(&turn[i])
 	}
+}
+
+// settle waits until the stage has handled every chunk emitted on the
+// session so far, or the session has closed (a chunk emitted then is never
+// delivered).
+func (h *realtimeHarness) settle() {
+	h.t.Helper()
+	sess := h.sess()
+	require.Eventually(h.t, func() bool {
+		return h.handled.Load() >= sess.emitted.Load() || sess.isClosed()
+	}, 2*time.Second, time.Millisecond, "the stage never handled the chunks emitted")
 }
 
 // awaitSent waits until the session has been sent n batches of tool

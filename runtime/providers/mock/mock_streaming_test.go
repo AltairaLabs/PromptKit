@@ -400,15 +400,49 @@ func TestMockStreamSession_TagsGenerations(t *testing.T) {
 	assert.Equal(t, []int64{1, 1, 1, 2, 2, 2, 3, 9, 9}, got)
 }
 
-// A chunk tagged but never sent (the channel was full) does not advance the
+// A consumer that answers a chunk the moment it arrives, as a duplex stage
+// does when a tool call's response makes the session emit its reply, gets
+// its reply tagged with a new generation, even while the goroutine that
+// emitted the first chunk has not returned yet: the session numbers its
+// generations as one realtime provider receive loop does.
+func TestMockStreamSession_ReplyEmittedOnReceiptGetsTheNextGeneration(t *testing.T) {
+	session := NewMockStreamSession()
+	toolCalls := "tool_calls"
+	stop := "stop"
+	answered := false // the reply's own EmitChunk runs the hook too
+	session.afterEmit = func() {
+		if answered {
+			return
+		}
+		answered = true
+		first := <-session.Response()
+		assert.Equal(t, int64(1), first.Generation)
+		session.EmitChunk(&providers.StreamChunk{Content: "reply", FinishReason: &stop})
+	}
+
+	session.EmitChunk(&providers.StreamChunk{
+		ToolCalls:    []types.MessageToolCall{{ID: "c1", Name: "weather"}},
+		FinishReason: &toolCalls,
+	})
+
+	reply := <-session.Response()
+	assert.Equal(t, "reply", reply.Content)
+	assert.Equal(t, int64(2), reply.Generation, "the reply is a new generation, not the tool call's")
+}
+
+// A chunk dropped because the channel was full does not advance the
 // session's generations.
 func TestMockStreamSession_UnsentChunkLeavesGenerationsAlone(t *testing.T) {
 	session := NewMockStreamSession()
 	stop := "stop"
-	end := session.tag(providers.StreamChunk{Content: "a", FinishReason: &stop})
-	session.sent(end)
-	unsent := session.tag(providers.StreamChunk{Content: "b"}) // never sent
-	assert.Equal(t, int64(2), unsent.chunk.Generation)
+	session.EmitChunk(&providers.StreamChunk{Content: "a", FinishReason: &stop})
+	for range cap(session.responses) - 1 { // late usage of generation 1 fills the channel
+		session.EmitChunk(&providers.StreamChunk{CostInfo: &types.CostInfo{TotalCost: 1}})
+	}
+	assert.False(t, session.sendTagged(providers.StreamChunk{Content: "b"}, false), "the channel is full")
+	for range cap(session.responses) {
+		<-session.Response()
+	}
 
 	session.EmitChunk(&providers.StreamChunk{CostInfo: &types.CostInfo{TotalCost: 1}}) // cost only
 	assert.Equal(t, int64(1), (<-session.Response()).Generation, "still generation 1: b was never sent")

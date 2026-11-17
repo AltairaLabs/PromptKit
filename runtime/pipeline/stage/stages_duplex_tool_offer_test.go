@@ -470,7 +470,16 @@ func TestDuplexToolOffer_EarlierTurnsRoundDoesNotChangeTheNewTurnsOffer(t *testi
 	earlier := h.toolTurn()
 	user := types.Message{Role: roleUser, Content: "never mind"}
 	h.input <- StreamElement{Message: &user}
-	h.awaitNewToolTurn(earlier) // the round finishes once the new turn owns the offer
+	h.awaitNewToolTurn(earlier)
+	// The round finishes once the new turn owns the offer: the turn is
+	// current before it brings the session's tools in line, and a grant
+	// landing before that is the new turn's to offer.
+	require.Eventually(t, func() bool {
+		turn := h.toolTurn()
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return turn.offered["activate"]
+	}, 2*time.Second, time.Millisecond, "the new turn never brought the session's tools in line")
 	close(exec.gate)
 	h.awaitSent(1)
 	h.emit(textTurn("ok", nil))

@@ -93,6 +93,8 @@ type FrameRateLimitStage struct {
 	droppedFrames  int64
 	emittedFrames  int64
 	loggedDropOnce bool
+	// now is the clock frames are timed by; tests replace it.
+	now func() time.Time
 }
 
 // NewFrameRateLimitStage creates a new frame rate limiting stage.
@@ -106,6 +108,7 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage {
 		BaseStage:     NewBaseStage("frame-rate-limit", StageTypeTransform),
 		config:        config,
 		frameInterval: time.Duration(float64(time.Second) / fps),
+		now:           time.Now,
 	}
 }
 
@@ -179,7 +182,7 @@ func (s *FrameRateLimitStage) applyRateLimit() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now()
+	now := s.now()
 
 	// First frame always passes
 	if s.lastEmitTime.IsZero() {

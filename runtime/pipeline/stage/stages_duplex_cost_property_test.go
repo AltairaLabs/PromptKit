@@ -194,7 +194,7 @@ func (sc *costScenario) userDuringReply() {
 	sc.log = append(sc.log, "user-mid-reply")
 	user := types.Message{Role: roleUser, Content: "actually, Rome"}
 	sc.h.input <- StreamElement{Message: &user}
-	sc.settle()
+	sc.awaitUserTurnDue()
 	stop := "stop"
 	sc.emit("reply-rest", gen(r, []providers.StreamChunk{
 		{Content: tok(r), Delta: tok(r)},
@@ -318,6 +318,18 @@ func (sc *costScenario) awaitUserTurn() {
 	}
 }
 
+// awaitUserTurnDue waits for a user turn sent while a call is under way to
+// be taken in: the call goes on, and the next generation's call starts the
+// user's tool turn.
+func (sc *costScenario) awaitUserTurnDue() {
+	dt := sc.h.stage.tools
+	assert.Eventuallyf(sc.t, func() bool {
+		dt.mu.Lock()
+		defer dt.mu.Unlock()
+		return dt.newTurnDue || dt.terminal || sc.h.sess().isClosed()
+	}, 2*time.Second, time.Millisecond, "the user turn was never taken in: %v", sc.log)
+}
+
 // turnEnded checks that once a turn has ended no call and no tool turn is
 // left open.
 func (sc *costScenario) turnEnded() {
@@ -338,7 +350,7 @@ func (sc *costScenario) turnEnded() {
 
 // settle waits for the stage to handle everything emitted so far.
 func (sc *costScenario) settle() {
-	time.Sleep(5 * time.Millisecond)
+	sc.h.settle()
 }
 
 // costTotals are a session's three accounts of what it cost.
