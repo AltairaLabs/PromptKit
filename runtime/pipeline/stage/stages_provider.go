@@ -1123,7 +1123,6 @@ func (s *ProviderStage) executeMultiRound(
 		} else if stop {
 			return loop.messages, nil
 		}
-		loop.settleToolChoice()
 	}
 	// Unreachable: afterRound returns done with an error at round == maxRounds,
 	// so every exit goes through it. Kept as a compile-time fallthrough.
@@ -1219,8 +1218,7 @@ func (s *ProviderStage) applyStateHandoff(
 	}
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
-	loop.providerTools = rebuilt
-	loop.invalidateReserve()
+	loop.useTools(rebuilt)
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
 	}
@@ -1242,13 +1240,10 @@ type toolLoop struct {
 	// round limit and the run's spend.
 	*toolTurn
 
-	stage         *ProviderStage
-	messages      []types.Message
-	providerTools interface{}
-	toolChoice    string
-	// recheckChoice is set by a nudged round that kept a forced tool choice,
-	// for settleToolChoice to check against the round's final tools array.
-	recheckChoice    bool
+	stage            *ProviderStage
+	messages         []types.Message
+	providerTools    interface{}
+	toolChoice       string
 	lastPersistedSeq int  // messages in the MessageLog: LogAppend's next start seq
 	persistedIdx     int  // tl.messages[:persistedIdx] are already in the log
 	reserve          int  // tokens the system prompt and tools take (reservedTokens)
@@ -1594,7 +1589,6 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		} else if stop {
 			return loop.messages, nil
 		}
-		loop.settleToolChoice()
 	}
 	// Unreachable: afterRound returns done with an error at round == maxRounds,
 	// so every exit goes through it. Kept as a compile-time fallthrough.
@@ -1759,11 +1753,9 @@ func (tl *toolLoop) applyRound(
 	}
 
 	// A nudged round leaves a forced tool choice (required, or a tool's name)
-	// for the model's retry while the round's final tools array allows it
-	// (settleToolChoice, once a workflow handoff has rebuilt it).
-	if out.Nudged {
-		tl.recheckChoice = !out.OfferExhausted
-	} else {
+	// for the model's retry; a rebuild of the tools array it no longer fits
+	// drops it (useTools).
+	if !out.Nudged {
 		tl.toolChoice = toolChoiceAuto
 	}
 
@@ -1783,19 +1775,21 @@ func (tl *toolLoop) applyRound(
 	return false, nil, nil
 }
 
-// settleToolChoice decides, once the round's tools array is final (after any
-// workflow handoff rebuilt it), whether a forced tool choice a nudged round
-// kept still fits it (toolRunner.choiceFits): one that does not (the named
-// tool excluded or no longer allowed, no tools left) falls back to auto, as
-// after any other round.
-func (tl *toolLoop) settleToolChoice() {
-	if !tl.recheckChoice {
-		return
-	}
-	tl.recheckChoice = false
-	if !tl.stage.runner().choiceFits(tl.toolChoice) {
+// useTools makes rebuilt the tools array the next round is offered. A forced
+// tool choice (required, or a tool's name) it no longer fits (the named tool
+// excluded or no longer allowed, no tools left) falls back to auto.
+func (tl *toolLoop) useTools(rebuilt interface{}) {
+	tl.providerTools = rebuilt
+	tl.invalidateReserve()
+	if isForcedChoice(tl.toolChoice) && !tl.stage.runner().choiceFits(tl.toolChoice) {
 		tl.toolChoice = toolChoiceAuto
 	}
+}
+
+// isForcedChoice reports whether tool choice choice forces a call: required,
+// or a tool's name.
+func isForcedChoice(choice string) bool {
+	return choice != "" && choice != toolChoiceAuto && choice != toolChoiceNone
 }
 
 // addRoundTokens accumulates a round's token usage for the caching-stall
@@ -1825,8 +1819,7 @@ func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, offerChanged bo
 	if rebuildErr != nil {
 		return fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
 	}
-	tl.providerTools = rebuilt
-	tl.invalidateReserve()
+	tl.useTools(rebuilt)
 	return nil
 }
 

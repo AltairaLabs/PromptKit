@@ -100,3 +100,42 @@ func TestNudgedRound_NudgeOnlyRoundWithoutARegistry(t *testing.T) {
 		"was NOT executed again — the result will not change. Stop repeating this exact call: change the "+
 		"arguments, use a different tool, or finish the task.", last.ToolResult.GetTextContent())
 }
+
+// A forced tool choice is checked wherever the tools array is rebuilt: a
+// handoff before the first round that drops the forced tool sends auto.
+func TestForcedChoice_DroppedByTheTurnsFirstHandoffFallsBackToAuto(t *testing.T) {
+	provider := &choiceProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "ORIGIN"
+	turnState.AllowedTools = []string{"lookup_order", "cancel_order"}
+	stg := NewProviderStageWithTurnState(provider, mockToolRegistry(t, "lookup_order", "cancel_order"),
+		&pipeline.ToolPolicy{ToolChoice: "cancel_order"}, &ProviderConfig{MaxTokens: 100}, nil, nil, turnState)
+	stg.SetWorkflowStateResolver(&fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "DESTINATION", AllowedTools: []string{"lookup_order"}},
+	}})
+
+	runHandoffTurn(t, stg)
+
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	assert.Equal(t, []string{"auto"}, provider.choices)
+}
+
+// A handoff that keeps the forced tool keeps the choice.
+func TestForcedChoice_KeptByAHandoffThatKeepsTheTool(t *testing.T) {
+	provider := &choiceProvider{ToolProvider: mock.NewToolProvider("mock", "mock-model", false, nil)}
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "ORIGIN"
+	turnState.AllowedTools = []string{"lookup_order", "cancel_order"}
+	stg := NewProviderStageWithTurnState(provider, mockToolRegistry(t, "lookup_order", "cancel_order"),
+		&pipeline.ToolPolicy{ToolChoice: "cancel_order"}, &ProviderConfig{MaxTokens: 100}, nil, nil, turnState)
+	stg.SetWorkflowStateResolver(&fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "DESTINATION", AllowedTools: []string{"cancel_order"}},
+	}})
+
+	runHandoffTurn(t, stg)
+
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	assert.Equal(t, []string{"cancel_order"}, provider.choices)
+}

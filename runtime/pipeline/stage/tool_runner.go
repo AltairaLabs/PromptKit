@@ -1554,8 +1554,7 @@ func (r *toolRunner) markBuilt(descriptors []*tools.ToolDescriptor) {
 
 // choiceFits reports whether forced tool choice choice can be given with the
 // tools array last built (markBuilt): "required" needs a tool in it, and a
-// tool's name needs that tool. Any other choice is not a forced one, and does
-// not fit: the round's own choice, auto, applies.
+// tool's name needs that tool.
 func (r *toolRunner) choiceFits(choice string) bool {
 	if r.offers == nil {
 		return false
