@@ -128,7 +128,9 @@ func BuildModelResult(
 		if err != nil {
 			return ModelResult{}, err
 		}
-		out[i] = types.NewTextPart(text)
+		part := p // the part as it was, its text replaced
+		part.Text = &text
+		out[i] = part
 	}
 	joined := types.MessageToolResult{Parts: out}
 	return ModelResult{Text: joined.GetTextContent(), Parts: out}, nil

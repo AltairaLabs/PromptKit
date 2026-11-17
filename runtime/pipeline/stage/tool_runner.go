@@ -917,7 +917,11 @@ func (t *toolTurn) runRound(
 	// per-turn call budget, counted, and tracked for rejection and offer
 	// changes.
 	grantsBefore := t.r.grantedTools()
-	results, err := t.r.executeToolCalls(ctx, plan.within, rr, refused)
+	var results []types.Message
+	var err error
+	if len(plan.within) > 0 { // a round the breaker answers entirely runs nothing
+		results, err = t.r.executeToolCalls(ctx, plan.within, rr, refused)
+	}
 	if err != nil && !isToolsPending(err) {
 		return roundOutcome{Err: fmt.Errorf("provider stage: tool execution failed: %w", err)}
 	}

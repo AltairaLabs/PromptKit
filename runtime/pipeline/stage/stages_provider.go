@@ -1123,6 +1123,7 @@ func (s *ProviderStage) executeMultiRound(
 		} else if stop {
 			return loop.messages, nil
 		}
+		loop.settleToolChoice()
 	}
 	// Unreachable: afterRound returns done with an error at round == maxRounds,
 	// so every exit goes through it. Kept as a compile-time fallthrough.
@@ -1241,10 +1242,13 @@ type toolLoop struct {
 	// round limit and the run's spend.
 	*toolTurn
 
-	stage            *ProviderStage
-	messages         []types.Message
-	providerTools    interface{}
-	toolChoice       string
+	stage         *ProviderStage
+	messages      []types.Message
+	providerTools interface{}
+	toolChoice    string
+	// recheckChoice is set by a nudged round that kept a forced tool choice,
+	// for settleToolChoice to check against the round's final tools array.
+	recheckChoice    bool
 	lastPersistedSeq int  // messages in the MessageLog: LogAppend's next start seq
 	persistedIdx     int  // tl.messages[:persistedIdx] are already in the log
 	reserve          int  // tokens the system prompt and tools take (reservedTokens)
@@ -1590,6 +1594,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		} else if stop {
 			return loop.messages, nil
 		}
+		loop.settleToolChoice()
 	}
 	// Unreachable: afterRound returns done with an error at round == maxRounds,
 	// so every exit goes through it. Kept as a compile-time fallthrough.
@@ -1754,10 +1759,11 @@ func (tl *toolLoop) applyRound(
 	}
 
 	// A nudged round leaves a forced tool choice (required, or a tool's name)
-	// for the model's retry while the tools offered still allow it; one the
-	// round's offer no longer fits (the named tool excluded, no tools left)
-	// falls back to auto, as after any other round.
-	if !out.Nudged || !tl.stage.runner().choiceFits(tl.toolChoice) {
+	// for the model's retry while the round's final tools array allows it
+	// (settleToolChoice, once a workflow handoff has rebuilt it).
+	if out.Nudged {
+		tl.recheckChoice = !out.OfferExhausted
+	} else {
 		tl.toolChoice = toolChoiceAuto
 	}
 
@@ -1775,6 +1781,21 @@ func (tl *toolLoop) applyRound(
 		return true, tl.messages, out.Err
 	}
 	return false, nil, nil
+}
+
+// settleToolChoice decides, once the round's tools array is final (after any
+// workflow handoff rebuilt it), whether a forced tool choice a nudged round
+// kept still fits it (toolRunner.choiceFits): one that does not (the named
+// tool excluded or no longer allowed, no tools left) falls back to auto, as
+// after any other round.
+func (tl *toolLoop) settleToolChoice() {
+	if !tl.recheckChoice {
+		return
+	}
+	tl.recheckChoice = false
+	if !tl.stage.runner().choiceFits(tl.toolChoice) {
+		tl.toolChoice = toolChoiceAuto
+	}
 }
 
 // addRoundTokens accumulates a round's token usage for the caching-stall
