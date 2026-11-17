@@ -436,6 +436,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	if err := sendStreamElement(ctx, textElem, output); err != nil {
 		return err
 	}
+	s.takeCarriedCost(blocked)
 	end := StreamElement{Message: blocked, EndOfStream: true, Timestamp: timeNow()}
 	end.Meta.FinishReason = &fr
 	return sendStreamElement(ctx, end, output)

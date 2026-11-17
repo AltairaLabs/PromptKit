@@ -164,6 +164,7 @@ var eventDataRegistry = map[string]eventDataFactory{
 	// Provider events
 	"*events.ProviderCallStartedData":   func() EventData { return &ProviderCallStartedData{} },
 	"*events.ProviderCallCompletedData": func() EventData { return &ProviderCallCompletedData{} },
+	"*events.ProviderCallUsageData":     func() EventData { return &ProviderCallUsageData{} },
 	"*events.ProviderCallFailedData":    func() EventData { return &ProviderCallFailedData{} },
 
 	// Tool events (consolidated into ToolCallEventData)

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
@@ -268,12 +269,21 @@ func TestLiveRealtimePlayout_GeminiToolChainCost(t *testing.T) {
 		eventCost += d.Cost
 		t.Logf("provider.call.completed round=%d tools=%d in=%d out=%d cost=%.6f finish=%s",
 			d.Round, d.ToolCallCount, d.InputTokens, d.OutputTokens, d.Cost, d.FinishReason)
-		if d.ToolCallCount > 0 {
-			assert.Positive(t, d.Cost, "the tool call's provider call carries its own usage")
-		}
 	}
 	for id, n := range perCall {
 		assert.Equal(t, 1, n, "one provider.call.completed for call %s", id)
+	}
+	toolCallCost := map[string]float64{}
+	for _, e := range ev.ofType(events.EventProviderCallUsage) {
+		d := e.Data.(*events.ProviderCallUsageData)
+		eventCost += d.Cost
+		toolCallCost[d.CallID] += d.Cost
+		t.Logf("provider.call.usage round=%d in=%d out=%d cost=%.6f", d.Round, d.InputTokens, d.OutputTokens, d.Cost)
+	}
+	for _, d := range ev.providerCompleted() {
+		if d.ToolCallCount > 0 {
+			assert.Positive(t, d.Cost+toolCallCost[d.CallID], "the tool call's own usage is on its call")
+		}
 	}
 	var messageCost float64
 	for _, m := range conv.Messages(context.Background()) {

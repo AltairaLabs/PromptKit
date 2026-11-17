@@ -104,6 +104,7 @@ func (p *Playout) Playing() bool {
 // item that had not started playing).
 func (p *Playout) Stop() []PlayoutCut {
 	now := p.now()
+	p.prune(now) // count the stretches heard by now into their items
 	var cuts []PlayoutCut
 	for _, it := range p.items {
 		heard := min(max(now.Sub(it.start), 0), it.dur)
@@ -119,15 +120,40 @@ func (p *Playout) Stop() []PlayoutCut {
 }
 
 // prune drops the stretches fully heard by now, remembering how much of
-// their item they played.
+// their item they played. It forgets that for items with no stretch left,
+// except the one that played last (it may resume after a stall), so the
+// record stays bounded.
 func (p *Playout) prune(now time.Time) {
 	i := 0
+	var last itemKey
 	for i < len(p.items) && !p.items[i].start.Add(p.items[i].dur).After(now) {
 		if p.before == nil {
 			p.before = map[itemKey]time.Duration{}
 		}
-		p.before[p.items[i].itemKey] += p.items[i].dur
+		last = p.items[i].itemKey
+		p.before[last] += p.items[i].dur
 		i++
 	}
 	p.items = p.items[i:]
+	if i == 0 {
+		return
+	}
+	for key := range p.before {
+		if key != last && !p.holds(key) {
+			delete(p.before, key)
+		}
+	}
 }
+
+// holds reports whether key has a stretch not yet fully heard.
+func (p *Playout) holds(key itemKey) bool {
+	for _, it := range p.items {
+		if it.itemKey == key {
+			return true
+		}
+	}
+	return false
+}
+
+// tracked is how many items' earlier stretches the Playout remembers.
+func (p *Playout) tracked() int { return len(p.before) }

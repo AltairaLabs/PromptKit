@@ -54,6 +54,7 @@ func (s *StreamSession) replyStarted() {
 		return
 	}
 	s.turnOpen = true
+	s.gen++ // a new generation: the reply
 	s.lateInput = !s.inputClosed && !s.inputLastAt.IsZero() && s.clock().Sub(s.inputLastAt) < inputLateWindow
 }
 

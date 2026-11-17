@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -157,4 +158,41 @@ func TestLiveUsage_UsageAfterAnInterruptionIsTheInterruptedTurns(t *testing.T) {
 	assertCosts(t, chunks, [3]int{70, 5, 0}, [3]int{10, 2, 1})
 	got := costs(chunks)
 	assert.False(t, got[0].Interrupted, "reported on its own, after the interruption")
+}
+
+// Every chunk carries the generation it belongs to, so the stage can put
+// usage reported after its generation ended on that generation's call.
+func TestLiveUsage_ChunksCarryTheirGeneration(t *testing.T) {
+	s := newProtocolTestSession(t)
+	process(t, s,
+		toolCall("c1", "Rome"), generationComplete(), turnComplete(textUsage(919, 12)),
+		toolCall("c2", "Oslo"), generationComplete(), turnComplete(textUsage(952, 13)),
+		said("Rome is hazy."), &ServerMessage{ServerContent: &ServerContent{Interrupted: true}},
+		&ServerMessage{UsageMetadata: textUsage(70, 5)},
+		said("Yes?"), turnComplete(textUsage(10, 2)),
+	)
+
+	type tagged struct {
+		what string
+		gen  int64
+	}
+	var got []tagged
+	for _, c := range drainChunks(t, s) {
+		switch {
+		case len(c.ToolCalls) > 0:
+			got = append(got, tagged{"tools", c.Generation})
+		case c.Interrupted:
+			got = append(got, tagged{"interrupted", c.Generation})
+		case c.CostInfo != nil && c.FinishReason == nil:
+			got = append(got, tagged{fmt.Sprintf("usage %d", c.CostInfo.InputTokens), c.Generation})
+		case c.FinishReason != nil:
+			got = append(got, tagged{"end", c.Generation})
+		}
+	}
+	assert.Equal(t, []tagged{
+		{"tools", 1}, {"usage 919", 1},
+		{"tools", 2}, {"usage 952", 2},
+		{"interrupted", 3}, {"usage 70", 3},
+		{"end", 4},
+	}, got)
 }

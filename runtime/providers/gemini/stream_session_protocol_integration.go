@@ -206,6 +206,9 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 			logger.Debug("StreamSession: ignoring usage on a toolCall message")
 		}
 		s.toolCallTurn = true
+		if !s.turnOpen {
+			s.gen++ // the tool calls are a generation of their own
+		}
 		return s.handleToolCalls(msg.ToolCall)
 	}
 
@@ -317,7 +320,7 @@ func (s *StreamSession) flushCarriedUsage() {
 		return
 	}
 	select {
-	case s.emitCh <- providers.StreamChunk{CostInfo: s.takeTurnCost()}:
+	case s.emitCh <- providers.StreamChunk{CostInfo: s.takeTurnCost(), Generation: s.gen}:
 	default:
 		logger.Warn("StreamSession: a turn's end was not reported at session end: the response queue is full")
 	}
@@ -338,6 +341,7 @@ func addTokenUsage(a, b base.TokenUsage) base.TokenUsage {
 // sendChunk hands a chunk to the shared pump (via the session-owned emitCh),
 // which drains it to Response() without back-pressuring this receive loop.
 func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
+	chunk.Generation = s.gen
 	select {
 	case s.emitCh <- *chunk:
 		return nil
@@ -463,6 +467,7 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) err
 	}
 
 	// Send response to the shared pump via the session-owned emitCh.
+	response.Generation = s.gen
 	select {
 	case s.emitCh <- response:
 		s.sequenceNum++

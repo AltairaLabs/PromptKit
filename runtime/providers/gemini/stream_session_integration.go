@@ -94,9 +94,11 @@ type StreamSession struct {
 	toolCallTurn bool
 	carriedUsage *base.TokenUsage
 
-	// turnOpen is set while a turn is under way (see live_usage.go).
-	// Receive goroutine only.
+	// turnOpen is set while a model generation is under way; gen numbers the
+	// generations, and every chunk carries the number of the one it belongs
+	// to (StreamChunk.Generation; see live_usage.go). Receive goroutine only.
 	turnOpen bool
+	gen      int64
 
 	// playout estimates the reply audio the caller is still hearing; replyDone
 	// is set once the model's turn completed; the input fields follow the

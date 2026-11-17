@@ -135,11 +135,12 @@ type duplexTools struct {
 	turn  *duplexToolTurn
 	round int
 	open  *duplexRound
-	// deferred is a completed provider call that reported no cost yet, and
-	// interrupted one a barge-in cut short: their provider.call.completed
-	// waits for the cost the provider reports later (stages_duplex_cost.go).
-	deferred, interrupted *completedCall
-	spent                 float64
+	// gens maps the provider's generations to the calls they completed, so
+	// usage reported later lands on its own call (stages_duplex_cost.go);
+	// genOrder bounds it.
+	gens     map[int64]generationCall
+	genOrder []int64
+	spent    float64
 	// terminal is set once a limit closes the session: nothing more is run
 	// or reported.
 	terminal bool
@@ -450,7 +451,8 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
 	}
-	s.settleCompleted(ctx, round, msg)
+	s.recordGeneration(round, turn)
+	s.emitRoundCompleted(ctx, msg, round, time.Since(round.start))
 	return turn, round.rr
 }
 
@@ -625,7 +627,6 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 // emitRoundStarted emits provider.call.started for a realtime round, as
 // ProviderStage.emitProviderCallStarted does for a round.
 func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, rr roundRef) {
-	s.flushDeferredCall(ctx) // the last call's cost is not coming: report it
 	if s.emitter == nil {
 		return
 	}

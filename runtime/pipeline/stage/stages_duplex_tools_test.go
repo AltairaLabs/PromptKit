@@ -545,9 +545,7 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	assert.Equal(t, weatherResult, results[0].GetTextContent())
 
 	// Events: round 1's provider call, its tool call, then round 2's provider
-	// call, which only follows the tool responses reaching the session. Round
-	// 1 reported no cost, so its completion is held for one until round 2
-	// starts (Gemini 3 reports a tool-call turn's usage after the calls).
+	// call, which only follows the tool responses reaching the session.
 	evMu.Lock()
 	defer evMu.Unlock()
 	type step struct {
@@ -576,9 +574,9 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	}
 	assert.Equal(t, []step{
 		{events.EventProviderCallStarted, 1},
+		{events.EventProviderCallCompleted, 1},
 		{events.EventToolCallStarted, 1},
 		{events.EventToolCallCompleted, 1},
-		{events.EventProviderCallCompleted, 1},
 		{events.EventProviderCallStarted, 2},
 		{events.EventProviderCallCompleted, 2},
 	}, got)

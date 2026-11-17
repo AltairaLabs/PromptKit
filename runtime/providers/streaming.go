@@ -89,6 +89,14 @@ type StreamChunk struct {
 	// and "pending_tools"; an unmapped provider reason passes through verbatim.
 	FinishReason *string `json:"finish_reason,omitempty"`
 
+	// Generation identifies the model generation a realtime session's chunk
+	// belongs to: a session counts its generations (a reply, a turn of tool
+	// calls) from 1, and a chunk reporting a generation's usage after the
+	// generation ended (Gemini Live reports a tool-call turn's usage after its
+	// tool calls) carries that generation's number. 0 means the session does
+	// not number its generations.
+	Generation int64 `json:"generation,omitempty"`
+
 	// Interrupted indicates the response was interrupted (e.g., user started speaking)
 	// When true, clients should clear any buffered audio and prepare for a new response
 	Interrupted bool `json:"interrupted,omitempty"`

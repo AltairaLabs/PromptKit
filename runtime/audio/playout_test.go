@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -82,4 +83,30 @@ func TestPlayout_IgnoresEmptyAudio(t *testing.T) {
 	p.Add("A", 0, 0)
 	assert.False(t, p.Playing())
 	assert.Empty(t, p.Stop())
+}
+
+// X and Y interleave: X 1 s, Y 1 s, X 1 s, delivered at once. Stopped 2.5 s
+// in, the listener heard 1.5 s of X (its first stretch and half the second)
+// and all of Y.
+func TestPlayout_InterleavedItemsCountEveryHeardStretch(t *testing.T) {
+	c := &testClock{t: playoutT0}
+	p := NewPlayout(c.now)
+	p.Add("X", 0, time.Second)
+	p.Add("Y", 0, time.Second)
+	p.Add("X", 0, time.Second)
+	c.t = playoutT0.Add(2500 * time.Millisecond)
+
+	assert.Equal(t, []PlayoutCut{{ItemID: "X", Heard: 1500 * time.Millisecond}}, p.Stop())
+}
+
+// What earlier stretches played is kept only for items still playing and
+// the one that played last.
+func TestPlayout_RemembersABoundedSetOfItems(t *testing.T) {
+	c := &testClock{t: playoutT0}
+	p := NewPlayout(c.now)
+	for i := 0; i < 50; i++ {
+		c.t = playoutT0.Add(time.Duration(i) * 2 * time.Second)
+		p.Add(fmt.Sprint("item", i), 0, time.Second)
+	}
+	assert.Equal(t, 1, p.tracked(), "only the item that played last")
 }

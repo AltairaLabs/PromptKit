@@ -144,6 +144,9 @@ type DuplexProviderStage struct {
 	// (stages_duplex_cost.go). Response goroutine only.
 	costPlaced  bool
 	carriedCost *types.CostInfo
+	// chunkGen is the generation of the chunk being handled. Response
+	// goroutine only.
+	chunkGen int64
 
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
@@ -1261,8 +1264,8 @@ func (s *DuplexProviderStage) processResponseChunk(
 // stage needs a chance to receive even though context is canceled. This is
 // critical for capturing partial responses.
 func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output chan<- StreamElement) {
-	s.flushCompletedCalls(ctx)
 	msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx)))
+	s.completeOpenCall(ctx, msg)
 	if msg == nil {
 		return
 	}
@@ -1377,8 +1380,8 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 			"accumulated_media_len", len(s.accumulatedMedia))
 	}
 
-	s.flushCompletedCalls(ctx)
 	msg := s.takeInterruptedTurn(cause)
+	s.completeOpenCall(ctx, msg)
 	if s.inputFailed.Load() {
 		// An input hook denied: its error element is the session's last
 		// output, so the partial reply is not emitted after it.
@@ -1388,7 +1391,9 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 	if msg == nil {
 		return s.flushBlockedTurns(ctx, output)
 	}
-	s.takeCarriedCost(msg)
+	if len(s.blockedTurns) == 0 { // else the last blocked turn takes it
+		s.takeCarriedCost(msg)
+	}
 	elem := StreamElement{
 		Message:     msg,
 		EndOfStream: true,
@@ -1569,6 +1574,7 @@ func (s *DuplexProviderStage) completeChunkTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement, turnDone bool,
 ) (*duplexToolJob, error) {
 	unplaced := chunk.CostInfo != nil && !s.costPlaced
+	s.chunkGen = chunk.Generation
 	round := s.chargeInterruptedTurn(ctx, chunk, elem)
 	if turnDone {
 		if err := s.guardCompletedTurn(ctx, elem); err != nil {

@@ -52,6 +52,10 @@ const (
 	EventProviderCallCompleted EventType = "provider.call.completed"
 	// EventProviderCallFailed marks provider call failure.
 	EventProviderCallFailed EventType = "provider.call.failed"
+	// EventProviderCallUsage reports usage a provider reported for a call
+	// after the call's provider.call.completed. A call's total cost is its
+	// completed event's Cost plus the Cost of its usage events.
+	EventProviderCallUsage EventType = "provider.call.usage"
 
 	// EventToolCallStarted marks tool call start.
 	EventToolCallStarted EventType = "tool.call.started"
@@ -328,6 +332,24 @@ type ProviderCallCompletedData struct {
 	// is carried by every tool call this round produced as
 	// ToolCallEventData.ProviderCallID.
 	CallID string
+}
+
+// ProviderCallUsageData contains data for provider.call.usage events: usage a
+// provider reported for a call after the call completed (Gemini Live reports
+// a tool-call turn's usage after its tool calls). CallID and Round name the
+// call, as on its ProviderCallCompletedData.
+type ProviderCallUsageData struct {
+	baseEventData
+	Provider     string
+	Model        string
+	InputTokens  int
+	OutputTokens int
+	CachedTokens int
+	Cost         float64
+	Source       string            // Origin of the call: "agent" (default), "judge", "selfplay"
+	Labels       map[string]string // Optional metadata propagated to metrics and traces
+	Round        int
+	CallID       string
 }
 
 // ProviderCallFailedData contains data for provider call failure events.
