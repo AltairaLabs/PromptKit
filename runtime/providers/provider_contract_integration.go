@@ -664,7 +664,7 @@ func testPredictWithToolsMultiTurn(t *testing.T, provider Provider) {
 		Messages: []types.Message{
 			{Role: contractRoleUser, Content: contractWeatherQuestion},
 			{
-				Role:    "assistant",
+				Role:    roleAssistant,
 				Content: resp1.Content,
 				// The whole call, as the pipeline replays it: ProviderMetadata
 				// carries Gemini's thought signature, which the API requires.

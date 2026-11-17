@@ -97,6 +97,10 @@ func isAudioModel(model string) bool {
 
 // convertMessageToOpenAI converts a single PromptKit message to OpenAI format
 func (p *Provider) convertMessageToOpenAI(ctx context.Context, msg types.Message) (openAIMessage, error) {
+	if p.apiMode != APIModeCompletions || !p.supportsAudioInput() {
+		// A model that cannot take audio is sent a spoken reply's transcript.
+		msg = providers.WithoutAssistantAudio(msg)
+	}
 	// Handle legacy text-only messages
 	if !msg.IsMultimodal() {
 		return openAIMessage{

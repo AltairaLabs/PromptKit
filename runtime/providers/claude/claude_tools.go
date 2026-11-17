@@ -381,6 +381,8 @@ func thinkingBlocks(rt *types.ReasoningTrace) []any {
 // falling back to the message's text used to send the model the question
 // without its media.
 func (p *Provider) buildMessageContentBlocks(ctx context.Context, msg types.Message) ([]interface{}, error) {
+	// Claude takes no audio: a spoken reply goes as its transcript.
+	msg = providers.WithoutAssistantAudio(msg)
 	// Check if message has multimodal content (images, etc.)
 	if msg.HasMediaContent() {
 		return p.convertPartsToClaudeBlocks(ctx, msg.Parts)
