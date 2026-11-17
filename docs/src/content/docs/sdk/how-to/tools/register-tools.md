@@ -138,6 +138,8 @@ Register a runtime `tools.Executor` directly with `OnToolExecutor`:
 conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
 ```
 
+An executor that implements `tools.CallExecutor` is given each call through `ExecuteCall`; otherwise one that implements `tools.MultimodalExecutor` is given it through `ExecuteMultimodal`. The content parts either returns, such as an image, go to the model with the result.
+
 `OnToolExecutor` needs a conversation. Constructors that open conversations internally, such as `sdk.A2AOpener` (one per context ID), never return one. Pass the executor as an option instead:
 
 ```go
