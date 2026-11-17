@@ -118,6 +118,24 @@ func (j *JitterBuffer) Clear() {
 	j.mu.Unlock()
 }
 
+// FadeOut ends playback with a short ramp instead of a hard cut: it keeps the
+// next n buffered samples (all of them when fewer are buffered), scales them
+// linearly from full level down toward silence, and drops the rest. Clearing
+// the buffer outright stops the speaker mid-waveform, which is heard as an
+// abrupt cut and often a click.
+func (j *JitterBuffer) FadeOut(n int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if n > j.count {
+		n = j.count
+	}
+	for i := 0; i < n; i++ {
+		idx := (j.head + i) % j.capacity
+		j.buf[idx] = rampSample(j.buf[idx], i, n)
+	}
+	j.count = n
+}
+
 // Len returns the number of samples in the buffer.
 func (j *JitterBuffer) Len() int {
 	j.mu.Lock()

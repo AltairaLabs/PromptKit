@@ -274,3 +274,44 @@ func TestJitterBuffer_ZeroCapacityCountsUnderrun(t *testing.T) {
 		t.Errorf("UnderrunSamples on zero-cap pull = %d, want 8", got)
 	}
 }
+
+// FadeOut ends playback with a short ramp instead of a hard cut: the next n
+// buffered samples are kept, scaled from full level down toward silence, and
+// everything after them is dropped.
+func TestJitterBuffer_FadeOutRampsTheNextSamplesAndDropsTheRest(t *testing.T) {
+	j := NewJitterBuffer(1000)
+	in := make([]int16, 1000)
+	for i := range in {
+		in[i] = 1000
+	}
+	j.Push(in)
+
+	j.FadeOut(4)
+
+	if got := j.Len(); got != 4 {
+		t.Fatalf("Len after FadeOut = %d, want 4", got)
+	}
+	got := j.Pull(6)
+	want := []int16{1000, 750, 500, 250, 0, 0}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("samples after FadeOut = %v, want %v", got, want)
+		}
+	}
+}
+
+// With fewer than n samples buffered, the ramp spans what there is.
+func TestJitterBuffer_FadeOutShortBuffer(t *testing.T) {
+	j := NewJitterBuffer(100)
+	j.Push([]int16{800, 800})
+
+	j.FadeOut(10)
+
+	got := j.Pull(3)
+	want := []int16{800, 400, 0}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("samples after FadeOut = %v, want %v", got, want)
+		}
+	}
+}

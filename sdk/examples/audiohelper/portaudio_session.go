@@ -7,6 +7,7 @@ package audiohelper
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
@@ -38,9 +39,10 @@ const (
 // sessionConfig holds the configurable parameters for a PortAudio session.
 // It is populated from SessionOption values and used by newAudioIO.
 type sessionConfig struct {
-	captureRate  int  // mic sample rate in Hz
-	playbackRate int  // speaker sample rate in Hz
-	duplex       bool // use the single 48 kHz duplex stream (opt-in; for same-device open-speaker AEC)
+	captureRate  int           // mic sample rate in Hz
+	playbackRate int           // speaker sample rate in Hz
+	duplex       bool          // use the single 48 kHz duplex stream (opt-in; for same-device open-speaker AEC)
+	flushFade    time.Duration // how long a flush (barge-in) fades playback out; 0 cuts at once
 }
 
 // SessionOption is a functional option for NewSession.
@@ -70,12 +72,24 @@ func WithDuplex() SessionOption {
 	return func(c *sessionConfig) { c.duplex = true }
 }
 
+// defaultFlushFade is how long a flush fades playback out by default: long
+// enough that a barge-in does not sound like a hard cut, short enough that the
+// caller is not talked over.
+const defaultFlushFade = 100 * time.Millisecond
+
+// WithFlushFade sets how long a flush (the SDK's barge-in) fades playback out
+// before it goes silent (default 100 ms). Zero cuts playback at once.
+func WithFlushFade(d time.Duration) SessionOption {
+	return func(c *sessionConfig) { c.flushFade = d }
+}
+
 // buildSessionConfig applies opts over the default 16 kHz capture / 24 kHz
 // playback configuration and returns the resulting sessionConfig.
 func buildSessionConfig(opts []SessionOption) sessionConfig {
 	cfg := sessionConfig{
 		captureRate:  CaptureSampleRate,
 		playbackRate: PlaybackSampleRate,
+		flushFade:    defaultFlushFade,
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -100,7 +114,7 @@ func (p *portaudioIO) ensureTwoStreamBuffers() {
 		p.playCh = make(chan []byte, captureChanBuffer)
 	}
 	if p.flushCh == nil {
-		p.flushCh = make(chan struct{}, 1)
+		p.flushCh = make(chan []byte, 1)
 	}
 }
 

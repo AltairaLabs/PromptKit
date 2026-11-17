@@ -54,6 +54,7 @@ for chunk := range audioStream {
 - [func DecodeMuLaw\(mulaw \[\]byte\) \[\]byte](<#DecodeMuLaw>)
 - [func EncodeALaw\(pcm16le \[\]byte\) \[\]byte](<#EncodeALaw>)
 - [func EncodeMuLaw\(pcm16le \[\]byte\) \[\]byte](<#EncodeMuLaw>)
+- [func FadeOutPCM16\(pcm \[\]byte, n int\) \[\]byte](<#FadeOutPCM16>)
 - [func PCM16Duration\(n, sampleRate, channels int\) time.Duration](<#PCM16Duration>)
 - [func Resample24kTo16k\(input \[\]byte\) \(\[\]byte, error\)](<#Resample24kTo16k>)
 - [func ResamplePCM16\(input \[\]byte, fromRate, toRate int\) \(\[\]byte, error\)](<#ResamplePCM16>)
@@ -87,6 +88,7 @@ for chunk := range audioStream {
   - [func NewJitterBuffer\(capacitySamples int\) \*JitterBuffer](<#NewJitterBuffer>)
   - [func \(j \*JitterBuffer\) Clear\(\)](<#JitterBuffer.Clear>)
   - [func \(j \*JitterBuffer\) Drops\(\) int64](<#JitterBuffer.Drops>)
+  - [func \(j \*JitterBuffer\) FadeOut\(n int\)](<#JitterBuffer.FadeOut>)
   - [func \(j \*JitterBuffer\) Len\(\) int](<#JitterBuffer.Len>)
   - [func \(j \*JitterBuffer\) Pull\(n int\) \[\]int16](<#JitterBuffer.Pull>)
   - [func \(j \*JitterBuffer\) Push\(samples \[\]int16\)](<#JitterBuffer.Push>)
@@ -220,6 +222,15 @@ func EncodeMuLaw(pcm16le []byte) []byte
 ```
 
 EncodeMuLaw converts little\-endian PCM16 to G.711 mu\-law bytes \(1 byte/sample\).
+
+<a name="FadeOutPCM16"></a>
+## func [FadeOutPCM16](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/fade.go#L11>)
+
+```go
+func FadeOutPCM16(pcm []byte, n int) []byte
+```
+
+FadeOutPCM16 returns a copy of the first n samples of little\-endian mono PCM16 audio \(all of them when there are fewer\), scaled linearly from full level down toward silence. A player that stops on barge\-in by dropping its queued audio cuts the speaker off mid\-waveform, which is heard as an abrupt stop and often a click; playing this ramp first and dropping the rest ends it softly. An odd trailing byte is not a sample and is left out.
 
 <a name="PCM16Duration"></a>
 ## func [PCM16Duration](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L11>)
@@ -572,7 +583,7 @@ func (j *JitterBuffer) Clear()
 Clear drops all buffered samples. The next Pull will return silence.
 
 <a name="JitterBuffer.Drops"></a>
-### func \(\*JitterBuffer\) [Drops](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L131>)
+### func \(\*JitterBuffer\) [Drops](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L149>)
 
 ```go
 func (j *JitterBuffer) Drops() int64
@@ -580,8 +591,17 @@ func (j *JitterBuffer) Drops() int64
 
 Drops returns the cumulative number of samples that have been dropped due to buffer overflow.
 
+<a name="JitterBuffer.FadeOut"></a>
+### func \(\*JitterBuffer\) [FadeOut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L126>)
+
+```go
+func (j *JitterBuffer) FadeOut(n int)
+```
+
+FadeOut ends playback with a short ramp instead of a hard cut: it keeps the next n buffered samples \(all of them when fewer are buffered\), scales them linearly from full level down toward silence, and drops the rest. Clearing the buffer outright stops the speaker mid\-waveform, which is heard as an abrupt cut and often a click.
+
 <a name="JitterBuffer.Len"></a>
-### func \(\*JitterBuffer\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L122>)
+### func \(\*JitterBuffer\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L140>)
 
 ```go
 func (j *JitterBuffer) Len() int
@@ -608,7 +628,7 @@ func (j *JitterBuffer) Push(samples []int16)
 Push appends samples to the buffer. If appending would exceed capacity, the oldest samples are discarded first and the drop counter incremented.
 
 <a name="JitterBuffer.UnderrunSamples"></a>
-### func \(\*JitterBuffer\) [UnderrunSamples](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L149>)
+### func \(\*JitterBuffer\) [UnderrunSamples](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L167>)
 
 ```go
 func (j *JitterBuffer) UnderrunSamples() int64
@@ -617,7 +637,7 @@ func (j *JitterBuffer) UnderrunSamples() int64
 UnderrunSamples returns the cumulative number of silence samples substituted across all underrunning Pull calls.
 
 <a name="JitterBuffer.Underruns"></a>
-### func \(\*JitterBuffer\) [Underruns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L140>)
+### func \(\*JitterBuffer\) [Underruns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L158>)
 
 ```go
 func (j *JitterBuffer) Underruns() int64
