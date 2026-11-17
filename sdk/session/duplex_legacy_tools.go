@@ -70,13 +70,16 @@ func (s *duplexSession) runToolCallsInSession(ctx context.Context, elem *stage.S
 
 	duplexResult := executeDuplexToolCalls(ctx, s.toolRegistry, toolCalls, s.asyncToolChecker, s.caller)
 
+	for i := range duplexResult.Completed.ProviderResponses {
+		s.forgetCall(duplexResult.Completed.ProviderResponses[i].ToolCallID) // the session answered it
+	}
 	if len(duplexResult.Completed.ProviderResponses) > 0 {
 		if err := s.sendInput(ctx, streaming.BuildToolResponseElement(duplexResult.Completed)); err != nil {
 			return fmt.Errorf("failed to send tool results: %w", err)
 		}
 	}
 	if len(duplexResult.Pending) > 0 {
-		s.holdCalls(duplexResult.Pending) // the session answered the others itself
+		s.holdCalls(duplexResult.Pending)
 		elem.Meta.PendingTools = duplexResult.Pending
 		if !s.forwardChunk(ctx, streamElementToStreamChunk(elem)) {
 			return ctx.Err()

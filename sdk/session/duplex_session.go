@@ -40,15 +40,20 @@ type duplexSession struct {
 	// opened with, nil in pipeline mode; ForkSession passes it on.
 	streamConfig *providers.StreamingInputConfig
 
-	// calls maps each tool call the model made, by ID, to the call (its name
-	// and arguments), so a result submitted by call ID alone can be named
-	// (#2589) and the request it answers known. A later response that reuses
-	// an ID replaces the earlier call under it.
-	// The record is bounded (maxRecordedCalls); an answered call is dropped.
+	// calls maps each tool call the model made and nobody has answered yet,
+	// by ID, to the call (its name and arguments as sent), so a result
+	// submitted by call ID alone can be named (#2589) and the request it
+	// answers known. A later response that reuses an ID replaces the earlier
+	// call under it. A call is dropped once it is answered, by the pipeline,
+	// the session or SubmitToolResults. Calls held for the caller are kept
+	// until answered; the others are bounded (maxRecordedCalls).
 	callsMu sync.Mutex
-	calls   map[string]types.MessageToolCall
-	// callOrder is calls' IDs, oldest first, for the bound.
+	calls   map[string]recordedCall
+	// callOrder is the IDs of the calls not held, oldest first, for the
+	// bound; an ID no longer recorded, or since held, is skipped.
 	callOrder []string
+	// unheld counts the recorded calls not held.
+	unheld int
 	// turnsCompleted counts the replies the model completed (see
 	// TurnsCompleted).
 	turnsCompleted atomic.Int64
@@ -400,11 +405,7 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 			}
 
 			action, actionErr := streaming.ProcessResponseElement(&elem, "duplexSession")
-			// Calls held for the caller are recorded whatever else the element
-			// carries (an error that stopped the tool turn, a typed turn).
-			if len(elem.Meta.PendingTools) > 0 {
-				s.holdCalls(elem.Meta.PendingTools)
-			}
+			s.recordElementCalls(&elem)
 
 			switch action {
 			case streaming.ResponseActionToolCalls:
@@ -455,10 +456,6 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 //     them (runToolCallsInSession).
 //   - Neither: the turn is forwarded for the caller to answer.
 func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
-	// Every call is recorded, its name and arguments as the model sent them,
-	// for a result submitted by ID alone; a held one is recorded again from
-	// the element that surfaces it (holdCalls).
-	s.rememberCalls(elem.Message.ToolCalls)
 	switch {
 	case s.pipelineRunsTools:
 		return nil
@@ -738,9 +735,33 @@ func copyStreamConfig(cfg *providers.StreamingInputConfig) *providers.StreamingI
 	return &cp
 }
 
-// maxRecordedCalls bounds the calls the session keeps for SubmitToolResults:
-// past it, the oldest is dropped.
+// maxRecordedCalls bounds the calls not held that the session keeps for
+// SubmitToolResults: past it, the oldest is dropped. Held calls are kept
+// until answered.
 const maxRecordedCalls = 256
+
+// recordedCall is a call the model made that is not answered yet.
+type recordedCall struct {
+	call types.MessageToolCall
+	// held reports that the call is held for the caller to answer.
+	held bool
+}
+
+// recordElementCalls keeps the session's record of calls in line with an
+// element of the pipeline's output: the calls it makes (their names and
+// arguments as sent), then the calls it holds for the caller, so a held
+// call's record wins, and drops a call its tool result answers.
+func (s *duplexSession) recordElementCalls(elem *stage.StreamElement) {
+	if elem.Message != nil {
+		s.rememberCalls(elem.Message.ToolCalls)
+		if tr := elem.Message.ToolResult; tr != nil {
+			s.forgetCall(tr.ID)
+		}
+	}
+	if len(elem.Meta.PendingTools) > 0 {
+		s.holdCalls(elem.Meta.PendingTools)
+	}
+}
 
 // holdCalls records the calls of pending, held for SubmitToolResults, with
 // the name each pending entry carries and the arguments as the model sent
@@ -758,35 +779,85 @@ func (s *duplexSession) holdCalls(pending []tools.PendingToolExecution) {
 	}
 	s.callsMu.Lock()
 	defer s.callsMu.Unlock()
-	s.rememberCallsLocked(calls)
+	s.rememberCallsLocked(calls, true)
 }
 
-// rememberCalls records each call by its ID, replacing any earlier call under
-// the same ID, and drops the oldest past maxRecordedCalls.
+// rememberCalls records each call by its ID, not held, replacing any earlier
+// call under the same ID.
 func (s *duplexSession) rememberCalls(calls []types.MessageToolCall) {
 	s.callsMu.Lock()
 	defer s.callsMu.Unlock()
-	s.rememberCallsLocked(calls)
+	s.rememberCallsLocked(calls, false)
 }
 
-// rememberCallsLocked is rememberCalls with callsMu held.
-func (s *duplexSession) rememberCallsLocked(calls []types.MessageToolCall) {
+// rememberCallsLocked records calls, held or not, with callsMu held, and
+// drops the oldest calls not held past maxRecordedCalls.
+func (s *duplexSession) rememberCallsLocked(calls []types.MessageToolCall, held bool) {
 	if len(calls) == 0 {
 		return
 	}
 	if s.calls == nil {
-		s.calls = make(map[string]types.MessageToolCall, len(calls))
+		s.calls = make(map[string]recordedCall, len(calls))
 	}
 	for _, tc := range calls {
-		if _, ok := s.calls[tc.ID]; !ok {
+		if prev, ok := s.calls[tc.ID]; ok && !prev.held {
+			s.unheld--
+		}
+		s.calls[tc.ID] = recordedCall{call: tc, held: held}
+		if !held {
+			s.unheld++
 			s.callOrder = append(s.callOrder, tc.ID)
 		}
-		s.calls[tc.ID] = tc
 	}
-	for len(s.calls) > maxRecordedCalls && len(s.callOrder) > 0 {
+	if len(s.callOrder) > 2*maxRecordedCalls {
+		s.compactCallOrderLocked()
+	}
+	for s.unheld > maxRecordedCalls && len(s.callOrder) > 0 {
 		oldest := s.callOrder[0]
 		s.callOrder = s.callOrder[1:]
-		delete(s.calls, oldest)
+		if rc, ok := s.calls[oldest]; ok && !rc.held {
+			delete(s.calls, oldest)
+			s.unheld--
+		}
+	}
+}
+
+// compactCallOrderLocked drops from callOrder the IDs no longer recorded as
+// calls not held, and the earlier of any ID listed twice, so it stays as
+// long as the record it orders.
+func (s *duplexSession) compactCallOrderLocked() {
+	last := make(map[string]int, len(s.callOrder))
+	for i, id := range s.callOrder {
+		last[id] = i
+	}
+	kept := s.callOrder[:0]
+	for i, id := range s.callOrder {
+		if rc, ok := s.calls[id]; ok && !rc.held && last[id] == i {
+			kept = append(kept, id)
+		}
+	}
+	s.callOrder = kept
+}
+
+// forgetCall drops the call recorded under id: it is answered.
+func (s *duplexSession) forgetCall(id string) {
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	s.forgetCallLocked(id)
+}
+
+// forgetCallLocked is forgetCall with callsMu held.
+func (s *duplexSession) forgetCallLocked(id string) {
+	rc, ok := s.calls[id]
+	if !ok {
+		return
+	}
+	delete(s.calls, id)
+	if !rc.held {
+		s.unheld--
+	}
+	if len(s.calls) == 0 {
+		s.callOrder = nil
 	}
 }
 
@@ -795,8 +866,8 @@ func (s *duplexSession) rememberCallsLocked(calls []types.MessageToolCall) {
 func (s *duplexSession) ToolCall(id string) (types.MessageToolCall, bool) {
 	s.callsMu.Lock()
 	defer s.callsMu.Unlock()
-	call, ok := s.calls[id]
-	return call, ok
+	rc, ok := s.calls[id]
+	return rc.call, ok
 }
 
 // TurnsCompleted returns how many replies the model has completed in the
@@ -811,14 +882,8 @@ func (s *duplexSession) TurnsCompleted() int64 {
 func (s *duplexSession) takeCallName(id string) string {
 	s.callsMu.Lock()
 	defer s.callsMu.Unlock()
-	name := s.calls[id].Name
-	delete(s.calls, id)
-	for i, recorded := range s.callOrder {
-		if recorded == id {
-			s.callOrder = append(s.callOrder[:i], s.callOrder[i+1:]...)
-			break
-		}
-	}
+	name := s.calls[id].call.Name
+	s.forgetCallLocked(id)
 	return name
 }
 

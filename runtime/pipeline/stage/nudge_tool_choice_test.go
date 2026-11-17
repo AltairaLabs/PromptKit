@@ -188,8 +188,10 @@ func TestForcedChoice_NothingIsBuiltForAProviderWithoutTools(t *testing.T) {
 	assert.False(t, r.choiceFits("required"))
 }
 
-// A nudged round's retry is not forced to call the tool that looped.
-func TestNudgedRound_ForcedChoiceOfTheLoopingToolFallsBackToAuto(t *testing.T) {
+// A forced choice is the host's policy: a nudged round's retry keeps it, also
+// when it names the tool that looped (changing the arguments is the
+// correction).
+func TestNudgedRound_ForcedChoiceIsKeptForTheRetry(t *testing.T) {
 	same := json.RawMessage(`{"id":"A"}`)
 	for name, choice := range map[string]string{"named": "lookup_order", "required": "required", "any": "any"} {
 		t.Run(name, func(t *testing.T) {
@@ -209,7 +211,7 @@ func TestNudgedRound_ForcedChoiceOfTheLoopingToolFallsBackToAuto(t *testing.T) {
 
 			provider.mu.Lock()
 			defer provider.mu.Unlock()
-			assert.Equal(t, []string{choice, "auto"}, provider.choices)
+			assert.Equal(t, []string{choice, choice}, provider.choices)
 		})
 	}
 }

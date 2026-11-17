@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
@@ -321,4 +323,76 @@ func TestContinue_RewriterSeesTheModelsRawArguments(t *testing.T) {
 	reqs := rw.requests()
 	require.Len(t, reqs, 1)
 	assert.Equal(t, raw, string(reqs[0].Args))
+}
+
+// failingLoadStore is a memory store whose Load fails while fail is set.
+type failingLoadStore struct {
+	*statestore.MemoryStore
+	fail atomic.Bool
+}
+
+func (s *failingLoadStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
+	if s.fail.Load() {
+		return nil, errors.New("store unreachable")
+	}
+	return s.MemoryStore.Load(ctx, id)
+}
+
+// A history the store cannot read fails Continue, rather than reading as an
+// empty one; the approved result stays to be continued once it can be read.
+func TestContinue_HistoryReadErrorFailsTheBatch(t *testing.T) {
+	store := &failingLoadStore{MemoryStore: statestore.NewMemoryStore()}
+	conv, provider := openSettlementConv(t, 1, []string{"Done."}, WithStateStore(store))
+	conv.OnToolAsync("send_message",
+		func(map[string]any) sdktools.PendingResult {
+			return sdktools.PendingResult{Reason: "requires_approval"}
+		},
+		func(map[string]any) (any, error) { return "sent", nil })
+	ctx := context.Background()
+	resp, err := conv.Send(ctx, "message the customer")
+	require.NoError(t, err)
+	_, err = conv.ResolveTool(ctx, resp.PendingTools()[0].ID)
+	require.NoError(t, err)
+
+	store.fail.Store(true)
+	_, err = conv.Continue(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read the conversation history: store unreachable")
+
+	store.fail.Store(false)
+	_, err = conv.Continue(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"call-1": "sent"}, lastResults(provider))
+}
+
+// An empty text reaches the model as `""` on Resume, with or without a
+// rewriter: providers reject an empty text block.
+func TestResume_EmptyTextGivesTheEmptyStringText(t *testing.T) {
+	for name, rw := range map[string]hooks.ToolHook{"no rewriter": denyNothingHook{}, "rewriter": &wrappingRewriter{}} {
+		t.Run(name, func(t *testing.T) {
+			conv, provider := openLocateConv(t, rw, []types.MessageToolCall{{ID: "c1", Name: "locate", Args: []byte(`{}`)}})
+			ctx := context.Background()
+			require.NoError(t, conv.SendToolResultMultimodal(ctx, "c1", []types.ContentPart{types.NewTextPart("")}))
+			_, err := conv.Resume(ctx)
+			require.NoError(t, err)
+			want := `""`
+			if name == "rewriter" {
+				want = "<redacted:>"
+			}
+			assert.Equal(t, map[string]string{"c1": want}, lastResults(provider))
+		})
+	}
+}
+
+// denyNothingHook is a tool hook that rewrites nothing.
+type denyNothingHook struct{}
+
+func (denyNothingHook) Name() string { return "nothing" }
+
+func (denyNothingHook) BeforeExecution(context.Context, hooks.ToolRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (denyNothingHook) AfterExecution(context.Context, hooks.ToolRequest, hooks.ToolResponse) hooks.Decision {
+	return hooks.Allow
 }

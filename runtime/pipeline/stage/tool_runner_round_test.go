@@ -134,8 +134,7 @@ func TestToolTurn_RunRound_IdenticalCallBreaker(t *testing.T) {
 			`Repeated call ignored: "danger" has been called 2 times with identical arguments and was NOT `+
 				"executed again — the result will not change. Stop repeating this exact call: change the "+
 				"arguments, use a different tool, or finish the task."))},
-		Nudged:       true,
-		LoopingTools: []string{"danger"},
+		Nudged: true,
 	}, nudge)
 
 	abort := turn.RunRound(ctx, []types.MessageToolCall{dangerCall("c3")}, roundRef{round: 3})

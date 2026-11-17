@@ -383,3 +383,74 @@ func TestDuplexSession_UnheldCallAnsweredByIDIsNamed(t *testing.T) {
 	require.Eventually(t, func() bool { return len(st.recorded()) == 1 }, lifecycleWait, 5*time.Millisecond)
 	assert.Equal(t, "get_weather", st.recorded()[0].Name)
 }
+
+// A held call outlasts any number of calls the pipeline makes and answers,
+// and stays answerable with its name; the calls not held are bounded.
+func TestDuplexSession_HeldCallOutlastsManyOtherCalls(t *testing.T) {
+	s := &duplexSession{}
+	held := &stage.StreamElement{Message: &types.Message{
+		Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "held", Name: "approve_refund", Args: []byte(`{}`)}},
+	}}
+	held.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "held", ToolName: "approve_refund"}}
+	s.recordElementCalls(held)
+	for i := 0; i < 3*maxRecordedCalls; i++ {
+		id := fmt.Sprintf("run-%d", i)
+		s.recordElementCalls(&stage.StreamElement{Message: &types.Message{
+			Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: id, Name: "lookup", Args: []byte(`{}`)}},
+		}})
+		if i%2 == 0 { // half are answered by the pipeline
+			s.recordElementCalls(&stage.StreamElement{Message: &types.Message{
+				Role: "tool", ToolResult: &types.MessageToolResult{ID: id, Name: "lookup"},
+			}})
+		}
+	}
+	got, kept := s.ToolCall("held")
+	require.True(t, kept)
+	assert.Equal(t, "approve_refund", got.Name)
+	last := 3*maxRecordedCalls - 1
+	_, kept = s.ToolCall(fmt.Sprintf("run-%d", last-1))
+	assert.False(t, kept, "an answered call is dropped")
+	_, kept = s.ToolCall(fmt.Sprintf("run-%d", last))
+	assert.True(t, kept, "a call not answered is kept")
+	s.callsMu.Lock()
+	assert.Equal(t, maxRecordedCalls+1, len(s.calls), "the calls not held are bounded; the held one is kept")
+	assert.LessOrEqual(t, len(s.callOrder), 2*maxRecordedCalls+1)
+	s.callsMu.Unlock()
+	assert.Equal(t, "approve_refund", s.takeCallName("held"))
+}
+
+// An element that makes a call and holds it records the held call: the
+// held record wins.
+func TestDuplexSession_HeldRecordWinsOnTheSameElement(t *testing.T) {
+	s := &duplexSession{}
+	elem := &stage.StreamElement{Message: &types.Message{
+		Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "approve_refund", Args: []byte(`{"a":1}`)}},
+	}}
+	elem.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "c1", ToolName: "approve_refund", RawArgs: []byte(`{"a": 1}`)}}
+	s.recordElementCalls(elem)
+	got, kept := s.ToolCall("c1")
+	require.True(t, kept)
+	assert.Equal(t, `{"a": 1}`, string(got.Args))
+	s.callsMu.Lock()
+	defer s.callsMu.Unlock()
+	assert.True(t, s.calls["c1"].held)
+	assert.Zero(t, s.unheld)
+}
+
+// The bound drops the oldest calls not held, never a held one, however many
+// calls the model makes after it.
+func TestDuplexSession_BoundNeverDropsAHeldCall(t *testing.T) {
+	s := &duplexSession{}
+	held := &stage.StreamElement{Message: &types.Message{
+		Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "held", Name: "approve_refund", Args: []byte(`{}`)}},
+	}}
+	held.Meta.PendingTools = []tools.PendingToolExecution{{CallID: "held", ToolName: "approve_refund"}}
+	s.recordElementCalls(held)
+	for i := 0; i <= maxRecordedCalls; i++ {
+		s.rememberCalls([]types.MessageToolCall{{ID: fmt.Sprintf("run-%d", i), Name: "lookup"}})
+	}
+	_, kept := s.ToolCall("held")
+	assert.True(t, kept)
+	_, kept = s.ToolCall("run-0")
+	assert.False(t, kept, "the oldest call not held is dropped")
+}

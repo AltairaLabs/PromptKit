@@ -120,16 +120,16 @@ func (c *Conversation) clientAnswer(
 	return types.NewTextToolResult(res.ID, "", text)
 }
 
-// rewriteAnswer passes a client's answer to call, its text or (when given)
-// its parts, through the conversation's ToolResultRewriter hooks as the
-// pipeline rewrites a result (tools.BuildModelResult: each text part, and
-// `""` for an emptied text), without formatting or the size limit: the answer
-// stays as the client sent it.
+// rewriteAnswer prepares a client's answer to call, its text or (when given)
+// its parts, as the pipeline prepares a result (tools.BuildModelResult): each
+// text part passed through the conversation's ToolResultRewriter hooks, and
+// `""` for an empty text, rewriter or not; without formatting or the size
+// limit, so the answer stays as the client sent it.
 func (c *Conversation) rewriteAnswer(
 	ctx context.Context, call types.MessageToolCall, known bool, text string, parts []types.ContentPart,
 ) (string, []types.ContentPart, error) {
 	rewrite, err := c.rewriterFor(ctx, call, known)
-	if err != nil || rewrite == nil {
+	if err != nil {
 		return text, parts, err
 	}
 	given, err := tools.BuildModelResult(json.RawMessage(text), parts, tools.ModelResultOptions{
@@ -256,6 +256,10 @@ func (c *Conversation) callFor(
 	}
 	if !known {
 		call, known = c.admittedCall(res.ID)
+		// The history holds the arguments as the model sent them.
+		if made, found := calls()[res.ID]; known && found && made.Name == call.Name {
+			call.Args = made.Args
+		}
 	}
 	if !known {
 		call, known = calls()[res.ID]
@@ -292,18 +296,13 @@ type admittedCall struct {
 }
 
 // admitCall records the held call id of tool name, approved now, with its
-// arguments exactly as the model sent them, taken from the call the session
-// or the history holds (args, the decoded arguments the hold kept, re-encode
-// only a call neither holds).
-func (c *Conversation) admitCall(ctx context.Context, id, name string, args map[string]any) {
+// arguments as the model sent them when the duplex session's record has them
+// (else args, the decoded arguments the hold kept, encoded; callFor prefers
+// the history's bytes when it settles the call).
+func (c *Conversation) admitCall(id, name string, args map[string]any) {
 	var raw json.RawMessage
 	if recorder, ok := c.duplexSession.(toolCallRecorder); ok {
 		if call, found := recorder.ToolCall(id); found && call.Name == name {
-			raw = call.Args
-		}
-	}
-	if raw == nil && c.getBaseSession() != nil {
-		if call, found := c.lazyCalls(ctx)()[id]; found && call.Name == name {
 			raw = call.Args
 		}
 	}

@@ -515,7 +515,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	if limitErr := c.callRate.Admit(call.ConversationID, call.Name, c.callRateLimit()); limitErr != nil {
 		handler = func(map[string]any) (any, error) { return nil, limitErr }
 	}
-	c.admitCall(ctx, call.ID, call.Name, call.Arguments)
+	c.admitCall(call.ID, call.Name, call.Arguments)
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}
@@ -594,9 +594,13 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 
 	// Get all resolved tool results
+	history, err := c.settlementHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var resolutions []*sdktools.ToolResolution
 	if c.resolvedStore != nil {
-		resolutions = c.takeSettlement(ctx)
+		resolutions = c.takeSettlement(history)
 	}
 
 	if len(resolutions) == 0 {
@@ -604,7 +608,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	}
 	// A client tool answered here rather than through Resume is admitted the
 	// same way.
-	calls := c.lazyCalls(ctx)
+	calls := callsIn(history)
 	c.admitDeferredResults(resolutions, callNamesOf(calls))
 
 	// Build tool result messages from resolutions
@@ -655,11 +659,15 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	}
 	c.mu.RUnlock()
 
+	history, err := c.settlementHistory(ctx)
+	if err != nil {
+		return err
+	}
 	resolutions := c.resolvedStore.PopAll()
 	if len(resolutions) == 0 {
 		return fmt.Errorf("no resolved tools to continue with")
 	}
-	calls := c.lazyCalls(ctx)
+	calls := callsIn(history)
 	c.admitDeferredResults(resolutions, callNamesOf(calls))
 
 	results := make([]types.MessageToolResult, 0, len(resolutions))

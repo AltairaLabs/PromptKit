@@ -249,6 +249,7 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 			},
 		}
 
+		s.recordElementCalls(elem)
 		require.NoError(t, s.handleToolCalls(context.Background(), elem))
 
 		select {

@@ -1753,13 +1753,7 @@ func (tl *toolLoop) applyRound(
 		return true, tl.messages, err
 	}
 
-	// A nudged round leaves a forced tool choice (required, any, or a tool's
-	// name) for the model's retry, unless it would force the retry to call a
-	// tool that looped; a rebuild of the tools array it no longer fits drops
-	// it (useTools).
-	if !out.Nudged || tl.stage.runner().forcesLoopingTool(tl.toolChoice, out.LoopingTools) {
-		tl.toolChoice = toolChoiceAuto
-	}
+	tl.chooseTool(true, out.Nudged)
 
 	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
 	// round is the model's answer rather than more calls to reject.
@@ -1777,12 +1771,27 @@ func (tl *toolLoop) applyRound(
 	return false, nil, nil
 }
 
-// useTools makes rebuilt the tools array the next round is offered. A forced
-// tool choice (required, or a tool's name) it no longer fits (the named tool
-// excluded or no longer allowed, no tools left) falls back to auto.
+// useTools makes rebuilt the tools array the next round is offered, and
+// decides the tool choice for it (chooseTool).
 func (tl *toolLoop) useTools(rebuilt interface{}) {
 	tl.providerTools = rebuilt
 	tl.invalidateReserve()
+	tl.chooseTool(false, false)
+}
+
+// chooseTool decides the tool choice for the next round, after a round
+// (roundEnded) or a change to the tools array; every path that changes
+// either goes through it:
+//
+//   - after a round that was not nudged, the choice is auto;
+//   - a forced choice (required, any, or a tool's name) is kept, a nudged
+//     round's retry included, while the tools the provider was last sent fit
+//     it (toolRunner.choiceFits), and falls back to auto when they do not.
+func (tl *toolLoop) chooseTool(roundEnded, nudged bool) {
+	if roundEnded && !nudged {
+		tl.toolChoice = toolChoiceAuto
+		return
+	}
 	if isForcedChoice(tl.toolChoice) && !tl.stage.runner().choiceFits(tl.toolChoice) {
 		tl.toolChoice = toolChoiceAuto
 	}

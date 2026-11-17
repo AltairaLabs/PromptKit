@@ -488,11 +488,15 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 // tool-result messages. Shared by Resume() and ResumeStream().
 // It also emits tool.client.resolved events for each resolution.
 func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Message, error) {
-	resolutions := c.takeSettlement(ctx)
+	history, err := c.settlementHistory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resolutions := c.takeSettlement(history)
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
-	calls := c.lazyCalls(ctx)
+	calls := callsIn(history)
 	callNames := callNamesOf(calls)
 	c.validateDeferredResults(resolutions, callNames)
 	c.admitDeferredResults(resolutions, callNames)
@@ -506,22 +510,6 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	c.emitClientToolResolvedEvents(resolutions)
 
 	return toolMsgs, nil
-}
-
-// lazyCalls returns a function that maps each call the suspended assistant
-// message made, by call ID, to the call itself, reading the history on first
-// use only.
-func (c *Conversation) lazyCalls(ctx context.Context) func() map[string]types.MessageToolCall {
-	var calls map[string]types.MessageToolCall
-	return func() map[string]types.MessageToolCall {
-		if calls == nil {
-			calls = map[string]types.MessageToolCall{}
-			if c.getBaseSession() != nil {
-				calls = callsMadeByLastAssistant(c.Messages(ctx))
-			}
-		}
-		return calls
-	}
 }
 
 // callNamesOf maps each call calls returns to the name of the tool it called,
@@ -796,12 +784,31 @@ func (c *Conversation) checkAwaited(ctx context.Context, callID string) error {
 // takeSettlement pops the stored answers for the suspended turn, dropping
 // the ones that would answer a call twice or answer a call the turn did not
 // make.
-func (c *Conversation) takeSettlement(ctx context.Context) []*sdktools.ToolResolution {
-	var history []types.Message
-	if c.getBaseSession() != nil {
-		history = c.Messages(ctx)
-	}
+func (c *Conversation) takeSettlement(history []types.Message) []*sdktools.ToolResolution {
 	return unansweredResolutions(history, c.resolvedStore.PopAll())
+}
+
+// settlementHistory reads the conversation's history once for a batch of
+// settled results: what the batch is checked against and the calls it
+// answers. A store that cannot be read fails the batch, rather than reading
+// as an empty history.
+func (c *Conversation) settlementHistory(ctx context.Context) ([]types.Message, error) {
+	s := c.getBaseSession()
+	if s == nil {
+		return nil, nil
+	}
+	history, err := s.Messages(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the conversation history: %w", err)
+	}
+	return history, nil
+}
+
+// callsIn returns a function that maps each call the last assistant message in
+// history made, by call ID, to the call itself.
+func callsIn(history []types.Message) func() map[string]types.MessageToolCall {
+	calls := callsMadeByLastAssistant(history)
+	return func() map[string]types.MessageToolCall { return calls }
 }
 
 // callsOfLastAssistant returns the ids of the calls the last assistant message
