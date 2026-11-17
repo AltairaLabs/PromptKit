@@ -10,6 +10,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// startOne starts a one-stage pipeline running fn on ctx, reading in.
+func startOne(
+	t *testing.T, ctx context.Context, in <-chan StreamElement,
+	fn func(context.Context, <-chan StreamElement, chan<- StreamElement) error,
+) *StreamExecution {
+	t.Helper()
+	cfg := DefaultPipelineConfig()
+	cfg.ExecutionTimeout = 0
+	cfg.IdleTimeout = 0
+	p, err := NewPipelineBuilderWithConfig(cfg).Chain(NewStageFunc("scripted", StageTypeTransform, fn)).Build()
+	require.NoError(t, err)
+	exec, err := p.Start(ctx, in)
+	require.NoError(t, err)
+	return exec
+}
+
 // startScripted starts a one-stage pipeline running fn on ctx, with input
 // the caller feeds, and returns the execution after reading its output to the
 // end, with the elements read.
@@ -18,15 +34,15 @@ func startScripted(
 	fn func(context.Context, <-chan StreamElement, chan<- StreamElement) error,
 ) (*StreamExecution, []StreamElement) {
 	t.Helper()
-	cfg := DefaultPipelineConfig()
-	cfg.ExecutionTimeout = 0
-	cfg.IdleTimeout = 0
-	p, err := NewPipelineBuilderWithConfig(cfg).Chain(NewStageFunc("scripted", StageTypeTransform, fn)).Build()
-	require.NoError(t, err)
 	in := make(chan StreamElement)
-	exec, err := p.Start(ctx, in)
-	require.NoError(t, err)
-	assert.Nil(t, exec.Err(), "Err is nil while the output is open")
+	exec := startOne(t, ctx, in, fn)
+	return exec, readToClose(t, exec, in)
+}
+
+// readToClose reads exec's output to its close, then closes in, and returns
+// the elements read.
+func readToClose(t *testing.T, exec *StreamExecution, in chan StreamElement) []StreamElement {
+	t.Helper()
 	var got []StreamElement
 	timeout := time.After(5 * time.Second)
 	for {
@@ -34,7 +50,7 @@ func startScripted(
 		case e, ok := <-exec.Output():
 			if !ok {
 				close(in)
-				return exec, got
+				return got
 			}
 			got = append(got, e)
 		case <-timeout:
@@ -88,6 +104,56 @@ func TestStart_ErrIsAFailureThePipelineDelivered(t *testing.T) {
 	require.NotEmpty(t, got)
 	assert.ErrorIs(t, got[len(got)-1].Error, fatal)
 	assert.ErrorIs(t, exec.Err(), fatal)
+}
+
+// Err is nil while the execution runs, even after the failing stage has
+// emitted its error element: only the stage returning it ends the execution.
+func TestStart_ErrIsNilWhileTheExecutionRuns(t *testing.T) {
+	fatal := errors.New("provider connection lost")
+	in := make(chan StreamElement)
+	exec := startOne(t, context.Background(), in,
+		func(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
+			defer close(out)
+			out <- NewErrorElement(fatal)
+			for range in { //nolint:revive // drain until the caller closes the input
+			}
+			return fatal
+		})
+	select {
+	case e := <-exec.Output():
+		assert.ErrorIs(t, e.Error, fatal)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stage's error element never arrived")
+	}
+	assert.Equal(t, error(nil), exec.Err(), "the stage has not returned: the execution is running")
+	close(in)
+	for range exec.Output() { //nolint:revive // drain to the close
+	}
+	assert.ErrorIs(t, exec.Err(), fatal)
+}
+
+// Err is set when the execution ends, which can be before the reader has
+// taken the elements still buffered on the output: those stay readable.
+func TestStart_ErrIsSetBeforeTheBufferedOutputIsRead(t *testing.T) {
+	fatal := errors.New("provider connection lost")
+	in := make(chan StreamElement)
+	defer close(in)
+	exec := startOne(t, context.Background(), in,
+		func(_ context.Context, _ <-chan StreamElement, out chan<- StreamElement) error {
+			defer close(out)
+			out <- textElem("buffered")
+			return fatal
+		})
+	require.Eventually(t, func() bool { return exec.Err() != nil }, 5*time.Second, time.Millisecond,
+		"the execution never ended")
+	assert.ErrorIs(t, exec.Err(), fatal)
+	var texts []string
+	for e := range exec.Output() {
+		if e.Text != nil {
+			texts = append(texts, *e.Text)
+		}
+	}
+	assert.Equal(t, []string{"buffered"}, texts)
 }
 
 // The caller's own cancellation is not a failure: Err stays nil.
