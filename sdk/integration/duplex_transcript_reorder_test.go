@@ -204,3 +204,27 @@ func TestDuplexLateTranscript_ToolResultFollowsItsCall(t *testing.T) {
 		{Role: "assistant", Content: "It has shipped."},
 	}, c.saved(4))
 }
+
+// The caller starts the next turn before the stage has handled the reply to
+// the previous one, and the previous turn's transcript lands just after that
+// reply: it is still that turn's user message, not a placeholder, and the
+// next turn's own transcript is kept too.
+func TestDuplexLateTranscript_NextTurnAudioBeforeReplyEnds(t *testing.T) {
+	c := openLateTranscriptCall(t)
+
+	c.speak() // turn 1
+	c.speak() // turn 2's audio reaches the stage before turn 1's reply ends
+	c.say("Hello.")
+	c.finish("stop")
+	c.transcribe("Hi there")
+	c.transcribe("What time is it?")
+	c.say("Noon.")
+	c.finish("stop")
+
+	assert.Equal(t, []savedEntry{
+		{Role: "user", Content: "Hi there"},
+		{Role: "assistant", Content: "Hello."},
+		{Role: "user", Content: "What time is it?"},
+		{Role: "assistant", Content: "Noon."},
+	}, c.saved(4))
+}

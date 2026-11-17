@@ -1776,6 +1776,12 @@ func (s *DuplexProviderStage) isFinalUserTranscript(chunk *providers.StreamChunk
 	return s.transcriptionFinal(chunk) && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID()
 }
 
+// isStreamingFinalTranscript reports whether a chunk is a provider-marked
+// final transcript on the streaming path (no turn_id queued).
+func (s *DuplexProviderStage) isStreamingFinalTranscript(chunk *providers.StreamChunk) bool {
+	return s.transcriptionFinal(chunk) && !s.hasQueuedTurnID()
+}
+
 // hasUncapturedStreamingTranscript reports whether a buffered user transcript
 // is waiting to be materialized: not yet captured for this turn, non-empty,
 // and on the streaming path (no turn_id queued).
@@ -1792,10 +1798,15 @@ func isAssistantContentChunk(chunk *providers.StreamChunk, isOutputTranscription
 
 // captureInputTranscription accumulates an input transcription chunk. Only
 // accumulates if we haven't already captured transcription for this turn:
-// this prevents late-arriving transcription chunks from bleeding into the
-// next turn.
+// this prevents late-arriving incremental chunks from bleeding into the next
+// turn. A provider-marked final transcript on the streaming path is taken
+// regardless: it is a whole utterance, materialized as its own user turn at
+// once (tryFastPathUserTurn), so it cannot bleed into another. It is how a
+// late transcript of the turn just answered arrives (OpenAI Realtime), and
+// dropping it because the reply had already completed lost the user turn,
+// whether or not the caller's next audio had been seen yet.
 func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamChunk) {
-	if s.transcriptionCaptured {
+	if s.transcriptionCaptured && !s.isStreamingFinalTranscript(chunk) {
 		logger.Debug("DuplexProviderStage: ignoring late transcription chunk (turn already complete)")
 		return
 	}
