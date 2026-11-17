@@ -29,9 +29,11 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [Constants](<#constants>)
 - [Variables](<#variables>)
 - [func CallIDFromContext\(ctx context.Context\) string](<#CallIDFromContext>)
+- [func ClassifyError\(err error\) types.ToolErrorType](<#ClassifyError>)
 - [func ConsentDeclinedMessage\(toolName, strategy string\) string](<#ConsentDeclinedMessage>)
 - [func ContentTypeToMediaType\(contentType string\) string](<#ContentTypeToMediaType>)
 - [func DecodeArgsExtras\(args json.RawMessage, typed any, knownKeys ...string\) \(map\[string\]any, error\)](<#DecodeArgsExtras>)
+- [func ErrorResult\(id, name string, err error\) types.MessageToolResult](<#ErrorResult>)
 - [func FormatResultText\(raw json.RawMessage\) string](<#FormatResultText>)
 - [func IsBinaryContentType\(contentType string, acceptTypes \[\]string\) bool](<#IsBinaryContentType>)
 - [func IsImplicitTool\(name string\) bool](<#IsImplicitTool>)
@@ -302,6 +304,15 @@ func CallIDFromContext(ctx context.Context) string
 
 CallIDFromContext extracts the tool call ID from the context. Returns an empty string if no call ID is set.
 
+<a name="ClassifyError"></a>
+## func [ClassifyError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/error_result.go#L12>)
+
+```go
+func ClassifyError(err error) types.ToolErrorType
+```
+
+ClassifyError is the class of a tool call's error: a validation error when err wraps a \*ValidationError, an execution error otherwise.
+
 <a name="ConsentDeclinedMessage"></a>
 ## func [ConsentDeclinedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L348>)
 
@@ -334,6 +345,15 @@ Hosts use sdk.WithToolDescriptorOverride to extend a capability tool's InputSche
 knownKeys must list every top\-level JSON key the executor's typed struct owns; passing the wrong list causes typed fields to be duplicated into extras \(annoying but harmless — typed values still win when merged\).
 
 Returns an empty map \(not nil\) when args contains no extras, so callers can merge unconditionally without nil checks. Returns nil \+ nil when args is empty or "null" — both mean "no args at all".
+
+<a name="ErrorResult"></a>
+## func [ErrorResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/error_result.go#L25>)
+
+```go
+func ErrorResult(id, name string, err error) types.MessageToolResult
+```
+
+ErrorResult is the tool result the model is given for call id of tool name that failed with err: "Error: \<err\>" as its text, err as its error, and err's class \(ClassifyError\). The provider stage answers a failed call with it, and the SDK answers a result a host settled outside the turn with it when the result cannot be prepared.
 
 <a name="FormatResultText"></a>
 ## func [FormatResultText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L21>)

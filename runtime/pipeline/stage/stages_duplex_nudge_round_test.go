@@ -128,3 +128,53 @@ func TestDuplexNudgeRound_RejectionCountsTowardExclusion(t *testing.T) {
 	}, sent[1])
 	assert.ElementsMatch(t, []string{"weather", "flaky", "flaky"}, exec.calls())
 }
+
+// A call refused as over the budget did not run, so it does not count toward
+// the repeated-call breaker: its one repeat is refused as over the budget
+// again, not nudged.
+func TestDuplexNudgeRound_OverBudgetCallDoesNotCountTowardTheBreaker(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		policy:    &pipeline.ToolPolicy{MaxToolCallsPerTurn: 1, MaxIdenticalToolCalls: 2},
+		turnState: &TurnState{AllowedTools: []string{"weather"}},
+	})
+
+	h.emit(toolCallTurn(argsCall("c1", "weather", `{"city":"Paris"}`), argsCall("c2", "weather", `{"city":"Rome"}`)))
+	h.awaitSent(1)
+	h.emit(toolCallTurn(argsCall("c3", "weather", `{"city":"Rome"}`)))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	const overBudget = "Tool weather not executed: the tool call limit for this turn is reached"
+	assert.Equal(t, [][]providers.ToolResponse{
+		{{ToolCallID: "c1", Result: "ok"}, {ToolCallID: "c2", Result: overBudget, IsError: true}},
+		{{ToolCallID: "c3", Result: overBudget, IsError: true}},
+	}, sent)
+	assert.Equal(t, []string{"weather"}, exec.calls())
+}
+
+// A looping call ahead of a new one keeps its place in the round's responses.
+func TestDuplexNudgeRound_ResponsesAreInCallOrder(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		policy:    &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2},
+		turnState: &TurnState{AllowedTools: []string{"weather"}},
+	})
+
+	h.emit(toolCallTurn(argsCall("c1", "weather", `{"city":"Paris"}`)))
+	h.awaitSent(1)
+	h.emit(toolCallTurn(argsCall("c2", "weather", `{"city":"Paris"}`), argsCall("c3", "weather", `{"city":"Rome"}`)))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{
+		{ToolCallID: "c2", Result: nudgeText("weather")},
+		{ToolCallID: "c3", Result: "ok"},
+	}, sent[1])
+}

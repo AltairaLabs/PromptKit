@@ -32,6 +32,7 @@ type nudgeScriptProvider struct {
 	mu      sync.Mutex
 	script  [][]types.MessageToolCall
 	offered [][]string
+	choices []string
 	seen    [][]types.Message
 }
 
@@ -42,10 +43,11 @@ func newNudgeScriptProvider(script ...[]types.MessageToolCall) *nudgeScriptProvi
 func (p *nudgeScriptProvider) SupportsStreaming() bool { return false }
 
 func (p *nudgeScriptProvider) PredictWithTools(
-	_ context.Context, req providers.PredictionRequest, offered providers.ProviderTools, _ string,
+	_ context.Context, req providers.PredictionRequest, offered providers.ProviderTools, choice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.choices = append(p.choices, choice)
 	var names []string
 	if descs, ok := offered.([]*providers.ToolDescriptor); ok {
 		for _, d := range descs {
@@ -129,8 +131,15 @@ func openNudgeConv(
 	t *testing.T, provider *nudgeScriptProvider, policy *pipeline.ToolPolicy, opts ...Option,
 ) (conv *Conversation, lookups *atomic.Int32) {
 	t.Helper()
+	return openNudgePack(t, nudgePackJSON, provider, policy, opts...)
+}
+
+func openNudgePack(
+	t *testing.T, packJSON string, provider *nudgeScriptProvider, policy *pipeline.ToolPolicy, opts ...Option,
+) (conv *Conversation, lookups *atomic.Int32) {
+	t.Helper()
 	opts = append([]Option{WithProvider(provider), WithSkipSchemaValidation(), WithToolPolicy(policy)}, opts...)
-	conv, err := Open(writeWorkflowTestPack(t, nudgePackJSON), "chat", opts...)
+	conv, err := Open(writeWorkflowTestPack(t, packJSON), "chat", opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conv.Close() })
 	lookups = &atomic.Int32{}
@@ -212,9 +221,6 @@ func TestNudgeRound_SkillActivationExtendsTheNextRoundsTools(t *testing.T) {
 // A nudged round's rejected call counts toward the rejection rule: rejected
 // twice in the turn, the tool is excluded from the next round's tools.
 func TestNudgeRound_RejectionCountsTowardExclusion(t *testing.T) {
-	cancel := func(id, order string) types.MessageToolCall {
-		return types.MessageToolCall{ID: id, Name: "cancel_order", Args: []byte(`{"id":"` + order + `"}`)}
-	}
 	provider := newNudgeScriptProvider(
 		[]types.MessageToolCall{lookup("c1", "A"), cancel("c2", "A")},
 		[]types.MessageToolCall{lookup("c3", "A"), cancel("c4", "B")},
@@ -282,4 +288,144 @@ func TestNudgeRound_InTheLastRoundEndsAtTheRoundLimit(t *testing.T) {
 	require.ErrorAs(t, err, &maxRounds)
 	assert.Equal(t, 2, maxRounds.Rounds)
 	assert.EqualValues(t, 2, lookups.Load(), "the nudged round's new call ran")
+}
+
+// choicesSeen returns the tool choice the model was given on each call.
+func (p *nudgeScriptProvider) choicesSeen() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.choices...)
+}
+
+func cancel(id, order string) types.MessageToolCall {
+	return types.MessageToolCall{ID: id, Name: "cancel_order", Args: []byte(`{"id":"` + order + `"}`)}
+}
+
+// A forced tool choice that still fits the offer a nudged round rebuilt is
+// kept for the model's retry.
+func TestNudgeRound_ForcedChoiceThatStillFitsIsKept(t *testing.T) {
+	provider := newNudgeScriptProvider(
+		[]types.MessageToolCall{lookup("c1", "A"), lookup("c2", "A"), {
+			ID: "c3", Name: "skill__activate", Args: []byte(`{"name":"refund-processing"}`),
+		}},
+	)
+	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2, ToolChoice: "lookup_order"},
+		WithSkillsDir(writeToolGrantSkill(t)))
+
+	_, err := conv.Send(context.Background(), "look up ORD-A")
+	require.NoError(t, err)
+	assert.Contains(t, provider.offeredOn(t, 1), "refund", "the nudged round rebuilt the offer")
+	assert.Equal(t, []string{"lookup_order", "lookup_order"}, provider.choicesSeen())
+}
+
+// A forced choice of a tool the nudged round excluded falls back to auto, as
+// after any round, instead of forcing a tool the model is no longer offered.
+func TestNudgeRound_ForcedChoiceOfAnExcludedToolFallsBackToAuto(t *testing.T) {
+	provider := newNudgeScriptProvider(
+		[]types.MessageToolCall{lookup("c1", "A"), lookup("c2", "A"), cancel("c3", "A"), cancel("c4", "B")},
+	)
+	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2, ToolChoice: "cancel_order"})
+
+	_, err := conv.Send(context.Background(), "cancel my orders")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"lookup_order"}, provider.offeredOn(t, 1))
+	assert.Equal(t, []string{"cancel_order", "auto"}, provider.choicesSeen())
+}
+
+// cancelOnlyPackJSON offers cancel_order alone.
+const cancelOnlyPackJSON = `{
+	"id": "nudge-cancel-only",
+	"version": "1.0.0",
+	"prompts": {
+		"chat": {
+			"id": "chat", "name": "Chat",
+			"system_template": "You are a support agent.",
+			"tools": ["cancel_order"],
+			"tool_policy": {"max_rounds": 6}
+		}
+	},
+	"tools": {
+		"cancel_order": {"name": "cancel_order", "description": "Cancel an order", "mode": "local",
+			"parameters": {"type": "object", "properties": {"id": {"type": "string"}}}}
+	}
+}`
+
+// A required tool choice falls back to auto when the nudged round excluded
+// every tool: no call can be forced from an empty offer.
+func TestNudgeRound_RequiredChoiceWithNoToolsLeftFallsBackToAuto(t *testing.T) {
+	provider := newNudgeScriptProvider(
+		[]types.MessageToolCall{cancel("c1", "A"), cancel("c2", "A"), cancel("c3", "B"), cancel("c4", "C")},
+	)
+	conv, _ := openNudgePack(t, cancelOnlyPackJSON, provider,
+		&pipeline.ToolPolicy{MaxIdenticalToolCalls: 2, ToolChoice: "required"})
+
+	_, err := conv.Send(context.Background(), "cancel my orders")
+	require.NoError(t, err)
+	assert.Nil(t, provider.offeredOn(t, 1), "every tool is excluded")
+	assert.Equal(t, []string{"required", "auto"}, provider.choicesSeen())
+}
+
+// A nudged round's results are in the order the model made the calls, not
+// the nudges first.
+func TestNudgeRound_ResultsAreInCallOrder(t *testing.T) {
+	provider := newNudgeScriptProvider(
+		[]types.MessageToolCall{lookup("c1", "A")},
+		[]types.MessageToolCall{lookup("c2", "B"), lookup("c3", "A")},
+	)
+	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2})
+
+	_, err := conv.Send(context.Background(), "where are my orders?")
+	require.NoError(t, err)
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	var order, texts []string
+	for _, m := range provider.seen[2] {
+		if m.ToolResult != nil {
+			order = append(order, m.ToolResult.ID)
+			texts = append(texts, m.ToolResult.GetTextContent())
+		}
+	}
+	assert.Equal(t, []string{"c1", "c2", "c3"}, order)
+	assert.Equal(t, []string{"ok", "ok", nudgeRepeatedText}, texts)
+}
+
+// A call refused as over the budget did not run, so it does not count toward
+// the repeated-call breaker: its one repeat is refused as over the budget
+// again, not nudged.
+func TestNudgeRound_OverBudgetCallDoesNotCountTowardTheBreaker(t *testing.T) {
+	provider := newNudgeScriptProvider(
+		[]types.MessageToolCall{lookup("c1", "A"), lookup("c2", "B")},
+		[]types.MessageToolCall{lookup("c3", "B")},
+	)
+	conv, lookups := openNudgeConv(t, provider,
+		&pipeline.ToolPolicy{MaxToolCallsPerTurn: 1, MaxIdenticalToolCalls: 2})
+
+	_, err := conv.Send(context.Background(), "where are my orders?")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, lookups.Load())
+	texts, _ := provider.resultsOn(2)
+	const overBudget = "Tool lookup_order not executed: the tool call limit for this turn is reached"
+	assert.Equal(t, overBudget, texts["c2"])
+	assert.Equal(t, overBudget, texts["c3"], "the repeat is not nudged")
+}
+
+// A looping call ahead of a new one keeps its place too.
+func TestNudgeRound_LoopingCallKeepsItsPlace(t *testing.T) {
+	provider := newNudgeScriptProvider(
+		[]types.MessageToolCall{lookup("c1", "A")},
+		[]types.MessageToolCall{lookup("c2", "A"), lookup("c3", "B")},
+	)
+	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2})
+
+	_, err := conv.Send(context.Background(), "where are my orders?")
+	require.NoError(t, err)
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	var order []string
+	for _, m := range provider.seen[2] {
+		if m.ToolResult != nil {
+			order = append(order, m.ToolResult.ID)
+		}
+	}
+	assert.Equal(t, []string{"c1", "c2", "c3"}, order)
 }

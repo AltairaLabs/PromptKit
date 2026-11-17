@@ -1421,7 +1421,7 @@ func TestProviderStage_ToolResultRewriter_FailureEmitsToolCallFailed(t *testing.
 		events.NewEmitter(bus, "run-1", "session-1", "conv-1"))
 	result := lookupCall(t, stage)
 	wg.Wait()
-	assert.Equal(t, types.ToolErrorType(classifyToolError(context.DeadlineExceeded)), result.ErrorType,
+	assert.Equal(t, tools.ClassifyError(context.DeadlineExceeded), result.ErrorType,
 		"classified like any other tool error")
 	mu.Lock()
 	defer mu.Unlock()

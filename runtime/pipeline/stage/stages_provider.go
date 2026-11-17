@@ -32,6 +32,7 @@ const (
 	defaultMaxParallelToolCalls = 10
 	defaultMaxIdenticalCalls    = 3
 	toolChoiceAuto              = "auto"
+	toolChoiceRequired          = "required"
 	toolChoiceNone              = "none"
 
 	// selectionKindTool is the selection.Query Kind for tool selection.
@@ -1752,8 +1753,11 @@ func (tl *toolLoop) applyRound(
 		return true, tl.messages, err
 	}
 
-	if !out.Nudged {
-		// A nudged round leaves the tool choice for the model's retry.
+	// A nudged round leaves a forced tool choice (required, or a tool's name)
+	// for the model's retry while the tools offered still allow it; one the
+	// round's offer no longer fits (the named tool excluded, no tools left)
+	// falls back to auto, as after any other round.
+	if !out.Nudged || !tl.stage.runner().choiceFits(tl.toolChoice) {
 		tl.toolChoice = toolChoiceAuto
 	}
 
@@ -3187,15 +3191,6 @@ func (s *ProviderStage) stampToolsOffered(msg *types.Message) {
 //nolint:unused // tests call it on the stage
 func (s *ProviderStage) offeredToolNames() []string {
 	return s.runner().offeredToolNames()
-}
-
-// classifyToolError determines the ToolErrorType from an execution error.
-func classifyToolError(err error) types.ToolErrorType {
-	var valErr *tools.ValidationError
-	if errors.As(err, &valErr) {
-		return types.ToolErrorValidation
-	}
-	return types.ToolErrorExecution
 }
 
 // collectProviderDescriptors builds the sorted tool-descriptor list for a
