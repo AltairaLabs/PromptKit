@@ -112,6 +112,10 @@ type duplexSession struct {
 	// pipelineDone is closed when executePipeline returns, signaling that the session has ended.
 	// This is a separate signal from streamOutput so that Done() does not drain the output channel.
 	pipelineDone chan struct{}
+	// endErr is the error that ended the pipeline, nil when it ended without
+	// one. Written by executePipeline before it closes pipelineDone, and read
+	// only after pipelineDone is closed (see ended).
+	endErr error
 
 	// Done channel (initialized once via sync.Once)
 	doneCh   chan struct{}
@@ -279,11 +283,19 @@ func (s *duplexSession) SendChunk(ctx context.Context, chunk *providers.StreamCh
 // sendInput delivers elem to the pipeline, or returns the session-closed error
 // once Close has run. A send blocked on a full channel is woken by Close
 // canceling the session context, so it never holds Close off.
+//
+// Once the pipeline has ended (the idle timeout, a provider error, the
+// provider closing the session) nothing reads the input any more: the send
+// returns the error that ended it, or the session-closed error when none did,
+// rather than land in a buffer nobody drains or block on a full one.
 func (s *duplexSession) sendInput(ctx context.Context, elem stage.StreamElement) error {
 	s.inputMu.RLock()
 	defer s.inputMu.RUnlock()
 	if s.inputClosed {
 		return errors.New(errSessionClosed)
+	}
+	if ended, err := s.ended(); ended {
+		return err
 	}
 	select {
 	case s.stageInput <- elem:
@@ -292,7 +304,24 @@ func (s *duplexSession) sendInput(ctx context.Context, elem stage.StreamElement)
 		return ctx.Err()
 	case <-s.sessionCtx.Done():
 		return errors.New(errSessionClosed)
+	case <-s.pipelineDone:
+		_, err := s.ended()
+		return err
 	}
+}
+
+// ended reports whether the pipeline has ended and, if so, the error input
+// sent now gets: the error that ended it, else the session-closed error.
+func (s *duplexSession) ended() (bool, error) {
+	select {
+	case <-s.pipelineDone:
+	default:
+		return false, nil
+	}
+	if s.endErr != nil {
+		return true, s.endErr
+	}
+	return true, errors.New(errSessionClosed)
 }
 
 // SendText is a convenience method for sending text.
@@ -369,7 +398,8 @@ func (s *duplexSession) SendVideoChunk(ctx context.Context, vchunk *VideoChunk) 
 //
 // Tool calls are run by the pipeline (see handleToolCalls).
 //
-//nolint:gocognit // Complexity is acceptable for pipeline orchestration with tool handling
+// It records the error that ended the pipeline in endErr before it closes
+// pipelineDone, so input sent after the end gets that error (see sendInput).
 func (s *duplexSession) executePipeline(ctx context.Context) {
 	defer close(s.pipelineDone)
 	defer close(s.streamOutput)
@@ -377,74 +407,87 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 	// Start the stage pipeline with our input channel
 	stageOutput, err := s.pipeline.Execute(ctx, s.stageInput)
 	if err != nil {
+		s.endErr = err
 		finishReason := "error"
-		select {
-		case s.streamOutput <- providers.StreamChunk{
-			Error:        err,
-			FinishReason: &finishReason,
-		}:
-		default:
-		}
+		s.offerChunk(providers.StreamChunk{Error: err, FinishReason: &finishReason})
 		return
 	}
 
-	// Forward stage output to streamOutput, converting StreamElement to StreamChunk.
+	// lastErr is the error the latest output element carried, nil once a
+	// later element carries none. The pipeline ends its output with the error
+	// that ended it, so when the output closes lastErr is that error.
+	var lastErr error
 	for {
 		select {
 		case <-ctx.Done():
-			errChunk := providers.StreamChunk{Error: ctx.Err()}
-			select {
-			case s.streamOutput <- errChunk:
-			default:
-			}
+			// Close canceled the session: no terminal error of the pipeline's.
+			s.offerChunk(providers.StreamChunk{Error: ctx.Err()})
 			return
 		case elem, ok := <-stageOutput:
 			if !ok {
 				// Stage pipeline finished
+				s.endErr = lastErr
 				return
 			}
-
-			action, actionErr := streaming.ProcessResponseElement(&elem, "duplexSession")
-			s.recordElementCalls(&elem)
-
-			switch action {
-			case streaming.ResponseActionToolCalls:
-				if err := s.handleToolCalls(ctx, &elem); err != nil {
-					logger.Error("duplexSession: tool handling failed", "error", err)
-					errChunk := providers.StreamChunk{Error: err}
-					select {
-					case s.streamOutput <- errChunk:
-					case <-ctx.Done():
-					}
-					return
-				}
-
-			case streaming.ResponseActionError:
-				// Forward the error to the caller and keep reading: the stage
-				// reports some errors (a tool turn a limit stopped) and goes on,
-				// and one it ends on closes its output, which ends this loop.
-				// Returning here would leave the stage blocked on an output
-				// nobody reads, and the caller's later input unanswered.
-				if !s.forwardChunk(ctx, providers.StreamChunk{Error: actionErr}) {
-					return
-				}
-
-			case streaming.ResponseActionContinue, streaming.ResponseActionComplete:
-				// The caller's own typed turn: recorded and saved upstream, and
-				// not output to hand back to the caller who sent it.
-				if elem.Source == stage.TextInputTurnSource {
-					continue
-				}
-				if action == streaming.ResponseActionComplete {
-					s.turnsCompleted.Add(1)
-				}
-				chunk := streamElementToStreamChunk(&elem)
-				if !s.forwardChunk(ctx, chunk) {
-					return
-				}
+			var keep bool
+			keep, lastErr = s.handleOutputElement(ctx, &elem)
+			if !keep {
+				s.endErr = lastErr
+				return
 			}
 		}
 	}
+}
+
+// offerChunk delivers chunk to the response channel if it has room, and
+// drops it otherwise: the session is ending and may have no reader.
+func (s *duplexSession) offerChunk(chunk providers.StreamChunk) {
+	select {
+	case s.streamOutput <- chunk:
+	default:
+	}
+}
+
+// handleOutputElement handles one element of the pipeline's output. It
+// reports whether the forwarding loop should keep running (false when the
+// session context is done or tool handling failed) and the element's error,
+// if it carried one.
+func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.StreamElement) (keep bool, elemErr error) {
+	action, actionErr := streaming.ProcessResponseElement(elem, "duplexSession")
+	s.recordElementCalls(elem)
+
+	switch action {
+	case streaming.ResponseActionToolCalls:
+		if err := s.handleToolCalls(ctx, elem); err != nil {
+			logger.Error("duplexSession: tool handling failed", "error", err)
+			errChunk := providers.StreamChunk{Error: err}
+			select {
+			case s.streamOutput <- errChunk:
+			case <-ctx.Done():
+			}
+			return false, err
+		}
+
+	case streaming.ResponseActionError:
+		// Forward the error to the caller and keep reading: the stage
+		// reports some errors (a tool turn a limit stopped) and goes on,
+		// and one it ends on closes its output, which ends the loop.
+		// Returning here would leave the stage blocked on an output
+		// nobody reads, and the caller's later input unanswered.
+		return s.forwardChunk(ctx, providers.StreamChunk{Error: actionErr}), actionErr
+
+	case streaming.ResponseActionContinue, streaming.ResponseActionComplete:
+		// The caller's own typed turn: recorded and saved upstream, and
+		// not output to hand back to the caller who sent it.
+		if elem.Source == stage.TextInputTurnSource {
+			return true, nil
+		}
+		if action == streaming.ResponseActionComplete {
+			s.turnsCompleted.Add(1)
+		}
+		return s.forwardChunk(ctx, streamElementToStreamChunk(elem)), nil
+	}
+	return true, nil
 }
 
 // handleToolCalls handles an assistant turn that made tool calls.
@@ -660,10 +703,16 @@ func (s *duplexSession) Done() <-chan struct{} {
 	return s.doneCh
 }
 
-// Error returns any error from the session.
-// In Pipeline mode, errors are sent as chunks in the response stream.
+// Error returns the error that ended the session's pipeline: nil while it
+// runs, and nil when it ended without one (Close, or the provider closing
+// the session). Errors are also sent as chunks on Response().
 func (s *duplexSession) Error() error {
-	return nil
+	select {
+	case <-s.pipelineDone:
+		return s.endErr
+	default:
+		return nil
+	}
 }
 
 // SubmitToolResults sends resolved/rejected tool results back into the

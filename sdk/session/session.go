@@ -57,6 +57,9 @@ type DuplexSession interface {
 
 	// SendChunk sends a chunk to the session (populate MediaData for media, Content for text).
 	// This method is thread-safe and can be called from multiple goroutines.
+	// Once the session has ended it returns at once, and so do the other
+	// input methods: with the error that ended it (see Error), else with a
+	// session-closed error.
 	SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
 
 	// SendText is a convenience method for sending text directly.
@@ -85,7 +88,8 @@ type DuplexSession interface {
 	// Done returns a channel that's closed when the session ends.
 	Done() <-chan struct{}
 
-	// Error returns any error that occurred during the session.
+	// Error returns the error that ended the session: nil while it runs, and
+	// nil when it ended without one.
 	Error() error
 
 	// SubmitToolResults sends resolved/rejected tool results back into the

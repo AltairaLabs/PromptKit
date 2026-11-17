@@ -1196,6 +1196,11 @@ func (c *Conversation) newEmitter(bus events.Bus) *events.Emitter {
 
 // SendChunk sends a streaming chunk in duplex mode.
 // Only available when the conversation was opened with OpenDuplex().
+//
+// Once the session has ended (Close, the idle timeout, a provider error, the
+// provider closing the session) it returns at once: with the error that ended
+// the session, as SessionError reports it, else with a session-closed error.
+// SendText, SendFrame, SendVideoChunk and TriggerStart do the same.
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -1332,7 +1337,10 @@ func (c *Conversation) Done() (<-chan struct{}, error) {
 	return c.duplexSession.Done(), nil
 }
 
-// SessionError returns any error from the duplex session.
+// SessionError returns the error that ended the duplex session (the idle
+// timeout, a provider error): nil while the session runs, and nil when it
+// ended without one (Close, or the provider closing the session). The error
+// is also delivered on Response() before it closes.
 // Only available when the conversation was opened with OpenDuplex().
 // Note: This is named SessionError to avoid conflict with the Error interface method.
 func (c *Conversation) SessionError() error {

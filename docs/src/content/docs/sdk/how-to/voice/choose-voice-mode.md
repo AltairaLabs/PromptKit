@@ -129,6 +129,8 @@ Every tool call in the session sees the values on `ctx`, as a text turn's tool c
 
 Canceling `ctx` does not end the session; `conv.Close` does. A deadline on `ctx` bounds only the open. The session keeps the values on `ctx` for its whole life, so build a context with what the tool calls need rather than passing a request's context, whose span, logger or transaction ends with the request.
 
+The session also ends without `conv.Close`: when nothing happens in it for the idle timeout (`sdk.WithIdleTimeout`, 30 seconds by default), when the provider reports an error, or when the provider closes the connection. `Response()` closes after any error that ended the session, and `Done()` closes. Input sent after that (`SendChunk`, `SendText`, `SendFrame`, `SendVideoChunk`, `TriggerStart`, `ContinueDuplex`) returns at once with the error that ended the session, which wraps `stage.ErrIdleTimeout` for the idle timeout, or with `session is closed` when the provider closed the session without one. `conv.SessionError()` returns the same error once the session has ended, and nil while it runs or when it ended without one.
+
 ## Realtime tool calls
 
 In ASM mode the pipeline runs the model's tool calls and sends their results to the session, as a text turn does:
