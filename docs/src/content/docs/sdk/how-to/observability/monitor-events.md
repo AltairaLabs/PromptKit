@@ -64,7 +64,7 @@ Subscribe to the runtime events a conversation publishes, using the `hooks` pack
    })
    ```
 
-   `OnProviderCall` fires on `provider.call.completed`, and again on each `provider.call.usage`: usage a provider reports for a call after it completed, as Gemini 3 Live does for a tool-call turn. Summing what it is given gives each call's total. `hooks.OnPipelineComplete` reports the totals for a whole turn.
+   `OnProviderCall` fires once per provider call, on `provider.call.completed`. Gemini 3 Live reports a tool-call turn's usage after the call completed; `hooks.OnProviderUsage` delivers that, with the call's `CallID`, and a call's total cost is what `OnProviderCall` reported plus its `OnProviderUsage` callbacks. `hooks.OnPipelineComplete` reports the totals for a whole turn.
 
 3. Catch guardrail violations. The payload of every validation event is `*events.ValidationEventData`:
 
