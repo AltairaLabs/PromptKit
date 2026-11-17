@@ -1,7 +1,9 @@
 package a2aserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -174,4 +176,79 @@ func TestNewServerFor_WithTaskOwnerOverridesTaskScope(t *testing.T) {
 	got := as(t, ts, "bob", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})
 	require.Nil(t, got.Error)
 	assert.Equal(t, task.ID, decodeTaskResult(t, got.Result).ID)
+}
+
+// postSend sends a message/send as caller with ctx, through client, and
+// reports whether a response came back. A dropped connection is not a failure
+// here: the caller asserts on what happens next.
+func postSend(ctx context.Context, client *http.Client, url, caller, contextID string) bool {
+	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage(contextID)})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendMessage, Params: paramsJSON})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url+"/a2a", bytes.NewReader(body))
+	req.Header.Set(a2a.HeaderVersion, "1.0")
+	req.Header.Set(callerHeader, caller)
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	_ = resp.Body.Close()
+	return true
+}
+
+// An opener that panics leaves no open in progress behind: the next message
+// for the context opens it afresh instead of waiting forever.
+func TestNewServerFor_PanickingOpenerDoesNotStrandTheContext(t *testing.T) {
+	var opens atomic.Int32
+	ts := newServerForTest(t, func(*http.Request, string) (Conversation, error) {
+		if opens.Add(1) == 1 {
+			panic("opener blew up")
+		}
+		return okConv(), nil
+	})
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	postSend(context.Background(), client, ts.URL, "alice", "ctx-1")
+	ok := postSend(context.Background(), client, ts.URL, "alice", "ctx-1")
+
+	assert.True(t, ok, "the second message got a response")
+	assert.Equal(t, int32(2), opens.Load(), "the context was opened afresh")
+}
+
+// A message waiting on another message's open of its context stops waiting
+// when its client goes away.
+func TestNewServerFor_CanceledWaiterStopsWaiting(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	srv := NewServerFor(ownerFromHeader, func(*http.Request, string) (Conversation, error) {
+		close(started)
+		<-release
+		return okConv(), nil
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		close(release)
+		ts.Close()
+		_ = srv.Shutdown(context.Background())
+	})
+	go postSend(context.Background(), http.DefaultClient, ts.URL, "alice", "ctx-1")
+	<-started
+
+	ctx, cancel := context.WithCancel(context.Background())
+	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage("ctx-1")})
+	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 2, Method: a2a.MethodV1SendMessage, Params: paramsJSON})
+	req := httptest.NewRequest(http.MethodPost, "/a2a", bytes.NewReader(body)).WithContext(ctx)
+	req.Header.Set(a2a.HeaderVersion, "1.0")
+	req.Header.Set(callerHeader, "alice")
+	served := make(chan struct{})
+	go func() {
+		srv.Handler().ServeHTTP(httptest.NewRecorder(), req)
+		close(served)
+	}()
+	cancel()
+
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the canceled waiter kept waiting on the other open")
+	}
 }

@@ -1323,8 +1323,14 @@ func (s *Server) getOrCreateConversation(call *rpcCall, contextID string) (Conve
 		}
 		if opening, ok := s.convOpening[contextID]; ok {
 			s.convsMu.Unlock()
-			<-opening // the other open finished: look again
-			continue
+			// Wait for the other open, then look again; a client that goes
+			// away stops waiting.
+			select {
+			case <-opening:
+				continue
+			case <-call.r.Context().Done():
+				return nil, call.r.Context().Err()
+			}
 		}
 		if err := s.checkContextTasks(call, contextID); err != nil {
 			s.convsMu.Unlock()
@@ -1348,25 +1354,34 @@ func (s *Server) reuseConversation(conv Conversation, contextID, owner string) (
 }
 
 // openNewConversation runs the opener for contextID, outside convsMu, and
-// records the conversation for owner. opening is closed when it is done, so
-// messages waiting on the same context look again.
+// records the conversation for owner. However the opener ends (a
+// conversation, an error or a panic), the open is cleared and opening closed,
+// so messages waiting on the same context look again and the next one opens
+// it afresh.
 func (s *Server) openNewConversation(
 	call *rpcCall, contextID, owner string, opening chan struct{},
 ) (Conversation, error) {
-	conv, err := s.opener(call.r, contextID)
+	var conv Conversation
+	defer func() {
+		s.convsMu.Lock()
+		defer s.convsMu.Unlock()
+		delete(s.convOpening, contextID)
+		close(opening)
+		if conv == nil {
+			return
+		}
+		s.convs[contextID] = conv
+		s.convLastUse[contextID] = time.Now()
+		if s.ownsConversations() {
+			s.convOwner[contextID] = owner
+		}
+	}()
 
-	s.convsMu.Lock()
-	defer s.convsMu.Unlock()
-	delete(s.convOpening, contextID)
-	close(opening)
+	opened, err := s.opener(call.r, contextID)
 	if err != nil {
 		return nil, err
 	}
-	s.convs[contextID] = conv
-	s.convLastUse[contextID] = time.Now()
-	if s.ownsConversations() {
-		s.convOwner[contextID] = owner
-	}
+	conv = opened
 	return conv, nil
 }
 
