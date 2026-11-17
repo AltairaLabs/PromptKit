@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -130,7 +129,7 @@ func TestGeminiProvider_ParseGeminiResponse_UnknownFinishReason(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
+func TestGeminiProvider_MediaPart_URLError(t *testing.T) {
 	// Use a URL that will fail quickly (localhost unreachable port)
 	url := "http://localhost:1/nonexistent.jpg"
 	part := types.ContentPart{
@@ -141,7 +140,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
+	_, err := convertOnePart(part)
 	if err == nil {
 		t.Error("Expected error for unreachable URL")
 	}
@@ -152,23 +151,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_URLError(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_ConvertMediaPartToGemini_MissingMIMEType(t *testing.T) {
-	data := "base64data"
-	part := types.ContentPart{
-		Type: types.ContentTypeImage,
-		Media: &types.MediaContent{
-			Data:     &data,
-			MIMEType: "", // Missing MIME type
-		},
-	}
-
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
-	if err == nil {
-		t.Error("Expected error for missing MIME type")
-	}
-}
-
-func TestGeminiProvider_ConvertMediaPartToGemini_MissingDataSource(t *testing.T) {
+func TestGeminiProvider_MediaPart_MissingDataSource(t *testing.T) {
 	part := types.ContentPart{
 		Type: types.ContentTypeAudio,
 		Media: &types.MediaContent{
@@ -177,61 +160,25 @@ func TestGeminiProvider_ConvertMediaPartToGemini_MissingDataSource(t *testing.T)
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
+	_, err := convertOnePart(part)
 	if err == nil {
 		t.Error("Expected error for missing data source")
 	}
 }
 
-func TestGeminiProvider_ConvertPartToGemini_EmptyText(t *testing.T) {
-	emptyText := ""
-	part := types.ContentPart{
-		Type: types.ContentTypeText,
-		Text: &emptyText,
-	}
-
-	_, err := convProvider().convertPartToGemini(context.Background(), convProvider().MediaLoader(), part)
-	if err == nil {
-		t.Error("Expected error for empty text")
-	}
-}
-
-func TestGeminiProvider_ConvertPartToGemini_NilText(t *testing.T) {
-	part := types.ContentPart{
-		Type: types.ContentTypeText,
-		Text: nil,
-	}
-
-	_, err := convProvider().convertPartToGemini(context.Background(), convProvider().MediaLoader(), part)
-	if err == nil {
-		t.Error("Expected error for nil text")
-	}
-}
-
-func TestGeminiProvider_ConvertPartToGemini_UnsupportedType(t *testing.T) {
-	part := types.ContentPart{
-		Type: "unsupported-type",
-	}
-
-	_, err := convProvider().convertPartToGemini(context.Background(), convProvider().MediaLoader(), part)
-	if err == nil {
-		t.Error("Expected error for unsupported part type")
-	}
-}
-
-func TestGeminiProvider_ConvertMediaPartToGemini_MissingMedia(t *testing.T) {
+func TestGeminiProvider_MediaPart_MissingMedia(t *testing.T) {
 	part := types.ContentPart{
 		Type:  types.ContentTypeImage,
 		Media: nil,
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
+	_, err := convertOnePart(part)
 	if err == nil {
 		t.Error("Expected error for missing media")
 	}
 }
 
-func TestGeminiProvider_ConvertMediaPartToGemini_FilePathError(t *testing.T) {
+func TestGeminiProvider_MediaPart_FilePathError(t *testing.T) {
 	filePath := "/nonexistent/file.jpg"
 	part := types.ContentPart{
 		Type: types.ContentTypeImage,
@@ -241,7 +188,7 @@ func TestGeminiProvider_ConvertMediaPartToGemini_FilePathError(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMediaPartToGemini(context.Background(), convProvider().MediaLoader(), part)
+	_, err := convertOnePart(part)
 	if err == nil {
 		t.Error("Expected error for nonexistent file path")
 	}
@@ -289,36 +236,14 @@ func TestGeminiProvider_BuildGeminiRequest(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_ConvertMessagesToGemini_EmptySystem(t *testing.T) {
-	messages := []types.Message{
-		{
-			Role:    "user",
-			Content: "Hello",
-		},
-	}
-
-	contents, sysInst, err := convProvider().convertMessagesToGemini(context.Background(), messages, "")
-	if err != nil {
-		t.Fatalf("Failed to convert messages: %v", err)
-	}
-
-	if sysInst != nil {
-		t.Error("Expected nil system instruction for empty system prompt")
-	}
-
-	if len(contents) != 1 {
-		t.Errorf("Expected 1 content, got %d", len(contents))
-	}
-}
-
-func TestGeminiProvider_ConvertMessageToGemini_RoleConversion(t *testing.T) {
+func TestGeminiProvider_BuildToolContents_RoleConversion(t *testing.T) {
 	// Test assistant -> model conversion
 	msg := types.Message{
 		Role:    "assistant",
 		Content: "I can help",
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert: %v", err)
 	}

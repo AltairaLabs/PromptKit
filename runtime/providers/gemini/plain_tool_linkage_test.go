@@ -162,3 +162,42 @@ func contentMaps(t *testing.T, contents []geminiContent) []map[string]any {
 	require.NoError(t, json.Unmarshal(b, &maps))
 	return maps
 }
+
+// convertOneMessage serializes one message as every request path does and
+// returns its content, or the zero content when the message sends nothing.
+func convertOneMessage(msg types.Message) (geminiContent, error) {
+	maps, err := convProvider().buildToolContents(context.Background(), []types.Message{msg})
+	if err != nil || len(maps) == 0 {
+		return geminiContent{}, err
+	}
+	b, err := json.Marshal(maps[0])
+	if err != nil {
+		return geminiContent{}, err
+	}
+	var c geminiContent
+	err = json.Unmarshal(b, &c)
+	return c, err
+}
+
+// convertOnePart serializes a user message holding only part and returns the
+// part as sent.
+func convertOnePart(part types.ContentPart) (geminiPart, error) {
+	return convertOnePartWith(convProvider(), part)
+}
+
+func convertOnePartWith(p *Provider, part types.ContentPart) (geminiPart, error) {
+	maps, err := p.buildToolContents(context.Background(),
+		[]types.Message{{Role: "user", Parts: []types.ContentPart{part}}})
+	if err != nil || len(maps) == 0 {
+		return geminiPart{}, err
+	}
+	b, err := json.Marshal(maps[0])
+	if err != nil {
+		return geminiPart{}, err
+	}
+	var c geminiContent
+	if err := json.Unmarshal(b, &c); err != nil || len(c.Parts) == 0 {
+		return geminiPart{}, err
+	}
+	return c.Parts[0], nil
+}
