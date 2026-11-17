@@ -7,6 +7,7 @@ verified:
   commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
     - runtime/audio/silence.go
+    - runtime/pipeline/stage/playout_hold.go
     - runtime/pipeline/stage/stages_speech.go
     - sdk/conversation.go
     - sdk/options.go
@@ -106,6 +107,25 @@ of an `Interrupted` chunk.
 The speech that interrupted the reply is the user's next turn, and it is
 transcribed in full. Speech that starts after the reply has finished playing is
 an ordinary turn, with no `Interrupted` chunk.
+
+In ASM mode the conversation's transcript records a spoken reply as the caller
+heard it. A reply with audio reaches the state store, the recording and
+`message.created` once its audio has played, in the same order as before.
+Everything after it waits behind it, so the order holds. If the caller barges
+in, or the session closes while the reply still plays, the stored reply keeps
+its full text and has `FinishReason` `interrupted`. Its `Meta` then holds:
+
+| Key | Value |
+|---|---|
+| `heard_ms` | how much of the reply's audio had played, in milliseconds |
+| `audio_ms` | the reply's audio length, in milliseconds |
+| `played_fraction` | `heard_ms` over `audio_ms`, from 0 to 1 |
+| `_interrupted_cause` | `barge-in-playout`, or `session-closed` |
+
+The text is not cut to the words heard: neither provider's transcript of the
+reply audio carries timing, so it cannot be aligned with the audio. The chunks
+on `Response()` are not delayed. A reply without audio is stored as soon as it
+completes.
 
 ```go
 for chunk := range responses {

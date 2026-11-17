@@ -430,3 +430,18 @@ func TestRecordingStage_KeepsBinaryOffTheBusButInTheStore(t *testing.T) {
 	require.NotEmpty(t, inlineBinaryIn(data),
 		"the STORE is where binary belongs — recording is lossless by design")
 }
+
+// A message PlayoutHoldStage holds is broadcast from its release, at the
+// index it holds in the transcript, not when it first passes.
+func TestMessageBroadcastStage_HeldMessageBroadcastOnRelease(t *testing.T) {
+	held := liveMsgElem("user", "and then?")
+	held.Meta.PlayoutHeld = true
+	release := liveMsgElem("user", "and then?")
+	release.Meta.PlayoutRelease = true
+	got := runBroadcast(t, []StreamElement{liveMsgElem("user", "first"), held, release}, 2)
+	require.Len(t, got, 2)
+	assert.Equal(t, "first", got[0].GetContent())
+	assert.Equal(t, 0, got[0].Index)
+	assert.Equal(t, "and then?", got[1].GetContent())
+	assert.Equal(t, 1, got[1].Index)
+}

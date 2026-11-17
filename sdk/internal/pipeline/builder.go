@@ -552,6 +552,14 @@ func collectPipelineStages(
 		stages = append(stages, stage.NewTranscriptReorderStage(cfg.InputTranscriptPlaceholder))
 	}
 
+	// 5.45 Playout hold - a realtime reply reaches the transcript (recording,
+	// memory, broadcast, save) once the caller has heard it, marked
+	// interrupted with what was heard when they barged in. After the reorder
+	// stage, so it holds the transcript in its corrected order.
+	if cfg.StreamInputProvider != nil && cfg.ActiveComposition == nil {
+		stages = append(stages, stage.NewPlayoutHoldStage())
+	}
+
 	// 5.5 Output recording stage - captures assistant output with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
 		outputCfg := *cfg.RecordingConfig

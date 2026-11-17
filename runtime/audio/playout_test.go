@@ -127,3 +127,16 @@ func TestPlayout_NewResponseBoundsTheRecord(t *testing.T) {
 	p.NewResponse()
 	assert.Zero(t, p.tracked(), "a new response forgets items that cannot resume")
 }
+
+// End is when the audio handed over so far finishes playing.
+func TestPlayout_End(t *testing.T) {
+	c := &testClock{t: playoutT0}
+	p := NewPlayout(c.now)
+	assert.True(t, p.End().IsZero(), "no audio yet")
+	p.Add("A", 0, 2*time.Second)
+	c.t = playoutT0.Add(time.Second)
+	p.Add("A", 0, time.Second) // queued behind the first
+	assert.Equal(t, playoutT0.Add(3*time.Second), p.End())
+	p.Stop()
+	assert.True(t, p.End().IsZero(), "Stop ends the playout")
+}

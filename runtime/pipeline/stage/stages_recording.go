@@ -209,7 +209,8 @@ func (rs *RecordingStage) recordContent(
 		rs.recordToolCallElement(ctx, elem)
 		matched = true
 	}
-	if elem.Message != nil {
+	if elem.Message != nil && !elem.Meta.PlayoutHeld {
+		// A held Message is recorded from its PlayoutRelease element.
 		rs.recordMessageElement(ctx, elem, msgIndex)
 		matched = true
 	}

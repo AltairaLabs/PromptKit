@@ -114,6 +114,7 @@ for chunk := range audioStream {
 - [type Playout](<#Playout>)
   - [func NewPlayout\(now func\(\) time.Time\) \*Playout](<#NewPlayout>)
   - [func \(p \*Playout\) Add\(itemID string, contentIndex int, d time.Duration\)](<#Playout.Add>)
+  - [func \(p \*Playout\) End\(\) time.Time](<#Playout.End>)
   - [func \(p \*Playout\) NewResponse\(\)](<#Playout.NewResponse>)
   - [func \(p \*Playout\) Playing\(\) bool](<#Playout.Playing>)
   - [func \(p \*Playout\) Stop\(\) \[\]PlayoutCut](<#Playout.Stop>)
@@ -856,8 +857,17 @@ func (p *Playout) Add(itemID string, contentIndex int, d time.Duration)
 
 Add records d of audio for the item \(itemID, contentIndex\) handed to the player now. Non\-positive d is ignored.
 
+<a name="Playout.End"></a>
+### func \(\*Playout\) [End](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L99>)
+
+```go
+func (p *Playout) End() time.Time
+```
+
+End is when the audio handed to the player so far finishes playing: the zero time before any audio, or after Stop.
+
 <a name="Playout.NewResponse"></a>
-### func \(\*Playout\) [NewResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L140>)
+### func \(\*Playout\) [NewResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L146>)
 
 ```go
 func (p *Playout) NewResponse()
@@ -866,7 +876,7 @@ func (p *Playout) NewResponse()
 NewResponse marks the start of a new response: what earlier stretches played is forgotten for the items with nothing left to play, which belong to earlier responses and cannot resume. Call it when a response begins, so the record stays bounded by the items of one response.
 
 <a name="Playout.Playing"></a>
-### func \(\*Playout\) [Playing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L98>)
+### func \(\*Playout\) [Playing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L104>)
 
 ```go
 func (p *Playout) Playing() bool
@@ -875,7 +885,7 @@ func (p *Playout) Playing() bool
 Playing reports whether audio handed to the player is still playing.
 
 <a name="Playout.Stop"></a>
-### func \(\*Playout\) [Stop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L105>)
+### func \(\*Playout\) [Stop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L111>)
 
 ```go
 func (p *Playout) Stop() []PlayoutCut

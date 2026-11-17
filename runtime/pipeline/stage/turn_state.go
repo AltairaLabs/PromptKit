@@ -223,6 +223,19 @@ type ElementMetadata struct {
 	// such a round is still running.
 	ToolCallsRunning bool
 
+	// PlayoutHeld marks an element whose Message PlayoutHoldStage is holding
+	// until the reply's audio has played (or been cut): the transcript stages
+	// (recording, message broadcast, memory, save) skip that Message and take
+	// it from the PlayoutRelease element that follows. The element itself
+	// still reaches the caller at once.
+	PlayoutHeld bool
+
+	// PlayoutRelease marks an element PlayoutHoldStage emits to release a held
+	// Message into the transcript, amended when the caller heard only part of
+	// the reply. It is for the transcript stages only: it is not output for
+	// the caller, and does not mark a turn boundary.
+	PlayoutRelease bool
+
 	// ToolResultMessages carries tool-execution result messages produced
 	// by the streaming tool integration; the duplex provider stage
 	// consumes them as the next-round input.
