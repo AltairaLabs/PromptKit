@@ -119,6 +119,21 @@ func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error {
 	return err
 }
 
+// AdmitRelease is Admit, also returning release, which takes the admission
+// back: for a call admitted when its result was settled whose result is then
+// never used (its turn was abandoned), so it does not keep a slot. release is
+// nil when the call is refused, and does nothing when no limit applies.
+func (w *CallRateWindow) AdmitRelease(conversationID, tool string, limit int) (release func(), err error) {
+	if w == nil || limit <= 0 {
+		return func() { /* nothing was counted */ }, nil
+	}
+	at, err := w.admit(conversationID, tool, limit)
+	if err != nil {
+		return nil, err
+	}
+	return func() { w.withdraw(conversationID, tool, at) }, nil
+}
+
 // admit is Admit, also returning the time the call was admitted at, for
 // withdraw.
 func (w *CallRateWindow) admit(conversationID, tool string, limit int) (at time.Time, err error) {

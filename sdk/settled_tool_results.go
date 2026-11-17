@@ -33,10 +33,14 @@ type toolResultMessageSubmitter interface {
 // model for res: the rejection, the error, or the result as modelResult
 // prepares it. The result names the tool it answers, as an in-turn result
 // does: a provider can match a result to its call by name (Gemini's
-// functionResponse carries only the name).
+// functionResponse carries only the name). A result SettleClientTool prepared
+// is given as it was prepared: its text is what the client was shown.
 func (c *Conversation) continuedResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
+	if prepared, ok := c.preparedResult(res); ok {
+		return prepared
+	}
 	call, known := c.callFor(calls, res)
 	switch {
 	case res.Rejected:
@@ -90,10 +94,14 @@ func failedResult(call types.MessageToolCall, res *sdktools.ToolResolution) type
 // truncated (it is also the AG-UI TOOL_CALL_RESULT), passed through the
 // conversation's ToolResultRewriter hooks. It names the tool of the call the
 // answer settles (callFor). An approved call's result is given as Continue
-// gives it (continuedResult).
+// gives it (continuedResult), and one SettleClientTool prepared as it was
+// prepared, as Resume gives any answer.
 func (c *Conversation) resumeResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
+	if result, ok := c.preparedResult(res); ok {
+		return result
+	}
 	if res.Arguments != nil && !res.Rejected {
 		return c.continuedResult(ctx, calls, res)
 	}
@@ -172,15 +180,23 @@ func (c *Conversation) settled(resolutions []*sdktools.ToolResolution) {
 	defer c.settledMu.Unlock()
 	for _, res := range resolutions {
 		delete(c.admitted, res.ID)
+		delete(c.prepared, res) // delivered: its admissions stand
 	}
 }
 
-// forgetSettled forgets every approval not yet given to the model: the turn
-// it belongs to was abandoned.
+// forgetSettled forgets every approval and prepared answer not yet given to
+// the model: the turn it belongs to was abandoned. A prepared answer's
+// admissions are taken back, so it does not keep a slot it never used.
 func (c *Conversation) forgetSettled() {
 	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
+	releases := make([]func(), 0, len(c.prepared))
+	for _, p := range c.prepared {
+		releases = append(releases, p.release)
+	}
 	c.admitted = nil
+	c.prepared = nil
+	c.settledMu.Unlock()
+	runReleases(releases)
 }
 
 // toolResponseOf is the response a realtime session is given for tr, with

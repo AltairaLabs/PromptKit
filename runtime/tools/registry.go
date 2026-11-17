@@ -709,6 +709,18 @@ func (r *Registry) AdmitSettled(toolName string, admit func() error) error {
 	return err
 }
 
+// AdmitSettledRelease is AdmitSettled, also returning release, which takes
+// the registry's count of the call back: for a settled call whose result is
+// then never used (its turn was abandoned). release is nil when the call is
+// refused. It does not take back what admit counted.
+func (r *Registry) AdmitSettledRelease(toolName string, admit func() error) (release func(), err error) {
+	at, err := r.rateLimiter.allowAdmitted(toolName, admit)
+	if err != nil {
+		return nil, err
+	}
+	return func() { r.rateLimiter.withdraw(toolName, at) }, nil
+}
+
 // DeferringExecutor is implemented by an executor that can defer a call
 // without running it, for the host to settle later, as a client tool with no
 // handler does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted ask Defer

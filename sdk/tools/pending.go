@@ -256,6 +256,18 @@ func (s *ResolvedStore) PopAll() []*ToolResolution {
 	return resolutions
 }
 
+// Has reports whether a resolution for the call id is stored.
+func (s *ResolvedStore) Has(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, res := range s.resolutions {
+		if res.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Len returns the number of stored resolutions.
 func (s *ResolvedStore) Len() int {
 	s.mu.Lock()

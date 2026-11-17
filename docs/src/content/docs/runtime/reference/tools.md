@@ -125,6 +125,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func NewRegistry\(opts ...RegistryOption\) \*Registry](<#NewRegistry>)
   - [func NewRegistryWithRepository\(repo ToolRepository, opts ...RegistryOption\) \*Registry](<#NewRegistryWithRepository>)
   - [func \(r \*Registry\) AdmitSettled\(toolName string, admit func\(\) error\) error](<#Registry.AdmitSettled>)
+  - [func \(r \*Registry\) AdmitSettledRelease\(toolName string, admit func\(\) error\) \(release func\(\), err error\)](<#Registry.AdmitSettledRelease>)
   - [func \(r \*Registry\) CheckResult\(toolName string, content json.RawMessage, parts \[\]types.ContentPart\) \(\*ToolExecutionResult, error\)](<#Registry.CheckResult>)
   - [func \(r \*Registry\) Child\(opts ...RegistryOption\) \*Registry](<#Registry.Child>)
   - [func \(r \*Registry\) Execute\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolResult, error\)](<#Registry.Execute>)
@@ -739,7 +740,7 @@ func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathEx
 MapResponse applies a JMESPath expression to extract or reshape a JSON response.
 
 <a name="DeferringExecutor"></a>
-## type [DeferringExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L723-L725>)
+## type [DeferringExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L735-L737>)
 
 DeferringExecutor is implemented by an executor that can defer a call without running it, for the host to settle later, as a client tool with no handler does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted ask Defer first: when it returns true, its result \(status ToolStatusPending\) is returned as the call's, the executor does not run, and neither the admit gate nor the registry's rate limit counts the call; both count it when the host settles it \(AdmitSettled\). The deferred calls of one round therefore never take each other's room. Defer is given the call with its coerced, validated arguments, and must decide and build the pending result from one look at its own state, so a call it does not defer is run \(and counted\) normally.
 
@@ -1445,8 +1446,17 @@ func (r *Registry) AdmitSettled(toolName string, admit func() error) error
 
 AdmitSettled admits a deferred call to toolName \(one its executor returned ToolStatusPending for\) when the host settles it: it counts the call under the registry's rate limit \(WithRateLimit\) and, when admit is not nil, calls admit under the limit's lock, as ExecuteAsyncAdmitted does for a call it runs. Over the registry's limit it returns an error wrapping ErrRateLimitExceeded; if admit refuses, its error, and the registry does not count the call. A deferred call is counted by the registry's limit only here, never when it is dispatched.
 
+<a name="Registry.AdmitSettledRelease"></a>
+### func \(\*Registry\) [AdmitSettledRelease](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L716>)
+
+```go
+func (r *Registry) AdmitSettledRelease(toolName string, admit func() error) (release func(), err error)
+```
+
+AdmitSettledRelease is AdmitSettled, also returning release, which takes the registry's count of the call back: for a settled call whose result is then never used \(its turn was abandoned\). release is nil when the call is refused. It does not take back what admit counted.
+
 <a name="Registry.CheckResult"></a>
-### func \(\*Registry\) [CheckResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L871-L873>)
+### func \(\*Registry\) [CheckResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L883-L885>)
 
 ```go
 func (r *Registry) CheckResult(toolName string, content json.RawMessage, parts []types.ContentPart) (*ToolExecutionResult, error)

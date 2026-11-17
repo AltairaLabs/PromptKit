@@ -314,6 +314,7 @@ func TestWorkflowSender_DelegatesToActiveConversation(t *testing.T) {
 
 	assert.Equal(t, "intake", ws.CurrentState())
 	assert.NotNil(t, ws.EventBus())
+	assert.False(t, ws.HasToolResultRewriters(), "the workflow has no rewriter")
 	require.NoError(t, ws.SendToolResult(ctx, "c1", "x"))
 	text := "y"
 	require.NoError(t, ws.SendToolResultMultimodal(ctx, "c2", []types.ContentPart{{Type: types.ContentTypeText, Text: &text}}))
@@ -322,6 +323,29 @@ func TestWorkflowSender_DelegatesToActiveConversation(t *testing.T) {
 	assert.NoError(t, err, "three resolutions are waiting")
 	_, err = ws.Continue(ctx)
 	assert.Error(t, err, "nothing is held for approval")
+}
+
+// The workflow adapter settles a partial answer on the conversation serving
+// the current state, so a workflow's answers are rewritten before they are
+// reported too.
+func TestWorkflowSender_SettlesOnActiveConversation(t *testing.T) {
+	provider := newScriptedProvider(say("hello"))
+	wc, err := sdk.OpenWorkflow(writePack(t, workflowPackJSON), sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(), sdk.WithToolHook(redactHook{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wc.Close() })
+	var sender Sender = &workflowSender{wc: wc}
+	settler, ok := sender.(clientToolSettler)
+	require.True(t, ok, "the workflow adapter settles answers")
+	ctx := context.Background()
+
+	assert.True(t, settler.HasToolResultRewriters())
+	_, answered, err := settler.SettleClientTool(ctx, "c1", "x", nil)
+	require.NoError(t, err)
+	assert.True(t, answered)
+	_, answered, err = settler.SettleClientToolRejection(ctx, "c1", "no")
+	require.NoError(t, err)
+	assert.False(t, answered, "c1 has its answer on the active conversation")
 }
 
 // ToolResultsFromAGUI's JSON pass-through keeps a JSON answer JSON for the
