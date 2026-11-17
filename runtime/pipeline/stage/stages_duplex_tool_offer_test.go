@@ -296,6 +296,29 @@ func TestDuplexToolOffer_HostToolChoiceNoneRefusesTheCall(t *testing.T) {
 	assert.Empty(t, exec.calls())
 }
 
+// A policy tool_choice of none offers the session nothing, the host's tools
+// included, so a call to a host tool is refused.
+func TestDuplexToolOffer_PolicyToolChoiceNoneRefusesAHostTool(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "host_only")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:     reg,
+		policy:       &pipeline.ToolPolicy{ToolChoice: toolChoiceNone},
+		turnState:    &TurnState{},
+		sessionTools: []providers.StreamingToolDefinition{{Name: "host_only", Description: "host tool"}},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "host_only")))
+	sent := h.awaitSent(1)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{
+		ToolCallID: "c1", Result: "Tool host_only was not run: it is not available this turn", IsError: true,
+	}}, sent[0])
+	assert.Empty(t, exec.calls())
+}
+
 // The blocklist is checked before the session's tools are: a blocklisted
 // tool the session lacks is refused as blocklisted.
 func TestDuplexToolOffer_BlocklistPrecedesTheUnsyncedRefusal(t *testing.T) {
