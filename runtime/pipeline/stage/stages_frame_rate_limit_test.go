@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -253,51 +256,40 @@ func TestFrameRateLimitStage_VideoFrames(t *testing.T) {
 	}
 }
 
+// Frames further apart than the target interval all pass: at 1000 FPS (1ms),
+// frames 5ms apart are never dropped. The frames are timed on a clock that
+// advances 5ms per frame, so the result does not depend on scheduling.
 func TestFrameRateLimitStage_HighFPS_PassesMoreFrames(t *testing.T) {
 	t.Parallel()
-	// Very high FPS - should pass all frames sent with small delays
 	config := FrameRateLimitConfig{
 		TargetFPS:           1000.0, // 1000 FPS = 1ms between frames
 		PassthroughAudio:    true,
 		PassthroughNonMedia: true,
 	}
 	stage := NewFrameRateLimitStage(config)
-	ctx := context.Background()
+	clock := time.Unix(0, 0)
+	stage.now = func() time.Time {
+		clock = clock.Add(5 * time.Millisecond) // read only by the stage's goroutine
+		return clock
+	}
 
 	input := make(chan StreamElement, 5)
 	output := make(chan StreamElement, 5)
-
-	// Send frames with 5ms delay between - all should pass at 1000 FPS
-	go func() {
-		for i := range 5 {
-			input <- StreamElement{
-				Image: &ImageData{
-					Data:     []byte{byte(i)},
-					MIMEType: "image/jpeg",
-				},
-			}
-			if i < 4 {
-				time.Sleep(5 * time.Millisecond)
-			}
-		}
-		close(input)
-	}()
-
-	go func() {
-		if err := stage.Process(ctx, input, output); err != nil {
-			t.Errorf("Process returned error: %v", err)
-		}
-	}()
-
-	// Drain output channel to wait for processing to complete
-	for range output {
+	for i := range 5 {
+		input <- StreamElement{Image: &ImageData{Data: []byte{byte(i)}, MIMEType: "image/jpeg"}}
 	}
+	close(input)
 
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	var got []byte
+	for elem := range output {
+		got = append(got, elem.Image.Data...)
+	}
+	assert.Equal(t, []byte{0, 1, 2, 3, 4}, got, "every frame passes")
 	emitted, dropped := stage.GetStats()
-	// At 1000 FPS (1ms intervals) with 5ms between frames, all should pass
-	if emitted < 3 {
-		t.Errorf("Expected at least 3 emitted frames at high FPS, got %d (dropped: %d)", emitted, dropped)
-	}
+	assert.Equal(t, int64(5), emitted)
+	assert.Equal(t, int64(0), dropped)
 }
 
 func TestFrameRateLimitStage_ErrorPassthrough(t *testing.T) {
