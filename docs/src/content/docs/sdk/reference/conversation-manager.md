@@ -1765,7 +1765,7 @@ The SDK cannot tell a finished conversation from a suspended one, so finishing i
 Complete on a conversation that is already closed or completed runs no evals and returns [ErrConversationClosed](<#ErrConversationClosed>): the session evals ran on the earlier close. To complete a conversation that was suspended, resume it and call Complete on the resumed conversation.
 
 <a name="Conversation.Continue"></a>
-### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L582>)
+### func \(\*Conversation\) [Continue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L616>)
 
 ```go
 func (c *Conversation) Continue(ctx context.Context) (*Response, error)
@@ -1784,7 +1784,7 @@ resp, _ = conv.Continue(ctx) // LLM receives tool results
 ```
 
 <a name="Conversation.ContinueDuplex"></a>
-### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L654>)
+### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L688>)
 
 ```go
 func (c *Conversation) ContinueDuplex(ctx context.Context) error
@@ -1857,7 +1857,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L865>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L893>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -2092,7 +2092,7 @@ conv.OnStreamEvent(func(event sdk.StreamEvent) {
 ```
 
 <a name="Conversation.OnTool"></a>
-### func \(\*Conversation\) [OnTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L40>)
+### func \(\*Conversation\) [OnTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L41>)
 
 ```go
 func (c *Conversation) OnTool(name string, handler ToolHandler)
@@ -2200,7 +2200,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.OnToolAsync"></a>
-### func \(\*Conversation\) [OnToolAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L273-L277>)
+### func \(\*Conversation\) [OnToolAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L274-L278>)
 
 ```go
 func (c *Conversation) OnToolAsync(name string, checkFunc func(args map[string]any) sdktools.PendingResult, execFunc ToolHandler)
@@ -2231,7 +2231,7 @@ The first function checks if approval is needed, the second executes the action.
 Lock ordering contract: asyncHandlersMu is acquired first, then handlersMu. All code paths that acquire both locks must follow this order to avoid deadlock.
 
 <a name="Conversation.OnToolAsyncCall"></a>
-### func \(\*Conversation\) [OnToolAsyncCall](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L337-L341>)
+### func \(\*Conversation\) [OnToolAsyncCall](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L338-L342>)
 
 ```go
 func (c *Conversation) OnToolAsyncCall(name string, check func(ctx context.Context, call ToolCall) sdktools.PendingResult, exec func(ctx context.Context, call ToolCall) (any, error))
@@ -2255,7 +2255,7 @@ conv.OnToolAsyncCall("process_refund",
 ```
 
 <a name="Conversation.OnToolAsyncWithContext"></a>
-### func \(\*Conversation\) [OnToolAsyncWithContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L299>)
+### func \(\*Conversation\) [OnToolAsyncWithContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L300>)
 
 ```go
 func (c *Conversation) OnToolAsyncWithContext(name string, checkFunc sdktools.AsyncToolCheck, execFunc ToolHandler)
@@ -2277,7 +2277,7 @@ conv.OnToolAsyncWithContext("process_refund",
 As with OnToolAsync, a held call, once approved, runs execFunc.
 
 <a name="Conversation.OnToolCall"></a>
-### func \(\*Conversation\) [OnToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L184>)
+### func \(\*Conversation\) [OnToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L185>)
 
 ```go
 func (c *Conversation) OnToolCall(name string, handler func(ctx context.Context, call ToolCall) (any, error))
@@ -2294,7 +2294,7 @@ conv.OnToolCall("get_balance", func(ctx context.Context, call sdk.ToolCall) (any
 The return value is serialized to JSON and sent back to the model as the tool result. A later OnToolCtx, OnToolHTTP or OnToolExecutor for the same name replaces it; a later OnTool does not. A later OnToolAsync or OnToolAsyncWithContext replaces it only for held calls once approved: a call its check lets through still runs this handler.
 
 <a name="Conversation.OnToolCtx"></a>
-### func \(\*Conversation\) [OnToolCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L54>)
+### func \(\*Conversation\) [OnToolCtx](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L55>)
 
 ```go
 func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx)
@@ -2386,7 +2386,7 @@ func main() {
 </details>
 
 <a name="Conversation.OnToolExecutor"></a>
-### func \(\*Conversation\) [OnToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L114>)
+### func \(\*Conversation\) [OnToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L115>)
 
 ```go
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor)
@@ -2404,7 +2404,7 @@ conv.OnToolExecutor("custom_tool", executor)
 The executor must implement the runtime/tools.Executor interface. An executor that also implements \[tools.CallExecutor\] is given each call through ExecuteCall, so it sees the provider's call ID and the caller the conversation acts for \([WithCaller](<#WithCaller>)\).
 
 <a name="Conversation.OnToolHTTP"></a>
-### func \(\*Conversation\) [OnToolHTTP](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L92>)
+### func \(\*Conversation\) [OnToolHTTP](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L93>)
 
 ```go
 func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig)
@@ -2426,7 +2426,7 @@ conv.OnToolHTTP("create_ticket", sdktools.NewHTTPToolConfig(
 The tool arguments from the LLM are serialized to JSON and sent as the request body. The response is parsed and returned to the LLM.
 
 <a name="Conversation.OnTools"></a>
-### func \(\*Conversation\) [OnTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L71>)
+### func \(\*Conversation\) [OnTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L72>)
 
 ```go
 func (c *Conversation) OnTools(handlers map[string]ToolHandler)
@@ -2463,7 +2463,7 @@ func (c *Conversation) PackGovernance() *Governance
 PackGovernance returns the pack\-level governance declaration, ignoring any agent scope. Use it to show what the pack claims as a whole; use Governance for what applies to this conversation.
 
 <a name="Conversation.PendingTools"></a>
-### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L694>)
+### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L728>)
 
 ```go
 func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error)
@@ -2472,7 +2472,7 @@ func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToo
 PendingTools returns all pending tool calls awaiting approval for this conversation. With a durable store this reflects calls held by any instance, including ones that survived a restart. Returns nil \(no error\) when no store is configured.
 
 <a name="Conversation.RejectClientTool"></a>
-### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L353>)
+### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L364>)
 
 ```go
 func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string)
@@ -2483,7 +2483,7 @@ RejectClientTool rejects a deferred client tool with a human\-readable reason.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). The rejection reason is sent to the LLM as the tool result.
 
 <a name="Conversation.RejectTool"></a>
-### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L550>)
+### func \(\*Conversation\) [RejectTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L584>)
 
 ```go
 func (c *Conversation) RejectTool(ctx context.Context, id, reason string) (*sdktools.ToolResolution, error)
@@ -2529,7 +2529,7 @@ func (c *Conversation) RerankProviderIDs() []string
 RerankProviderIDs returns the configured rerank provider IDs in declaration order. The first is the one RerankProvider\(\) returns.
 
 <a name="Conversation.ResolveTool"></a>
-### func \(\*Conversation\) [ResolveTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L447>)
+### func \(\*Conversation\) [ResolveTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L448>)
 
 ```go
 func (c *Conversation) ResolveTool(ctx context.Context, id string) (*sdktools.ToolResolution, error)
@@ -2642,7 +2642,7 @@ func main() {
 </details>
 
 <a name="Conversation.ResolveToolWithArgs"></a>
-### func \(\*Conversation\) [ResolveToolWithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L479-L481>)
+### func \(\*Conversation\) [ResolveToolWithArgs](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L486-L488>)
 
 ```go
 func (c *Conversation) ResolveToolWithArgs(ctx context.Context, id string, overrides map[string]any) (*sdktools.ToolResolution, error)
@@ -2655,6 +2655,8 @@ The call is claimed atomically from the store, so concurrent instances of the sa
 Overrides are shallow\-merged over the arguments the model proposed: keys in overrides replace the originals, absent keys are preserved. A nil or empty map is identical to ResolveTool \(approve as\-proposed\). The resulting ToolResolution reports Edited=true and carries the effective Arguments.
 
 The approval admits the call under ToolPolicy.MaxCallsPerMinute \(see WithToolPolicy\). If the tool's calls admitted in the last minute already reach the limit, the handler is not called: the resolution's Error wraps a \*stage.CallRateLimitError, which Continue passes to the model as the call's result.
+
+The handler's result is held to the tool's output schema as the result of a call the turn runs is \(tools.Registry.CheckResult\): coerced, or, when it does not match, replaced by the validation error, which the resolution's Error wraps in a \*ToolError and Continue passes to the model as the call's result.
 
 Works on both paths: after Send\(\) follow with Continue\(\), and after a duplex pending surfaces follow with ContinueDuplex\(\) — both consume the resolution this produces.
 
@@ -2681,7 +2683,7 @@ A session whose Response\(\) is never called does not stall: the SDK drops outpu
 A chunk with Error set does not end the channel: some errors are reported while the session goes on \(a realtime tool turn a limit stopped, say\), and later input is still answered. The channel closes when the session ends, after any error that ended it.
 
 <a name="Conversation.Resume"></a>
-### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L384>)
+### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L395>)
 
 ```go
 func (c *Conversation) Resume(ctx context.Context) (*Response, error)
@@ -2694,7 +2696,7 @@ The resolved tool results are injected as tool\-result messages and a new LLM ro
 A client's result reaches the model as the JSON the client sent, unformatted and not truncated: the stored result is also what an AG\-UI consumer is shown as TOOL\_CALL\_RESULT when the history is replayed. It is passed through the conversation's hooks.ToolResultRewriter hooks \(a failed tool's partial output too\), so what is stored, and replayed, is the rewritten text. This differs from [Conversation.Continue](<#Conversation.Continue>) and [Conversation.ContinueDuplex](<#Conversation.ContinueDuplex>), which give the model an approved or answered result as a tool the pipeline ran would, formatted, rewritten and capped.
 
 <a name="Conversation.ResumeStream"></a>
-### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L436>)
+### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L447>)
 
 ```go
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk
@@ -2886,7 +2888,7 @@ SendText sends text in duplex mode. Only available when the conversation was ope
 The text is the user's turn: it is saved to the state store and recorded \(WithRecording\) as a user message, ahead of the reply. It is not echoed on Response\(\).
 
 <a name="Conversation.SendToolResult"></a>
-### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L299>)
+### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L310>)
 
 ```go
 func (c *Conversation) SendToolResult(ctx context.Context, callID string, result any) error
@@ -2899,7 +2901,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendToolResultMultimodal"></a>
-### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L329>)
+### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L340>)
 
 ```go
 func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID string, parts []types.ContentPart) error
@@ -3147,7 +3149,7 @@ If no handler has been registered via [Conversation.OnStreamEvent](<#Conversatio
 Returns the complete Response or an error.
 
 <a name="Conversation.ToolRegistry"></a>
-### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L710>)
+### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L744>)
 
 ```go
 func (c *Conversation) ToolRegistry() *tools.Registry
@@ -7467,7 +7469,7 @@ type TextDeltaEvent struct {
 ```
 
 <a name="ToolCall"></a>
-## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L159-L169>)
+## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L160-L170>)
 
 ToolCall is one call of a tool, as a handler registered with [Conversation.OnToolCall](<#Conversation.OnToolCall>) or [Conversation.OnToolAsyncCall](<#Conversation.OnToolAsyncCall>) receives it.
 

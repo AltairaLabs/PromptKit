@@ -3,10 +3,12 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -42,10 +44,7 @@ func (c *Conversation) continuedResult(
 		result.Error = "rejected by user"
 		return result
 	case res.Error != nil:
-		errStr := toolResultErrorText(res.Error)
-		result := types.NewTextToolResult(res.ID, call.Name, "Tool error: "+errStr)
-		result.Error = errStr
-		return result
+		return failedResult(call, res)
 	}
 	rewrite, err := c.rewriterFor(ctx, call, known)
 	if err != nil {
@@ -61,15 +60,43 @@ func (c *Conversation) continuedResult(
 	return types.NewTextToolResult(res.ID, call.Name, given.Text)
 }
 
+// failedResult is the result Continue gives the model for res, which failed.
+// An approved call's failure is worded as the stage words the failure of a
+// call it runs: "Tool execution failed: <error>", or the call-rate limit's
+// refusal as it is, classified as an approval error. Any other is
+// "Tool error: <error>".
+func failedResult(call types.MessageToolCall, res *sdktools.ToolResolution) types.MessageToolResult {
+	errStr := toolResultErrorText(res.Error)
+	if res.Arguments == nil { // only sdktools.ResolveApproved sets Arguments
+		result := types.NewTextToolResult(res.ID, call.Name, "Tool error: "+errStr)
+		result.Error = errStr
+		return result
+	}
+	var limitErr *stage.CallRateLimitError
+	if errors.As(res.Error, &limitErr) {
+		result := types.NewTextToolResult(res.ID, call.Name, errStr)
+		result.Error = errStr
+		result.ErrorType = types.ToolErrorApproval
+		return result
+	}
+	result := types.NewTextToolResult(res.ID, call.Name, "Tool execution failed: "+errStr)
+	result.Error = errStr
+	return result
+}
+
 // resumeResult is the tool result Resume gives the model for a client's
 // answer res: the rejection, the failure (with the partial output the tool
 // produced, rewritten), or what the client sent, unformatted and not
 // truncated (it is also the AG-UI TOOL_CALL_RESULT), passed through the
 // conversation's ToolResultRewriter hooks. It names the tool of the call the
-// answer settles (callFor).
+// answer settles (callFor). An approved call's result is given as Continue
+// gives it (continuedResult).
 func (c *Conversation) resumeResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
+	if res.Arguments != nil && !res.Rejected {
+		return c.continuedResult(ctx, calls, res)
+	}
 	call, known := c.callFor(calls, res)
 	var result types.MessageToolResult
 	switch {

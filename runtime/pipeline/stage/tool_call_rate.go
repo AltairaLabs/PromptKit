@@ -59,10 +59,14 @@ func (e *CallRateLimitError) Error() string {
 // The stage admits a call through tools.Registry.ExecuteAsyncAdmitted, after
 // the registry's own checks pass (the tool exists, its arguments are valid,
 // the registry's rate limit allows it), so a call those refuse is never
-// counted. Whether an executor defers a call is known only when it returns:
-// the stage takes a deferred call's admission back then. While the executor
-// runs, the call counts, so another call to the same tool in the same round
-// can be refused for the limit in that moment.
+// counted. A call its executor defers without running it
+// (tools.DeferringExecutor, as the SDK's client executor does for a client
+// tool with no handler) is never admitted at dispatch, so a round's deferred
+// calls never take each other's room. For an executor that cannot say, a
+// deferred call is known only when the executor returns: the stage takes its
+// admission back then. While such an executor runs, the call counts, so
+// another call to the same tool in the same round can be refused for the
+// limit in that moment.
 //
 // A provider stage holds one window (ProviderConfig.CallRate, or its own), so
 // the window spans every turn of a conversation the stage runs. Safe for

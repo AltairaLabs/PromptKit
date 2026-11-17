@@ -68,6 +68,7 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(m \*DefaultRequestMapper\) RenderURL\(urlTemplate string, args map\[string\]any\) \(string, error\)](<#DefaultRequestMapper.RenderURL>)
 - [type DefaultResponseMapper](<#DefaultResponseMapper>)
   - [func \(m \*DefaultResponseMapper\) MapResponse\(response json.RawMessage, jmespathExpr string\) \(json.RawMessage, error\)](<#DefaultResponseMapper.MapResponse>)
+- [type DeferringExecutor](<#DeferringExecutor>)
 - [type ErrToolsPending](<#ErrToolsPending>)
   - [func IsErrToolsPending\(err error\) \(\*ErrToolsPending, bool\)](<#IsErrToolsPending>)
   - [func \(e \*ErrToolsPending\) Error\(\) string](<#ErrToolsPending.Error>)
@@ -123,6 +124,8 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
 - [type Registry](<#Registry>)
   - [func NewRegistry\(opts ...RegistryOption\) \*Registry](<#NewRegistry>)
   - [func NewRegistryWithRepository\(repo ToolRepository, opts ...RegistryOption\) \*Registry](<#NewRegistryWithRepository>)
+  - [func \(r \*Registry\) AdmitSettled\(toolName string, admit func\(\) error\) error](<#Registry.AdmitSettled>)
+  - [func \(r \*Registry\) CheckResult\(toolName string, content json.RawMessage, parts \[\]types.ContentPart\) \(\*ToolExecutionResult, error\)](<#Registry.CheckResult>)
   - [func \(r \*Registry\) Child\(opts ...RegistryOption\) \*Registry](<#Registry.Child>)
   - [func \(r \*Registry\) Execute\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolResult, error\)](<#Registry.Execute>)
   - [func \(r \*Registry\) ExecuteAsync\(ctx context.Context, toolName string, args json.RawMessage\) \(\*ToolExecutionResult, error\)](<#Registry.ExecuteAsync>)
@@ -733,6 +736,17 @@ func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathEx
 ```
 
 MapResponse applies a JMESPath expression to extract or reshape a JSON response.
+
+<a name="DeferringExecutor"></a>
+## type [DeferringExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L723-L725>)
+
+DeferringExecutor is implemented by an executor that can defer a call without running it, for the host to settle later, as a client tool with no handler does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted ask Defer first: when it returns true, its result \(status ToolStatusPending\) is returned as the call's, the executor does not run, and neither the admit gate nor the registry's rate limit counts the call; both count it when the host settles it \(AdmitSettled\). The deferred calls of one round therefore never take each other's room. Defer is given the call with its coerced, validated arguments, and must decide and build the pending result from one look at its own state, so a call it does not defer is run \(and counted\) normally.
+
+```go
+type DeferringExecutor interface {
+    Defer(tool *ToolDescriptor, call ToolCall) (*ToolExecutionResult, bool)
+}
+```
 
 <a name="ErrToolsPending"></a>
 ## type [ErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L58-L60>)
@@ -1421,6 +1435,26 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 
 NewRegistryWithRepository creates a tool registry preloaded with every descriptor the repository lists. The repository is not retained.
 
+<a name="Registry.AdmitSettled"></a>
+### func \(\*Registry\) [AdmitSettled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L707>)
+
+```go
+func (r *Registry) AdmitSettled(toolName string, admit func() error) error
+```
+
+AdmitSettled admits a deferred call to toolName \(one its executor returned ToolStatusPending for\) when the host settles it: it counts the call under the registry's rate limit \(WithRateLimit\) and, when admit is not nil, calls admit under the limit's lock, as ExecuteAsyncAdmitted does for a call it runs. Over the registry's limit it returns an error wrapping ErrRateLimitExceeded; if admit refuses, its error, and the registry does not count the call. A deferred call is counted by the registry's limit only here, never when it is dispatched.
+
+<a name="Registry.CheckResult"></a>
+### func \(\*Registry\) [CheckResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L871-L873>)
+
+```go
+func (r *Registry) CheckResult(toolName string, content json.RawMessage, parts []types.ContentPart) (*ToolExecutionResult, error)
+```
+
+CheckResult holds content \(and parts\), a result produced for a call to toolName outside the registry, to the checks ExecuteCallAsync applies to an executor's result: coerced toward and validated against the tool's output schema, unless the tool is in mcp mode or the result carries media. A result that fails is reported as status ToolStatusFailed with the error text a call the registry runs reports; one that passes as ToolStatusComplete with the content to use. An unknown tool returns an error.
+
+It is for a host that runs a call itself, such as a held call it approved, so its result is held to the same contract as one the registry ran.
+
 <a name="Registry.Child"></a>
 ### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L21>)
 
@@ -1455,13 +1489,13 @@ func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.
 ExecuteAsync is Execute for executors that may suspend a call. If the tool's executor implements AsyncToolExecutor, the result can have status ToolStatusPending; otherwise the call runs synchronously. Failures are reported as status ToolStatusFailed with a nil error, as for Execute.
 
 <a name="Registry.ExecuteAsyncAdmitted"></a>
-### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L615-L617>)
+### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L619-L621>)
 
 ```go
 func (r *Registry) ExecuteAsyncAdmitted(ctx context.Context, toolName string, args json.RawMessage, admit func() error) (*ToolExecutionResult, error)
 ```
 
-ExecuteAsyncAdmitted is ExecuteAsync with an admission gate. admit, when not nil, is called once the call has passed every check of its own \(the tool exists, its arguments are valid, it has an executor, and the registry's rate limit allows it\), immediately before the executor runs. If admit returns an error, the executor does not run, the registry's rate limit does not count the call, and that error is returned unchanged. A call that fails one of the registry's checks never reaches admit.
+ExecuteAsyncAdmitted is ExecuteAsync with an admission gate. admit, when not nil, is called once the call has passed every check of its own \(the tool exists, its arguments are valid, it has an executor, and the registry's rate limit allows it\), immediately before the executor runs. If admit returns an error, the executor does not run, the registry's rate limit does not count the call, and that error is returned unchanged. A call that fails one of the registry's checks never reaches admit, and neither does one its executor defers \(DeferringExecutor\): that call is admitted, and counted by the registry's rate limit, when the host settles it \(AdmitSettled\). A call an executor defers only once it runs has its count under the registry's rate limit taken back then.
 
 <a name="Registry.ExecuteCall"></a>
 ### func \(\*Registry\) [ExecuteCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L478>)
@@ -1473,7 +1507,7 @@ func (r *Registry) ExecuteCall(ctx context.Context, call ToolCall) (*ToolResult,
 ExecuteCall runs a tool call. It coerces the call's arguments toward the input schema, validates them, applies the rate limit, and runs the executor the tool's mode selects, under the tool's TimeoutMs. An executor that implements CallExecutor is given the call with the coerced arguments, so it sees the call ID and the caller. An unknown tool, invalid arguments, or a missing executor return an error. An executor failure, a timeout, a rate\-limit refusal, or a result that fails the output schema is reported in ToolResult.Error with a nil error. Results of tools in mcp mode are not validated against the output schema. The result's ID is the call's ID.
 
 <a name="Registry.ExecuteCallAsyncAdmitted"></a>
-### func \(\*Registry\) [ExecuteCallAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L628-L630>)
+### func \(\*Registry\) [ExecuteCallAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L632-L634>)
 
 ```go
 func (r *Registry) ExecuteCallAsyncAdmitted(ctx context.Context, call ToolCall, admit func() error) (*ToolExecutionResult, error)

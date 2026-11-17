@@ -48,19 +48,21 @@ func newRateLimiter(maxPerMinute int) *rateLimiter {
 // limit. If allowed, it records the call and returns nil. If the limit is
 // exceeded, it returns ErrRateLimitExceeded (wrapped with the tool name).
 func (rl *rateLimiter) Allow(toolName string) error {
-	return rl.allowAdmitted(toolName, nil)
+	_, err := rl.allowAdmitted(toolName, nil)
+	return err
 }
 
 // allowAdmitted is Allow, with admit (when not nil) called under the
 // limiter's lock once the registry's limit allows the call. If admit refuses,
 // its error is returned and the call is not recorded, so neither limit counts
-// a call the other refused.
-func (rl *rateLimiter) allowAdmitted(toolName string, admit func() error) error {
+// a call the other refused. at is the time the call was recorded at, zero
+// when nothing was recorded (no limit), for withdraw.
+func (rl *rateLimiter) allowAdmitted(toolName string, admit func() error) (at int64, err error) {
 	if rl == nil || rl.maxPerMinute <= 0 {
 		if admit != nil {
-			return admit()
+			return 0, admit()
 		}
-		return nil
+		return 0, nil
 	}
 
 	rl.mu.Lock()
@@ -78,17 +80,35 @@ func (rl *rateLimiter) allowAdmitted(toolName string, admit func() error) error 
 	timestamps = timestamps[start:]
 
 	if len(timestamps) >= rl.maxPerMinute {
-		return fmt.Errorf("%w: tool %q limited to %d calls/minute",
+		return 0, fmt.Errorf("%w: tool %q limited to %d calls/minute",
 			ErrRateLimitExceeded, toolName, rl.maxPerMinute)
 	}
 	if admit != nil {
 		if err := admit(); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 	rl.callsByTool[toolName] = append(timestamps, now)
-	return nil
+	return now, nil
+}
+
+// withdraw takes back the call to toolName recorded at at, for a call whose
+// executor then deferred it: it is counted when the host settles it
+// (Registry.AdmitSettled).
+func (rl *rateLimiter) withdraw(toolName string, at int64) {
+	if rl == nil {
+		return
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	timestamps := rl.callsByTool[toolName]
+	for i := len(timestamps) - 1; i >= 0; i-- {
+		if timestamps[i] == at {
+			rl.callsByTool[toolName] = append(timestamps[:i:i], timestamps[i+1:]...)
+			return
+		}
+	}
 }
 
 // SetLimit updates the per-minute limit. Pass 0 to disable.

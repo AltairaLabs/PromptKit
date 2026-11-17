@@ -158,6 +158,13 @@ func (deferringExecutor) Execute(context.Context, *tools.ToolDescriptor, json.Ra
 	return nil, fmt.Errorf("deferringExecutor runs asynchronously only")
 }
 
+// Defer defers every call without running it (tools.DeferringExecutor), as
+// the SDK's client executor does for a client tool with no handler.
+func (e deferringExecutor) Defer(d *tools.ToolDescriptor, call tools.ToolCall) (*tools.ToolExecutionResult, bool) {
+	res, _ := e.ExecuteAsync(context.Background(), d, call.Args)
+	return res, true
+}
+
 func (deferringExecutor) ExecuteAsync(
 	_ context.Context, d *tools.ToolDescriptor, _ json.RawMessage,
 ) (*tools.ToolExecutionResult, error) {
@@ -179,15 +186,13 @@ func TestProviderStage_MaxCallsPerMinuteDoesNotCountDeferredCalls(t *testing.T) 
 		Name: "read_kit", Description: "test", InputSchema: json.RawMessage(`{"type":"object"}`), Mode: "deferring",
 	}))
 
-	// One call a round: a deferring call counts while it is in flight, so
-	// calls of one round could see each other there.
-	for i := range 3 {
-		results, err := stage.executeToolCalls(context.Background(), kitCalls(fmt.Sprintf("d%d-", i), 1),
-			roundRef{round: 1})
-		var pending *tools.ErrToolsPending
-		require.ErrorAs(t, err, &pending, "call %d is deferred, not refused", i)
-		assert.Zero(t, countLimitRefusals(results))
-	}
+	// Twenty calls in one round, run in parallel: none is refused for its
+	// siblings, which are never admitted at dispatch.
+	results, err := stage.executeToolCalls(context.Background(), kitCalls("d", 20), roundRef{round: 1})
+	var pending *tools.ErrToolsPending
+	require.ErrorAs(t, err, &pending)
+	assert.Len(t, pending.Pending, 20, "every call is deferred, none refused")
+	assert.Zero(t, countLimitRefusals(results))
 	assert.Zero(t, admitted(stage.callRate, "conv-a", "read_kit"))
 }
 

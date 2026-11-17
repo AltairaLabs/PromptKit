@@ -289,13 +289,13 @@ func TestContinue_ResolutionBranches(t *testing.T) {
 			wantError:   "rejected by user",
 		},
 		{
-			name: "handler error is the error text, without the SDK's wrapper",
+			name: "handler error is worded as the stage words a failed call, without the SDK's wrapper",
 			exec: func(map[string]any) (any, error) { return nil, errors.New("gps offline") },
 			resolve: func(conv *Conversation, id string) error {
 				_, err := conv.ResolveTool(context.Background(), id)
 				return err
 			},
-			wantContent: "Tool error: gps offline",
+			wantContent: "Tool execution failed: gps offline",
 			wantError:   "gps offline",
 		},
 	}

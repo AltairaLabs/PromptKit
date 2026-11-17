@@ -1280,7 +1280,7 @@ func (e *CallRateLimitError) Error() string
 
 
 <a name="CallRateWindow"></a>
-## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L78-L84>)
+## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L82-L88>)
 
 CallRateWindow enforces ToolPolicy.MaxCallsPerMinute. For each conversation and tool, it counts the calls admitted to run in the last minute. A call is checked against the limit, and counted, only when it is admitted \(Admit\):
 
@@ -1290,7 +1290,7 @@ CallRateWindow enforces ToolPolicy.MaxCallsPerMinute. For each conversation and 
 
 A call that is refused, rejected, abandoned or never answered is never counted. Nothing is reserved, so nothing is left to give back. The cost is that a held or deferred call is checked late: a human may approve a call that then hits the limit, and a client may run a call whose result is then refused.
 
-The stage admits a call through tools.Registry.ExecuteAsyncAdmitted, after the registry's own checks pass \(the tool exists, its arguments are valid, the registry's rate limit allows it\), so a call those refuse is never counted. Whether an executor defers a call is known only when it returns: the stage takes a deferred call's admission back then. While the executor runs, the call counts, so another call to the same tool in the same round can be refused for the limit in that moment.
+The stage admits a call through tools.Registry.ExecuteAsyncAdmitted, after the registry's own checks pass \(the tool exists, its arguments are valid, the registry's rate limit allows it\), so a call those refuse is never counted. A call its executor defers without running it \(tools.DeferringExecutor, as the SDK's client executor does for a client tool with no handler\) is never admitted at dispatch, so a round's deferred calls never take each other's room. For an executor that cannot say, a deferred call is known only when the executor returns: the stage takes its admission back then. While such an executor runs, the call counts, so another call to the same tool in the same round can be refused for the limit in that moment.
 
 A provider stage holds one window \(ProviderConfig.CallRate, or its own\), so the window spans every turn of a conversation the stage runs. Safe for concurrent use: a round's calls are admitted in parallel.
 
@@ -1303,7 +1303,7 @@ type CallRateWindow struct {
 ```
 
 <a name="NewCallRateWindow"></a>
-### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L87>)
+### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L91>)
 
 ```go
 func NewCallRateWindow() *CallRateWindow
@@ -1312,7 +1312,7 @@ func NewCallRateWindow() *CallRateWindow
 NewCallRateWindow returns an empty window.
 
 <a name="CallRateWindow.Admit"></a>
-### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L110>)
+### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L114>)
 
 ```go
 func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error
@@ -1321,7 +1321,7 @@ func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error
 Admit admits a call to tool in conversationID under a limit of limit calls per minute. If the calls admitted in the last minute already reach the limit, it returns a \*CallRateLimitError and counts nothing; otherwise the call counts for one minute from now. The host calls it for a call that runs outside the provider stage: a held call when it is approved, a deferred call when its result is used. A nil window or a limit of 0 or less admits every call.
 
 <a name="CallRateWindow.Scoped"></a>
-### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L96>)
+### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L100>)
 
 ```go
 func (w *CallRateWindow) Scoped(scope string) *CallRateWindow
