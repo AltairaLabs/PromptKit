@@ -101,8 +101,8 @@ way, and speech the provider hears before it ends is barge-in, with the same
 session also cuts the model's copy of the reply to the audio the caller heard.
 Gemini Live reports nothing until it has transcribed some of the speech, so its
 `Interrupted` chunk arrives a moment later. A reply that OpenAI Realtime cuts
-short while still generating it ends with `finish_reason` `interrupted` instead
-of an `Interrupted` chunk.
+short while still generating it ends with `finish_reason` `interrupted`, and an
+`Interrupted` chunk arrives right before that end.
 
 The speech that interrupted the reply is the user's next turn, and it is
 transcribed in full. Speech that starts after the reply has finished playing is
@@ -119,14 +119,15 @@ holds. The chunks on `Response()` are not delayed.
 
 If the caller barges in, or the session ends while the reply still plays, the
 stored reply keeps its full text and its `FinishReason`, so it stays in model
-context with any tool calls it made. Its `Meta` gains:
+context with any tool calls it made. A reply a guardrail blocks is stored as the
+guardrail's message, marked `safety`. Its `Meta` gains:
 
 | Key | Value |
 |---|---|
 | `heard_ms` | how much of the reply's audio had played, in milliseconds |
 | `audio_ms` | the reply's audio length, in milliseconds |
 | `played_fraction` | `heard_ms` over `audio_ms`, from 0 to 1 |
-| `playout_cut` | `barge-in`, or `session-closed` |
+| `playout_cut` | `barge-in`, `guardrail`, or `session-closed` |
 
 The text is not cut to the words heard: neither provider's transcript of the
 reply audio carries timing, so it cannot be aligned with the audio. A reply

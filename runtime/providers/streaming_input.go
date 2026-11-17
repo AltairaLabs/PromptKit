@@ -226,6 +226,30 @@ type StreamInputSupport interface {
 	GetStreamingCapabilities() StreamingCapabilities
 }
 
+// ResponseInterrupter is an optional StreamInputSession interface for a
+// session that can stop a reply on the caller's behalf, the way a barge-in
+// stops it. The duplex pipeline calls it when a guardrail blocks the reply.
+//
+// InterruptResponse stops the reply numbered generation (StreamChunk.Generation)
+// and only that one: while the model is generating it, the response is
+// canceled and its audio still to be delivered on Response() is dropped; the
+// provider's own copy of the reply is cut to the audio the caller has heard,
+// so the model's context holds no more of it than the caller heard. A reply
+// not created yet is stopped as soon as it is, unless the caller starts a new
+// turn first. A reply that has completed is only cut, and a later reply is
+// never touched. Generation 0 (a caller that cannot tell) is the response in
+// progress, or the next one. It sends no Interrupted chunk: the caller that
+// interrupts reports the interruption itself. The response's end still
+// arrives on Response() as the provider reports it (OpenAI Realtime: a
+// canceled response.done).
+//
+// A session without it keeps generating, and the pipeline drops the rest of
+// the reply. Gemini Live is one: it cannot stop a reply without adding a turn
+// to the conversation.
+type ResponseInterrupter interface {
+	InterruptResponse(ctx context.Context, generation int64) error
+}
+
 // LateInputTranscriber is an optional interface a StreamInputSupport provider
 // implements to declare that it delivers the user's input transcription AFTER
 // the assistant response has already begun — e.g. OpenAI Realtime, whose Whisper

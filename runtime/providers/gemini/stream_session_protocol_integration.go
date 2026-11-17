@@ -39,6 +39,9 @@ const (
 const (
 	metaKeyType         = "type"
 	metaKeyTurnComplete = "turn_complete"
+	// metaKeyTurnCompleteReason carries Gemini's turnCompleteReason on the
+	// chunk that ends the turn.
+	metaKeyTurnCompleteReason = "turn_complete_reason"
 )
 
 // defaultOutputSampleRate is the default output sample rate for Gemini native audio models (24kHz).
@@ -393,15 +396,13 @@ func (s *StreamSession) processServerContent(content *ServerContent) error {
 	}
 
 	if content.TurnComplete && content.ModelTurn == nil {
-		finishReason := finishReasonComplete
-		return s.sendChunk(&providers.StreamChunk{
-			FinishReason: &finishReason,
-			CostInfo:     s.takeTurnCost(),
-		})
+		chunk := providers.StreamChunk{CostInfo: s.takeTurnCost()}
+		setTurnComplete(&chunk, content.TurnCompleteReason)
+		return s.sendChunk(&chunk)
 	}
 
 	if content.ModelTurn != nil {
-		return s.processModelTurn(content.ModelTurn, content.TurnComplete)
+		return s.processModelTurn(content)
 	}
 
 	return nil
@@ -435,8 +436,23 @@ func (s *StreamSession) handleOutputTranscription(content *ServerContent) error 
 	})
 }
 
-// processModelTurn processes a model turn from the server
-func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
+// setTurnComplete marks chunk as the end of the turn: its finish reason from
+// the turnCompleteReason, which is kept under turn_complete_reason when set.
+func setTurnComplete(chunk *providers.StreamChunk, reason string) {
+	finishReason := liveTurnFinishReason(reason)
+	chunk.FinishReason = &finishReason
+	if reason == "" {
+		return
+	}
+	if chunk.Metadata == nil {
+		chunk.Metadata = map[string]interface{}{}
+	}
+	chunk.Metadata[metaKeyTurnCompleteReason] = reason
+}
+
+// processModelTurn processes a server content's model turn.
+func (s *StreamSession) processModelTurn(content *ServerContent) error {
+	turn := content.ModelTurn
 	response := providers.StreamChunk{
 		Content: "",
 	}
@@ -460,9 +476,8 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) err
 	}
 
 	// Mark turn completion and include the turn's cost
-	if turnComplete {
-		finishReason := finishReasonComplete
-		response.FinishReason = &finishReason
+	if content.TurnComplete {
+		setTurnComplete(&response, content.TurnCompleteReason)
 		response.CostInfo = s.takeTurnCost()
 	}
 

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "realtime-showcase",
+  "name": "Realtime Showcase",
+  "version": "1.0.0",
+  "description": "A realtime voice assistant that shows barge-in, guardrails, a tool that returns an image, and per-turn cost.",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "showcase": {
+      "id": "showcase",
+      "name": "Realtime Showcase",
+      "version": "1.0.0",
+      "system_template": "You are a friendly voice assistant in a live demo. Speak naturally and keep ordinary answers to one or two sentences. You can show the user a picture: when they ask to see the picture, call the show_picture tool, look at the image it returns, and tell them the number printed on it. Never guess the number; if you received no image, say so. When the user asks for a story, tell a long, detailed story that lasts at least two minutes. When the user asks you to say a word, say it.",
+      "tools": ["show_picture"],
+      "validators": [
+        {
+          "id": "no-pineapple",
+          "type": "content_excludes",
+          "message": "Sorry, I can't say that word.",
+          "params": {
+            "patterns": ["pineapple"],
+            "direction": "output"
+          }
+        },
+        {
+          "id": "no-banana",
+          "type": "content_excludes",
+          "message": "Let's not talk about bananas.",
+          "params": {
+            "patterns": ["banana"],
+            "direction": "input"
+          }
+        }
+      ]
+    }
+  },
+  "tools": {
+    "show_picture": {
+      "name": "show_picture",
+      "description": "Show the user today's picture. Returns the picture as a PNG image; read what is printed on it.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  }
+}

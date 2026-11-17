@@ -9,7 +9,7 @@ const maxPendingTruncates = 32
 // not yet answered. An error names the event it rejects by its ID. The
 // server's conversation.item.truncated does not echo the event ID, only the
 // item, so it acknowledges the item's oldest pending truncate (the server
-// answers an item's truncates in order). Receive goroutine only.
+// answers an item's truncates in order). Guarded by the session's recvMu.
 type truncateTracker struct {
 	pending []pendingTruncate
 }

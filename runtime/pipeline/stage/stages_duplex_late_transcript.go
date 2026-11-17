@@ -76,8 +76,9 @@ func (s *DuplexProviderStage) placeFinalTranscript(
 }
 
 // emitLateUserTurn emits text as the answered turn's user message, marked
-// late, and puts it in the hooks' history ahead of that turn's reply. It
-// begins no tool turn: the turn it belongs to already has one.
+// late, and puts it in the hooks' history ahead of that turn's reply, then
+// checks it with the input guardrails. It begins no tool turn: the turn it
+// belongs to already has one.
 func (s *DuplexProviderStage) emitLateUserTurn(ctx context.Context, text string, output chan<- StreamElement) error {
 	user := &types.Message{Role: roleUser, Content: text,
 		Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &text}}}
@@ -91,7 +92,14 @@ func (s *DuplexProviderStage) emitLateUserTurn(ctx context.Context, text string,
 	}
 	elem := StreamElement{Message: user}
 	elem.Meta.LateTranscript = true
-	return s.emit(ctx, elem, output)
+	if err := s.emit(ctx, elem, output); err != nil {
+		return err
+	}
+	// It is judged as the input it is, though its reply follows it in the
+	// history. A finished turn's reply completed: a block can only cut what
+	// still plays. A tool turn goes on: a block stops the rest of it.
+	s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn)
+	return nil
 }
 
 // noteReplyStarted records that a reply is streaming: a finished turn still

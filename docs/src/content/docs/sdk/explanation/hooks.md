@@ -49,7 +49,7 @@ Pick the hook whose contract matches your intent. A PII redactor gates content: 
 
 Hooks that modify behavior take one of two shapes.
 
-Provider, chunk and tool hooks are decision-based: the hook returns a `Decision`. To mutate, the hook modifies the request or response in place before returning `hooks.Enforced(...)`. The alternative is `hooks.Deny(...)`. On a provider call, `Deny` produces a `HookDeniedError` and fails the turn: the provider stage returns the error, which reaches the caller as the last output element. Built-in guardrails return `Enforced` when a check fires. A guardrail whose handler errors also returns `Enforced`, with the validator's message, so it fails closed. The one exception is a streaming-check error in `OnChunk`, which returns `Deny`.
+Provider, chunk and tool hooks are decision-based: the hook returns a `Decision`. To mutate, the hook modifies the request or response in place before returning `hooks.Enforced(...)`. The alternative is `hooks.Deny(...)`. On a provider call, `Deny` produces a `HookDeniedError` and fails the turn: the provider stage returns the error, which reaches the caller as the last output element. In a realtime voice session, a `Deny` on typed text, on the caller's spoken input or on the reply instead ends the turn with the default blocked message, and the session goes on (see [Guardrails in realtime voice](/sdk/how-to/voice/choose-voice-mode/#guardrails-in-realtime-voice)). Built-in guardrails return `Enforced` when a check fires. A guardrail whose handler errors also returns `Enforced`, with the validator's message, so it fails closed. The one exception is a streaming-check error in `OnChunk`, which returns `Deny`.
 
 `Enforced` means something different at each of the two `ProviderHook` seams:
 

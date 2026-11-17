@@ -67,8 +67,8 @@ type RealtimeSession struct {
 	// shared identically across providers. Embedded so those methods promote.
 	*providers.StreamPump
 
-	// responseActive is touched only from the receiveLoop goroutine
-	// (handleMessage), so it needs no lock. It tracks whether a model response is
+	// responseActive is guarded by recvMu (handleMessage and
+	// InterruptResponse). It tracks whether a model response is
 	// in progress (response.created..response.done), which distinguishes real
 	// barge-in (user spoke over the agent) from a normal turn start. The audio-
 	// drop state lives on the StreamPump (Dropping/Barge/ClearDrop).
@@ -79,15 +79,30 @@ type RealtimeSession struct {
 	// unless a test injects one). truncates tracks the
 	// conversation.item.truncate events awaiting the server's answer, so a
 	// rejected one is logged instead of failing the turn
-	// (realtime_playout.go). Receive goroutine only.
+	// (realtime_playout.go). Guarded by recvMu.
 	playout   *audio.Playout
 	now       func() time.Time
 	truncates truncateTracker
+	// cancels tracks the response.cancel events InterruptResponse sent, so
+	// one the server rejects (the response had ended) is not a session error.
+	cancels truncateTracker
+	// cancelGen is the generation of a response InterruptResponse named
+	// before the server created it: it is canceled when it is created
+	// (realtime_interrupt.go). A new turn clears it.
+	cancelGen int64
+	// emitClosed is set once the receive loop has closed emitCh: nothing may
+	// be emitted after it.
+	emitClosed bool
+
+	// recvMu is held while a server event is handled and while
+	// InterruptResponse runs, so the state above, otherwise the receive
+	// goroutine's alone, is never touched by two goroutines at once.
+	recvMu sync.Mutex
 
 	// gen numbers the session's responses (StreamChunk.Generation): one per
 	// response, from response.created; respGens maps a response ID to its
 	// number, for the last maxRespGens responses (a canceled response's
-	// events can trail in after the next began). Receive goroutine only.
+	// events can trail in after the next began). Guarded by recvMu.
 	gen       int64
 	respGens  map[string]int64
 	respOrder []string
@@ -342,7 +357,8 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 		return fmt.Errorf("failed to send text: %w", err)
 	}
 
-	// Trigger a response
+	// Trigger a response: a new turn, which no pending cancel applies to
+	s.startClientTurn()
 	responseEvent := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
@@ -426,6 +442,7 @@ func (s *RealtimeSession) TriggerResponse(config *ResponseConfig) error {
 	}
 	s.mu.Unlock()
 
+	s.startClientTurn()
 	event := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
@@ -449,7 +466,7 @@ func (s *RealtimeSession) CancelResponse() error {
 	event := ResponseCancelEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
-			Type:    "response.cancel",
+			Type:    realtimeEventResponseCancel,
 		},
 	}
 
@@ -544,7 +561,10 @@ func (s *RealtimeSession) receiveLoop() {
 		// canceling the context so a terminal chunk (e.g. connection-lost) is
 		// delivered to a reading consumer first. cancel() is idempotent — Close()
 		// may have already called it.
+		s.recvMu.Lock()
+		s.emitClosed = true
 		close(s.emitCh)
+		s.recvMu.Unlock()
 		s.Wait()
 		s.cancel()
 	}()
@@ -625,6 +645,8 @@ func (s *RealtimeSession) handleReceiveLoopEnd(err error) {
 
 // handleMessage processes a single message from the server.
 func (s *RealtimeSession) handleMessage(data []byte) {
+	s.recvMu.Lock()
+	defer s.recvMu.Unlock()
 	event, err := ParseServerEvent(data)
 	if err != nil {
 		logger.Warn("OpenAI Realtime: failed to parse event", "error", err)
@@ -660,6 +682,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.startGeneration(e.Response.ID)
 		s.responseActive = true
 		s.ClearDrop()
+		s.cancelPending()
 	case *ResponseDoneEvent:
 		s.handleResponseDone(e)
 	case *InputAudioBufferSpeechStartedEvent:
@@ -734,6 +757,7 @@ func (s *RealtimeSession) playoutEstimate() *audio.Playout {
 // finished generating gets no canceled response.done to end it, so the
 // interruption is also reported in-band, as an Interrupted chunk.
 func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEvent) {
+	s.cancelGen = 0 // the caller's new turn: a pending cancel was the last one's
 	playing := s.playoutEstimate().Playing()
 	if !s.responseActive && !playing {
 		logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
@@ -773,6 +797,9 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 	if s.truncates.rejected(e.Error.EventID) {
 		logger.Warn("OpenAI Realtime: the server rejected truncating the interrupted reply",
 			"code", e.Error.Code, "message", e.Error.Message)
+		return
+	}
+	if s.cancelRejected(e) {
 		return
 	}
 	logger.Error("OpenAI Realtime: server error",

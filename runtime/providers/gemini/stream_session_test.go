@@ -984,7 +984,7 @@ func TestProcessModelTurn_ThoughtRoutedToReasoning(t *testing.T) {
 		{Text: "Let me reason about this.", Thought: true},
 		{Text: "Spoken answer.", Thought: false},
 	}}
-	if err := s.processModelTurn(turn, false); err != nil {
+	if err := s.processModelTurn(&ServerContent{ModelTurn: turn}); err != nil {
 		t.Fatalf("processModelTurn: %v", err)
 	}
 	chunk := <-s.emitCh

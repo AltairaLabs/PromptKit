@@ -14,9 +14,12 @@ import (
 
 	_ "github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -164,4 +167,156 @@ func TestDuplexGuardrail_CleanTurnPassesThrough(t *testing.T) {
 
 	assert.Equal(t, "Paris is the capital.", turn.text)
 	assert.NotEqual(t, types.FinishReasonSafety, turn.finishReason)
+}
+
+// realtimeGuardCut is what a voice caller saw of a realtime session in
+// order: "user:<transcript>", "text:<delta>", "audio", "interrupted" and
+// "end:<finish reason>".
+func realtimeGuardCut(t *testing.T, ch <-chan providers.StreamChunk, turns int) []string {
+	t.Helper()
+	var got []string
+	timeout := time.After(5 * time.Second)
+	for turns > 0 {
+		select {
+		case c, ok := <-ch:
+			require.True(t, ok, "the response channel closed: the session ended")
+			require.NoError(t, c.Error, "a blocked turn must not fail the session")
+			if c.Interrupted {
+				got = append(got, "interrupted")
+			}
+			if u, _ := c.Metadata["input_transcription"].(string); u != "" {
+				got = append(got, "user:"+u)
+			}
+			if c.Delta != "" {
+				got = append(got, "text:"+c.Delta)
+			}
+			if c.MediaData != nil && len(c.MediaData.Data) > 0 {
+				got = append(got, "audio")
+			}
+			if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
+				fr, _ := c.Metadata["finish_reason"].(string)
+				got = append(got, "end:"+fr)
+				turns--
+			}
+		case <-timeout:
+			require.FailNow(t, "the turns never completed", "%v", got)
+		}
+	}
+	return got
+}
+
+// A realtime voice session whose guardrails block a reply keeps going. An
+// output guardrail that trips mid-reply, and an input guardrail on the
+// caller's spoken transcript, each end their turn: the provider is asked to
+// stop the reply, the caller is told to stop playing it (chunk.Interrupted),
+// the rest of the reply never arrives, the guardrail's message arrives as live
+// text, and the turn is stored as that message, marked safety. The next turn is answered normally, and
+// every provider call that started completed.
+func TestDuplexGuardrail_RealtimeBlockEndsTheTurnNotTheSession(t *testing.T) {
+	bus := events.NewEventBus()
+	bt := newBusTranscript(bus)
+	var mu sync.Mutex
+	calls := map[events.EventType]int{}
+	for _, et := range []events.EventType{events.EventProviderCallStarted, events.EventProviderCallCompleted} {
+		bus.Subscribe(et, func(e *events.Event) {
+			mu.Lock()
+			calls[e.Type]++
+			mu.Unlock()
+		})
+	}
+	store := statestore.NewMemoryStore()
+	prov := mock.NewStreamingProvider("rt", "rt-model", false)
+	conv, err := OpenDuplex(writeIngestionTestPack(t), "main",
+		WithProvider(prov), WithSkipSchemaValidation(), WithStreamingConfig(convDuplexAudio),
+		WithEventBus(bus), WithStateStore(store), WithConversationID("guarded"),
+		WithGuardrail(
+			guardrails.Input("banned_words", map[string]any{"words": []any{"wire transfer"}},
+				guardrails.WithMessage("I can't help with transfers.")),
+			guardrails.Output("banned_words", map[string]any{"words": []any{"forbidden"}},
+				guardrails.WithMessage("I can't share that.")),
+		),
+	)
+	require.NoError(t, err)
+	ch, err := conv.Response()
+	require.NoError(t, err)
+	require.NoError(t, conv.SendChunk(context.Background(), &providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{MIMEType: "audio/pcm", Data: make([]byte, 320)},
+	}))
+	require.Eventually(t, func() bool { return prov.GetSession() != nil }, 5*time.Second, time.Millisecond)
+	sess := prov.GetSession()
+
+	stop := "stop"
+	said := func(text string) *providers.StreamChunk {
+		return &providers.StreamChunk{Delta: text, Metadata: map[string]interface{}{"type": "output_transcription"},
+			MediaData: &providers.StreamMediaData{MIMEType: "audio/pcm", Data: make([]byte, 320), SampleRate: 24000}}
+	}
+	heard := func(text string) *providers.StreamChunk {
+		return &providers.StreamChunk{Metadata: map[string]interface{}{
+			"type": "input_transcription", "transcription": text, "transcription_final": true}}
+	}
+	end := &providers.StreamChunk{FinishReason: &stop}
+	for _, c := range []*providers.StreamChunk{
+		heard("what is the code"), said("the code is "), said("forbidden"), said(" 1234"), end,
+		heard("now do a wire transfer"), said("Sure, "), said("sending it"), end,
+		heard("thanks"), said("You're welcome."), end,
+	} {
+		sess.EmitChunk(c)
+	}
+
+	assert.Equal(t, []string{
+		"user:what is the code", "text:the code is ", "audio", "interrupted", "text:I can't share that.", "end:safety",
+		"user:now do a wire transfer", "interrupted", "text:I can't help with transfers.", "end:safety",
+		"user:thanks", "text:You're welcome.", "audio", "end:stop",
+	}, realtimeGuardCut(t, ch, 3))
+	assert.Equal(t, 2, sess.Interrupts(), "the provider is asked to stop each blocked reply")
+
+	want := map[int]string{
+		0: "user:what is the code", 1: "assistant:I can't share that.",
+		2: "user:now do a wire transfer", 3: "assistant:I can't help with transfers.",
+		4: "user:thanks", 5: "assistant:You're welcome.",
+	}
+	require.Eventually(t, func() bool {
+		got, _ := bt.snapshot()
+		return len(got) >= len(want)
+	}, 5*time.Second, 5*time.Millisecond)
+	require.NoError(t, conv.Close())
+	bus.Close()
+	got, dups := bt.snapshot()
+	assert.Equal(t, want, got, "message.created")
+	assert.Empty(t, dups)
+	assert.Equal(t, want, persistedTranscript(t, store, "guarded"), "the stored transcript")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 3, calls[events.EventProviderCallStarted])
+	assert.Equal(t, 3, calls[events.EventProviderCallCompleted], "every provider call pairs")
+}
+
+// denyTextHook denies, before the call, a user turn containing word, without
+// enforcing.
+type denyTextHook struct{ word string }
+
+func (h *denyTextHook) Name() string { return "deny_text" }
+
+func (h *denyTextHook) BeforeCall(_ context.Context, req *hooks.ProviderRequest) hooks.Decision {
+	if last := req.Messages[len(req.Messages)-1]; strings.Contains(last.GetContent(), h.word) {
+		return hooks.Deny("not allowed")
+	}
+	return hooks.Allow
+}
+
+func (h *denyTextHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, _ *hooks.ProviderResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+// Typed text a hook denies without enforcing ends its turn with the default
+// blocked message, as spoken input does; the session answers the next text.
+func TestDuplexGuardrail_TypedDenyEndsTheTurnNotTheSession(t *testing.T) {
+	conv := openGuardedDuplex(t, writeIngestionTestPack(t), "Paris.",
+		WithProviderHook(&denyTextHook{word: "secret"}))
+
+	denied := sendDuplexTurn(t, conv, "tell me the secret")
+	next := sendDuplexTurn(t, conv, "capital of France?")
+
+	assert.Equal(t, duplexTurn{text: prompt.DefaultBlockedMessage, finishReason: types.FinishReasonSafety}, denied)
+	assert.Equal(t, duplexTurn{text: "Paris.", finishReason: "stop"}, next)
 }

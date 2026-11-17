@@ -375,3 +375,47 @@ func TestPlayoutHold_OneTurnEndPerReply(t *testing.T) {
 	assert.Equal(t, 2, counter.ends, "one turn end per reply")
 	assert.Equal(t, []string{"First.", "Second."}, counter.messages, "each reply reaches the transcript once")
 }
+
+// guardrailCutElem is the duplex stage's cut of a reply a guardrail blocked.
+func guardrailCutElem() StreamElement {
+	e := NewInterruptElement()
+	fr := types.FinishReasonSafety
+	e.Meta.FinishReason = &fr
+	return e
+}
+
+// A reply a guardrail cuts while it streams reaches the transcript at once,
+// when it ends, with what the caller heard before the cut.
+func TestPlayoutHold_GuardrailCutRecordsWhatWasHeard(t *testing.T) {
+	r := startHold(t)
+	r.pass(t, replyAudio(time.Second))
+	r.clock.advance(400 * time.Millisecond)
+	cut := r.pass(t, guardrailCutElem())[0]
+	assert.True(t, cut.Interrupt, "the cut itself goes on")
+	blocked := replyEnd("I can't say that.")
+	blocked.Message.FinishReason = types.FinishReasonSafety
+	end := r.pass(t, blocked)[0]
+
+	assert.False(t, end.Meta.PlayoutHeld, "a cut reply is not held: it is no longer playing")
+	assert.Equal(t, playoutMeta{Finish: types.FinishReasonSafety, Cut: PlayoutCutGuardrail,
+		HeardMs: 400, AudioMs: 1000, Fraction: 0.4}, playoutOf(end.Message))
+	assert.True(t, r.idle(t), "nothing is released later")
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
+// A cut that is not a guardrail's (a provider's own barge-in, reported as an
+// Interrupt) is recorded as barge-in, and releases a finished reply still
+// playing.
+func TestPlayoutHold_InterruptReleasesHeldReplyAsBargeIn(t *testing.T) {
+	r := startHold(t)
+	r.pass(t, replyAudio(time.Second), replyEnd("A long story."))
+	r.clock.advance(250 * time.Millisecond)
+	r.pass(t, NewInterruptElement())
+	rel := r.next(t)
+	require.True(t, rel.Meta.PlayoutRelease)
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 250, AudioMs: 1000, Fraction: 0.25},
+		playoutOf(rel.Message))
+	close(r.in)
+	require.NoError(t, <-r.done)
+}

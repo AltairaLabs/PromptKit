@@ -58,10 +58,14 @@ type FunctionCall struct {
 
 // ServerContent represents the server content (BidiGenerateContentServerContent)
 type ServerContent struct {
-	ModelTurn           *ModelTurn     `json:"modelTurn,omitempty"`
-	TurnComplete        bool           `json:"turnComplete,omitempty"`
-	GenerationComplete  bool           `json:"generationComplete,omitempty"`
-	Interrupted         bool           `json:"interrupted,omitempty"`
+	ModelTurn          *ModelTurn `json:"modelTurn,omitempty"`
+	TurnComplete       bool       `json:"turnComplete,omitempty"`
+	GenerationComplete bool       `json:"generationComplete,omitempty"`
+	Interrupted        bool       `json:"interrupted,omitempty"`
+	// TurnCompleteReason is why the turn completed, sent with turnComplete:
+	// Gemini's own safety filters ending a turn report it here
+	// (PROHIBITED_INPUT_CONTENT, GENERATED_AUDIO_SAFETY, ...).
+	TurnCompleteReason  string         `json:"turnCompleteReason,omitempty"`
 	InputTranscription  *Transcription `json:"inputTranscription,omitempty"`  // User speech transcription
 	OutputTranscription *Transcription `json:"outputTranscription,omitempty"` // Model speech transcription
 }
