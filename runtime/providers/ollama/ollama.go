@@ -31,6 +31,7 @@ const (
 	keyText          = "text"
 	keyFunction      = "function"
 	roleSystem       = "system"
+	roleTool         = "tool"
 	partTypeText     = "text"
 	toolTypeFunction = "function"
 )
@@ -96,14 +97,14 @@ func (p *Provider) Model() string {
 
 // Ollama API request/response structures (OpenAI-compatible format)
 type ollamaRequest struct {
-	Model       string          `json:"model"`
-	Messages    []ollamaMessage `json:"messages"`
-	Temperature float32         `json:"temperature"`
-	TopP        float32         `json:"top_p"`
-	MaxTokens   int             `json:"max_tokens,omitempty"` // 0 = no limit
-	Seed        *int            `json:"seed,omitempty"`
-	Stream      bool            `json:"stream"`
-	KeepAlive   string          `json:"keep_alive,omitempty"`
+	Model       string           `json:"model"`
+	Messages    []map[string]any `json:"messages"`
+	Temperature float32          `json:"temperature"`
+	TopP        float32          `json:"top_p"`
+	MaxTokens   int              `json:"max_tokens,omitempty"` // 0 = no limit
+	Seed        *int             `json:"seed,omitempty"`
+	Stream      bool             `json:"stream"`
+	KeepAlive   string           `json:"keep_alive,omitempty"`
 	// Ollama's OpenAI-compatible endpoint takes both penalties; nil sends
 	// neither.
 	FrequencyPenalty *float32 `json:"frequency_penalty,omitempty"`
@@ -157,30 +158,6 @@ type ollamaError struct {
 	Code    string `json:"code"`
 }
 
-// prepareMessages converts predict request messages to Ollama format with system message
-func (p *Provider) prepareMessages(
-	ctx context.Context, req providers.PredictionRequest,
-) ([]ollamaMessage, error) {
-	messages := make([]ollamaMessage, 0, len(req.Messages)+1)
-	if req.System != "" {
-		messages = append(messages, ollamaMessage{
-			Role:    roleSystem,
-			Content: req.System,
-		})
-	}
-
-	// Convert each message, handling both legacy text and multimodal Parts
-	for i := range req.Messages {
-		converted, err := p.convertMessageToOllama(ctx, &req.Messages[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert message: %w", err)
-		}
-		messages = append(messages, converted)
-	}
-
-	return messages, nil
-}
-
 // addOllamaPenalties sets the request's frequency and presence penalties on a
 // map-built request; nil sends neither. Ollama's OpenAI-compatible endpoint
 // has no top_k, so a request's top_k is dropped with a warning.
@@ -216,7 +193,7 @@ func (p *Provider) Predict(
 	req providers.PredictionRequest,
 ) (providers.PredictionResponse, error) {
 	// Convert messages to Ollama format
-	messages, err := p.prepareMessages(ctx, req)
+	messages, err := p.convertRequestMessagesToOllama(ctx, req)
 	if err != nil {
 		return providers.PredictionResponse{}, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -241,7 +218,7 @@ func (p *Provider) PredictStream(
 	req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	// Convert messages to Ollama format
-	messages, err := p.prepareMessages(ctx, req)
+	messages, err := p.convertRequestMessagesToOllama(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare messages: %w", err)
 	}
@@ -569,7 +546,7 @@ func getTextFromPart(part any) string {
 func (p *Provider) predictWithMessages(
 	ctx context.Context,
 	req providers.PredictionRequest,
-	messages []ollamaMessage,
+	messages []map[string]any,
 ) (providers.PredictionResponse, error) {
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)
@@ -686,7 +663,7 @@ func (p *Provider) predictWithMessages(
 func (p *Provider) predictStreamWithMessages(
 	ctx context.Context,
 	req providers.PredictionRequest,
-	messages []ollamaMessage,
+	messages []map[string]any,
 ) (<-chan providers.StreamChunk, error) {
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)

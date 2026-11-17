@@ -247,9 +247,9 @@ func TestGolden_PartnerRequest_NonStreaming(t *testing.T) {
 	req := &claudeRequest{
 		Model:     "anthropic.claude-opus-4-8",
 		MaxTokens: 100,
-		Messages: []claudeMessage{{
+		Messages: []claudeToolMessage{{
 			Role:    "user",
-			Content: []claudeContentBlock{{Type: "text", Text: "hello"}},
+			Content: []any{claudeTextContent{Type: "text", Text: "hello"}},
 		}},
 		System:       []claudeContentBlock{{Type: "text", Text: "you are helpful"}},
 		Temperature:  f32Ptr(0.1),
@@ -271,9 +271,9 @@ func TestGolden_PartnerRequest_Streaming(t *testing.T) {
 	cr := claudeRequest{
 		Model:     "anthropic.claude-opus-4-8",
 		MaxTokens: 100,
-		Messages: []claudeMessage{{
+		Messages: []claudeToolMessage{{
 			Role:    "user",
-			Content: []claudeContentBlock{{Type: "text", Text: "hello"}},
+			Content: []any{claudeTextContent{Type: "text", Text: "hello"}},
 		}},
 		System:       []claudeContentBlock{{Type: "text", Text: "you are helpful"}},
 		Temperature:  f32Ptr(0.1),

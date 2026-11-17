@@ -275,8 +275,8 @@ data: {"type":"message_stop","message":{"usage":{"input_tokens":10,"output_token
 	})
 }
 
-// TestConvertMessagesToClaudeFormat tests message conversion with cache control
-func TestConvertMessagesToClaudeFormat(t *testing.T) {
+// TestConvertPlainMessages tests the plain path's cache breakpoint on a long last message
+func TestConvertPlainMessages(t *testing.T) {
 	tests := []struct {
 		name               string
 		supportsCaching    bool
@@ -307,6 +307,22 @@ func TestConvertMessagesToClaudeFormat(t *testing.T) {
 			},
 			expectCacheControl: true,
 		},
+		{
+			name:            "Caching enabled at exactly the minimum length",
+			supportsCaching: true,
+			messages: []types.Message{
+				{Role: "user", Content: strings.Repeat("a", messageCacheMinTokens*charsPerToken)},
+			},
+			expectCacheControl: true,
+		},
+		{
+			name:            "Caching enabled one character under the minimum",
+			supportsCaching: true,
+			messages: []types.Message{
+				{Role: "user", Content: strings.Repeat("a", messageCacheMinTokens*charsPerToken-1)},
+			},
+			expectCacheControl: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -319,18 +335,28 @@ func TestConvertMessagesToClaudeFormat(t *testing.T) {
 				},
 			}
 
-			result, err := provider.convertMessagesToClaudeFormat(context.Background(), tt.messages)
+			result, err := provider.convertPlainMessages(context.Background(), tt.messages)
 			require.NoError(t, err)
 			require.NotEmpty(t, result)
 
 			lastMsg := result[len(result)-1]
+			block, ok := lastMsg.Content[0].(claudeTextContent)
+			require.True(t, ok)
 			if tt.expectCacheControl {
-				assert.NotNil(t, lastMsg.Content[0].CacheControl)
+				assert.Equal(t, &claudeCacheControl{Type: cacheTypeEphemeral}, block.CacheControl)
 			} else {
-				assert.Nil(t, lastMsg.Content[0].CacheControl)
+				assert.Nil(t, block.CacheControl)
 			}
 		})
 	}
+}
+
+// An empty history converts to no messages, with caching on.
+func TestConvertPlainMessages_EmptyHistory(t *testing.T) {
+	provider := &Provider{model: "claude-sonnet-4-6"}
+	result, err := provider.convertPlainMessages(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Empty(t, result)
 }
 
 // TestCreateSystemBlocks tests system block creation with cache control
@@ -592,7 +618,7 @@ func TestMakeClaudeHTTPRequest(t *testing.T) {
 			claudeReq := claudeRequest{
 				Model:     "claude-3-opus",
 				MaxTokens: 100,
-				Messages:  []claudeMessage{},
+				Messages:  []claudeToolMessage{},
 			}
 
 			_, _, err := provider.makeClaudeHTTPRequest(context.Background(), claudeReq, providers.PredictionResponse{}, time.Now())

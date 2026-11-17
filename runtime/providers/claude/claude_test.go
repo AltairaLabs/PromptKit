@@ -293,63 +293,6 @@ func TestClaudeProvider_DifferentModels(t *testing.T) {
 	}
 }
 
-func TestClaudeRequest_Structure(t *testing.T) {
-	req := claudeRequest{
-		Model:     "claude-3-5-sonnet-20241022",
-		MaxTokens: 1000,
-		Messages: []claudeMessage{
-			{
-				Role: "user",
-				Content: []claudeContentBlock{
-					{Type: "text", Text: "Hello"},
-				},
-			},
-		},
-		System: []claudeContentBlock{
-			{Type: "text", Text: "You are helpful"},
-		},
-		Temperature: f32Ptr(0.7),
-		TopP:        0.9,
-	}
-
-	if req.Model != "claude-3-5-sonnet-20241022" {
-		t.Error("Model mismatch")
-	}
-
-	if req.MaxTokens != 1000 {
-		t.Error("MaxTokens mismatch")
-	}
-
-	if msgs, ok := req.Messages.([]claudeMessage); !ok || len(msgs) != 1 {
-		t.Error("Messages count mismatch")
-	}
-
-	if len(req.System) != 1 {
-		t.Error("System blocks count mismatch")
-	}
-}
-
-func TestClaudeMessage_Structure(t *testing.T) {
-	msg := claudeMessage{
-		Role: "assistant",
-		Content: []claudeContentBlock{
-			{Type: "text", Text: "Response text"},
-		},
-	}
-
-	if msg.Role != "assistant" {
-		t.Error("Role mismatch")
-	}
-
-	if len(msg.Content) != 1 {
-		t.Error("Content count mismatch")
-	}
-
-	if msg.Content[0].Text != "Response text" {
-		t.Error("Content text mismatch")
-	}
-}
-
 func TestClaudeContentBlock_WithCacheControl(t *testing.T) {
 	block := claudeContentBlock{
 		Type: "text",
@@ -511,8 +454,8 @@ func TestMarshalPartnerRequest(t *testing.T) {
 		req := claudeRequest{
 			Model:     "should-be-ignored",
 			MaxTokens: 1024,
-			Messages: []claudeMessage{
-				{Role: "user", Content: []claudeContentBlock{{Type: "text", Text: "hello"}}},
+			Messages: []claudeToolMessage{
+				{Role: "user", Content: []any{claudeTextContent{Type: "text", Text: "hello"}}},
 			},
 		}
 
@@ -545,7 +488,7 @@ func TestMarshalPartnerRequest(t *testing.T) {
 	t.Run("with optional fields", func(t *testing.T) {
 		req := claudeRequest{
 			MaxTokens:   512,
-			Messages:    []claudeMessage{},
+			Messages:    []claudeToolMessage{},
 			System:      []claudeContentBlock{{Type: "text", Text: "system prompt"}},
 			Temperature: f32Ptr(0.7),
 			TopP:        0.9,
@@ -575,7 +518,7 @@ func TestMarshalPartnerRequest(t *testing.T) {
 	t.Run("zero optional fields omitted", func(t *testing.T) {
 		req := claudeRequest{
 			MaxTokens: 256,
-			Messages:  []claudeMessage{},
+			Messages:  []claudeToolMessage{},
 		}
 
 		data, err := provider.marshalPartnerRequest(&req)

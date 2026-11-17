@@ -339,9 +339,8 @@ func (p *Provider) authCredential() providers.Credential {
 // /v1/messages body. Every path — non-streaming Predict, streaming
 // PredictStream, and the tool builders — produces this one struct via
 // buildBaseRequest and layers on its own deltas (Stream, Tools, ToolChoice).
-// Messages is an interface because the no-tools paths use []claudeMessage
-// (text/image content blocks) while the tool paths use []claudeToolMessage
-// (interleaved tool_use/tool_result blocks); both marshal to {role, content}.
+// Messages comes from convertMessagesToClaudeFormat on every path, with or
+// without tools, so a history serializes the same way on each.
 // Optional fields use omitempty so an unset delta is absent from the wire body.
 type claudeRequest struct {
 	Model        string               `json:"model"`
@@ -518,11 +517,6 @@ func outputConfigFor(rf *providers.ResponseFormat) *claudeOutputConfig {
 	}
 }
 
-type claudeMessage struct {
-	Role    string               `json:"role"`
-	Content []claudeContentBlock `json:"content"`
-}
-
 type claudeContentBlock struct {
 	Type         string              `json:"type"` // "text", "image", etc.
 	Text         string              `json:"text,omitempty"`
@@ -598,50 +592,22 @@ const (
 	charsPerToken = 4
 )
 
-// convertMessagesToClaudeFormat converts provider messages to Claude format with cache control.
-// Handles both text-only and multimodal (image) messages inline.
-//
-// A media part that cannot be converted is an error: falling back to the
-// message's text used to send the model the question without its image.
-func (p *Provider) convertMessagesToClaudeFormat(
-	ctx context.Context, messages []types.Message,
-) ([]claudeMessage, error) {
-	claudeMessages := make([]claudeMessage, 0, len(messages))
-	minCharsForCaching := messageCacheMinTokens * charsPerToken // ~8192 characters
-
-	for i := range messages {
-		msg := &messages[i]
-
-		// Check if message has media content (images, audio, video)
-		if msg.HasMediaContent() {
-			// Use multimodal conversion path
-			claudeMsg, err := p.convertMessageToClaudeMultimodal(ctx, *msg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert message %d: %w", i, err)
-			}
-			claudeMessages = append(claudeMessages, claudeMsg)
-			continue
-		}
-
-		// Text-only message
-		textContent := msg.GetContent()
-		contentBlock := claudeContentBlock{
-			Type: contentTypeText,
-			Text: textContent,
-		}
-
-		// Only cache the last message with sufficient content to maximize cache hits
-		if p.supportsCaching() && i == len(messages)-1 && len(textContent) >= minCharsForCaching {
-			contentBlock.CacheControl = &claudeCacheControl{Type: cacheTypeEphemeral}
-		}
-
-		claudeMessages = append(claudeMessages, claudeMessage{
-			Role:    msg.Role,
-			Content: []claudeContentBlock{contentBlock},
-		})
+// convertPlainMessages serializes the messages of a request sent without
+// tools: the same serializer the tool path uses, so a history with tool turns
+// keeps its tool_use/tool_result linkage, plus the plain path's one cache
+// breakpoint: on a final tool block, or a final text block long enough for
+// Claude to cache.
+func (p *Provider) convertPlainMessages(
+	ctx context.Context, msgs []types.Message,
+) ([]claudeToolMessage, error) {
+	messages, err := p.convertMessagesToClaudeFormat(ctx, msgs)
+	if err != nil {
+		return nil, err
 	}
-
-	return claudeMessages, nil
+	if p.supportsCaching() {
+		markLastBlockCacheable(messages, messageCacheMinTokens*charsPerToken) // ~8192 characters of text
+	}
+	return messages, nil
 }
 
 // createSystemBlocks creates system content blocks with cache control if applicable
@@ -882,7 +848,7 @@ func (p *Provider) predictOnce(
 
 	// Build the canonical request via the shared base builder, then layer on
 	// structured outputs (the no-tools paths honor output_config).
-	messages, err := p.convertMessagesToClaudeFormat(ctx, req.Messages)
+	messages, err := p.convertPlainMessages(ctx, req.Messages)
 	if err != nil {
 		return providers.PredictionResponse{}, err
 	}

@@ -171,8 +171,11 @@ func (p *ToolProvider) buildToolRequest(
 	return ollamaReq, nil
 }
 
-// convertRequestMessagesToOllama converts all messages in a request to Ollama format
-func (p *ToolProvider) convertRequestMessagesToOllama(
+// convertRequestMessagesToOllama converts all messages in a request to Ollama
+// format. It is the one serializer for every request path, with or without
+// tools, so a history's tool calls and tool results keep their linkage
+// (tool_calls, tool_call_id) whether or not the request offers tools.
+func (p *Provider) convertRequestMessagesToOllama(
 	ctx context.Context, req providers.PredictionRequest,
 ) ([]map[string]any, error) {
 	messages := make([]map[string]any, 0, len(req.Messages)+1)
@@ -198,38 +201,41 @@ func (p *ToolProvider) convertRequestMessagesToOllama(
 }
 
 // convertSingleMessageForTools converts a single message to Ollama format including tool metadata.
-// A part that cannot be converted is an error, as on the non-tool path: falling
-// back to the message's text used to send the model the question without its media.
-func (p *ToolProvider) convertSingleMessageForTools(
+// A part that cannot be converted is an error: falling back to the message's
+// text used to send the model the question without its media.
+func (p *Provider) convertSingleMessageForTools(
 	ctx context.Context, msg *types.Message,
 ) (map[string]any, error) {
+	// A tool message carries text only: its media is described, so it is
+	// neither loaded nor encoded here.
+	if msg.Role == roleTool && msg.ToolResult != nil {
+		ollamaMsg := map[string]any{
+			keyRole:        msg.Role,
+			keyContent:     msg.ToolResult.GetTextContent(),
+			"tool_call_id": msg.ToolResult.ID,
+		}
+		if msg.ToolResult.HasMedia() {
+			ollamaMsg[keyContent] = providers.ToolResultTextWithUnsentMedia(p.ID(), "Ollama", msg.ToolResult)
+		}
+		if msg.ToolResult.Name != "" {
+			ollamaMsg[keyName] = msg.ToolResult.Name
+		}
+		return ollamaMsg, nil
+	}
+
 	// Convert message to Ollama format (handles both legacy and multimodal)
 	convertedMsg, err := p.convertMessageToOllama(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build the message map with content
 	ollamaMsg := map[string]any{
 		keyRole:    convertedMsg.Role,
 		keyContent: convertedMsg.Content,
 	}
-
-	// Add tool-related fields if present
 	if len(msg.ToolCalls) > 0 {
 		ollamaMsg["tool_calls"] = p.convertToolCallsToOllama(msg.ToolCalls)
 	}
-
-	// Handle tool result messages
-	if msg.Role == "tool" && msg.ToolResult != nil {
-		ollamaMsg["tool_call_id"] = msg.ToolResult.ID
-		ollamaMsg[keyName] = msg.ToolResult.Name
-		if msg.ToolResult.HasMedia() {
-			// A tool message carries text only; its media is described.
-			ollamaMsg[keyContent] = providers.ToolResultTextWithUnsentMedia(p.ID(), "Ollama", msg.ToolResult)
-		}
-	}
-
 	return ollamaMsg, nil
 }
 
@@ -237,7 +243,7 @@ func (p *ToolProvider) convertSingleMessageForTools(
 const keyName = "name"
 
 // convertToolCallsToOllama converts ToolCalls to Ollama format
-func (p *ToolProvider) convertToolCallsToOllama(toolCalls []types.MessageToolCall) []map[string]any {
+func (p *Provider) convertToolCallsToOllama(toolCalls []types.MessageToolCall) []map[string]any {
 	result := make([]map[string]any, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]any{

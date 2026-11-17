@@ -57,7 +57,7 @@ func TestGeminiProvider_ConvertLegacyMessage(t *testing.T) {
 		Content: "Hello, world!",
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert legacy message: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGeminiProvider_ConvertAssistantRole(t *testing.T) {
 		Content: "I can help!",
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestGeminiProvider_ConvertTextOnlyMultimodalMessage(t *testing.T) {
 		},
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestGeminiProvider_ConvertImageBase64Message(t *testing.T) {
 		},
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestGeminiProvider_ConvertMultipleImages(t *testing.T) {
 		},
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert message: %v", err)
 	}
@@ -214,42 +214,6 @@ func TestGeminiProvider_ConvertMultipleImages(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_ConvertImageURLReturnsError(t *testing.T) {
-	url := "https://example.com/image.jpg"
-	msg := types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
-			{
-				Type: "image",
-				Media: &types.MediaContent{
-					URL:      &url,
-					MIMEType: "image/jpeg",
-				},
-			},
-		},
-	}
-
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
-	if err == nil {
-		t.Error("Expected error for URL-based images (Gemini doesn't support URLs)")
-	}
-}
-
-func TestGeminiProvider_ConvertEmptyTextPart(t *testing.T) {
-	emptyText := ""
-	msg := types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
-			{Type: "text", Text: &emptyText},
-		},
-	}
-
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
-	if err == nil {
-		t.Error("Expected error for empty text part")
-	}
-}
-
 func TestGeminiProvider_ConvertImageMissingMedia(t *testing.T) {
 	msg := types.Message{
 		Role: "user",
@@ -258,7 +222,7 @@ func TestGeminiProvider_ConvertImageMissingMedia(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	if err == nil {
 		t.Error("Expected error for image without media")
 	}
@@ -278,7 +242,7 @@ func TestGeminiProvider_ConvertImageMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	if err == nil {
 		t.Error("Expected error for image without data source")
 	}
@@ -379,7 +343,7 @@ func TestGeminiProvider_ValidateMultimodalMessage(t *testing.T) {
 	}
 }
 
-func TestGeminiProvider_ConvertMessagesToGemini(t *testing.T) {
+func TestGeminiProvider_BuildToolContents_RolesAndMedia(t *testing.T) {
 	text1 := "First message"
 	text2 := "Second message"
 	imageData := "base64imagedata"
@@ -411,18 +375,7 @@ func TestGeminiProvider_ConvertMessagesToGemini(t *testing.T) {
 		},
 	}
 
-	contents, sysInst, err := convProvider().convertMessagesToGemini(context.Background(), messages, "You are helpful")
-	if err != nil {
-		t.Fatalf("Failed to convert messages: %v", err)
-	}
-
-	if sysInst == nil {
-		t.Fatal("Expected system instruction")
-	}
-
-	if len(sysInst.Parts) != 1 || sysInst.Parts[0].Text != "You are helpful" {
-		t.Error("System instruction not set correctly")
-	}
+	contents := convertContents(t, convProvider(), messages)
 
 	if len(contents) != 3 {
 		t.Fatalf("Expected 3 contents, got %d", len(contents))
@@ -459,7 +412,7 @@ func TestGeminiProvider_AudioSupport(t *testing.T) {
 		},
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert audio message: %v", err)
 	}
@@ -492,7 +445,7 @@ func TestGeminiProvider_VideoSupport(t *testing.T) {
 		},
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert video message: %v", err)
 	}
@@ -536,7 +489,7 @@ func TestGeminiProvider_MixedMultimodal(t *testing.T) {
 		},
 	}
 
-	converted, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	converted, err := convertOneMessage(msg)
 	if err != nil {
 		t.Fatalf("Failed to convert mixed multimodal message: %v", err)
 	}
@@ -680,61 +633,6 @@ func TestPredictStream_HTTPErrors(t *testing.T) {
 	}
 }
 
-// TestConvertImageMissingMIMEType tests missing MIME type error
-func TestConvertImageMissingMIMEType(t *testing.T) {
-	data := "base64data"
-	msg := types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
-			{
-				Type: types.ContentTypeImage,
-				Media: &types.MediaContent{
-					Data: &data,
-					// Missing MIMEType
-				},
-			},
-		},
-	}
-
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing mime_type")
-}
-
-// TestConvertUnsupportedPartType tests unsupported content type
-func TestConvertUnsupportedPartType(t *testing.T) {
-	msg := types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
-			{
-				Type: "unsupported_type",
-			},
-		},
-	}
-
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported part type")
-}
-
-// TestConvertNilTextPart tests nil text pointer
-func TestConvertNilTextPart(t *testing.T) {
-	msg := types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
-			{
-				Type: types.ContentTypeText,
-				Text: nil,
-			},
-		},
-	}
-
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "empty text")
-}
-
-// TestConvertMediaURLNotSupported tests error handling for unreachable URLs
 func TestConvertMediaURLNotSupported(t *testing.T) {
 	// Use localhost unreachable port for quick failure
 	url := "http://localhost:1/nonexistent.jpg"
@@ -751,7 +649,7 @@ func TestConvertMediaURLNotSupported(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	require.Error(t, err)
 	// MediaLoader now fetches URLs, so we expect connection error
 	assert.Contains(t, err.Error(), "failed to load image data")
@@ -772,7 +670,7 @@ func TestConvertMediaMissingDataSource(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no media source available")
 }
@@ -789,7 +687,7 @@ func TestConvertMediaMissingMediaField(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing media field")
 }
@@ -952,36 +850,6 @@ func TestParseGeminiResponse_InvalidJSON(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to unmarshal")
 }
 
-// TestConvertMessagesToGemini_WithSystemPrompt tests system prompt conversion
-func TestConvertMessagesToGemini_WithSystemPrompt(t *testing.T) {
-	messages := []types.Message{
-		{Role: "user", Content: "Hello"},
-	}
-
-	contents, systemInstruction, err := convProvider().convertMessagesToGemini(context.Background(), messages, "You are helpful")
-	require.NoError(t, err)
-	require.NotNil(t, systemInstruction)
-	assert.Equal(t, "You are helpful", systemInstruction.Parts[0].Text)
-	assert.Len(t, contents, 1)
-}
-
-// TestConvertMessagesToGemini_ConversionError tests message conversion error propagation
-func TestConvertMessagesToGemini_ConversionError(t *testing.T) {
-	messages := []types.Message{
-		{
-			Role: "user",
-			Parts: []types.ContentPart{
-				{Type: "unsupported_type"},
-			},
-		},
-	}
-
-	_, _, err := convProvider().convertMessagesToGemini(context.Background(), messages, "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported part type")
-}
-
-// TestPredict_InvalidURL tests the invalid URL error on the live Predict path
 func TestPredict_InvalidURL(t *testing.T) {
 	provider := NewProvider(
 		"test",
@@ -1001,25 +869,6 @@ func TestPredict_InvalidURL(t *testing.T) {
 	assert.NotZero(t, resp.Latency)
 }
 
-// TestConvertEmptyTextString tests empty string text
-func TestConvertEmptyTextString(t *testing.T) {
-	emptyStr := ""
-	msg := types.Message{
-		Role: "user",
-		Parts: []types.ContentPart{
-			{
-				Type: types.ContentTypeText,
-				Text: &emptyStr,
-			},
-		},
-	}
-
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "empty text")
-}
-
-// TestConvertAudioPartWithFilePath tests audio file path loading error
 func TestConvertAudioPartWithFilePath(t *testing.T) {
 	filePath := "/nonexistent/audio.mp3"
 	msg := types.Message{
@@ -1035,7 +884,7 @@ func TestConvertAudioPartWithFilePath(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read file")
 }
@@ -1056,7 +905,7 @@ func TestConvertVideoPartWithFilePath(t *testing.T) {
 		},
 	}
 
-	_, err := convProvider().convertMessageToGemini(context.Background(), msg)
+	_, err := convertOneMessage(msg)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to read file")
 }

@@ -54,9 +54,9 @@ func TestGeminiConvertMediaPart_ResolvesStorageReference(t *testing.T) {
 		},
 	}
 
-	got, err := p.convertMediaPartToGemini(context.Background(), p.MediaLoader(), part)
+	got, err := convertOnePartWith(p, part)
 	if err != nil {
-		t.Fatalf("convertMediaPartToGemini returned error: %v", err)
+		t.Fatalf("buildToolContents returned error: %v", err)
 	}
 	if got.InlineData == nil {
 		t.Fatalf("expected inline data on converted part, got nil")

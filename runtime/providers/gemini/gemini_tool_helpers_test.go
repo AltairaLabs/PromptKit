@@ -1,7 +1,9 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -113,13 +115,11 @@ func TestProcessToolMessage(t *testing.T) {
 
 func TestBuildMessageParts(t *testing.T) {
 	tests := []struct {
-		name               string
-		msg                types.Message
-		pendingToolResults []map[string]interface{}
-		expectedMinParts   int
-		checkToolCall      bool
-		checkText          bool
-		checkToolResults   bool
+		name             string
+		msg              types.Message
+		expectedMinParts int
+		checkToolCall    bool
+		checkText        bool
 	}{
 		{
 			name: "User message with text only",
@@ -127,27 +127,8 @@ func TestBuildMessageParts(t *testing.T) {
 				Role:    "user",
 				Content: "Hello, how are you?",
 			},
-			pendingToolResults: nil,
-			expectedMinParts:   1,
-			checkText:          true,
-		},
-		{
-			name: "User message with pending tool results",
-			msg: types.Message{
-				Role:    "user",
-				Content: "What about now?",
-			},
-			pendingToolResults: []map[string]interface{}{
-				{
-					"functionResponse": map[string]interface{}{
-						"name":     "get_weather",
-						"response": map[string]string{"temp": "72F"},
-					},
-				},
-			},
-			expectedMinParts: 2, // Tool result + text
+			expectedMinParts: 1,
 			checkText:        true,
-			checkToolResults: true,
 		},
 		{
 			name: "Assistant message with tool calls",
@@ -162,10 +143,9 @@ func TestBuildMessageParts(t *testing.T) {
 					},
 				},
 			},
-			pendingToolResults: nil,
-			expectedMinParts:   2, // Text + tool call
-			checkToolCall:      true,
-			checkText:          true,
+			expectedMinParts: 2, // Text + tool call
+			checkToolCall:    true,
+			checkText:        true,
 		},
 		{
 			name: "Assistant message with multiple tool calls",
@@ -185,9 +165,8 @@ func TestBuildMessageParts(t *testing.T) {
 					},
 				},
 			},
-			pendingToolResults: nil,
-			expectedMinParts:   2,
-			checkToolCall:      true,
+			expectedMinParts: 2,
+			checkToolCall:    true,
 		},
 		{
 			name: "Empty message returns empty parts",
@@ -195,27 +174,13 @@ func TestBuildMessageParts(t *testing.T) {
 				Role:    "user",
 				Content: "",
 			},
-			pendingToolResults: nil,
-			expectedMinParts:   0,
-		},
-		{
-			name: "Non-user message ignores pending tool results",
-			msg: types.Message{
-				Role:    "assistant",
-				Content: "Response",
-			},
-			pendingToolResults: []map[string]interface{}{
-				{"functionResponse": map[string]interface{}{}},
-			},
-			expectedMinParts: 1,
-			checkText:        true,
-			checkToolResults: false, // Should not include tool results
+			expectedMinParts: 0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parts := mustBuildMessageParts(t, tt.msg, tt.pendingToolResults)
+			parts := mustBuildMessageParts(t, tt.msg)
 
 			if len(parts) < tt.expectedMinParts {
 				t.Errorf("Expected at least %d parts, got %d", tt.expectedMinParts, len(parts))
@@ -250,22 +215,6 @@ func TestBuildMessageParts(t *testing.T) {
 				}
 				if !foundToolCall {
 					t.Error("Expected to find functionCall in parts")
-				}
-			}
-
-			// Check for tool results
-			if tt.checkToolResults {
-				foundToolResult := false
-				for _, part := range parts {
-					if partMap, ok := part.(map[string]interface{}); ok {
-						if _, ok := partMap["functionResponse"]; ok {
-							foundToolResult = true
-							break
-						}
-					}
-				}
-				if !foundToolResult && len(tt.pendingToolResults) > 0 {
-					t.Error("Expected to find tool results in parts")
 				}
 			}
 		})
@@ -361,7 +310,7 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 			Role:    "user",
 			Content: "What's the weather?",
 		}
-		userParts := mustBuildMessageParts(t, userMsg, nil)
+		userParts := mustBuildMessageParts(t, userMsg)
 		if len(userParts) != 1 {
 			t.Errorf("Expected 1 part for user message, got %d", len(userParts))
 		}
@@ -378,7 +327,7 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 				},
 			},
 		}
-		assistantParts := mustBuildMessageParts(t, assistantMsg, nil)
+		assistantParts := mustBuildMessageParts(t, assistantMsg)
 		if len(assistantParts) != 2 {
 			t.Errorf("Expected 2 parts (text + tool call), got %d", len(assistantParts))
 		}
@@ -397,15 +346,22 @@ func TestGeminiToolHelpers_Integration(t *testing.T) {
 			t.Fatal("Expected non-nil tool response")
 		}
 
-		// Step 4: User message with pending tool result
+		// Step 4: The tool result takes a user turn of its own, ahead of the
+		// follow-up user message.
 		followUpMsg := types.Message{
 			Role:    "user",
 			Content: "Thanks!",
 		}
-		pendingResults := []map[string]interface{}{toolResponse}
-		followUpParts := mustBuildMessageParts(t, followUpMsg, pendingResults)
-		if len(followUpParts) != 2 {
-			t.Errorf("Expected 2 parts (tool result + text), got %d", len(followUpParts))
+		contents, err := convProvider().buildToolContents(context.Background(),
+			[]types.Message{userMsg, assistantMsg, toolMsg, followUpMsg})
+		if err != nil {
+			t.Fatalf("buildToolContents: %v", err)
+		}
+		if len(contents) != 4 {
+			t.Fatalf("Expected 4 turns (user, model, tool result, user), got %d", len(contents))
+		}
+		if got := contents[2][wireKeyParts]; !reflect.DeepEqual(got, []map[string]any{toolResponse}) {
+			t.Errorf("tool result turn parts = %v, want %v", got, []map[string]any{toolResponse})
 		}
 
 		// Step 5: Add tool config
@@ -441,7 +397,7 @@ func TestBuildMessageParts_ThoughtSignatureRoundTrip(t *testing.T) {
 		},
 	}
 
-	parts := mustBuildMessageParts(t, msg, nil)
+	parts := mustBuildMessageParts(t, msg)
 	if len(parts) == 0 {
 		t.Fatal("expected at least one part")
 	}
@@ -490,7 +446,7 @@ func TestBuildMessageParts_NoThoughtSignature(t *testing.T) {
 		},
 	}
 
-	parts := mustBuildMessageParts(t, msg, nil)
+	parts := mustBuildMessageParts(t, msg)
 	for _, p := range parts {
 		if pm, ok := p.(map[string]any); ok {
 			if _, hasFC := pm["functionCall"]; hasFC {

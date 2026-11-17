@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConvertMessagesToGeminiContents(t *testing.T) {
+func TestBuildToolContents(t *testing.T) {
 	tests := []struct {
 		name      string
 		messages  []types.Message
@@ -57,8 +57,7 @@ func TestConvertMessagesToGeminiContents(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			contents, err := convProvider().convertMessagesToGeminiContents(context.Background(), tt.messages)
-			require.NoError(t, err)
+			contents := convertContents(t, convProvider(), tt.messages)
 
 			if len(contents) != tt.expected {
 				t.Errorf("Expected %d contents, got %d", tt.expected, len(contents))
@@ -261,7 +260,7 @@ func TestBuildGeminiRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := provider.buildGeminiRequest(tt.contents, tt.systemInstruction, tt.temperature, tt.topP, tt.maxTokens)
+			req := provider.buildGeminiRequest(contentMaps(t, tt.contents), tt.systemInstruction, tt.temperature, tt.topP, tt.maxTokens)
 
 			// Check contents
 			if len(req.Contents) != len(tt.contents) {
@@ -337,11 +336,11 @@ func TestGeminiHelpers_Integration(t *testing.T) {
 		}
 
 		// Verify role conversion
-		if contents[0].Role != "user" {
-			t.Errorf("Expected first role 'user', got %q", contents[0].Role)
+		if contents[0]["role"] != "user" {
+			t.Errorf("Expected first role 'user', got %v", contents[0]["role"])
 		}
-		if contents[1].Role != "model" {
-			t.Errorf("Expected second role 'model', got %q", contents[1].Role)
+		if contents[1]["role"] != "model" {
+			t.Errorf("Expected second role 'model', got %v", contents[1]["role"])
 		}
 
 		if systemInstruction == nil {
