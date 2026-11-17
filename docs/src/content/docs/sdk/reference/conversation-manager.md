@@ -1857,7 +1857,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L865>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L873>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -2472,7 +2472,7 @@ func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToo
 PendingTools returns all pending tool calls awaiting approval for this conversation. With a durable store this reflects calls held by any instance, including ones that survived a restart. Returns nil \(no error\) when no store is configured.
 
 <a name="Conversation.RejectClientTool"></a>
-### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L353>)
+### func \(\*Conversation\) [RejectClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L361>)
 
 ```go
 func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string)
@@ -2683,7 +2683,7 @@ A session whose Response\(\) is never called does not stall: the SDK drops outpu
 A chunk with Error set does not end the channel: some errors are reported while the session goes on \(a realtime tool turn a limit stopped, say\), and later input is still answered. The channel closes when the session ends, after any error that ended it.
 
 <a name="Conversation.Resume"></a>
-### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L384>)
+### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L392>)
 
 ```go
 func (c *Conversation) Resume(ctx context.Context) (*Response, error)
@@ -2696,7 +2696,7 @@ The resolved tool results are injected as tool\-result messages and a new LLM ro
 A client's result reaches the model as the JSON the client sent, unformatted and not truncated: the stored result is also what an AG\-UI consumer is shown as TOOL\_CALL\_RESULT when the history is replayed. It is passed through the conversation's hooks.ToolResultRewriter hooks \(a failed tool's partial output too\), so what is stored, and replayed, is the rewritten text. This differs from [Conversation.Continue](<#Conversation.Continue>) and [Conversation.ContinueDuplex](<#Conversation.ContinueDuplex>), which give the model an approved or answered result as a tool the pipeline ran would, formatted, rewritten and capped.
 
 <a name="Conversation.ResumeStream"></a>
-### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L436>)
+### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L444>)
 
 ```go
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk
@@ -2888,7 +2888,7 @@ SendText sends text in duplex mode. Only available when the conversation was ope
 The text is the user's turn: it is saved to the state store and recorded \(WithRecording\) as a user message, ahead of the reply. It is not echoed on Response\(\).
 
 <a name="Conversation.SendToolResult"></a>
-### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L299>)
+### func \(\*Conversation\) [SendToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L307>)
 
 ```go
 func (c *Conversation) SendToolResult(ctx context.Context, callID string, result any) error
@@ -2901,7 +2901,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendToolResultMultimodal"></a>
-### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L329>)
+### func \(\*Conversation\) [SendToolResultMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L337>)
 
 ```go
 func (c *Conversation) SendToolResultMultimodal(ctx context.Context, callID string, parts []types.ContentPart) error

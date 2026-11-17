@@ -32,6 +32,12 @@ func (e *localExecutor) clientBound(name string) bool {
 	return e.client != nil && e.client.isBound(name)
 }
 
+// Defers reports whether a call to tool is client-bound and the client
+// executor will defer it (tools.DeferringExecutor).
+func (e *localExecutor) Defers(tool *tools.ToolDescriptor, call tools.ToolCall) bool {
+	return e.clientBound(tool.Name) && e.client.Defers(tool, call)
+}
+
 // toolCallHandler runs a whole tool call: its name, call ID, coerced arguments
 // and caller. OnToolExecutor stores one for an executor that implements
 // tools.CallExecutor.

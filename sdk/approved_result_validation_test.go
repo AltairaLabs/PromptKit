@@ -174,3 +174,14 @@ func TestResolveTool_RateLimitedApprovalIsWordedAsTheStageRefusal(t *testing.T) 
 	assert.Equal(t, types.ToolErrorApproval, got.ErrorType)
 }
 
+// Client calls of one round that the conversation defers are never refused
+// for each other under ToolPolicy.MaxCallsPerMinute: each counts when it is
+// answered, not when the model makes it.
+func TestCallRate_DeferredClientCallsOfOneRoundAreNotRefused(t *testing.T) {
+	conv := openSendMessageConv(t, 1, 20)
+	conv.DeferClientTool("send_message")
+	resp, err := conv.Send(context.Background(), "send twenty")
+	require.NoError(t, err)
+	assert.Len(t, resp.ClientTools(), 20, "every call waits for the client")
+	assert.True(t, roomFor(conv, 1), "none of them counts yet")
+}

@@ -611,7 +611,8 @@ func (r *Registry) ExecuteAsync(
 // registry's rate limit allows it), immediately before the executor runs. If
 // admit returns an error, the executor does not run, the registry's rate
 // limit does not count the call, and that error is returned unchanged. A call
-// that fails one of the registry's checks never reaches admit.
+// that fails one of the registry's checks never reaches admit, and neither
+// does one its executor defers (DeferringExecutor).
 func (r *Registry) ExecuteAsyncAdmitted(
 	ctx context.Context, toolName string, args json.RawMessage, admit func() error,
 ) (*ToolExecutionResult, error) {
@@ -649,10 +650,14 @@ func (r *Registry) ExecuteCallAsyncAdmitted(
 		return nil, err
 	}
 
-	// Check per-tool rate limit, then the caller's admission
+	call.Args = args
+
+	// Check per-tool rate limit, then the caller's admission. A call the
+	// executor will defer is not admitted now: it is admitted when the host
+	// settles it.
 	var admitErr error
 	var gate func() error
-	if admit != nil {
+	if admit != nil && !defers(executor, tool, call) {
 		gate = func() error { admitErr = admit(); return admitErr }
 	}
 	if rateLimitErr := r.rateLimiter.allowAdmitted(toolName, gate); rateLimitErr != nil {
@@ -669,8 +674,6 @@ func (r *Registry) ExecuteCallAsyncAdmitted(
 	execCtx, cancel := r.withTimeout(ctx, tool)
 	defer cancel()
 
-	call.Args = args
-
 	// Try async execution if supported
 	if run, ok := asyncEntryPoint(executor, tool, call); ok {
 		return r.executeWithAsyncExecutor(execCtx, run, tool)
@@ -678,6 +681,24 @@ func (r *Registry) ExecuteCallAsyncAdmitted(
 
 	// Fall back to synchronous execution
 	return r.executeSyncFallback(execCtx, executor, tool, call)
+}
+
+// DeferringExecutor is implemented by an executor that can tell, before it
+// runs a call, that it will defer it: return ToolStatusPending without
+// running it, for the host to settle later, as a client tool with no handler
+// does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted do not call their
+// admit gate for a call its executor defers, so a per-call limit the gate
+// enforces counts the call when the host settles it rather than when it is
+// dispatched, and the deferred calls of one round never take each other's
+// room. Defers is given the call with its coerced, validated arguments.
+type DeferringExecutor interface {
+	Defers(tool *ToolDescriptor, call ToolCall) bool
+}
+
+// defers reports whether executor will defer call (DeferringExecutor).
+func defers(executor Executor, tool *ToolDescriptor, call ToolCall) bool {
+	d, ok := executor.(DeferringExecutor)
+	return ok && d.Defers(tool, call)
 }
 
 // asyncEntryPoint is the executor's entry point that may suspend call:

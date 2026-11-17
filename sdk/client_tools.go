@@ -236,6 +236,14 @@ func (e *clientExecutor) ExecuteAsync(
 	return e.ExecuteCallAsync(ctx, descriptor, tools.ToolCall{Name: descriptor.Name, Args: args})
 }
 
+// Defers reports whether the executor will defer a call to tool: it has no
+// handler for it (tools.DeferringExecutor), so the call is admitted under
+// ToolPolicy.MaxCallsPerMinute when the host answers it.
+func (e *clientExecutor) Defers(tool *tools.ToolDescriptor, _ tools.ToolCall) bool {
+	_, ok := e.lookupClientHandler(tool.Name)
+	return !ok
+}
+
 // ExecuteCallAsync is ExecuteAsync for the whole call: a handler's request
 // carries the call's ID and caller.
 func (e *clientExecutor) ExecuteCallAsync(
