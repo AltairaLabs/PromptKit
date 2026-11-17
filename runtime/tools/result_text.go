@@ -83,6 +83,9 @@ type ModelResultOptions struct {
 	MaxSize int
 	// Rewrite, when set, rewrites each text before the size limit applies.
 	Rewrite func(string) (string, error)
+	// Unformatted takes a text result's raw content as its text, as it is,
+	// instead of formatting it (FormatResultText).
+	Unformatted bool
 }
 
 // ModelResult is a completed tool result as the model is given it.
@@ -115,7 +118,7 @@ func BuildModelResult(
 		return text, nil
 	}
 	if len(parts) == 0 {
-		text, err := prepare(FormatResultText(raw))
+		text, err := prepare(resultText(raw, opts.Unformatted))
 		return ModelResult{Text: text}, err
 	}
 	out := make([]types.ContentPart, len(parts))
@@ -134,4 +137,13 @@ func BuildModelResult(
 	}
 	joined := types.MessageToolResult{Parts: out}
 	return ModelResult{Text: joined.GetTextContent(), Parts: out}, nil
+}
+
+// resultText is a text result's raw content as text: formatted
+// (FormatResultText), or as it is when unformatted.
+func resultText(raw json.RawMessage, unformatted bool) string {
+	if unformatted {
+		return string(raw)
+	}
+	return FormatResultText(raw)
 }

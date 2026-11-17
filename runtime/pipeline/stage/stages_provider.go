@@ -33,6 +33,7 @@ const (
 	defaultMaxIdenticalCalls    = 3
 	toolChoiceAuto              = "auto"
 	toolChoiceRequired          = "required"
+	toolChoiceAny               = "any" // Claude's name for a required call
 	toolChoiceNone              = "none"
 
 	// selectionKindTool is the selection.Query Kind for tool selection.
@@ -1752,10 +1753,11 @@ func (tl *toolLoop) applyRound(
 		return true, tl.messages, err
 	}
 
-	// A nudged round leaves a forced tool choice (required, or a tool's name)
-	// for the model's retry; a rebuild of the tools array it no longer fits
-	// drops it (useTools).
-	if !out.Nudged {
+	// A nudged round leaves a forced tool choice (required, any, or a tool's
+	// name) for the model's retry, unless it would force the retry to call a
+	// tool that looped; a rebuild of the tools array it no longer fits drops
+	// it (useTools).
+	if !out.Nudged || tl.stage.runner().forcesLoopingTool(tl.toolChoice, out.LoopingTools) {
 		tl.toolChoice = toolChoiceAuto
 	}
 
@@ -3352,6 +3354,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 ) (providerTools interface{}, toolChoice string, err error) {
 	r := s.runner()
 	r.markBuilt(offer)
+	r.markSent(nil) // until a tools array is built for the provider
 	if toolProvider == nil {
 		return nil, "", nil
 	}
@@ -3368,6 +3371,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
+	r.markSent(offer)
 
 	// Determine tool choice from policy
 	toolChoice = toolChoiceAuto // default

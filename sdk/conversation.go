@@ -199,7 +199,7 @@ type Conversation struct {
 	hookRegistry *hooks.Registry
 
 	// settledMu guards the held calls approved and not yet given to the
-	// model, by call ID (recordAdmitted).
+	// model, by call ID (recordAdmittedRaw).
 	settledMu sync.Mutex
 	admitted  map[string]admittedCall
 

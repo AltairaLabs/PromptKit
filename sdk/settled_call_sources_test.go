@@ -70,7 +70,7 @@ func TestContinueDuplex_ReusedCallIDIsTheCurrentCall(t *testing.T) {
 	}}
 	rw := &wrappingRewriter{}
 	conv := duplexRewriteConv(sess, rw)
-	conv.recordAdmitted("call_0", "lookup_order", map[string]any{"order_id": "ORD-1"})
+	conv.recordAdmittedRaw("call_0", "lookup_order", nil, map[string]any{"order_id": "ORD-1"})
 	sess.turns = 1 // the turn that held lookup_order's call_0 has ended
 	conv.resolvedStore.Add(&sdktools.ToolResolution{ID: "call_0", ResultJSON: []byte(`"Paris"`)})
 
@@ -88,7 +88,7 @@ func TestContinueDuplex_StaleApprovalDoesNotNameACall(t *testing.T) {
 	sess := &callRecordingSession{calls: map[string]types.MessageToolCall{}}
 	rw := &wrappingRewriter{}
 	conv := duplexRewriteConv(sess, rw)
-	conv.recordAdmitted("call_9", "lookup_order", map[string]any{"order_id": "ORD-1"})
+	conv.recordAdmittedRaw("call_9", "lookup_order", nil, map[string]any{"order_id": "ORD-1"})
 	sess.turns = 1
 	conv.resolvedStore.Add(&sdktools.ToolResolution{ID: "call_9", ResultJSON: []byte(`"secret"`)})
 
@@ -107,7 +107,7 @@ func TestContinueDuplex_CurrentApprovalNamesTheCall(t *testing.T) {
 	sess := &callRecordingSession{calls: map[string]types.MessageToolCall{}}
 	rw := &wrappingRewriter{}
 	conv := duplexRewriteConv(sess, rw)
-	conv.recordAdmitted("call_9", "lookup_order", map[string]any{"order_id": "ORD-1"})
+	conv.recordAdmittedRaw("call_9", "lookup_order", nil, map[string]any{"order_id": "ORD-1"})
 	conv.resolvedStore.Add(&sdktools.ToolResolution{ID: "call_9", ResultJSON: []byte(`"shipped"`)})
 
 	require.NoError(t, conv.ContinueDuplex(context.Background()))
@@ -116,18 +116,6 @@ func TestContinueDuplex_CurrentApprovalNamesTheCall(t *testing.T) {
 	require.Len(t, reqs, 1)
 	assert.Equal(t, "lookup_order", reqs[0].Name)
 	assert.JSONEq(t, `{"order_id":"ORD-1"}`, string(reqs[0].Args))
-}
-
-// Rewriting a text part keeps the part's other fields.
-func TestRewriteTextParts_KeepsThePartsOtherFields(t *testing.T) {
-	text := "a photo"
-	media := &types.MediaContent{MIMEType: "text/plain"}
-	parts := []types.ContentPart{{Type: types.ContentTypeText, Text: &text, Media: media}}
-	got, err := rewriteTextParts(parts, func(s string) (string, error) { return "<" + s + ">", nil })
-	require.NoError(t, err)
-	want := "<a photo>"
-	assert.Equal(t, []types.ContentPart{{Type: types.ContentTypeText, Text: &want, Media: media}}, got)
-	assert.Equal(t, "a photo", *parts[0].Text, "the caller's part is not changed")
 }
 
 // A failed client tool's partial output is rewritten before it reaches the
@@ -182,7 +170,7 @@ func TestResumeResult_NamesTheCallFromItsApproval(t *testing.T) {
 		Name: "send_message", Description: "send", Mode: "local", InputSchema: []byte(`{"type":"object"}`),
 		ClientConfig: &tools.ClientConfig{Consent: &tools.ConsentConfig{DeclineStrategy: tools.DeclineStrategyRetry}},
 	}))
-	conv.recordAdmitted("c1", "send_message", map[string]any{"body": "hi"})
+	conv.recordAdmittedRaw("c1", "send_message", nil, map[string]any{"body": "hi"})
 	noHistory := func() map[string]types.MessageToolCall { return map[string]types.MessageToolCall{} }
 
 	got := conv.resumeResult(context.Background(), noHistory,
@@ -281,4 +269,56 @@ func TestResume_RateLimitedAnswerIsNotRewritten(t *testing.T) {
 	results := lastResults(provider)
 	assert.Equal(t, `<redacted:"Paris">`, results["c1"])
 	assert.Equal(t, "Tool error: Tool locate not executed: its limit of 1 calls per minute is reached", results["c2"])
+}
+
+// emptyingRewriter rewrites every result to the empty string.
+type emptyingRewriter struct{ wrappingRewriter }
+
+func (h *emptyingRewriter) RewriteResult(ctx context.Context, req hooks.ToolRequest, content string) (string, error) {
+	_, _ = h.wrappingRewriter.RewriteResult(ctx, req, content)
+	return "", nil
+}
+
+// A rewriter that empties a client's answer on Resume gives the model `""`,
+// never an empty text block, as on a call the pipeline ran.
+func TestResume_RewriterEmptyingTheAnswerGivesTheEmptyStringText(t *testing.T) {
+	conv, provider := openLocateConv(t, &emptyingRewriter{},
+		[]types.MessageToolCall{{ID: "c1", Name: "locate", Args: []byte(`{}`)}})
+	ctx := context.Background()
+
+	require.NoError(t, conv.SendToolResult(ctx, "c1", "Paris"))
+	_, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"c1": `""`}, lastResults(provider))
+}
+
+// An approved call is rewritten with its arguments exactly as the model sent
+// them: a large integer and the key order survive.
+func TestContinue_RewriterSeesTheModelsRawArguments(t *testing.T) {
+	const raw = `{"z": 12345678901234567890, "a": 1}`
+	rw := &wrappingRewriter{}
+	conv, provider := openSettlementConv(t, 0, []string{"Done."}, WithToolHook(rw))
+	provider.mu.Lock()
+	provider.rounds = append([]providers.PredictionResponse{{Content: "Sending.", ToolCalls: []types.MessageToolCall{
+		{ID: "call-1", Name: "send_message", Args: []byte(raw)},
+	}}}, provider.rounds...)
+	provider.mu.Unlock()
+	conv.OnToolAsync("send_message",
+		func(map[string]any) sdktools.PendingResult {
+			return sdktools.PendingResult{Reason: "requires_approval"}
+		},
+		func(map[string]any) (any, error) { return "sent", nil })
+	ctx := context.Background()
+
+	resp, err := conv.Send(ctx, "message the customer")
+	require.NoError(t, err)
+	require.Len(t, resp.PendingTools(), 1)
+	_, err = conv.ResolveTool(ctx, "call-1")
+	require.NoError(t, err)
+	_, err = conv.Continue(ctx)
+	require.NoError(t, err)
+
+	reqs := rw.requests()
+	require.Len(t, reqs, 1)
+	assert.Equal(t, raw, string(reqs[0].Args))
 }

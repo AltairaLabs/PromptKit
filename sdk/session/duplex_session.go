@@ -44,9 +44,7 @@ type duplexSession struct {
 	// and arguments), so a result submitted by call ID alone can be named
 	// (#2589) and the request it answers known. A later response that reuses
 	// an ID replaces the earlier call under it.
-	// Only calls still to be answered by SubmitToolResults are kept: a call
-	// the pipeline or the session answers itself is not, and the record is
-	// bounded (maxRecordedCalls).
+	// The record is bounded (maxRecordedCalls); an answered call is dropped.
 	callsMu sync.Mutex
 	calls   map[string]types.MessageToolCall
 	// callOrder is calls' IDs, oldest first, for the bound.
@@ -457,13 +455,16 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 //     them (runToolCallsInSession).
 //   - Neither: the turn is forwarded for the caller to answer.
 func (s *duplexSession) handleToolCalls(ctx context.Context, elem *stage.StreamElement) error {
+	// Every call is recorded, its name and arguments as the model sent them,
+	// for a result submitted by ID alone; a held one is recorded again from
+	// the element that surfaces it (holdCalls).
+	s.rememberCalls(elem.Message.ToolCalls)
 	switch {
 	case s.pipelineRunsTools:
-		return nil // the calls it holds are recorded from the element that surfaces them
+		return nil
 	case s.toolRegistry != nil:
 		return s.runToolCallsInSession(ctx, elem)
 	}
-	s.rememberCalls(elem.Message.ToolCalls) // the caller answers every one
 	if !s.forwardChunk(ctx, streamElementToStreamChunk(elem)) {
 		return ctx.Err()
 	}

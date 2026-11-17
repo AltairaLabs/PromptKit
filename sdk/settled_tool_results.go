@@ -121,44 +121,21 @@ func (c *Conversation) clientAnswer(
 }
 
 // rewriteAnswer passes a client's answer to call, its text or (when given)
-// its parts, through the conversation's ToolResultRewriter hooks.
+// its parts, through the conversation's ToolResultRewriter hooks as the
+// pipeline rewrites a result (tools.BuildModelResult: each text part, and
+// `""` for an emptied text), without formatting or the size limit: the answer
+// stays as the client sent it.
 func (c *Conversation) rewriteAnswer(
 	ctx context.Context, call types.MessageToolCall, known bool, text string, parts []types.ContentPart,
 ) (string, []types.ContentPart, error) {
 	rewrite, err := c.rewriterFor(ctx, call, known)
-	switch {
-	case err != nil:
-		return "", nil, err
-	case rewrite == nil:
-		return text, parts, nil
-	case len(parts) > 0:
-		parts, err = rewriteTextParts(parts, rewrite)
+	if err != nil || rewrite == nil {
 		return text, parts, err
 	}
-	text, err = rewrite(text)
-	return text, parts, err
-}
-
-// rewriteTextParts passes each text part of parts through rewrite, keeping
-// media parts where they are and each part's other fields. Nil rewrite
-// returns parts as they are.
-func rewriteTextParts(parts []types.ContentPart, rewrite func(string) (string, error)) ([]types.ContentPart, error) {
-	if rewrite == nil {
-		return parts, nil
-	}
-	out := make([]types.ContentPart, len(parts))
-	for i, p := range parts {
-		out[i] = p
-		if p.Type != types.ContentTypeText || p.Text == nil {
-			continue
-		}
-		text, err := rewrite(*p.Text)
-		if err != nil {
-			return nil, err
-		}
-		out[i].Text = &text
-	}
-	return out, nil
+	given, err := tools.BuildModelResult(json.RawMessage(text), parts, tools.ModelResultOptions{
+		ToolName: call.Name, Rewrite: rewrite, Unformatted: true,
+	})
+	return given.Text, given.Parts, err
 }
 
 // settled forgets the approvals recorded for resolutions, now given to the
@@ -266,7 +243,7 @@ func (c *Conversation) rewriterFor(
 //     call under a reused ID, and known before the tool-call message reaches
 //     the history);
 //   - the held call the conversation approved in the current turn
-//     (recordAdmitted);
+//     (recordAdmittedRaw);
 //   - the suspended turn's last assistant message in the history.
 //
 // An approval with edits gives the arguments it ran with. known is false when
@@ -314,14 +291,34 @@ type admittedCall struct {
 	turn int64
 }
 
-// recordAdmitted records the held call id of tool name, with the arguments
-// the model proposed, as approved in the current turn: its result's request
-// is taken from it when no other record names the call.
-func (c *Conversation) recordAdmitted(id, name string, args map[string]any) {
-	call := types.MessageToolCall{ID: id, Name: name}
-	if args != nil {
-		if raw, err := json.Marshal(args); err == nil {
-			call.Args = raw
+// admitCall records the held call id of tool name, approved now, with its
+// arguments exactly as the model sent them, taken from the call the session
+// or the history holds (args, the decoded arguments the hold kept, re-encode
+// only a call neither holds).
+func (c *Conversation) admitCall(ctx context.Context, id, name string, args map[string]any) {
+	var raw json.RawMessage
+	if recorder, ok := c.duplexSession.(toolCallRecorder); ok {
+		if call, found := recorder.ToolCall(id); found && call.Name == name {
+			raw = call.Args
+		}
+	}
+	if raw == nil && c.getBaseSession() != nil {
+		if call, found := c.lazyCalls(ctx)()[id]; found && call.Name == name {
+			raw = call.Args
+		}
+	}
+	c.recordAdmittedRaw(id, name, raw, args)
+}
+
+// recordAdmittedRaw records the held call id of tool name as approved in the
+// current turn, with its arguments as the model sent them, raw, when known,
+// else args encoded: its result's request is taken from it when no other
+// record names the call.
+func (c *Conversation) recordAdmittedRaw(id, name string, raw json.RawMessage, args map[string]any) {
+	call := types.MessageToolCall{ID: id, Name: name, Args: raw}
+	if raw == nil && args != nil {
+		if encoded, err := json.Marshal(args); err == nil {
+			call.Args = encoded
 		}
 	}
 	turn := c.duplexTurn()

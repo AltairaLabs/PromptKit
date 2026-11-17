@@ -1219,7 +1219,7 @@ type MockToolResponseConfig struct {
 ```
 
 <a name="ModelResult"></a>
-## type [ModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L89-L95>)
+## type [ModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L92-L98>)
 
 ModelResult is a completed tool result as the model is given it.
 
@@ -1234,7 +1234,7 @@ type ModelResult struct {
 ```
 
 <a name="BuildModelResult"></a>
-### func [BuildModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L102-L104>)
+### func [BuildModelResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L105-L107>)
 
 ```go
 func BuildModelResult(raw json.RawMessage, parts []types.ContentPart, opts ModelResultOptions) (ModelResult, error)
@@ -1243,7 +1243,7 @@ func BuildModelResult(raw json.RawMessage, parts []types.ContentPart, opts Model
 BuildModelResult prepares a completed tool result for the model: the one place a result's formatting, rewriting and size limit are applied, for a call the pipeline ran and for one a caller resolved. A result with parts is its parts, each text part rewritten and capped and media parts kept in place; otherwise it is raw formatted as text. The error is Rewrite's.
 
 <a name="ModelResultOptions"></a>
-## type [ModelResultOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L78-L86>)
+## type [ModelResultOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/result_text.go#L78-L89>)
 
 ModelResultOptions says how a completed tool result is prepared for the model.
 
@@ -1256,6 +1256,9 @@ type ModelResultOptions struct {
     MaxSize int
     // Rewrite, when set, rewrites each text before the size limit applies.
     Rewrite func(string) (string, error)
+    // Unformatted takes a text result's raw content as its text, as it is,
+    // instead of formatting it (FormatResultText).
+    Unformatted bool
 }
 ```
 

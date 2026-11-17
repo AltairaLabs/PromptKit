@@ -309,13 +309,13 @@ func TestNudgeRound_ForcedChoiceThatStillFitsIsKept(t *testing.T) {
 			ID: "c3", Name: "skill__activate", Args: []byte(`{"name":"refund-processing"}`),
 		}},
 	)
-	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2, ToolChoice: "lookup_order"},
+	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{MaxIdenticalToolCalls: 2, ToolChoice: "cancel_order"},
 		WithSkillsDir(writeToolGrantSkill(t)))
 
 	_, err := conv.Send(context.Background(), "look up ORD-A")
 	require.NoError(t, err)
 	assert.Contains(t, provider.offeredOn(t, 1), "refund", "the nudged round rebuilt the offer")
-	assert.Equal(t, []string{"lookup_order", "lookup_order"}, provider.choicesSeen())
+	assert.Equal(t, []string{"cancel_order", "cancel_order"}, provider.choicesSeen())
 }
 
 // A forced choice of a tool the nudged round excluded falls back to auto, as

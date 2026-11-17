@@ -277,7 +277,7 @@ func TestResume_RewriterErrorReplacesTheResult(t *testing.T) {
 func TestRewriteCall_FallsBackToTheAdmittedCall(t *testing.T) {
 	conv := newTestConversation()
 	none := func() map[string]types.MessageToolCall { return map[string]types.MessageToolCall{} }
-	conv.recordAdmitted("c9", "send_message", map[string]any{"body": "held"})
+	conv.recordAdmittedRaw("c9", "send_message", nil, map[string]any{"body": "held"})
 
 	call, ok := conv.callFor(none, &sdktools.ToolResolution{ID: "c9"})
 	require.True(t, ok)

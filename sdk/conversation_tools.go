@@ -515,7 +515,7 @@ func (c *Conversation) ResolveToolWithArgs(
 	if limitErr := c.callRate.Admit(call.ConversationID, call.Name, c.callRateLimit()); limitErr != nil {
 		handler = func(map[string]any) (any, error) { return nil, limitErr }
 	}
-	c.recordAdmitted(call.ID, call.Name, call.Arguments)
+	c.admitCall(ctx, call.ID, call.Name, call.Arguments)
 	resolution := sdktools.ResolveApproved(call, handler, overrides)
 	if resolution.Error != nil {
 		resolution.Error = &ToolError{ToolName: call.Name, Cause: resolution.Error}

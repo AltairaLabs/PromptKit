@@ -132,9 +132,9 @@ func (s *callScriptStage) Process(ctx context.Context, in <-chan stage.StreamEle
 	return nil
 }
 
-// A call the pipeline answers is not kept; a later call it holds under the
-// same ID is, with its own name and arguments.
-func TestDuplexSession_KeepsOnlyHeldCalls(t *testing.T) {
+// Every call the model makes is recorded, with its arguments as sent; a later
+// call under the same ID, which the pipeline holds, replaces it.
+func TestDuplexSession_RecordsEveryCallTheLatestUnderAnID(t *testing.T) {
 	st := &callScriptStage{}
 	builder := func(context.Context, providers.Provider, providers.StreamInputSupport,
 		*providers.StreamingInputConfig, string, statestore.Store) (*stage.StreamPipeline, error) {
@@ -153,8 +153,9 @@ func TestDuplexSession_KeepsOnlyHeldCalls(t *testing.T) {
 
 	require.NoError(t, sess.SendText(context.Background(), "where is my order?"))
 	require.Eventually(t, func() bool { return ds.TurnsCompleted() == 1 }, lifecycleWait, time.Millisecond)
-	_, kept := ds.ToolCall("call_0")
-	assert.False(t, kept, "the pipeline answered call_0")
+	first, kept := ds.ToolCall("call_0")
+	require.True(t, kept, "a call is recorded when the model makes it")
+	assert.Equal(t, types.MessageToolCall{ID: "call_0", Name: "lookup_order", Args: []byte(`{"order_id":"ORD-1"}`)}, first)
 
 	require.NoError(t, sess.SendText(context.Background(), "and where am I?"))
 	for chunk := range resp {
@@ -319,4 +320,66 @@ func TestDuplexSession_HeldCallKeepsTheRawArguments(t *testing.T) {
 	got, kept := s.ToolCall("c1")
 	require.True(t, kept)
 	assert.Equal(t, types.MessageToolCall{ID: "c1", Name: "lookup", Args: raw}, got)
+}
+
+// unheldCallStage answers its input with a tool call it does not hold, and
+// records the tool results it is sent back.
+type unheldCallStage struct{ toolCallingStage }
+
+func (s *unheldCallStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
+	defer close(out)
+	called := false
+	for elem := range in {
+		for i := range elem.Meta.ToolResultMessages {
+			if tr := elem.Meta.ToolResultMessages[i].ToolResult; tr != nil {
+				s.mu.Lock()
+				s.results = append(s.results, *tr)
+				s.mu.Unlock()
+			}
+		}
+		if called {
+			continue
+		}
+		called = true
+		call := stage.NewMessageElement(&types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{
+			{ID: "call-1", Name: "get_weather", Args: []byte(`{"city": "Paris"}`)},
+		}})
+		call.EndOfStream = true
+		select {
+		case out <- call:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// A call answered with SubmitToolResults without ever being held is named in
+// the history by the call the model made.
+func TestDuplexSession_UnheldCallAnsweredByIDIsNamed(t *testing.T) {
+	st := &unheldCallStage{}
+	builder := func(context.Context, providers.Provider, providers.StreamInputSupport,
+		*providers.StreamingInputConfig, string, statestore.Store) (*stage.StreamPipeline, error) {
+		return stage.NewPipelineBuilder().Chain(st).Build()
+	}
+	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
+		Provider:          mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder:   builder,
+		ToolRegistry:      tools.NewRegistry(),
+		PipelineRunsTools: true,
+	})
+	require.NoError(t, err)
+	defer sess.Close()
+	ds := sess.(*duplexSession)
+
+	require.NoError(t, sess.SendText(context.Background(), "weather?"))
+	require.Eventually(t, func() bool { _, ok := ds.ToolCall("call-1"); return ok }, lifecycleWait, time.Millisecond)
+	got, _ := ds.ToolCall("call-1")
+	assert.Equal(t, `{"city": "Paris"}`, string(got.Args), "the arguments as the model sent them")
+
+	require.NoError(t, sess.SubmitToolResults(context.Background(), []providers.ToolResponse{
+		{ToolCallID: "call-1", Result: `{"temp":21}`},
+	}))
+	require.Eventually(t, func() bool { return len(st.recorded()) == 1 }, lifecycleWait, 5*time.Millisecond)
+	assert.Equal(t, "get_weather", st.recorded()[0].Name)
 }

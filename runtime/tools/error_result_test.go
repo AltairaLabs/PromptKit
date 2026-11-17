@@ -38,3 +38,22 @@ func TestBuildModelResult_KeepsATextPartsOtherFields(t *testing.T) {
 	assert.Equal(t, []types.ContentPart{{Type: types.ContentTypeText, Text: &want, Media: media}}, got.Parts)
 	assert.Equal(t, "abcdef", text, "the caller's part is not changed")
 }
+
+// Unformatted takes a text result's content as it is: rewritten, but neither
+// formatted nor, without a size limit, cut; an emptied text reads `""`.
+func TestBuildModelResult_Unformatted(t *testing.T) {
+	raw := []byte(`{"z": 1, "a": 2}`)
+	got, err := BuildModelResult(raw, nil, ModelResultOptions{Unformatted: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, `{"z": 1, "a": 2}`, got.Text)
+
+	got, err = BuildModelResult(raw, nil, ModelResultOptions{
+		Unformatted: true, Rewrite: func(string) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, `""`, got.Text)
+}
