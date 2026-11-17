@@ -767,7 +767,7 @@ ValidateParams lets a wrapped eval's own param validation run at load time, the 
 The inner params are also checked for keys the inner check does not read \(see ValidateHandlerParams\). That check runs here, at load, and not on Eval.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L518>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L525>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -810,6 +810,13 @@ type EvalContext struct {
     // The scope is explicit because BuildEvalContext always populates
     // CurrentOutput, so its presence cannot indicate scope.
     ContentScope string `json:"content_scope,omitempty"`
+
+    // Caller is who the conversation acts for, as the host set it with
+    // sdk.WithCaller. The zero value means none was set. The tool_exec
+    // handler puts it on the tool call it runs, so the host's executor sees
+    // it, and a host's own handler can read it. It is not serialized:
+    // PromptKit never persists, logs or emits it.
+    Caller types.Caller `json:"-"`
 }
 ```
 
@@ -1804,7 +1811,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L534>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L541>)
 
 ToolCallRecord is an alias for types.ToolCallRecord.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // Store is the core memory persistence interface. Every method other than Save
@@ -47,4 +48,22 @@ type ExtrasDeleter interface {
 	DeleteWithOptions(
 		ctx context.Context, scope map[string]string, memoryID string, opts DeleteOptions,
 	) error
+}
+
+// OptionsSaver is optionally implemented by stores that accept options on
+// save, such as the caller the conversation acts for. [Store.Save] takes no
+// options, so a store opts in by implementing this; the memory executor and
+// the extraction stage prefer it when present and fall back to Save
+// otherwise.
+type OptionsSaver interface {
+	SaveWithOptions(ctx context.Context, memory *Memory, opts SaveOptions) error
+}
+
+// saveFor saves m to store for caller: through SaveWithOptions when the store
+// implements OptionsSaver, else through Save, which does not see the caller.
+func saveFor(ctx context.Context, store Store, m *Memory, caller types.Caller) error {
+	if s, ok := store.(OptionsSaver); ok {
+		return s.SaveWithOptions(ctx, m, SaveOptions{Caller: caller})
+	}
+	return store.Save(ctx, m)
 }

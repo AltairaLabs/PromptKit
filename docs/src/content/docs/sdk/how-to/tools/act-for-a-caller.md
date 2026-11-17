@@ -1,10 +1,10 @@
 ---
 title: Act for a caller
-description: Set who a conversation acts for with WithCaller and read it in tool handlers, executors, hooks and workflow authorizers.
+description: Set who a conversation acts for with WithCaller and read it in tool handlers, executors, hooks, retrievers, memory stores, evals and workflow authorizers.
 sidebar:
   order: 17
 ---
-Tell a conversation who it acts for, so your tool code, hooks and workflow policy can authorize on that identity.
+Tell a conversation who it acts for, so your tool code, hooks, retrieval, memory, evals and workflow policy can authorize on that identity.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ func main() {
 
 `WithCaller` works on every open path, including `OpenDuplex` and `OpenWorkflow`. A conversation has one caller. `Fork` copies it. To act for another caller, open another conversation.
 
-A `WithCaller` passed in the options of `sdk.A2AOpener` makes every conversation the opener creates act for that one caller, whichever remote A2A client sent the request.
+A `WithCaller` passed in the options of `sdk.A2AOpener` makes every conversation the opener creates act for that one caller, whichever remote A2A client sent the request. To act for each remote client, see step 9, Serve A2A clients as themselves.
 
 Keep `Claims` to JSON-encodable data when you configure exec hooks. PromptKit encodes the caller into the JSON on an exec hook's stdin, so a value `encoding/json` cannot encode, such as a func or a channel, makes an exec filter hook deny every call. Treat `Claims` as read-only in your code: parallel tool calls, forks and hooks share one map.
 
@@ -111,6 +111,8 @@ func (accountExecutor) ExecuteCall(
 
 Register it with `sdk.WithToolExecutor(name, executor)` or `conv.OnToolExecutor`. An executor you pass to `sdk.WithA2AToolExecutor` to govern remote A2A agent calls receives the caller the same way.
 
+`tools.RepositoryToolExecutor`, which answers calls from a mock repository and falls back to the executor it wraps, hands that executor the whole call, so a wrapped `CallExecutor` or `AsyncCallExecutor` still receives the caller.
+
 An executor that implements only `tools.AsyncToolExecutor` does not receive the caller. Implement `tools.AsyncCallExecutor` instead. An executor that implements `AsyncToolExecutor` and `CallExecutor` but not `AsyncCallExecutor` gets the caller on synchronous calls and none on asynchronous ones.
 
 ## 5. Read it in a hook
@@ -138,7 +140,22 @@ Register it with `sdk.WithToolHook(tenantPolicy{})`.
 
 An exec hook receives the caller in the JSON on its stdin, as `"Caller": {"ID": "...", "Claims": {...}}` inside the request or event it handles.
 
-Realtime duplex sessions (Gemini Live and OpenAI Realtime, `WithStreamingConfig`) run the same tool hooks as text turns, so the hook above covers them too.
+`hooks.ProviderRequest.Caller` carries the caller to provider hooks, in `BeforeCall` and `AfterCall`, so a per-tenant guardrail can judge a turn by who it acts for. A guardrail built from an eval handler passes it on as `evals.EvalContext.Caller`.
+
+A provider hook that also implements `hooks.ChunkRequestInterceptor` judges each streamed chunk with the caller. PromptKit calls its `InterceptChunk` in place of `OnChunk`:
+
+```go
+func (tenantOutputPolicy) InterceptChunk(_ context.Context, req hooks.ChunkRequest) hooks.Decision {
+	if req.Caller.Claims["tenant"] == "acme" && strings.Contains(req.Chunk.Content, "internal") {
+		return hooks.Deny("internal content not allowed for this tenant")
+	}
+	return hooks.Allow
+}
+```
+
+A hook that implements only `hooks.ChunkInterceptor` keeps receiving `OnChunk`, without the caller.
+
+Realtime duplex sessions (Gemini Live and OpenAI Realtime, `WithStreamingConfig`) run the same tool hooks, provider hooks and chunk interceptors as text turns, with the same caller, so the hooks above cover them too.
 
 ## 6. Read it in a workflow authorizer
 
@@ -154,6 +171,56 @@ func (transitionPolicy) AuthorizeTransition(_ context.Context, req workflow.Tran
 	return nil
 }
 ```
+
+## 7. Read it in a retriever and a memory store
+
+A retriever you pass to `sdk.WithRetriever` or `sdk.WithMemoryRetriever` receives the caller when it implements `memory.ContextRequestRetriever`. PromptKit calls `RetrieveContextRequest` in place of `RetrieveContext`:
+
+```go
+type tenantRetriever struct{ index *search.Index }
+
+func (r tenantRetriever) RetrieveContext(
+	ctx context.Context, scope map[string]string, msgs []types.Message,
+) ([]*memory.Memory, error) {
+	return nil, errors.New("tenantRetriever: needs a caller")
+}
+
+func (r tenantRetriever) RetrieveContextRequest(
+	ctx context.Context, req memory.ContextRequest,
+) ([]*memory.Memory, error) {
+	return r.index.Search(ctx, req.Caller.Claims["tenant"], req.Messages)
+}
+```
+
+A memory extractor (`sdk.WithMemoryExtractor`) receives it the same way when it implements `memory.ContextRequestExtractor`.
+
+A memory store you pass to `sdk.WithMemory` receives the caller of the model's memory tool calls on `memory.RetrieveOptions.Caller` (`memory__recall`), `memory.ListOptions.Caller` (`memory__list`) and `memory.DeleteOptions.Caller` (`memory__forget`, for a store that implements `memory.ExtrasDeleter`). A store that implements `memory.OptionsSaver` saves through `SaveWithOptions`, with the caller on `memory.SaveOptions.Caller`, for `memory__remember` and for the memories the extractor produces. A store with only `Save` does not receive it.
+
+## 8. Read it in an eval handler
+
+`evals.EvalContext.Caller` carries the caller to the eval handlers a conversation runs, per turn and at session end. `sdk.Evaluate` passes `EvaluateOpts.Caller` the same way.
+
+The built-in `tool_exec` eval runs its tool with the caller on the call, so a `CallExecutor` behind it authorizes the eval's call as it would the conversation's.
+
+## 9. Serve A2A clients as themselves
+
+The A2A protocol carries no caller identity of its own: your authentication middleware puts it on the HTTP request. `sdk.A2ACallerOpener` opens each conversation for the caller of the request that opens its context. Pass it to `sdk.NewA2AServerFor`, with a function that reads the caller from the request:
+
+```go
+callerOf := func(r *http.Request) types.Caller {
+	id := auth.FromContext(r.Context())
+	return types.Caller{ID: id.Subject, Claims: map[string]any{"tenant": id.Tenant}}
+}
+
+srv := sdk.NewA2AServerFor(
+	sdk.A2ACallerOpener("./app.pack.json", "assistant", callerOf),
+	a2aserver.WithTaskOwner(func(r *http.Request) string { return callerOf(r).ID }),
+)
+```
+
+The server keeps one conversation per context ID, opened by the first message that names the context, and that conversation acts for the caller who opened it. `a2aserver.WithTaskOwner` makes the server refuse a message from another caller into that context, so pass it as well.
+
+The caller `A2ACallerOpener` reads replaces a `WithCaller` in its options. With `a2aserver.NewServerFor` you can open conversations your own way: its opener receives the request alongside the context ID.
 
 ## What PromptKit does with the caller
 

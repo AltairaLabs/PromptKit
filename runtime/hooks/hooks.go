@@ -20,6 +20,14 @@ type ChunkInterceptor interface {
 	OnChunk(ctx context.Context, chunk *providers.StreamChunk) Decision
 }
 
+// ChunkRequestInterceptor is ChunkInterceptor with the caller: a ProviderHook
+// that implements it has InterceptChunk called for each streaming chunk, in
+// place of OnChunk when it implements both, so a per-tenant output check sees
+// who the turn acts for.
+type ChunkRequestInterceptor interface {
+	InterceptChunk(ctx context.Context, req ChunkRequest) Decision
+}
+
 // ToolHook intercepts tool execution (LLM-initiated calls only).
 type ToolHook interface {
 	Name() string

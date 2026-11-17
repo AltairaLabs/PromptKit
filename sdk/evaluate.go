@@ -71,6 +71,14 @@ type EvaluateOpts struct {
 	// The map keys are judge names; the SDK creates SpecJudgeProvider instances.
 	JudgeTargets map[string]any
 
+	// --- Caller ---
+
+	// Caller is who the evaluated conversation acts for, as WithCaller sets
+	// it for a conversation. It reaches the eval handlers on
+	// evals.EvalContext.Caller, and through tool_exec the host's tool
+	// executor. PromptKit never persists, logs or emits it.
+	Caller types.Caller
+
 	// --- Observability ---
 
 	// TracerProvider enables OpenTelemetry trace emission for eval results.
@@ -175,6 +183,7 @@ func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error
 	evalCtx := evals.BuildEvalContext(
 		opts.Messages, opts.TurnIndex, opts.SessionID, opts.PromptName, metadata,
 	)
+	evalCtx.Caller = opts.Caller
 
 	// 3. Create runner
 	registry := opts.Registry

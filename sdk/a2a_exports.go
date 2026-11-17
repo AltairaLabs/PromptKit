@@ -24,6 +24,10 @@ type A2AServerOption = a2aserver.Option
 // A2AConversationOpener creates or retrieves a conversation for a context ID.
 type A2AConversationOpener = a2aserver.ConversationOpener
 
+// A2ARequestConversationOpener creates a conversation for a context ID, given
+// the HTTP request that opens it.
+type A2ARequestConversationOpener = a2aserver.RequestConversationOpener
+
 // Re-exported constructors and sentinel errors.
 var (
 	NewInMemoryA2ATaskStore = a2aserver.NewInMemoryTaskStore
@@ -37,6 +41,12 @@ var (
 // NewA2AServer creates a new A2A server with the given opener and options.
 func NewA2AServer(opener A2AConversationOpener, opts ...A2AServerOption) *A2AServer {
 	return a2aserver.NewServer(opener, opts...)
+}
+
+// NewA2AServerFor creates a new A2A server whose opener is given the request
+// opening each context (see [A2ACallerOpener]).
+func NewA2AServerFor(opener A2ARequestConversationOpener, opts ...A2AServerOption) *A2AServer {
+	return a2aserver.NewServerFor(opener, opts...)
 }
 
 // Re-exported option functions with backwards-compatible names.

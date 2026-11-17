@@ -147,6 +147,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewDuplexProviderStageWithEmitter\(provider providers.StreamInputSupport, baseConfig \*providers.StreamingInputConfig, emitter \*events.Emitter\) \*DuplexProviderStage](<#NewDuplexProviderStageWithEmitter>)
   - [func NewDuplexProviderStageWithTurnState\(provider providers.StreamInputSupport, baseConfig \*providers.StreamingInputConfig, emitter \*events.Emitter, turnState \*TurnState\) \*DuplexProviderStage](<#NewDuplexProviderStageWithTurnState>)
   - [func \(s \*DuplexProviderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DuplexProviderStage.Process>)
+  - [func \(s \*DuplexProviderStage\) SetCaller\(caller types.Caller\)](<#DuplexProviderStage.SetCaller>)
   - [func \(s \*DuplexProviderStage\) SetHookRegistry\(r \*hooks.Registry\)](<#DuplexProviderStage.SetHookRegistry>)
   - [func \(s \*DuplexProviderStage\) SetPromptDeclarations\(decls map\[string\]\*packspec.Prompt\)](<#DuplexProviderStage.SetPromptDeclarations>)
   - [func \(s \*DuplexProviderStage\) SetSessionObserver\(fn func\(providers.StreamInputSession\)\)](<#DuplexProviderStage.SetSessionObserver>)
@@ -239,10 +240,12 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type MemoryExtractionStage](<#MemoryExtractionStage>)
   - [func NewMemoryExtractionStage\(extractor memory.Extractor, store memory.Store, scope map\[string\]string\) \*MemoryExtractionStage](<#NewMemoryExtractionStage>)
   - [func \(s \*MemoryExtractionStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MemoryExtractionStage.Process>)
+  - [func \(s \*MemoryExtractionStage\) WithCaller\(caller types.Caller\) \*MemoryExtractionStage](<#MemoryExtractionStage.WithCaller>)
 - [type MemoryRetrievalStage](<#MemoryRetrievalStage>)
   - [func NewMemoryRetrievalStage\(retriever memory.Retriever, store memory.Store, scope map\[string\]string\) \*MemoryRetrievalStage](<#NewMemoryRetrievalStage>)
   - [func NewMemoryRetrievalStageWithTurnState\(retriever memory.Retriever, store memory.Store, scope map\[string\]string, turnState \*TurnState\) \*MemoryRetrievalStage](<#NewMemoryRetrievalStageWithTurnState>)
   - [func \(s \*MemoryRetrievalStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#MemoryRetrievalStage.Process>)
+  - [func \(s \*MemoryRetrievalStage\) WithCaller\(caller types.Caller\) \*MemoryRetrievalStage](<#MemoryRetrievalStage.WithCaller>)
   - [func \(s \*MemoryRetrievalStage\) WithContextFormatter\(fn memory.ContextFormatter\) \*MemoryRetrievalStage](<#MemoryRetrievalStage.WithContextFormatter>)
 - [type MergeStage](<#MergeStage>)
   - [func NewMergeStage\(name string, inputCount int\) \*MergeStage](<#NewMergeStage>)
@@ -2109,7 +2112,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L81-L237>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L81-L240>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2131,7 +2134,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L262-L265>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L265-L268>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2140,7 +2143,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L282-L286>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L285-L289>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2149,7 +2152,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L295-L300>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L298-L303>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2158,7 +2161,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L318-L322>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L321-L325>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2169,6 +2172,15 @@ Process implements the Stage interface. Handles bidirectional streaming between 
 For duplex streaming \(Gemini Live API\), this runs until: \- Context is canceled \(user stops the session\) \- Session response channel is closed \(server ends session\) \- Input channel is closed \(upstream ends\)
 
 If no session is pre\-configured, the session is created lazily when the first element arrives. The system\_prompt from TurnState \(when wired\) is used as the SystemInstruction for session creation.
+
+<a name="DuplexProviderStage.SetCaller"></a>
+### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L61>)
+
+```go
+func (s *DuplexProviderStage) SetCaller(caller types.Caller)
+```
+
+SetCaller sets who the conversation acts for, so each provider hook call and chunk interceptor call carries it \(ProviderRequest.Caller, ChunkRequest.Caller\), as ProviderStage's do through ProviderConfig.Caller. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetHookRegistry"></a>
 ### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L44>)
@@ -2189,7 +2201,7 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 SetPromptDeclarations sets the pack declarations of the prompts, keyed by task, so each hook call carries the declaration of the prompt the session runs \(ProviderRequest.Prompt\), as ProviderStage's do through ProviderConfig.PromptDeclarations. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L254>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L257>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
@@ -3518,7 +3530,7 @@ func (s *MediaExtractStage) Process(ctx context.Context, input <-chan StreamElem
 Process implements the Stage interface. Extracts media from messages and emits individual elements for each.
 
 <a name="MemoryExtractionStage"></a>
-## type [MemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L123-L128>)
+## type [MemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L143-L149>)
 
 MemoryExtractionStage extracts memories from the conversation after the provider responds. Runs late in the pipeline \(before state persist\). Calls Extractor.Extract\(\) with the conversation messages and saves results via Store.Save\(\).
 
@@ -3532,7 +3544,7 @@ type MemoryExtractionStage struct {
 ```
 
 <a name="NewMemoryExtractionStage"></a>
-### func [NewMemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L131-L133>)
+### func [NewMemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L152-L154>)
 
 ```go
 func NewMemoryExtractionStage(extractor memory.Extractor, store memory.Store, scope map[string]string) *MemoryExtractionStage
@@ -3541,7 +3553,7 @@ func NewMemoryExtractionStage(extractor memory.Extractor, store memory.Store, sc
 NewMemoryExtractionStage creates an extraction stage.
 
 <a name="MemoryExtractionStage.Process"></a>
-### func \(\*MemoryExtractionStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L143-L147>)
+### func \(\*MemoryExtractionStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L173-L177>)
 
 ```go
 func (s *MemoryExtractionStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3549,8 +3561,17 @@ func (s *MemoryExtractionStage) Process(ctx context.Context, input <-chan Stream
 
 Process implements Stage.
 
+<a name="MemoryExtractionStage.WithCaller"></a>
+### func \(\*MemoryExtractionStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L167>)
+
+```go
+func (s *MemoryExtractionStage) WithCaller(caller types.Caller) *MemoryExtractionStage
+```
+
+WithCaller sets who the conversation acts for. An extractor that implements \[memory.ContextRequestExtractor\] is given it on \[memory.ContextRequest\].Caller, and a store that implements \[memory.OptionsSaver\] on \[memory.SaveOptions\].Caller.
+
 <a name="MemoryRetrievalStage"></a>
-## type [MemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L23-L30>)
+## type [MemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L23-L31>)
 
 MemoryRetrievalStage injects relevant memories into the conversation context. Accumulates messages from input elements, then calls Retriever.RetrieveContext\(\) once the input channel closes and writes the formatted memory context onto TurnState.Variables\["memory\_context"\] for the template stage to consume.
 
@@ -3566,7 +3587,7 @@ type MemoryRetrievalStage struct {
 ```
 
 <a name="NewMemoryRetrievalStage"></a>
-### func [NewMemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L33-L35>)
+### func [NewMemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L34-L36>)
 
 ```go
 func NewMemoryRetrievalStage(retriever memory.Retriever, store memory.Store, scope map[string]string) *MemoryRetrievalStage
@@ -3575,7 +3596,7 @@ func NewMemoryRetrievalStage(retriever memory.Retriever, store memory.Store, sco
 NewMemoryRetrievalStage creates a retrieval stage.
 
 <a name="NewMemoryRetrievalStageWithTurnState"></a>
-### func [NewMemoryRetrievalStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L41-L43>)
+### func [NewMemoryRetrievalStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L42-L44>)
 
 ```go
 func NewMemoryRetrievalStageWithTurnState(retriever memory.Retriever, store memory.Store, scope map[string]string, turnState *TurnState) *MemoryRetrievalStage
@@ -3584,7 +3605,7 @@ func NewMemoryRetrievalStageWithTurnState(retriever memory.Retriever, store memo
 NewMemoryRetrievalStageWithTurnState creates a retrieval stage that publishes its formatted memory context onto the supplied TurnState.
 
 <a name="MemoryRetrievalStage.Process"></a>
-### func \(\*MemoryRetrievalStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L62-L66>)
+### func \(\*MemoryRetrievalStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L71-L75>)
 
 ```go
 func (s *MemoryRetrievalStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3592,8 +3613,17 @@ func (s *MemoryRetrievalStage) Process(ctx context.Context, input <-chan StreamE
 
 Process implements Stage.
 
+<a name="MemoryRetrievalStage.WithCaller"></a>
+### func \(\*MemoryRetrievalStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L65>)
+
+```go
+func (s *MemoryRetrievalStage) WithCaller(caller types.Caller) *MemoryRetrievalStage
+```
+
+WithCaller sets who the conversation acts for. A retriever that implements \[memory.ContextRequestRetriever\] is given it on \[memory.ContextRequest\].Caller.
+
 <a name="MemoryRetrievalStage.WithContextFormatter"></a>
-### func \(\*MemoryRetrievalStage\) [WithContextFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L56>)
+### func \(\*MemoryRetrievalStage\) [WithContextFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L57>)
 
 ```go
 func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) *MemoryRetrievalStage
@@ -4356,7 +4386,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L133-L263>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L133-L266>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4468,8 +4498,11 @@ type ProviderConfig struct {
 
     // Caller is who the conversation acts for, as the host set it with
     // sdk.WithCaller. The stage puts it on every tool call it hands the
-    // registry (tools.ToolCall.Caller) and on every tool hook request
-    // (hooks.ToolRequest.Caller), for the host's executors and hooks. The zero
+    // registry (tools.ToolCall.Caller), on every tool hook request
+    // (hooks.ToolRequest.Caller), on every provider hook request
+    // (hooks.ProviderRequest.Caller) and on every streamed chunk it hands a
+    // chunk interceptor (hooks.ChunkRequest.Caller), for the host's executors
+    // and hooks. The zero
     // value means none was set. The stage never reads, persists, logs or emits
     // it.
     Caller types.Caller
@@ -4495,7 +4528,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L276>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L279>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4504,7 +4537,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L266>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L269>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4529,7 +4562,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L319-L324>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L322-L327>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4538,7 +4571,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L331-L337>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L334-L340>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4547,7 +4580,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L344-L351>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L347-L354>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4556,7 +4589,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L358-L366>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L361-L369>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4565,7 +4598,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L625-L629>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L628-L632>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5720,7 +5753,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2745>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2748>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

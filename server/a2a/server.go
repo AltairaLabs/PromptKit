@@ -231,7 +231,7 @@ type Server struct {
 	// Exactly one of opener and handler is set; see NewServer and
 	// NewStatelessServer. opener means the server owns conversations, handler
 	// means the embedder does.
-	opener        ConversationOpener
+	opener        RequestConversationOpener
 	handler       MessageHandler
 	taskStore     TaskStore
 	cardProvider  AgentCardProvider
@@ -298,6 +298,18 @@ type Server struct {
 // For an embedder that owns conversations itself (because the runtime lives
 // elsewhere, or it already tracks sessions), see [NewStatelessServer].
 func NewServer(opener ConversationOpener, opts ...Option) *Server {
+	return NewServerFor(func(_ *http.Request, contextID string) (Conversation, error) {
+		return opener(contextID)
+	}, opts...)
+}
+
+// NewServerFor is NewServer with an opener that is given the request opening
+// each context, so the conversation can act for the caller the host's
+// authentication identified on it. The conversation is cached per context
+// ID and serves every later message naming that context; use WithTaskOwner
+// so a message from another caller into the context is refused rather than
+// served by a conversation acting for the caller who opened it.
+func NewServerFor(opener RequestConversationOpener, opts ...Option) *Server {
 	s := newServer(opts...)
 	s.opener = opener
 	return s
@@ -1287,7 +1299,7 @@ func (s *Server) getOrCreateConversation(call *rpcCall, contextID string) (Conve
 	if err := s.checkContextTasks(call, contextID); err != nil {
 		return nil, err
 	}
-	conv, err := s.opener(contextID)
+	conv, err := s.opener(call.r, contextID)
 	if err != nil {
 		return nil, err
 	}

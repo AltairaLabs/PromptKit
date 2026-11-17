@@ -214,6 +214,7 @@ func (a *GuardrailHookAdapter) BeforeCall(
 	// history. The hook boundary carries it now, so handlers that read
 	// TurnIndex are no longer unusable as guardrails.
 	evalCtx.TurnIndex = req.TurnIndex
+	evalCtx.Caller = req.Caller
 
 	d := a.evaluate(ctx, evalCtx)
 	if !d.Allow {
@@ -259,6 +260,7 @@ func (a *GuardrailHookAdapter) AfterCall(
 	)
 	if req != nil {
 		evalCtx.TurnIndex = req.TurnIndex
+		evalCtx.Caller = req.Caller
 	}
 
 	return a.evaluateMessage(ctx, evalCtx, &resp.Message)

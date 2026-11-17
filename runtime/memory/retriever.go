@@ -13,3 +13,12 @@ import (
 type Retriever interface {
 	RetrieveContext(ctx context.Context, scope map[string]string, messages []types.Message) ([]*Memory, error)
 }
+
+// ContextRequestRetriever is a Retriever that is given the whole request,
+// caller included. The retrieval stage calls RetrieveContextRequest in place
+// of RetrieveContext when the retriever implements it, so a per-tenant
+// retriever sees who the turn acts for.
+type ContextRequestRetriever interface {
+	Retriever
+	RetrieveContextRequest(ctx context.Context, req ContextRequest) ([]*Memory, error)
+}

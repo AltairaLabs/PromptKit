@@ -54,6 +54,14 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 	s.promptDeclarations = decls
 }
 
+// SetCaller sets who the conversation acts for, so each provider hook call
+// and chunk interceptor call carries it (ProviderRequest.Caller,
+// ChunkRequest.Caller), as ProviderStage's do through ProviderConfig.Caller.
+// Must be called before the stage runs.
+func (s *DuplexProviderStage) SetCaller(caller types.Caller) {
+	s.caller = caller
+}
+
 // duplexTurnGuard is the response loop's guardrail state for the current
 // assistant turn.
 type duplexTurnGuard struct {
@@ -207,6 +215,7 @@ func (s *DuplexProviderStage) hookRequest(messages []types.Message) *hooks.Provi
 	req := &hooks.ProviderRequest{
 		Messages:  messages,
 		TurnIndex: s.hookTurnIndex(),
+		Caller:    s.caller,
 	}
 	if s.provider != nil {
 		req.ProviderID = s.provider.ID()
@@ -491,7 +500,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	}
 
 	probe := &providers.StreamChunk{Content: s.accumulatedText.String() + text, Delta: text}
-	d := s.hookRegistry.RunOnChunk(ctx, probe)
+	d := s.hookRegistry.RunOnChunkRequest(ctx, hooks.ChunkRequest{Chunk: probe, Caller: s.caller})
 	if d.Allow {
 		return nil
 	}

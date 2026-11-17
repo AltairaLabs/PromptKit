@@ -515,6 +515,13 @@ type EvalContext struct {
 	// The scope is explicit because BuildEvalContext always populates
 	// CurrentOutput, so its presence cannot indicate scope.
 	ContentScope string `json:"content_scope,omitempty"`
+
+	// Caller is who the conversation acts for, as the host set it with
+	// sdk.WithCaller. The zero value means none was set. The tool_exec
+	// handler puts it on the tool call it runs, so the host's executor sees
+	// it, and a host's own handler can read it. It is not serialized:
+	// PromptKit never persists, logs or emits it.
+	Caller types.Caller `json:"-"`
 }
 
 // Content scopes for EvalContext.ContentScope.

@@ -16,7 +16,7 @@ type Registry struct {
 	providerHooks     []ProviderHook
 	toolHooks         []ToolHook
 	sessionHooks      []SessionHook
-	chunkInterceptors []ChunkInterceptor   // cached from providerHooks that implement ChunkInterceptor
+	chunkInterceptors []chunkInterceptor   // cached from providerHooks that intercept chunks
 	resultRewriters   []ToolResultRewriter // cached from toolHooks that implement ToolResultRewriter
 }
 
@@ -52,7 +52,7 @@ type Option func(*Registry)
 func WithProviderHook(h ProviderHook) Option {
 	return func(r *Registry) {
 		r.providerHooks = append(r.providerHooks, h)
-		if ci, ok := h.(ChunkInterceptor); ok {
+		if ci, ok := asChunkInterceptor(h); ok {
 			r.chunkInterceptors = append(r.chunkInterceptors, ci)
 		}
 	}
@@ -152,7 +152,29 @@ func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderReques
 	return Allow
 }
 
-// HasChunkInterceptors returns true if any registered provider hook implements ChunkInterceptor.
+// chunkInterceptor is a provider hook's chunk entry point: InterceptChunk
+// when it implements ChunkRequestInterceptor, else OnChunk.
+type chunkInterceptor struct {
+	hook any
+	run  func(ctx context.Context, req ChunkRequest) Decision
+}
+
+// asChunkInterceptor returns h's chunk entry point, preferring the one that
+// takes the caller. ok is false when h intercepts no chunks.
+func asChunkInterceptor(h ProviderHook) (chunkInterceptor, bool) {
+	if ci, ok := h.(ChunkRequestInterceptor); ok {
+		return chunkInterceptor{hook: h, run: ci.InterceptChunk}, true
+	}
+	if ci, ok := h.(ChunkInterceptor); ok {
+		return chunkInterceptor{hook: h, run: func(ctx context.Context, req ChunkRequest) Decision {
+			return ci.OnChunk(ctx, req.Chunk)
+		}}, true
+	}
+	return chunkInterceptor{}, false
+}
+
+// HasChunkInterceptors returns true if any registered provider hook implements
+// ChunkInterceptor or ChunkRequestInterceptor.
 func (r *Registry) HasChunkInterceptors() bool {
 	if r == nil {
 		return false
@@ -161,15 +183,23 @@ func (r *Registry) HasChunkInterceptors() bool {
 }
 
 // RunOnChunk executes all chunk interceptors in order.
-// First deny wins and short-circuits.
+// First deny wins and short-circuits. It is RunOnChunkRequest for a chunk
+// with no caller.
 func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk) Decision {
+	return r.RunOnChunkRequest(ctx, ChunkRequest{Chunk: chunk})
+}
+
+// RunOnChunkRequest executes all chunk interceptors in order: InterceptChunk
+// for one that implements ChunkRequestInterceptor, OnChunk otherwise. First
+// deny wins and short-circuits.
+func (r *Registry) RunOnChunkRequest(ctx context.Context, req ChunkRequest) Decision {
 	if r == nil {
 		return Allow
 	}
 	for _, ci := range r.chunkInterceptors {
-		if d := ci.OnChunk(ctx, chunk); !d.Allow {
+		if d := ci.run(ctx, req); !d.Allow {
 			logger.Warn("chunk interceptor denied",
-				"interceptor", fmt.Sprintf("%T", ci), "reason", d.Reason)
+				"interceptor", fmt.Sprintf("%T", ci.hook), "reason", d.Reason)
 			return d
 		}
 	}

@@ -15,7 +15,7 @@ Package a2aserver provides a standalone A2A\-protocol HTTP server that can be ba
 
 The server speaks A2A 1.0 and 0.3 over one JSON\-RPC endpoint, POST /a2a, and answers each request in the protocol version it asked for. It also serves the agent card at /.well\-known/agent\-card.json \(and the legacy /.well\-known/agent.json\) and the liveness and readiness probes /healthz and /readyz.
 
-There are two ways to supply the agent. NewServer takes a ConversationOpener and owns the conversations: it opens one per context ID, caches it, and expires it when idle. NewStatelessServer takes a MessageHandler and keeps no conversations, so the embedder decides what a conversation is. In both modes the server runs the task state machine, stores tasks in a TaskStore, and streams updates over SSE. The server does not support push notifications.
+There are two ways to supply the agent. NewServer takes a ConversationOpener and owns the conversations: it opens one per context ID, caches it, and expires it when idle. NewServerFor does the same with an opener that is given the request opening the context, so the conversation can act for the caller the host's authentication identified. NewStatelessServer takes a MessageHandler and keeps no conversations, so the embedder decides what a conversation is. In both modes the server runs the task state machine, stores tasks in a TaskStore, and streams updates over SSE. The server does not support push notifications.
 
 ## Index
 
@@ -65,10 +65,12 @@ There are two ways to supply the agent. NewServer takes a ConversationOpener and
 - [type OwnedTaskStore](<#OwnedTaskStore>)
 - [type OwnerFunc](<#OwnerFunc>)
 - [type PendingClientToolInfo](<#PendingClientToolInfo>)
+- [type RequestConversationOpener](<#RequestConversationOpener>)
 - [type ResumableConversation](<#ResumableConversation>)
 - [type SendResult](<#SendResult>)
 - [type Server](<#Server>)
   - [func NewServer\(opener ConversationOpener, opts ...Option\) \*Server](<#NewServer>)
+  - [func NewServerFor\(opener RequestConversationOpener, opts ...Option\) \*Server](<#NewServerFor>)
   - [func NewStatelessServer\(h MessageHandler, opts ...Option\) \*Server](<#NewStatelessServer>)
   - [func \(s \*Server\) Handler\(\) http.Handler](<#Server.Handler>)
   - [func \(s \*Server\) ListenAndServe\(\) error](<#Server.ListenAndServe>)
@@ -140,7 +142,7 @@ type Authenticator interface {
 ```
 
 <a name="CompletableConversation"></a>
-## type [CompletableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L109-L113>)
+## type [CompletableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L112-L116>)
 
 CompletableConversation is a Conversation the server can end rather than release. With WithCompleteOnEviction, the server calls Complete instead of Close when it evicts an idle conversation that implements it. An SDK conversation's Complete runs its on\_conversation\_complete evals.
 
@@ -153,7 +155,7 @@ type CompletableConversation interface {
 ```
 
 <a name="Conversation"></a>
-## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L96-L103>)
+## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L99-L106>)
 
 Conversation is the non\-streaming conversation interface the server uses.
 
@@ -169,7 +171,7 @@ type Conversation interface {
 ```
 
 <a name="ConversationOpener"></a>
-## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L142>)
+## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L145>)
 
 ConversationOpener creates or retrieves a conversation for a given context ID. NewServer calls it once per context ID and caches the result.
 
@@ -178,7 +180,7 @@ type ConversationOpener func(contextID string) (Conversation, error)
 ```
 
 <a name="EventKind"></a>
-## type [EventKind](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L55>)
+## type [EventKind](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L58>)
 
 EventKind discriminates the payload of a StreamEvent.
 
@@ -641,7 +643,7 @@ type OwnerFunc func(r *http.Request) string
 ```
 
 <a name="PendingClientToolInfo"></a>
-## type [PendingClientToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L47-L52>)
+## type [PendingClientToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L50-L55>)
 
 PendingClientToolInfo describes a client\-side tool call awaiting fulfillment.
 
@@ -654,8 +656,17 @@ type PendingClientToolInfo struct {
 }
 ```
 
+<a name="RequestConversationOpener"></a>
+## type [RequestConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L153>)
+
+RequestConversationOpener is ConversationOpener given the HTTP request that opens the context. The A2A protocol carries no caller identity of its own: the host's authentication puts it on the request \(its context or headers\), so this is where a host reads who the conversation acts for. NewServerFor calls it once per context ID, with the request whose message first names that context, and caches the result.
+
+```go
+type RequestConversationOpener func(r *http.Request, contextID string) (Conversation, error)
+```
+
 <a name="ResumableConversation"></a>
-## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L126-L138>)
+## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L129-L141>)
 
 ResumableConversation extends Conversation with the ability to submit client\-side tool results and resume pipeline execution.
 
@@ -676,7 +687,7 @@ type ResumableConversation interface {
 ```
 
 <a name="SendResult"></a>
-## type [SendResult](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L26-L44>)
+## type [SendResult](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L29-L47>)
 
 SendResult is what the server needs from a completed conversation turn.
 
@@ -724,6 +735,15 @@ NewServer creates a new A2A server that owns its conversations: it opens one per
 
 For an embedder that owns conversations itself \(because the runtime lives elsewhere, or it already tracks sessions\), see [NewStatelessServer](<#NewStatelessServer>).
 
+<a name="NewServerFor"></a>
+### func [NewServerFor](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L312>)
+
+```go
+func NewServerFor(opener RequestConversationOpener, opts ...Option) *Server
+```
+
+NewServerFor is NewServer with an opener that is given the request opening each context, so the conversation can act for the caller the host's authentication identified on it. The conversation is cached per context ID and serves every later message naming that context; use WithTaskOwner so a message from another caller into the context is refused rather than served by a conversation acting for the caller who opened it.
+
 <a name="NewStatelessServer"></a>
 ### func [NewStatelessServer](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/handler.go#L97>)
 
@@ -736,7 +756,7 @@ NewStatelessServer creates a server that holds no conversations.
 It is [NewServer](<#NewServer>)'s sibling: same protocol, same options, but each message goes to the handler with its request context and nothing is kept between calls. Use it when the embedder owns conversations: because it already tracks sessions, because the runtime is in another process, or because the server needs to scale horizontally with only the task store shared.
 
 <a name="Server.Handler"></a>
-### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L352>)
+### func \(\*Server\) [Handler](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L364>)
 
 ```go
 func (s *Server) Handler() http.Handler
@@ -745,7 +765,7 @@ func (s *Server) Handler() http.Handler
 Handler returns an http.Handler implementing the A2A protocol. It serves the agent card at GET /.well\-known/agent\-card.json and /.well\-known/agent.json, JSON\-RPC at POST /a2a, and the probes GET /healthz and GET /readyz. Requests are traced with OpenTelemetry, and a panic in a handler is recovered and answered with a JSON\-RPC internal error.
 
 <a name="Server.ListenAndServe"></a>
-### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L380>)
+### func \(\*Server\) [ListenAndServe](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L392>)
 
 ```go
 func (s *Server) ListenAndServe() error
@@ -754,7 +774,7 @@ func (s *Server) ListenAndServe() error
 ListenAndServe starts the HTTP server on the configured port and blocks until it stops. The server applies the read, write and idle timeouts the options set; see WithWriteTimeout for how SSE streams treat the write timeout.
 
 <a name="Server.Serve"></a>
-### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L456>)
+### func \(\*Server\) [Serve](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L468>)
 
 ```go
 func (s *Server) Serve(ln net.Listener) error
@@ -763,7 +783,7 @@ func (s *Server) Serve(ln net.Listener) error
 Serve starts the HTTP server on the given listener and blocks until it stops. It applies the same timeouts as ListenAndServe.
 
 <a name="Server.Shutdown"></a>
-### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L406>)
+### func \(\*Server\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/server.go#L418>)
 
 ```go
 func (s *Server) Shutdown(ctx context.Context) error
@@ -792,7 +812,7 @@ func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error)
 AgentCard returns the static card.
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L81-L93>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L84-L96>)
 
 StreamEvent is a single event on a streaming channel.
 
@@ -813,7 +833,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamingConversation"></a>
-## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L117-L122>)
+## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L120-L125>)
 
 StreamingConversation extends Conversation with streaming support. A conversation that does not implement it is streamed from its Send result.
 
