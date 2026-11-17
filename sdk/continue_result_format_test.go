@@ -104,28 +104,10 @@ func TestContinue_NullAndEmptyStringAreNotLost(t *testing.T) {
 func TestContinue_ResultWithoutJSONIsFormattedAsJSON(t *testing.T) {
 	conv := newTestConversation()
 	conv.toolRegistry = tools.NewRegistry(tools.WithMaxToolResultSize(14))
-	got := conv.modelResult("t", &sdktools.ToolResolution{Result: map[string]any{"a": "b"}}, false)
+	got := conv.modelResult("t", &sdktools.ToolResolution{Result: map[string]any{"a": "b"}})
 	assert.Equal(t, "{\n  \"a\": \"b\"\n}", got.Text)
-	got = conv.modelResult("t", &sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}}, false)
+	got = conv.modelResult("t", &sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}})
 	assert.Equal(t, "{\n  \"a\": \"bbbb\n... [truncated, 23 bytes exceeded limit of 14 bytes]", got.Text)
-}
-
-// Resume keeps a client's JSON as it was sent (it is also what an AG-UI
-// consumer is shown) but applies the size limit and keeps multimodal parts.
-func TestResume_CapsAClientToolResultAndKeepsItsJSON(t *testing.T) {
-	conv, provider := openBindingConv(t, limitedTools(t, 4, "get_location"))
-	conv.DeferClientTool("get_location")
-	ctx := context.Background()
-	resp, err := conv.Send(ctx, "Where am I?")
-	require.NoError(t, err)
-	require.Len(t, resp.ClientTools(), 1)
-	require.NoError(t, conv.SendToolResult(ctx, resp.ClientTools()[0].CallID, "abcdefghij"))
-	_, err = conv.Resume(ctx)
-	require.NoError(t, err)
-
-	got := orchLastToolResults(provider)
-	require.Len(t, got, 1)
-	assert.Equal(t, "\"abc\n... [truncated, 12 bytes exceeded limit of 4 bytes]", got[0].GetTextContent())
 }
 
 // The same oversized result reaches the model identically whether the pipeline

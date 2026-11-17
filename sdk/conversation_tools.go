@@ -621,7 +621,7 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 			errStr = toolResultErrorText(res.Error)
 			content = "Tool error: " + errStr
 		default:
-			given := c.modelResult(name, res, false)
+			given := c.modelResult(name, res)
 			content, parts = given.Text, given.Parts
 		}
 
@@ -697,7 +697,7 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
 		default:
-			given := c.modelResult(names()[res.ID], res, false)
+			given := c.modelResult(names()[res.ID], res)
 			result, parts = given.Text, given.Parts
 		}
 		responses = append(responses, providers.ToolResponse{
@@ -713,9 +713,8 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 
 // modelResult is an approved or answered call's result as the model is given
 // the result of a call the pipeline runs (tools.BuildModelResult): formatted,
-// and capped at the registry's size limit, its parts kept. keepJSON gives JSON
-// as the caller sent it. Rewriting is not applied here (#2723).
-func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution, keepJSON bool) tools.ModelResult {
+// and capped at the registry's size limit, its parts kept. Rewriting is not applied here (#2723).
+func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution) tools.ModelResult {
 	raw := res.ResultJSON
 	if raw == nil && len(res.Parts) == 0 {
 		if marshaled, err := json.Marshal(res.Result); err == nil {
@@ -724,7 +723,7 @@ func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution, ke
 			raw = json.RawMessage(fmt.Sprintf("%v", res.Result))
 		}
 	}
-	opts := tools.ModelResultOptions{ToolName: name, KeepJSON: keepJSON}
+	opts := tools.ModelResultOptions{ToolName: name}
 	if c.toolRegistry != nil {
 		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
 	}

@@ -15,9 +15,13 @@ import (
 // FormatResultText is a JSON tool result as the model is given it: a string
 // unquoted, an object or array indented, any other value as written (numbers
 // keep their exact digits, null reads null). The empty string reads "" (two
-// quote characters): an empty text block is rejected by some providers. Text
+// quote characters), as does no result at all: an empty text block is
+// rejected by some providers. Text
 // that is not JSON is returned as it is.
 func FormatResultText(raw json.RawMessage) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return `""` // no result: an empty text block is rejected by some providers
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var value any
@@ -52,9 +56,17 @@ func TruncateResultText(toolName, content string, maxSize int) string {
 		return content
 	}
 	logger.Warn("Tool result truncated", "tool", toolName, "size", size, "limit", maxSize)
+	// Back up to a character boundary: at most a character's width, so text
+	// that is not UTF-8 keeps its full prefix.
 	cut := maxSize
-	for cut > 0 && !utf8.RuneStart(content[cut]) {
-		cut--
+	for back := 1; back < utf8.UTFMax && back <= maxSize; back++ {
+		if utf8.RuneStart(content[maxSize]) {
+			break
+		}
+		if utf8.RuneStart(content[maxSize-back]) {
+			cut = maxSize - back
+			break
+		}
 	}
 	return fmt.Sprintf(
 		"%s\n... [truncated, %d bytes exceeded limit of %d bytes]",
@@ -69,9 +81,6 @@ type ModelResultOptions struct {
 	// MaxSize is the size limit in bytes for each text; zero or less is no limit
 	// (the registry's MaxToolResultSize).
 	MaxSize int
-	// KeepJSON gives a JSON result as written instead of formatting it, for a
-	// result that is also stored or sent to a consumer as the client sent it.
-	KeepJSON bool
 	// Rewrite, when set, rewrites each text before the size limit applies.
 	Rewrite func(string) (string, error)
 }
@@ -100,14 +109,13 @@ func BuildModelResult(
 				return "", err
 			}
 		}
-		return TruncateResultText(opts.ToolName, text, opts.MaxSize), nil
+		if text = TruncateResultText(opts.ToolName, text, opts.MaxSize); text == "" {
+			return `""`, nil // an empty text block is rejected by some providers
+		}
+		return text, nil
 	}
 	if len(parts) == 0 {
-		text := string(raw)
-		if !opts.KeepJSON {
-			text = FormatResultText(raw)
-		}
-		text, err := prepare(text)
+		text, err := prepare(FormatResultText(raw))
 		return ModelResult{Text: text}, err
 	}
 	out := make([]types.ContentPart, len(parts))

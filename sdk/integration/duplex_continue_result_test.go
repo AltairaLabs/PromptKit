@@ -20,6 +20,14 @@ import (
 func duplexContinued(
 	t *testing.T, result any, settle func(ctx context.Context, conv *sdk.Conversation) error, opts ...sdk.Option,
 ) providers.ToolResponse {
+	got, _ := duplexContinuedIn(t, result, settle, opts...)
+	return got
+}
+
+// duplexContinuedIn is duplexContinued that also returns the conversation.
+func duplexContinuedIn(
+	t *testing.T, result any, settle func(ctx context.Context, conv *sdk.Conversation) error, opts ...sdk.Option,
+) (providers.ToolResponse, *sdk.Conversation) {
 	t.Helper()
 	opts = append([]sdk.Option{sdk.WithStreamingConfig(hostToolStreamingConfig())}, opts...)
 	conv, provider := openDuplexToolConv(t, duplexToolsPackJSON,
@@ -50,7 +58,7 @@ func duplexContinued(
 	defer sess.responsesMu.Unlock()
 	require.Len(t, sess.receivedResponses, 1)
 	require.Len(t, sess.receivedResponses[0], 1)
-	return sess.receivedResponses[0][0]
+	return sess.receivedResponses[0][0], conv
 }
 
 func approveCall(ctx context.Context, conv *sdk.Conversation) error {
@@ -66,9 +74,18 @@ func limited(bytes int) sdk.Option {
 // joined text, never as "<nil>".
 func TestContinueDuplex_SendsAMultimodalResolutionAsItsParts(t *testing.T) {
 	image := types.NewImagePartFromData("aGk=", "image/png", nil)
-	got := duplexContinued(t, "unused", func(ctx context.Context, conv *sdk.Conversation) error {
+	got, conv := duplexContinuedIn(t, "unused", func(ctx context.Context, conv *sdk.Conversation) error {
 		return conv.SendToolResultMultimodal(ctx, "call_1", []types.ContentPart{types.NewTextPart("a photo"), image})
 	})
+	// The history keeps the media the model was given.
+	require.Eventually(t, func() bool {
+		for _, m := range conv.Messages(context.Background()) {
+			if m.ToolResult != nil && m.ToolResult.ID == "call_1" {
+				return len(m.ToolResult.Parts) == 2 && m.ToolResult.Parts[1].Type == types.ContentTypeImage
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "the history's tool result drops the image")
 	assert.Equal(t, "a photo", got.Result)
 	require.Len(t, got.Parts, 2)
 	assert.Equal(t, "a photo", *got.Parts[0].Text)

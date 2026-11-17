@@ -28,6 +28,7 @@ func TestFormatResultText(t *testing.T) {
 		{"fraction", `1.5`, "1.5"},
 		{"boolean", `true`, "true"},
 		{"empty string renders as two quotes", `""`, `""`},
+		{"empty raw JSON renders as two quotes", ``, `""`},
 		{"null renders as null", `null`, "null"},
 		{"null inside an object", `{"a":null}`, "{\n  \"a\": null\n}"},
 		{"text that is not JSON passes through", `plain text`, "plain text"},
@@ -50,6 +51,9 @@ func TestTruncateResultText(t *testing.T) {
 	assert.Equal(t, "日\n... [truncated, 9 bytes exceeded limit of 4 bytes]", TruncateResultText("t", "日本語", 4))
 	assert.Equal(t, "日本\n... [truncated, 9 bytes exceeded limit of 7 bytes]", TruncateResultText("t", "日本語", 7))
 	assert.Equal(t, "a\n... [truncated, 5 bytes exceeded limit of 3 bytes]", TruncateResultText("t", "a😀", 3))
+	// Bytes that are not UTF-8 keep their prefix: only a character's width is backed over.
+	junk := "ab\x80\x80\x80\x80\x80\x80"
+	assert.Equal(t, "ab\x80\x80\x80\n... [truncated, 8 bytes exceeded limit of 5 bytes]", TruncateResultText("t", junk, 5))
 }
 
 func TestBuildModelResult(t *testing.T) {
@@ -60,9 +64,14 @@ func TestBuildModelResult(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, ModelResult{Text: "abcd\n... [truncated, 10 bytes exceeded limit of 4 bytes]"}, got)
 	})
-	t.Run("KeepJSON leaves the JSON as written", func(t *testing.T) {
-		got, _ := BuildModelResult(json.RawMessage(`{"a":1}`), nil, ModelResultOptions{KeepJSON: true})
-		assert.Equal(t, `{"a":1}`, got.Text)
+	t.Run("no result and empty text read as two quotes", func(t *testing.T) {
+		got, _ := BuildModelResult(nil, nil, ModelResultOptions{})
+		assert.Equal(t, `""`, got.Text)
+		got, _ = BuildModelResult(json.RawMessage(" "), nil, ModelResultOptions{})
+		assert.Equal(t, `""`, got.Text)
+		got, _ = BuildModelResult(nil, []types.ContentPart{types.NewTextPart(""), image}, ModelResultOptions{})
+		assert.Equal(t, `""`, got.Text)
+		assert.Equal(t, `""`, *got.Parts[0].Text)
 	})
 	t.Run("parts keep media and cap each text part", func(t *testing.T) {
 		got, err := BuildModelResult(nil, []types.ContentPart{types.NewTextPart("abcdef"), image},
