@@ -198,6 +198,7 @@ func TestDuplexHeardReply_FullyPlayedStoredUnchanged(t *testing.T) {
 
 	got := c.saved(2)[1]
 	assert.GreaterOrEqual(t, time.Since(start), 280*time.Millisecond, "stored once the audio played")
+	assert.Equal(t, int32(1), c.turns.Load(), "the caller sees the reply's turn end once")
 	assert.Equal(t, "Hello there.", got.Content)
 	assert.Equal(t, playoutMeta{Finish: "stop", HeardMs: -1, AudioMs: -1, Fraction: -1}, playoutOf(got),
 		"stored unchanged")

@@ -233,8 +233,15 @@ type ElementMetadata struct {
 	// PlayoutRelease marks an element PlayoutHoldStage emits to release a held
 	// Message into the transcript, amended when the caller heard only part of
 	// the reply. It is for the transcript stages only: it is not output for
-	// the caller, and does not mark a turn boundary.
+	// the caller, and it is never a turn end (EndOfStream): the held element
+	// carried the turn end downstream when it happened, so each reply's turn
+	// ends once for every stage.
 	PlayoutRelease bool
+
+	// PlayoutTurnEnd, on a PlayoutRelease element, records that the held
+	// element was a turn end (EndOfStream), for a stage that treats a
+	// turn-end Message differently from others.
+	PlayoutTurnEnd bool
 
 	// ToolResultMessages carries tool-execution result messages produced
 	// by the streaming tool integration; the duplex provider stage

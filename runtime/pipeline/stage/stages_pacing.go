@@ -188,7 +188,7 @@ func (s *AudioPacingStage) Process(
 		// element re-arms preroll mid-utterance, so each interleaved
 		// transcript chunk releases another preroll burst and the
 		// downstream consumer accumulates seconds of buffered audio.
-		if elem.EndOfStream && !elem.Meta.PlayoutRelease { // a release is no turn boundary
+		if elem.EndOfStream {
 			s.last = time.Time{}
 			s.chunksThisSequence = 0
 		}

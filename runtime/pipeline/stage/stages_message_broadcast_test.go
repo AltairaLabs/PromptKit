@@ -445,3 +445,19 @@ func TestMessageBroadcastStage_HeldMessageBroadcastOnRelease(t *testing.T) {
 	assert.Equal(t, "and then?", got[1].GetContent())
 	assert.Equal(t, 1, got[1].Index)
 }
+
+// A released turn-end reply is published as the held turn-end element would
+// have been: by this stage, not at all (EndOfStream messages are not), and it
+// takes no index.
+func TestMessageBroadcastStage_ReleasedTurnEndAsTheHeldElement(t *testing.T) {
+	held := liveMsgElem("assistant", "reply")
+	held.EndOfStream = true
+	held.Meta.PlayoutHeld = true
+	release := liveMsgElem("assistant", "reply")
+	release.Meta.PlayoutRelease = true
+	release.Meta.PlayoutTurnEnd = true
+	got := runBroadcast(t, []StreamElement{held, release, liveMsgElem("user", "next")}, 1)
+	require.Len(t, got, 1)
+	assert.Equal(t, "next", got[0].GetContent())
+	assert.Equal(t, 0, got[0].Index)
+}

@@ -112,8 +112,9 @@ func (s *MessageBroadcastStage) Process(
 // persisted transcript rather than counting only this turn's new messages.
 func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *StreamElement, msgIndex *int) {
 	// A held Message is not counted or broadcast here: its PlayoutRelease
-	// element, at the same place in the transcript, is.
-	if elem.Message == nil || elem.EndOfStream || elem.Meta.PlayoutHeld {
+	// element, at the same place in the transcript, is, as the held element
+	// would have been (a turn-end Message is not: PlayoutTurnEnd).
+	if elem.Message == nil || elem.EndOfStream || elem.Meta.PlayoutHeld || elem.Meta.PlayoutTurnEnd {
 		return
 	}
 

@@ -2237,7 +2237,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L303>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L310>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2313,8 +2313,15 @@ type ElementMetadata struct {
     // PlayoutRelease marks an element PlayoutHoldStage emits to release a held
     // Message into the transcript, amended when the caller heard only part of
     // the reply. It is for the transcript stages only: it is not output for
-    // the caller, and does not mark a turn boundary.
+    // the caller, and it is never a turn end (EndOfStream): the held element
+    // carried the turn end downstream when it happened, so each reply's turn
+    // ends once for every stage.
     PlayoutRelease bool
+
+    // PlayoutTurnEnd, on a PlayoutRelease element, records that the held
+    // element was a turn end (EndOfStream), for a stage that treats a
+    // turn-end Message differently from others.
+    PlayoutTurnEnd bool
 
     // ToolResultMessages carries tool-execution result messages produced
     // by the streaming tool integration; the duplex provider stage
@@ -3446,7 +3453,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L306-L317>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L313-L324>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -6269,7 +6276,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L333-L336>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L340-L343>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -6555,7 +6562,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L320-L329>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L327-L336>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

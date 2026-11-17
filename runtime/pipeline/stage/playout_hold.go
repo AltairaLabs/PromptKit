@@ -201,8 +201,11 @@ func (h *playoutHold) release(ctx context.Context, output chan<- StreamElement, 
 		if got, cut := heard[strconv.Itoa(m.key)]; m.reply && cut {
 			msg = heardReply(msg, got, h.audio[m.key], cause)
 		}
-		out := StreamElement{Message: msg, EndOfStream: m.elem.EndOfStream, Timestamp: m.elem.Timestamp}
+		// Not a turn end: the held element already carried this reply's, to
+		// every stage downstream, when it happened.
+		out := StreamElement{Message: msg, Timestamp: m.elem.Timestamp}
 		out.Meta.PlayoutRelease = true
+		out.Meta.PlayoutTurnEnd = m.elem.EndOfStream
 		h.fwd.forward(ctx, output, out)
 		if m.reply {
 			delete(h.audio, m.key)
