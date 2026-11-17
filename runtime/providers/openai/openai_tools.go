@@ -296,7 +296,7 @@ func (p *ToolProvider) buildToolRequest(
 }
 
 // convertRequestMessagesToOpenAI converts all messages in a request to OpenAI format
-func (p *ToolProvider) convertRequestMessagesToOpenAI(
+func (p *Provider) convertRequestMessagesToOpenAI(
 	ctx context.Context, req providers.PredictionRequest,
 ) ([]map[string]interface{}, error) {
 	messages := make([]map[string]interface{}, 0, len(req.Messages)+1)
@@ -335,7 +335,7 @@ func (p *ToolProvider) convertRequestMessagesToOpenAI(
 
 // appendLiftedMedia appends the user messages carrying the media of a run of
 // tool results (liftedMediaMessages) to messages.
-func (p *ToolProvider) appendLiftedMedia(
+func (p *Provider) appendLiftedMedia(
 	ctx context.Context, messages []map[string]interface{}, round []*types.MessageToolResult,
 ) ([]map[string]interface{}, error) {
 	lifted := p.liftedMediaMessages(round)
@@ -352,33 +352,36 @@ func (p *ToolProvider) appendLiftedMedia(
 // convertSingleMessageForTools converts a single message to OpenAI format including tool metadata.
 // A part that cannot be converted is an error, as on the non-tool path: falling
 // back to the message's text used to send the model the question without its media.
-func (p *ToolProvider) convertSingleMessageForTools(
+func (p *Provider) convertSingleMessageForTools(
 	ctx context.Context, msg types.Message,
 ) (map[string]interface{}, error) {
+	// A tool message is text: its media is described by toolMessageText and
+	// lifted into a user message, so it is neither loaded nor encoded here.
+	if msg.Role == roleToolResult && msg.ToolResult != nil {
+		openaiMsg := map[string]interface{}{
+			keyRole:        msg.Role,
+			keyContent:     p.toolMessageText(msg.ToolResult),
+			"tool_call_id": msg.ToolResult.ID,
+		}
+		if msg.ToolResult.Name != "" {
+			openaiMsg[keyName] = msg.ToolResult.Name
+		}
+		return openaiMsg, nil
+	}
+
 	// Convert message to OpenAI format (handles both legacy and multimodal)
 	convertedMsg, err := p.convertMessageToOpenAI(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build the message map with content
 	openaiMsg := map[string]interface{}{
 		keyRole:    convertedMsg.Role,
 		keyContent: convertedMsg.Content,
 	}
-
-	// Add tool-related fields if present
 	if len(msg.ToolCalls) > 0 {
 		openaiMsg["tool_calls"] = p.convertToolCallsToOpenAI(msg.ToolCalls)
 	}
-
-	// Handle tool result messages
-	if msg.Role == "tool" && msg.ToolResult != nil {
-		openaiMsg["tool_call_id"] = msg.ToolResult.ID
-		openaiMsg[keyName] = msg.ToolResult.Name
-		openaiMsg[keyContent] = p.toolMessageText(msg.ToolResult)
-	}
-
 	return openaiMsg, nil
 }
 
@@ -393,7 +396,7 @@ func replayArgs(args json.RawMessage) string {
 }
 
 // convertToolCallsToOpenAI converts ToolCalls to OpenAI format
-func (p *ToolProvider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
+func (p *Provider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) []map[string]interface{} {
 	result := make([]map[string]interface{}, len(toolCalls))
 	for i, tc := range toolCalls {
 		result[i] = map[string]interface{}{

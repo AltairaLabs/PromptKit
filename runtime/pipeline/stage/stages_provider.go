@@ -2237,10 +2237,10 @@ func (s *ProviderStage) validateRequestContent(prov providers.Provider, req *pro
 // messagesHaveToolLinkage reports whether the history contains assistant tool
 // calls or tool results. Providers keep two message serializers — a tool-aware
 // one and a plain one — and only the tool-aware one can represent that linkage
-// (OpenAI's plain path builds []openAIMessage, which has no tool_calls or
-// tool_call_id field at all; Claude's splits []claudeMessage vs
-// []claudeToolMessage the same way). Sending such a history down the plain path
-// silently strips the linkage and the provider rejects the array.
+// (Claude's splits []claudeMessage vs []claudeToolMessage that way, so its
+// plain path strips the linkage and the provider rejects the array). OpenAI's
+// plain path now serializes with the tool-aware code and keeps the linkage, so
+// the routing is not needed for it; it stays for the providers that still split.
 func messagesHaveToolLinkage(messages []types.Message) bool {
 	for i := range messages {
 		if len(messages[i].ToolCalls) > 0 || messages[i].ToolResult != nil {

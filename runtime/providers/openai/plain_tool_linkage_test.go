@@ -1,0 +1,223 @@
+package openai
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+// linkageHistory is a conversation whose assistant turn called a tool and
+// whose tool message answered it.
+func linkageHistory() []types.Message {
+	return []types.Message{
+		{Role: "user", Content: "Weather in Paris?"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{
+			{ID: "call_abc", Name: "get_weather", Args: json.RawMessage(`{"city":"Paris"}`)},
+		}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_abc", Name: "get_weather", Parts: []types.ContentPart{
+			types.NewTextPart("18C and sunny"),
+		}}},
+	}
+}
+
+const wantLinkedMessages = `[
+	{"role":"user","content":"Weather in Paris?"},
+	{"role":"assistant","content":"","tool_calls":[
+		{"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]},
+	{"role":"tool","name":"get_weather","content":"18C and sunny","tool_call_id":"call_abc"}
+]`
+
+func captureChatBody(t *testing.T, stream bool, run func(p *Provider)) []byte {
+	t.Helper()
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		if stream {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	t.Cleanup(server.Close)
+	p := &Provider{
+		BaseProvider: providers.NewBaseProvider("test", false, &http.Client{Timeout: 30 * time.Second}),
+		model:        "gpt-4o",
+		baseURL:      server.URL,
+		apiKey:       "k",
+		defaults:     providers.ProviderDefaults{MaxTokens: 100},
+	}
+	run(p)
+	return body
+}
+
+func TestPredict_PlainPathKeepsToolLinkage(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: linkageHistory()})
+		require.NoError(t, err)
+	})
+	var got struct {
+		Messages json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.JSONEq(t, wantLinkedMessages, string(got.Messages))
+}
+
+func TestPredictStream_PlainPathKeepsToolLinkage(t *testing.T) {
+	body := captureChatBody(t, true, func(p *Provider) {
+		ch, err := p.PredictStream(context.Background(), providers.PredictionRequest{Messages: linkageHistory()})
+		require.NoError(t, err)
+		for range ch {
+		}
+	})
+	var got struct {
+		Messages json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.JSONEq(t, wantLinkedMessages, string(got.Messages))
+}
+
+func messagesOf(t *testing.T, body []byte) json.RawMessage {
+	t.Helper()
+	var got struct {
+		Messages json.RawMessage `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(body, &got))
+	return got.Messages
+}
+
+func imageToolHistory() []types.Message {
+	return []types.Message{
+		{Role: "user", Content: "Take a picture"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "call_img", Name: "camera", Args: json.RawMessage(`{}`)}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_img", Name: "camera", Parts: []types.ContentPart{
+			types.NewTextPart("done"),
+			types.NewImagePartFromData("aW1n", types.MIMETypeImagePNG, nil),
+		}}},
+	}
+}
+
+// A tool result with an image goes out as the tool path sends it: a text-only
+// tool message that says where the image went, then a user message with the image.
+func TestPredict_PlainPathLiftsToolResultMedia(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: imageToolHistory()})
+		require.NoError(t, err)
+	})
+	assert.JSONEq(t, `[
+		{"role":"user","content":"Take a picture"},
+		{"role":"assistant","content":"","tool_calls":[
+			{"id":"call_img","type":"function","function":{"name":"camera","arguments":"{}"}}]},
+		{"role":"tool","name":"camera","tool_call_id":"call_img",
+			"content":"done\n[The image this tool returned is attached in the next user message.]"},
+		{"role":"user","content":[
+			{"type":"text","text":"Media returned by tool camera (call call_img):"},
+			{"type":"image_url","image_url":{"url":"data:image/png;base64,aW1n"}}]}
+	]`, string(messagesOf(t, body)))
+}
+
+// tool_call_id belongs to role=tool messages only.
+func TestPredict_PlainPathToolResultOnNonToolRoleHasNoToolCallID(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+			{Role: "user", Content: "hi", ToolResult: &types.MessageToolResult{ID: "call_x", Name: "x"}},
+		}})
+		require.NoError(t, err)
+	})
+	assert.JSONEq(t, `[{"role":"user","content":"hi"}]`, string(messagesOf(t, body)))
+}
+
+// The plain and tool paths must serialize one history to the same messages.
+func TestPlainAndToolPathsSerializeHistoryIdentically(t *testing.T) {
+	history := append(linkageHistory(), imageToolHistory()[1:]...)
+	history = append(history, types.Message{Role: "user", Content: "thanks"})
+	req := providers.PredictionRequest{System: "be brief", MaxTokens: 50, Messages: history}
+
+	plain := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), req)
+		require.NoError(t, err)
+	})
+	var toolBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		toolBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"1","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+	t.Setenv("OPENAI_API_KEY", "k")
+	tp := NewToolProvider("parity", "gpt-4o", server.URL, providers.ProviderDefaults{}, false, nil, nil)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+		Name: "get_weather", Description: "w", InputSchema: json.RawMessage(`{"type":"object"}`),
+	}})
+	require.NoError(t, err)
+	_, _, err = tp.PredictWithTools(context.Background(), req, tools, "auto")
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(messagesOf(t, toolBody)), string(messagesOf(t, plain)))
+}
+
+// A model declared without vision gets the tool message's text plus the note
+// that the image was not sent, and no image_url, on the plain and tool paths.
+func TestToolResultImage_DeclaredWithoutVisionIsNotSent(t *testing.T) {
+	plainBody := captureChatBody(t, false, func(p *Provider) {
+		p.setCapabilities([]string{providers.CapabilityTools})
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: imageToolHistory()})
+		require.NoError(t, err)
+	})
+	got := string(messagesOf(t, plainBody))
+	assert.NotContains(t, got, "image_url")
+	assert.NotContains(t, got, `"role":"user","content":[`)
+	var msgs []map[string]any
+	require.NoError(t, json.Unmarshal(messagesOf(t, plainBody), &msgs))
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "tool", msgs[2]["role"])
+	assert.Contains(t, msgs[2]["content"], "done\n[This tool returned an image (image/png) that was not sent")
+
+	tp := NewToolProvider("novision", "gpt-4o", "http://unused", providers.ProviderDefaults{}, false, nil, nil)
+	tp.setCapabilities([]string{providers.CapabilityTools})
+	toolMsgs, err := tp.convertRequestMessagesToOpenAI(context.Background(),
+		providers.PredictionRequest{Messages: imageToolHistory()})
+	require.NoError(t, err)
+	require.Len(t, toolMsgs, 3)
+	assert.Equal(t, msgs[2]["content"], toolMsgs[2]["content"])
+}
+
+func TestToolMessage_NamelessResultOmitsName(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+			{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_1", Parts: []types.ContentPart{
+				types.NewTextPart("ok")}}},
+		}})
+		require.NoError(t, err)
+	})
+	assert.JSONEq(t, `[{"role":"tool","content":"ok","tool_call_id":"call_1"}]`, string(messagesOf(t, body)))
+}
+
+// Media on a tool message that the API does not take is described, not loaded:
+// a part that cannot be loaded must not fail the request.
+func TestToolMessage_UnsentMediaIsNeverLoaded(t *testing.T) {
+	body := captureChatBody(t, false, func(p *Provider) {
+		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
+			{Role: "tool", ToolResult: &types.MessageToolResult{ID: "call_1", Name: "rec", Parts: []types.ContentPart{
+				types.NewTextPart("ok"),
+				{Type: types.ContentTypeVideo, Media: &types.MediaContent{MIMEType: "video/mp4"}},
+			}}},
+		}})
+		require.NoError(t, err)
+	})
+	var msgs []map[string]any
+	require.NoError(t, json.Unmarshal(messagesOf(t, body), &msgs))
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0]["content"], "ok\n[This tool returned a video (video/mp4) that was not sent")
+}

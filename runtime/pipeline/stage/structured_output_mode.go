@@ -148,11 +148,12 @@ func (tl *toolLoop) reaskCall(
 // the stage's rounds use.
 //
 // It must go through the TOOL path whenever the transcript contains tool
-// messages, even though it offers no tools: a provider's plain-Predict
+// messages, even though it offers no tools: some providers' plain-Predict
 // serializer is tool-blind and rejects the tool-result roles outright — Claude
-// answers 400 `Unexpected role "tool"`. Passing nil tools through the
-// tool-aware path gets the transcript serialized correctly while leaving the
-// schema uncontested, which is the whole point of the re-ask.
+// answers 400 `Unexpected role "tool"`. (OpenAI's plain path now shares the
+// tool path's serializer and no longer needs this.) Passing nil tools through
+// the tool-aware path gets the transcript serialized correctly while leaving
+// the schema uncontested, which is the whole point of the re-ask.
 //
 // useToolPath already encodes this rule for the rounds; reusing it keeps the
 // re-ask from drifting from them.

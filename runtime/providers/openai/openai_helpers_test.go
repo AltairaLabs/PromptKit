@@ -69,7 +69,7 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			messages, err := provider.prepareOpenAIMessages(context.Background(), tt.req)
+			messages, err := provider.convertRequestMessagesToOpenAI(context.Background(), tt.req)
 			if err != nil {
 				t.Fatalf("Failed to prepare messages: %v", err)
 			}
@@ -79,18 +79,18 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 			}
 
 			if tt.checkFirstRole != "" && len(messages) > 0 {
-				if messages[0].Role != tt.checkFirstRole {
-					t.Errorf("Expected first role %q, got %q", tt.checkFirstRole, messages[0].Role)
+				if messages[0]["role"] != tt.checkFirstRole {
+					t.Errorf("Expected first role %q, got %q", tt.checkFirstRole, messages[0]["role"])
 				}
 			}
 
 			if tt.checkSystem {
 				found := false
 				for _, msg := range messages {
-					if msg.Role == "system" {
+					if msg["role"] == "system" {
 						found = true
-						if msg.Content != tt.req.System {
-							t.Errorf("Expected system content %q, got %q", tt.req.System, msg.Content)
+						if msg["content"] != tt.req.System {
+							t.Errorf("Expected system content %q, got %q", tt.req.System, msg["content"])
 						}
 						break
 					}
@@ -108,11 +108,11 @@ func TestPrepareOpenAIMessages(t *testing.T) {
 			for i, originalMsg := range tt.req.Messages {
 				msgIdx := i + systemOffset
 				if msgIdx < len(messages) {
-					if messages[msgIdx].Role != originalMsg.Role {
-						t.Errorf("Message %d: expected role %q, got %q", i, originalMsg.Role, messages[msgIdx].Role)
+					if messages[msgIdx]["role"] != originalMsg.Role {
+						t.Errorf("Message %d: expected role %q, got %q", i, originalMsg.Role, messages[msgIdx]["role"])
 					}
-					if messages[msgIdx].Content != originalMsg.Content {
-						t.Errorf("Message %d: expected content %q, got %q", i, originalMsg.Content, messages[msgIdx].Content)
+					if messages[msgIdx]["content"] != originalMsg.Content {
+						t.Errorf("Message %d: expected content %q, got %q", i, originalMsg.Content, messages[msgIdx]["content"])
 					}
 				}
 			}
@@ -563,15 +563,15 @@ func TestOpenAIHelpers_Integration(t *testing.T) {
 		}
 
 		// Step 1: Prepare messages
-		messages, err := provider.prepareOpenAIMessages(context.Background(), req)
+		messages, err := provider.convertRequestMessagesToOpenAI(context.Background(), req)
 		if err != nil {
 			t.Fatalf("Failed to prepare messages: %v", err)
 		}
 		if len(messages) != 4 {
 			t.Errorf("Expected 4 messages (system + 3), got %d", len(messages))
 		}
-		if messages[0].Role != "system" {
-			t.Errorf("Expected first message to be system, got %q", messages[0].Role)
+		if messages[0]["role"] != "system" {
+			t.Errorf("Expected first message to be system, got %q", messages[0]["role"])
 		}
 
 		// Step 2: Apply defaults

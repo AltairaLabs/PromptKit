@@ -28,15 +28,15 @@ const roleUser = "user"
 
 // liftsToUserMessage reports whether a tool result's media part is sent to
 // the model in a user message.
-func (p *ToolProvider) liftsToUserMessage(part *types.ContentPart) bool {
+func (p *Provider) liftsToUserMessage(part *types.ContentPart) bool {
 	return part.Type != types.ContentTypeText && part.Media != nil &&
-		providers.ToolMediaRefusal(apiNameChat, p.SendableMultimodalCapabilities(), part) == ""
+		providers.ToolMediaRefusal(apiNameChat, p.GetMultimodalCapabilities(), part) == ""
 }
 
 // toolMessageText is what the tool message itself says: the result's text,
 // then where its media went or why it was not sent.
-func (p *ToolProvider) toolMessageText(result *types.MessageToolResult) string {
-	caps := p.SendableMultimodalCapabilities()
+func (p *Provider) toolMessageText(result *types.MessageToolResult) string {
+	caps := p.GetMultimodalCapabilities()
 	var notes []string
 	lifted := 0
 	var liftedKind string
@@ -73,7 +73,7 @@ func (p *ToolProvider) toolMessageText(result *types.MessageToolResult) string {
 // liftedMediaMessages are the user messages that carry the media of results,
 // one per result that returned media a user message can carry, each labeled
 // with the tool and call it came from.
-func (p *ToolProvider) liftedMediaMessages(results []*types.MessageToolResult) []types.Message {
+func (p *Provider) liftedMediaMessages(results []*types.MessageToolResult) []types.Message {
 	var out []types.Message
 	for _, result := range results {
 		var media []types.ContentPart
@@ -95,7 +95,7 @@ func (p *ToolProvider) liftedMediaMessages(results []*types.MessageToolResult) [
 // responsesToolCaps is what a Responses API function_call_output takes:
 // images as on a user message, and PDF documents as input_file.
 func (p *Provider) responsesToolCaps() providers.MultimodalCapabilities {
-	caps := p.SendableMultimodalCapabilities()
+	caps := p.GetMultimodalCapabilities()
 	caps.SupportsDocuments = true
 	caps.DocumentFormats = []string{types.MIMETypePDF}
 	return caps

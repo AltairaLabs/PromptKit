@@ -22,6 +22,13 @@ import (
 // request carried for it.
 func responsesOutputOf(t *testing.T, parts []types.ContentPart) map[string]any {
 	t.Helper()
+	return responsesOutputWithCaps(t, nil, parts)
+}
+
+// responsesOutputWithCaps is responsesOutputOf for a provider that declares
+// capabilities (nil leaves them undeclared).
+func responsesOutputWithCaps(t *testing.T, caps []string, parts []types.ContentPart) map[string]any {
+	t.Helper()
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		raw, _ := io.ReadAll(r.Body)
@@ -37,6 +44,9 @@ func responsesOutputOf(t *testing.T, parts []types.ContentPart) map[string]any {
 		{Name: "snapshot", Description: "snapshot", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	})
 	require.NoError(t, err)
+	if caps != nil {
+		tp.setCapabilities(caps)
+	}
 	_, _, err = tp.PredictWithTools(context.Background(), providers.PredictionRequest{MaxTokens: 64, Messages: []types.Message{
 		{Role: "user", Content: "check the yard"},
 		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "call-1", Name: "snapshot", Args: json.RawMessage(`{}`)}}},
@@ -136,4 +146,21 @@ func TestResponsesToolResult_DescribedMediaIsNotLoaded(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "[This tool returned a document (text/csv) that was not sent: OpenAI Responses does not "+
 		"accept text/csv documents.]", items[0].(map[string]any)["text"])
+}
+
+// A model declared without vision is sent the note, not an input_image; the
+// document, which vision does not gate, still goes as input_file.
+func TestResponsesToolResult_DeclaredWithoutVisionDescribesImages(t *testing.T) {
+	out := responsesOutputWithCaps(t, []string{providers.CapabilityTools}, []types.ContentPart{
+		types.NewTextPart("camera 3"),
+		types.NewImagePartFromData("aW1n", types.MIMETypeImagePNG, nil),
+		types.NewDocumentPartFromData("cGRm", "application/pdf"),
+	})
+	items, ok := out["output"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 3)
+	assert.Equal(t, map[string]any{"type": "input_text", "text": "camera 3"}, items[0])
+	assert.Equal(t, "input_text", items[1].(map[string]any)["type"])
+	assert.Contains(t, items[1].(map[string]any)["text"], "[This tool returned an image (image/png) that was not sent")
+	assert.Equal(t, "input_file", items[2].(map[string]any)["type"])
 }
