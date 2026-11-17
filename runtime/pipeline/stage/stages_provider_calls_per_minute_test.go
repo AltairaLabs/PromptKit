@@ -158,10 +158,12 @@ func (deferringExecutor) Execute(context.Context, *tools.ToolDescriptor, json.Ra
 	return nil, fmt.Errorf("deferringExecutor runs asynchronously only")
 }
 
-// Defers reports, before it runs a call, that the executor defers it
-// (tools.DeferringExecutor), as the SDK's client executor does for a client
-// tool with no handler.
-func (deferringExecutor) Defers(*tools.ToolDescriptor, tools.ToolCall) bool { return true }
+// Defer defers every call without running it (tools.DeferringExecutor), as
+// the SDK's client executor does for a client tool with no handler.
+func (e deferringExecutor) Defer(d *tools.ToolDescriptor, call tools.ToolCall) (*tools.ToolExecutionResult, bool) {
+	res, _ := e.ExecuteAsync(context.Background(), d, call.Args)
+	return res, true
+}
 
 func (deferringExecutor) ExecuteAsync(
 	_ context.Context, d *tools.ToolDescriptor, _ json.RawMessage,

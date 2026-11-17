@@ -18,10 +18,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// gatedDeferringExecutor defers every call, as a client tool with no handler
-// does, and says so before it runs one (tools.DeferringExecutor). It holds the
-// first call it is given until the second arrives, so the two are in flight
-// together, or until a second has passed.
+// gatedDeferringExecutor defers every call without running it, as a client
+// tool with no handler does (tools.DeferringExecutor). It holds the first call
+// it is given until the second arrives, so the two are in flight together, or
+// until a second has passed.
 type gatedDeferringExecutor struct {
 	entered atomic.Int32
 	second  chan struct{}
@@ -30,7 +30,12 @@ type gatedDeferringExecutor struct {
 
 func (e *gatedDeferringExecutor) Name() string { return "gated-deferring" }
 
-func (e *gatedDeferringExecutor) Defers(*tools.ToolDescriptor, tools.ToolCall) bool { return true }
+func (e *gatedDeferringExecutor) Defer(d *tools.ToolDescriptor, call tools.ToolCall) (
+	*tools.ToolExecutionResult, bool,
+) {
+	res, _ := e.ExecuteAsync(context.Background(), d, call.Args)
+	return res, true
+}
 
 func (e *gatedDeferringExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (
 	json.RawMessage, error,

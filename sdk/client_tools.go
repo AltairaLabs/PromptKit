@@ -236,12 +236,15 @@ func (e *clientExecutor) ExecuteAsync(
 	return e.ExecuteCallAsync(ctx, descriptor, tools.ToolCall{Name: descriptor.Name, Args: args})
 }
 
-// Defers reports whether the executor will defer a call to tool: it has no
-// handler for it (tools.DeferringExecutor), so the call is admitted under
-// ToolPolicy.MaxCallsPerMinute when the host answers it.
-func (e *clientExecutor) Defers(tool *tools.ToolDescriptor, _ tools.ToolCall) bool {
-	_, ok := e.lookupClientHandler(tool.Name)
-	return !ok
+// Defer defers a call to tool when the executor has no handler for it
+// (tools.DeferringExecutor): it returns the pending result, decided by the
+// same lookup ExecuteCallAsync makes, so a handler bound after Defer passed
+// is the registry's to run and count normally.
+func (e *clientExecutor) Defer(tool *tools.ToolDescriptor, call tools.ToolCall) (*tools.ToolExecutionResult, bool) {
+	if _, ok := e.lookupClientHandler(tool.Name); ok {
+		return nil, false
+	}
+	return deferredClientTool(tool, call.Args), true
 }
 
 // ExecuteCallAsync is ExecuteAsync for the whole call: a handler's request
@@ -581,7 +584,9 @@ func (c *Conversation) validateDeferredResults(
 		return
 	}
 	for _, res := range resolutions {
-		if res.Rejected || res.Error != nil || len(res.Parts) > 0 {
+		// An approval's result was checked when it ran (checkApprovedResult):
+		// only sdktools.ResolveApproved sets Arguments.
+		if res.Rejected || res.Error != nil || len(res.Parts) > 0 || res.Arguments != nil {
 			continue
 		}
 		desc, err := c.toolRegistry.GetTool(callNames()[res.ID])
@@ -598,9 +603,9 @@ func (c *Conversation) validateDeferredResults(
 	}
 }
 
-// admitDeferredResults admits, under ToolPolicy.MaxCallsPerMinute, each
-// deferred call (a client tool, or any call its executor left pending) whose
-// result or failure is being used. A result over the limit is refused: the
+// admitDeferredResults admits, under ToolPolicy.MaxCallsPerMinute and the
+// tool registry's own rate limit, each deferred call (a client tool, or any
+// call its executor left pending) whose result or failure is being used. A result over the limit is refused: the
 // limit error replaces it, and the model is told the call was not executed.
 // A rejection is never counted. An approval is skipped, because
 // ResolveToolWithArgs admitted it: only sdktools.ResolveApproved sets
@@ -609,9 +614,6 @@ func (c *Conversation) admitDeferredResults(
 	resolutions []*sdktools.ToolResolution, callNames func() map[string]string,
 ) {
 	limit := c.callRateLimit()
-	if c.callRate == nil || limit <= 0 {
-		return
-	}
 	for _, res := range resolutions {
 		if res.Rejected || res.Arguments != nil {
 			continue
@@ -620,10 +622,28 @@ func (c *Conversation) admitDeferredResults(
 		if name == "" {
 			continue
 		}
-		if err := c.callRate.Admit(c.ID(), name, limit); err != nil {
+		if err := c.admitSettled(name, limit); err != nil {
 			res.Result, res.ResultJSON, res.Parts, res.Error = nil, nil, nil, err
 		}
 	}
+}
+
+// admitSettled admits the deferred call to tool name whose result is being
+// used: under the tool registry's own rate limit (tools.Registry.AdmitSettled,
+// which counts a deferred call only now) and under ToolPolicy.MaxCallsPerMinute
+// (limit, when set). Neither counts a call the other refuses.
+func (c *Conversation) admitSettled(name string, limit int) error {
+	var admit func() error
+	if c.callRate != nil && limit > 0 {
+		admit = func() error { return c.callRate.Admit(c.ID(), name, limit) }
+	}
+	if c.toolRegistry != nil {
+		return c.toolRegistry.AdmitSettled(name, admit)
+	}
+	if admit != nil {
+		return admit()
+	}
+	return nil
 }
 
 // callsMadeByLastAssistant maps each call the last assistant message in

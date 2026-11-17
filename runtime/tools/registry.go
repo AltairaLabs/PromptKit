@@ -612,7 +612,10 @@ func (r *Registry) ExecuteAsync(
 // admit returns an error, the executor does not run, the registry's rate
 // limit does not count the call, and that error is returned unchanged. A call
 // that fails one of the registry's checks never reaches admit, and neither
-// does one its executor defers (DeferringExecutor).
+// does one its executor defers (DeferringExecutor): that call is admitted,
+// and counted by the registry's rate limit, when the host settles it
+// (AdmitSettled). A call an executor defers only once it runs has its count
+// under the registry's rate limit taken back then.
 func (r *Registry) ExecuteAsyncAdmitted(
 	ctx context.Context, toolName string, args json.RawMessage, admit func() error,
 ) (*ToolExecutionResult, error) {
@@ -652,15 +655,20 @@ func (r *Registry) ExecuteCallAsyncAdmitted(
 
 	call.Args = args
 
-	// Check per-tool rate limit, then the caller's admission. A call the
-	// executor will defer is not admitted now: it is admitted when the host
-	// settles it.
+	// A call the executor defers is not run, and neither limit counts it now:
+	// both count it when the host settles it (AdmitSettled).
+	if pending, deferred := deferCall(executor, tool, call); deferred {
+		return pending, nil
+	}
+
+	// Check per-tool rate limit, then the caller's admission
 	var admitErr error
 	var gate func() error
-	if admit != nil && !defers(executor, tool, call) {
+	if admit != nil {
 		gate = func() error { admitErr = admit(); return admitErr }
 	}
-	if rateLimitErr := r.rateLimiter.allowAdmitted(toolName, gate); rateLimitErr != nil {
+	recordedAt, rateLimitErr := r.rateLimiter.allowAdmitted(toolName, gate)
+	if rateLimitErr != nil {
 		if admitErr != nil {
 			return nil, admitErr
 		}
@@ -676,29 +684,54 @@ func (r *Registry) ExecuteCallAsyncAdmitted(
 
 	// Try async execution if supported
 	if run, ok := asyncEntryPoint(executor, tool, call); ok {
-		return r.executeWithAsyncExecutor(execCtx, run, tool)
+		result := r.executeWithAsyncExecutor(execCtx, run, tool)
+		if result.Status == ToolStatusPending {
+			// The executor deferred the call: it counts when it is settled.
+			r.rateLimiter.withdraw(toolName, recordedAt)
+		}
+		return result, nil
 	}
 
 	// Fall back to synchronous execution
 	return r.executeSyncFallback(execCtx, executor, tool, call)
 }
 
-// DeferringExecutor is implemented by an executor that can tell, before it
-// runs a call, that it will defer it: return ToolStatusPending without
-// running it, for the host to settle later, as a client tool with no handler
-// does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted do not call their
-// admit gate for a call its executor defers, so a per-call limit the gate
-// enforces counts the call when the host settles it rather than when it is
-// dispatched, and the deferred calls of one round never take each other's
-// room. Defers is given the call with its coerced, validated arguments.
-type DeferringExecutor interface {
-	Defers(tool *ToolDescriptor, call ToolCall) bool
+// AdmitSettled admits a deferred call to toolName (one its executor returned
+// ToolStatusPending for) when the host settles it: it counts the call under
+// the registry's rate limit (WithRateLimit) and, when admit is not nil, calls
+// admit under the limit's lock, as ExecuteAsyncAdmitted does for a call it
+// runs. Over the registry's limit it returns an error wrapping
+// ErrRateLimitExceeded; if admit refuses, its error, and the registry does
+// not count the call. A deferred call is counted by the registry's limit only
+// here, never when it is dispatched.
+func (r *Registry) AdmitSettled(toolName string, admit func() error) error {
+	_, err := r.rateLimiter.allowAdmitted(toolName, admit)
+	return err
 }
 
-// defers reports whether executor will defer call (DeferringExecutor).
-func defers(executor Executor, tool *ToolDescriptor, call ToolCall) bool {
+// DeferringExecutor is implemented by an executor that can defer a call
+// without running it, for the host to settle later, as a client tool with no
+// handler does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted ask Defer
+// first: when it returns true, its result (status ToolStatusPending) is
+// returned as the call's, the executor does not run, and neither the admit
+// gate nor the registry's rate limit counts the call; both count it when the
+// host settles it (AdmitSettled). The deferred calls of one round therefore
+// never take each other's room. Defer is given the call with its coerced,
+// validated arguments, and must decide and build the pending result from one
+// look at its own state, so a call it does not defer is run (and counted)
+// normally.
+type DeferringExecutor interface {
+	Defer(tool *ToolDescriptor, call ToolCall) (*ToolExecutionResult, bool)
+}
+
+// deferCall is executor's DeferringExecutor.Defer for call, or false when it
+// does not implement it.
+func deferCall(executor Executor, tool *ToolDescriptor, call ToolCall) (*ToolExecutionResult, bool) {
 	d, ok := executor.(DeferringExecutor)
-	return ok && d.Defers(tool, call)
+	if !ok {
+		return nil, false
+	}
+	return d.Defer(tool, call)
 }
 
 // asyncEntryPoint is the executor's entry point that may suspend call:
@@ -773,10 +806,11 @@ func (r *Registry) getExecutorForTool(tool *ToolDescriptor) (Executor, error) {
 }
 
 // executeWithAsyncExecutor executes a tool through an entry point that may
-// suspend it (asyncEntryPoint).
+// suspend it (asyncEntryPoint). An executor error is reported as a failed
+// result.
 func (r *Registry) executeWithAsyncExecutor(
 	ctx context.Context, run func(context.Context) (*ToolExecutionResult, error), tool *ToolDescriptor,
-) (*ToolExecutionResult, error) {
+) *ToolExecutionResult {
 	result, err := run(ctx)
 
 	if err != nil {
@@ -790,15 +824,15 @@ func (r *Registry) executeWithAsyncExecutor(
 		return &ToolExecutionResult{
 			Status: ToolStatusFailed,
 			Error:  errMsg,
-		}, nil
+		}
 	}
 
 	// Return immediately for pending or failed status
 	if result.Status == ToolStatusPending || result.Status == ToolStatusFailed {
-		return result, nil
+		return result
 	}
 
-	return r.checkResult(tool, result.Content, result.Parts), nil
+	return r.checkResult(tool, result.Content, result.Parts)
 }
 
 // executeSyncFallback executes a tool synchronously for non-async executors
