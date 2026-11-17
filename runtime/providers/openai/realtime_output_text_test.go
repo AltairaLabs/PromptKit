@@ -15,7 +15,8 @@ import (
 // A text-only realtime session (output_modalities ["text"]) is answered with
 // the GA event names response.output_text.delta / .done. Their text must reach
 // Response() as the pre-GA response.text.* did; before the fix both were
-// dropped as unhandled, so a text-only session's replies were empty.
+// dropped as unhandled, so a text-only session's replies were empty. The text
+// streams: each delta is its own chunk, as it arrives.
 func TestRealtimeSession_GAOutputTextEventsReachResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
@@ -64,22 +65,28 @@ func TestRealtimeSession_GAOutputTextEventsReachResponse(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 
-	var deltas []string
-	var done string
-	for done == "" {
+	// Each delta is a chunk whose Content and Delta are that delta; the done
+	// chunk carries the whole text in Metadata["text"] and no Content, so
+	// Content adds up to the text once.
+	type textChunk struct{ content, delta, doneText string }
+	var got []textChunk
+	for done := false; !done; {
 		select {
 		case c, ok := <-session.Response():
 			require.True(t, ok, "Response() closed before the text arrived")
-			if c.Delta != "" {
-				deltas = append(deltas, c.Delta)
+			d, _ := c.Metadata["text_done"].(bool)
+			text, _ := c.Metadata["text"].(string)
+			if c.Content != "" || c.Delta != "" || d {
+				got = append(got, textChunk{c.Content, c.Delta, text})
 			}
-			if d, _ := c.Metadata["text_done"].(bool); d {
-				done = c.Content
-			}
+			done = d
 		case <-ctx.Done():
-			t.Fatalf("the text never reached Response(); deltas so far %q", deltas)
+			t.Fatalf("the text never reached Response(); chunks so far %+v", got)
 		}
 	}
-	assert.Equal(t, []string{"Hello", " there"}, deltas)
-	assert.Equal(t, "Hello there", done)
+	assert.Equal(t, []textChunk{
+		{content: "Hello", delta: "Hello"},
+		{content: " there", delta: " there"},
+		{doneText: "Hello there"},
+	}, got)
 }

@@ -784,9 +784,14 @@ func (s *RealtimeSession) handleSessionUpdated(e *SessionUpdatedEvent) {
 	logger.Debug("OpenAI Realtime: session updated", "modalities", e.Session.Modalities)
 }
 
+// handleTextDelta emits a text-only reply's text as it arrives. Content
+// carries the same increment as Delta, as on every realtime session's model
+// text (Gemini Live's included): the duplex stage streams and accumulates a
+// reply's text from Content.
 func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	s.emit(providers.StreamChunk{
-		Delta: e.Delta,
+		Content: e.Delta,
+		Delta:   e.Delta,
 		Metadata: map[string]interface{}{
 			keyItemID:       e.ItemID,
 			keyResponseID:   e.ResponseID,
@@ -795,10 +800,13 @@ func (s *RealtimeSession) handleTextDelta(e *ResponseTextDeltaEvent) {
 	})
 }
 
+// handleTextDone marks the end of a text-only reply's text. The whole text,
+// already sent as deltas, is in Metadata["text"], not Content, so a consumer
+// accumulating Content gets it once (as transcript_done does for audio).
 func (s *RealtimeSession) handleTextDone(e *ResponseTextDoneEvent) {
 	s.emit(providers.StreamChunk{
-		Content: e.Text,
 		Metadata: map[string]interface{}{
+			"text":          e.Text,
 			keyItemID:       e.ItemID,
 			keyResponseID:   e.ResponseID,
 			keyContentIndex: e.ContentIndex,
