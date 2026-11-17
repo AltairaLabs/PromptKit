@@ -218,29 +218,31 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 		},
 		stateResolver: dt.resolver,
 	}
-	r.eligible = func(name string) (bool, bool) { return s.sessionEligible(r, name) }
+	r.availability = s.roundAvailability
 	return r
 }
 
-// sessionEligible reports whether the model may call name now, and whether
-// the session is gated: the prompt's tools, the capability tools and the
-// grants, as on a text turn, and the host's StreamingInputConfig.Tools. A
-// session that holds no tools was given none to call, and is not gated.
-func (s *DuplexProviderStage) sessionEligible(r *toolRunner, name string) (ok, gated bool) {
-	if len(s.tools.offer.heldNames()) == 0 {
-		return false, false
+// roundAvailability is what the model may call this round on the session:
+// the tools a text turn would offer (without the turn's exclusions) and the
+// host's StreamingInputConfig.Tools, as wantedSessionTools builds them. A
+// call to a tool the session lacks or the conversation has withdrawn gets
+// that refusal instead (sessionOffer.unsyncedRefusals). The stage runs tools
+// for the session, so the check applies even when the offer is empty.
+func (s *DuplexProviderStage) roundAvailability() availability {
+	unsynced := s.tools.offer.unsyncedRefusals()
+	want := make(map[string]bool)
+	for _, d := range s.wantedSessionTools(nil) {
+		want[d.Name] = true
 	}
-	if r.isEligible(s.allowedTools(), name) {
-		return true, true
-	}
-	if s.baseConfig != nil {
-		for i := range s.baseConfig.Tools {
-			if s.baseConfig.Tools[i].Name == name {
-				return true, true
-			}
+	return func(name string) (string, bool) {
+		if errMsg, refused := unsynced(name); refused {
+			return errMsg, true
 		}
+		if want[name] {
+			return "", false
+		}
+		return notAvailableRefusal(name), true
 	}
-	return false, true
 }
 
 // maxToolRounds is the policy's MaxRounds, or the default.
@@ -696,12 +698,7 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 // responses are sent. A limit, a termination tool or a failed execution stops
 // the tool turn.
 func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) *duplexToolResult {
-	calls, refused := s.tools.splitUnsynced(job.calls)
-	if len(calls) == 0 {
-		return s.refuseUnsyncedRound(job, refused)
-	}
-	out := job.turn.RunRoundPastPending(ctx, calls, job.rr)
-	out.Results = append(out.Results, refused...)
+	out := job.turn.RunRoundPastPending(ctx, job.calls, job.rr)
 	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
 	if !out.Stop && out.Err == nil {
 		return toolRoundResult(out.Results, out.Pending, nil)
@@ -712,19 +709,6 @@ func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) 
 	}
 	s.tools.stop(job.turn, cause)
 	return toolRoundResult(refuseUnanswered(job.calls, out.Results, out.Pending, cause), out.Pending, out.Err)
-}
-
-// refuseUnsyncedRound answers a round whose every call names a tool the
-// session does not hold. Such batches count as a stopped turn's refusals do:
-// past maxStoppedTurnRefusals the turn is stopped, and the session closed,
-// with an error naming the tool.
-func (s *DuplexProviderStage) refuseUnsyncedRound(job *duplexToolJob, refused []types.Message) *duplexToolResult {
-	if s.tools.addRefusal(job.turn) <= maxStoppedTurnRefusals {
-		return toolRoundResult(refused, nil, nil)
-	}
-	err := fmt.Errorf("tool %s is not available in this realtime session", job.calls[0].Name)
-	s.tools.stop(job.turn, err)
-	return s.refuseStoppedTurn(job, err)
 }
 
 // refuseStoppedTurn answers the calls of a stopped tool turn with refusals.
@@ -776,10 +760,7 @@ func refuseUnanswered(
 			continue
 		}
 		errMsg := fmt.Sprintf("Tool %s not executed: the turn's tool calls were stopped: %v", tc.Name, cause)
-		result := types.NewTextToolResult(tc.ID, tc.Name, errMsg)
-		result.Error = errMsg
-		result.ErrorType = types.ToolErrorApproval
-		out = append(out, types.NewToolResultMessage(result))
+		out = append(out, toolRefusal(tc, errMsg))
 	}
 	return out
 }

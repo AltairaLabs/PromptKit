@@ -111,8 +111,9 @@ func TestToolTurn_RunRound_RunnerWithoutEligibilityIsNotGated(t *testing.T) {
 
 	out := turn.RunRound(context.Background(), []types.MessageToolCall{dangerCall("c1")}, roundRef{round: 1})
 
-	require.Len(t, out.Results, 1)
-	assert.Empty(t, out.Results[0].ToolResult.Error, "the call ran")
+	assert.Equal(t, []types.Message{
+		types.NewToolResultMessage(types.NewTextToolResult("c1", "danger", "{\n  \"result\": \"mock response\"\n}")),
+	}, out.Results, "the mock tool ran and returned its output")
 }
 
 func TestToolTurn_RunRound_IdenticalCallBreaker(t *testing.T) {

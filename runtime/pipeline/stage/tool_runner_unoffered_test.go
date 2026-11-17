@@ -12,6 +12,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/replay"
@@ -262,8 +263,26 @@ func (p *scriptedRoundsProvider) PredictWithTools(
 
 // A workflow transition mid-turn changes what the model may call from the
 // next round on: the destination state's tool runs, and the origin state's
-// is refused.
+// is refused. It holds whether or not the destination's prompt differs: a
+// state with the same prompt is not rebuilt, and its tools still apply.
 func TestToolLoop_HandoffChangesTheEligibleTools(t *testing.T) {
+	for name, destPrompt := range map[string]string{"new prompt": "DESTINATION PROMPT", "same prompt": "ORIGIN PROMPT"} {
+		t.Run(name, func(t *testing.T) {
+			results := handoffRoundResults(t, destPrompt)
+
+			require.Len(t, results, 2)
+			assert.Equal(t, "c2", results[0].ID)
+			assert.Empty(t, results[0].Error, "the destination state's tool ran")
+			assert.Equal(t, "Tool origin_tool was not run: it is not available this turn", results[1].Error)
+		})
+	}
+}
+
+// handoffRoundResults plays a turn that moves from a state allowing
+// origin_tool to one allowing destination_tool, with destPrompt, and returns
+// the results of the round after the transition.
+func handoffRoundResults(t *testing.T, destPrompt string) []*types.MessageToolResult {
+	t.Helper()
 	registry := tools.NewRegistry()
 	for _, name := range []string{"workflow__transition", "origin_tool", "destination_tool"} {
 		require.NoError(t, registry.Register(&tools.ToolDescriptor{
@@ -284,7 +303,7 @@ func TestToolLoop_HandoffChangesTheEligibleTools(t *testing.T) {
 		turnState)
 	stage.SetWorkflowStateResolver(&fakeResolver{sequence: []Handoff{
 		{Valid: true, SystemPrompt: "ORIGIN PROMPT", AllowedTools: []string{"workflow__transition", "origin_tool"}},
-		{Valid: true, SystemPrompt: "DESTINATION PROMPT",
+		{Valid: true, SystemPrompt: destPrompt,
 			AllowedTools: []string{"workflow__transition", "destination_tool"}},
 	}})
 
@@ -296,8 +315,145 @@ func TestToolLoop_HandoffChangesTheEligibleTools(t *testing.T) {
 			results = append(results, tr)
 		}
 	}
-	require.Len(t, results, 2)
-	assert.Equal(t, "c2", results[0].ID)
-	assert.Empty(t, results[0].Error, "the destination state's tool ran")
-	assert.Equal(t, "Tool origin_tool was not run: it is not available this turn", results[1].Error)
+	return results
+}
+
+// loopFor returns a text turn's tool loop on a tool-calling provider over reg,
+// with allowed as the prompt's tools, under policy and cfg.
+func loopFor(
+	t *testing.T, reg *tools.Registry, allowed []string, policy *pipeline.ToolPolicy, cfg *ProviderConfig,
+) *toolLoop {
+	t.Helper()
+	stage := NewProviderStage(mock.NewToolProvider("test", "model", false, nil), reg, policy, cfg)
+	loop, err := stage.newToolLoop(&providerInput{
+		allowedTools: allowed,
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+	loop.maxRounds = 10
+	return loop
+}
+
+// play runs one round of calls through loop and returns whether the turn
+// ended and the round's tool results.
+func play(t *testing.T, loop *toolLoop, allowed []string, round int, calls ...types.MessageToolCall) (bool, []types.Message) {
+	t.Helper()
+	before := len(loop.messages)
+	response := types.Message{Role: "assistant", ToolCalls: calls}
+	done, _, err := loop.afterRound(context.Background(), allowed, &response, true, roundRef{round: round})
+	require.NoError(t, err)
+	return done, loop.messages[before+1:]
+}
+
+// A tool granted by a call of a round is callable from the next round: the
+// round's calls are checked against what was eligible when it began.
+func TestToolLoop_GrantTakesEffectFromTheNextRound(t *testing.T) {
+	exec := &grantingExec{grant: []string{"refund"}}
+	reg := registryWithTools(t, "weather", "activate", "refund")
+	reg.RegisterExecutor(exec)
+	allowed := []string{"weather", "activate"}
+	// One call at a time, so activate has granted refund before refund is checked.
+	loop := loopFor(t, reg, allowed, &pipeline.ToolPolicy{MaxParallelToolCalls: 1},
+		&ProviderConfig{ToolGrants: exec.grants})
+
+	_, first := play(t, loop, allowed, 1, unofferedCall("c1", "activate"), unofferedCall("c2", "refund"))
+	_, second := play(t, loop, allowed, 2, unofferedCall("c3", "refund"))
+
+	require.Len(t, first, 2)
+	assert.Equal(t, policyRefusal("c2", "refund", "Tool refund was not run: it is not available this turn"), first[1])
+	assert.Equal(t, []types.Message{okText("c3", "refund", "ok")}, second)
+	assert.Equal(t, []string{"activate", "refund"}, exec.calls())
+}
+
+func okText(id, name, text string) types.Message {
+	return types.NewToolResultMessage(types.NewTextToolResult(id, name, text))
+}
+
+// toolCallCounter is a workflow resolver that only counts the executed tool
+// calls reported to it.
+type toolCallCounter struct{ n int }
+
+func (c *toolCallCounter) ResolveCurrentState(context.Context) (Handoff, error) {
+	return Handoff{}, nil
+}
+func (c *toolCallCounter) CurrentStateMeta() map[string]any { return nil }
+func (c *toolCallCounter) RecordToolCalls(n int)            { c.n += n }
+
+// A refused call to an unavailable tool takes no place under the call
+// budgets and does not fire termination.tool_called.
+func TestToolLoop_UnavailableCallSpendsNoBudgetAndStopsNothing(t *testing.T) {
+	reg := registryWithTools(t, "fine", "unlisted")
+	reg.RegisterExecutor(&grantingExec{})
+	allowed := []string{"fine"}
+	stage := NewProviderStage(mock.NewToolProvider("test", "model", false, nil), reg,
+		&pipeline.ToolPolicy{MaxToolCallsPerTurn: 1, StopOnTool: "unlisted"}, &ProviderConfig{})
+	counter := &toolCallCounter{}
+	stage.SetWorkflowStateResolver(counter)
+	loop, err := stage.newToolLoop(&providerInput{
+		allowedTools: allowed, messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+	loop.maxRounds = 10
+
+	done, got := play(t, loop, allowed, 1, unofferedCall("c1", "unlisted"), unofferedCall("c2", "fine"))
+
+	assert.False(t, done, "a refused call does not fire termination.tool_called")
+	assert.Equal(t, []types.Message{
+		policyRefusal("c1", "unlisted", unofferedRefusalText),
+		okText("c2", "fine", "ok"),
+	}, got, "the allowed call is within the budget of one")
+	assert.Equal(t, 1, counter.n, "only the call that ran is recorded")
+}
+
+// A tool DescribeTool withholds is not offered, and a call to it is refused.
+func TestToolLoop_DescribeToolWithheldToolIsUnavailable(t *testing.T) {
+	reg := registryWithTools(t, "fine", "unlisted")
+	reg.RegisterExecutor(&grantingExec{})
+	allowed := []string{"fine", "unlisted"}
+	loop := loopFor(t, reg, allowed, nil, &ProviderConfig{
+		DescribeTool: func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+			if d.Name == "unlisted" {
+				return nil
+			}
+			return d
+		},
+	})
+
+	_, got := play(t, loop, allowed, 1, unofferedCall("c1", "unlisted"))
+
+	assert.Equal(t, []types.Message{policyRefusal("c1", "unlisted", unofferedRefusalText)}, got)
+}
+
+// With tool calling off for the turn (tool_choice: none) a tool-calling
+// provider is offered nothing, and every call is refused.
+func TestToolLoop_ToolChoiceNoneRefusesEveryCall(t *testing.T) {
+	reg := registryWithTools(t, "fine", "unlisted")
+	exec := &grantingExec{}
+	reg.RegisterExecutor(exec)
+	allowed := []string{"fine", "unlisted"}
+	loop := loopFor(t, reg, allowed, &pipeline.ToolPolicy{ToolChoice: toolChoiceNone}, &ProviderConfig{})
+
+	_, got := play(t, loop, allowed, 1, unofferedCall("c1", "unlisted"))
+
+	assert.Equal(t, []types.Message{policyRefusal("c1", "unlisted", unofferedRefusalText)}, got)
+	assert.Empty(t, exec.calls())
+}
+
+// A name no tool is registered under fails as not found before the approval
+// gate is asked about it.
+func TestToolLoop_UnregisteredToolIsNotHeldForApproval(t *testing.T) {
+	reg := registryWithTools(t, "fine")
+	var asked []string
+	loop := loopFor(t, reg, []string{"fine"}, nil, &ProviderConfig{
+		ApprovalChecker: func(_ context.Context, _, name string, _ map[string]any) *tools.PendingToolInfo {
+			asked = append(asked, name)
+			return &tools.PendingToolInfo{Reason: "requires_approval"}
+		},
+	})
+
+	_, got := play(t, loop, []string{"fine"}, 1, unofferedCall("c1", "ghost"))
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "Error: tool not found: ghost", got[0].ToolResult.GetTextContent())
+	assert.Empty(t, asked, "the approval gate was asked about a tool that does not exist")
 }

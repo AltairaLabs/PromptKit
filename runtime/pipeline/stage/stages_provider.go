@@ -422,11 +422,29 @@ func (s *ProviderStage) runner() *toolRunner {
 		stateResolver: s.stateResolver,
 		offers:        s.offerState(),
 	}
-	r.eligible = func(name string) (bool, bool) {
-		allowed, gated := r.offers.eligibility()
-		return gated && r.isEligible(allowed, name), gated
-	}
+	r.availability = func() availability { return s.roundAvailability(r) }
 	return r
+}
+
+// roundAvailability is what the model may call this round: the offer built
+// from the turn's allowed tools, before a ToolSelector narrows the request,
+// without the turn's exclusions. A provider that cannot take tools is never
+// sent any, and nothing is refused (nil); one that can is refused every tool
+// outside the offer, all of them when tool calling is off (tool_choice none).
+func (s *ProviderStage) roundAvailability(r *toolRunner) availability {
+	if s.toolRegistry == nil {
+		return nil
+	}
+	if _, ok := s.callProvider().(providers.ToolSupport); !ok {
+		return nil
+	}
+	offered := r.eligibleNames(r.offers.allowedTools())
+	return func(name string) (string, bool) {
+		if offered[name] {
+			return "", false
+		}
+		return notAvailableRefusal(name), true
+	}
 }
 
 // executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls).
@@ -435,7 +453,7 @@ func (s *ProviderStage) runner() *toolRunner {
 func (s *ProviderStage) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
 ) ([]types.Message, error) {
-	return s.runner().executeToolCalls(ctx, toolCalls, rr)
+	return s.runner().executeToolCalls(ctx, toolCalls, rr, nil)
 }
 
 // updateExcludedTools records a round's rejections (see
@@ -1155,6 +1173,9 @@ func (s *ProviderStage) applyStateHandoff(
 	if !handoff.Valid {
 		return false, nil
 	}
+	// What the model may call follows the state every round, whether or not
+	// the tools array is rebuilt below.
+	s.offerState().setAllowed(handoff.AllowedTools)
 	// Two states may also share a prompt and differ only in what the
 	// conversation's DescribeTool makes of the tools — a workflow state's
 	// skills filter, which the commit that resolving runs has just applied.
@@ -1174,7 +1195,6 @@ func (s *ProviderStage) applyStateHandoff(
 	}
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
-	s.offerState().setAllowed(handoff.AllowedTools)
 	loop.providerTools = rebuilt
 	loop.invalidateReserve()
 	if providerChanged {

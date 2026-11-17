@@ -226,7 +226,9 @@ func TestWorkflowSkills_MidTurnTransitionNarrowsTheActiveSet(t *testing.T) {
 	require.Contains(t, byID, "a1")
 	require.Contains(t, byID, "a2")
 	assert.Empty(t, byID["a1"].Error, "x activates in allow_x")
-	assert.Contains(t, byID["a2"].Error, "not available in the current state",
+	// locked admits no skill, so skill__activate is withheld from the model,
+	// and a call to it is refused before it runs.
+	assert.Equal(t, "Tool skill__activate was not run: it is not available this turn", byID["a2"].Error,
 		"after the mid-turn handoff to locked, x is refused")
 	assert.Empty(t, turnConv.skillSet.Names(),
 		"entering locked deactivated x in the conversation that ran the turn")

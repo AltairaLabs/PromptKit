@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -257,6 +258,48 @@ func TestDuplexToolOffer_RevokedGrantIsRefusedFromTheNextRound(t *testing.T) {
 	assert.Equal(t, []string{"activate", "refund"}, exec.calls(), "the revoked tool does not run again")
 }
 
+// A session the stage runs tools for is gated even when its offer is empty:
+// a call to a registered tool it was never given is refused.
+func TestDuplexToolOffer_EmptyOfferRefusesTheCall(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{registry: reg, turnState: &TurnState{}})
+
+	h.emit(toolCallTurn(namedCall("c1", "weather")))
+	sent := h.awaitSent(1)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{
+		ToolCallID: "c1", Result: "Tool weather was not run: it is not available this turn", IsError: true,
+	}}, sent[0])
+	assert.Empty(t, exec.calls())
+}
+
+// The blocklist is checked before the session's tools are: a blocklisted
+// tool the session lacks is refused as blocklisted.
+func TestDuplexToolOffer_BlocklistPrecedesTheUnsyncedRefusal(t *testing.T) {
+	exec := &grantingExec{grant: []string{"refund"}}
+	reg := registryWithTools(t, "weather", "activate", "refund")
+	reg.RegisterExecutor(exec)
+	h := startRealtime(t, realtimeOpts{
+		registry:  reg,
+		policy:    &pipeline.ToolPolicy{Blocklist: []string{"refund"}},
+		cfg:       DuplexToolConfig{ToolGrants: exec.grants},
+		turnState: &TurnState{AllowedTools: []string{"weather", "activate"}},
+	})
+
+	h.emit(toolCallTurn(namedCall("c1", "activate")))
+	h.awaitSent(1)
+	h.emit(toolCallTurn(namedCall("c2", "refund")))
+	sent := h.awaitSent(2)
+	h.finish()
+
+	assert.Equal(t, []providers.ToolResponse{{
+		ToolCallID: "c2", Result: "Tool refund is blocked by policy", IsError: true,
+	}}, sent[1])
+}
+
 // A tool the host declares on the session alone is offered: a call to it
 // runs, though the conversation's offer does not name it.
 func TestDuplexToolOffer_HostDeclaredToolRuns(t *testing.T) {
@@ -298,13 +341,13 @@ func TestDuplexToolOffer_WithoutUpdaterAGrantedToolIsRefused(t *testing.T) {
 	const refusal = "Tool refund was not run: it became available after this realtime session started, " +
 		"and the provider cannot add tools to a live session"
 	assert.Equal(t, []providers.ToolResponse{
-		{ToolCallID: "c3", Result: "ok"},
 		{ToolCallID: "c2", Result: refusal, IsError: true},
-	}, sent[1])
+		{ToolCallID: "c3", Result: "ok"},
+	}, sent[1], "the results keep the calls' order")
 	assert.Equal(t, []string{"activate", "weather"}, exec.calls(), "the refused call never runs")
 	results := toolResultMessages(elems)
 	require.Len(t, results, 3)
-	assert.Equal(t, refusal, results[2].Error)
+	assert.Equal(t, refusal, results[1].Error)
 
 	msgs := realtimeAssistantMessages(elems)
 	require.Len(t, msgs, 2)
@@ -558,43 +601,54 @@ func TestDuplexToolOffer_FailedUpdateRefusesTheGrantedTool(t *testing.T) {
 }
 
 // A model that keeps calling a tool granted after setup, on a session that
-// cannot be given it, gets two refused batches; the next closes the session
-// with an error naming the tool, as a stopped turn's refusals do.
+// cannot be given it, is refused as for any refused call: the repeated-call
+// breaker nudges it, then stops the tool turn, and the stopped turn's
+// refusals close the session after two more batches.
 func TestDuplexToolOffer_RepeatedCallsToAToolTheSessionLacksCloseTheSession(t *testing.T) {
 	exec := &grantingExec{grant: []string{"refund"}}
 	reg := registryWithTools(t, "weather", "activate", "refund")
 	reg.RegisterExecutor(exec)
+	script := make([][]providers.StreamChunk, 0, 7)
+	for i := 2; i <= 8; i++ {
+		script = append(script, toolCallTurn(namedCall(fmt.Sprintf("c%d", i), "refund")))
+	}
 	h := startRealtime(t, realtimeOpts{
 		registry:  reg,
 		cfg:       DuplexToolConfig{ToolGrants: exec.grants},
 		turnState: &TurnState{AllowedTools: []string{"weather", "activate"}},
-		script: [][]providers.StreamChunk{
-			toolCallTurn(namedCall("c2", "refund")),
-			toolCallTurn(namedCall("c3", "refund")),
-			toolCallTurn(namedCall("c4", "refund")),
-			toolCallTurn(namedCall("c5", "refund")),
-		},
+		script:    script,
 	})
 
 	h.emit(toolCallTurn(namedCall("c1", "activate")))
 	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)
 
-	refusal := func(id string) []providers.ToolResponse {
-		return []providers.ToolResponse{{ToolCallID: id, IsError: true,
-			Result: "Tool refund was not run: it became available after this realtime session started, " +
-				"and the provider cannot add tools to a live session"}}
+	refused := func(id, text string) []providers.ToolResponse {
+		return []providers.ToolResponse{{ToolCallID: id, IsError: true, Result: text}}
 	}
+	const unsynced = "Tool refund was not run: it became available after this realtime session started, " +
+		"and the provider cannot add tools to a live session"
+	const loop = "provider stage: tool loop persisted after a self-correction nudge: " +
+		`"refund" called with identical arguments`
+	const stopped = "Tool refund not executed: the turn's tool calls were stopped: " + loop
+	nudge := []providers.ToolResponse{{ToolCallID: "c4", Result: `Repeated call ignored: "refund" has been ` +
+		"called 3 times with identical arguments and was NOT executed again — the result will not change. " +
+		"Stop repeating this exact call: change the arguments, use a different tool, or finish the task."}}
 	assert.Equal(t, [][]providers.ToolResponse{
 		{{ToolCallID: "c1", Result: "ok"}},
-		refusal("c2"),
-		refusal("c3"),
-	}, h.sess().sentResponses(), "two refusal batches, then nothing")
+		refused("c2", unsynced),
+		refused("c3", unsynced),
+		nudge,
+		refused("c5", stopped),
+		refused("c6", stopped),
+		refused("c7", stopped),
+	}, h.sess().sentResponses(), "refusals, the nudge, the stop, two stopped-turn batches, then nothing")
 	assert.True(t, h.sess().isClosed())
 	errs := streamErrors(elems)
-	require.Len(t, errs, 1)
+	require.Len(t, errs, 2)
+	assert.Equal(t, loop, errs[0].Error())
 	assert.Equal(t, "duplex provider stage: closing the session: the model kept calling tools after its "+
-		"tool turn was stopped: tool refund is not available in this realtime session", errs[0].Error())
+		"tool turn was stopped: "+loop, errs[1].Error())
 	assert.Equal(t, []string{"activate"}, exec.calls())
 }
 
@@ -661,13 +715,13 @@ func TestDuplexToolOffer_WithdrawnToolTheSessionStillHoldsIsRefused(t *testing.T
 
 			refusal := "Tool refund was not run: it was withdrawn after this realtime session started, and " + tc.reason
 			assert.Equal(t, []providers.ToolResponse{
-				{ToolCallID: "c3", Result: "ok"},
 				{ToolCallID: "c2", Result: refusal, IsError: true},
-			}, sent[1])
+				{ToolCallID: "c3", Result: "ok"},
+			}, sent[1], "the results keep the calls' order")
 			assert.Equal(t, []string{"weather", "weather"}, exec.calls(), "the withdrawn tool never runs")
 			results := toolResultMessages(elems)
 			require.Len(t, results, 3)
-			assert.Equal(t, refusal, results[2].Error)
+			assert.Equal(t, refusal, results[1].Error)
 		})
 	}
 }

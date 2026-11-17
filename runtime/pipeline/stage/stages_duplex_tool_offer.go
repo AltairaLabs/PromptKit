@@ -31,8 +31,8 @@ import (
 // turn after repeated rejections is not withdrawn: a call to it still runs.
 // A call to a registered tool the conversation does not offer at all (never
 // granted, or a grant revoked since the session was last updated) is refused
-// by the tool runner, after the blocklist and the tool hooks
-// (sessionEligible). A session that holds no tools is not gated.
+// too. Every such refusal is the tool runner's, after the blocklist and the
+// tool hooks, as on a text turn (roundAvailability).
 //
 // A spent max_tool_calls_per_turn budget does not change the offer: calls
 // over it are refused (overBudgetResults), and a session stripped of its
@@ -80,27 +80,30 @@ func (o *sessionOffer) heldNames() []string {
 	return nil
 }
 
-// unsyncedRefusal reports whether a call to name is refused because the
-// session's tools differ from the conversation's offer, and the refusal: the
-// conversation offers name but the session does not hold it, or the session
-// holds it but the conversation has withdrawn it.
-func (o *sessionOffer) unsyncedRefusal(name string) (string, bool) {
+// unsyncedRefusals returns, as of now, whether a call to a tool is refused
+// because the session's tools differ from the conversation's offer, and the
+// refusal: the conversation offers it but the session does not hold it, or
+// the session holds it but the conversation has withdrawn it.
+func (o *sessionOffer) unsyncedRefusals() func(name string) (string, bool) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	var what, cannot string
-	switch {
-	case o.unsynced[name]:
-		what, cannot = "became available", "the provider cannot add tools to a live session"
-	case o.withdrawn[name]:
-		what, cannot = "was withdrawn", "the provider cannot remove tools from a live session"
-	default:
-		return "", false
+	unsynced, withdrawn, updateFailed := o.unsynced, o.withdrawn, o.updateFailed
+	o.mu.Unlock()
+	return func(name string) (string, bool) {
+		var what, cannot string
+		switch {
+		case unsynced[name]:
+			what, cannot = "became available", "the provider cannot add tools to a live session"
+		case withdrawn[name]:
+			what, cannot = "was withdrawn", "the provider cannot remove tools from a live session"
+		default:
+			return "", false
+		}
+		if updateFailed {
+			cannot = "the session's tools could not be updated"
+		}
+		return fmt.Sprintf("Tool %s was not run: it %s after this realtime session started, and %s",
+			name, what, cannot), true
 	}
-	if o.updateFailed {
-		cannot = "the session's tools could not be updated"
-	}
-	return fmt.Sprintf("Tool %s was not run: it %s after this realtime session started, and %s",
-		name, what, cannot), true
 }
 
 // sessionToolChoice is the session's tool_choice: the host's
@@ -329,17 +332,4 @@ func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Messag
 		msg.Meta = map[string]interface{}{}
 	}
 	msg.Meta[types.MetaToolsOffered] = names
-}
-
-// splitUnsynced separates the calls to tools the session does not hold but
-// the conversation offers, or holds but the conversation has withdrawn,
-// answering each with a refusal, from the calls to run. A round whose calls
-// are all refused skips the tool runner, so the identical-call breaker and
-// the call budget do not count it; the round limit still does (each round's
-// number comes from the provider call it answers), and refuseUnsyncedRound
-// caps how many such batches a turn gets.
-func (dt *duplexTools) splitUnsynced(
-	calls []types.MessageToolCall,
-) (run []types.MessageToolCall, refused []types.Message) {
-	return splitRefused(calls, dt.offer.unsyncedRefusal)
 }
