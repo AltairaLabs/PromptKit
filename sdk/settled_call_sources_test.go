@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -172,62 +173,6 @@ func TestResume_RewritesAFailedClientToolsPartialOutput(t *testing.T) {
 
 var errDiskFull = errors.New("disk full")
 
-// A client's answer is rewritten once, when it is given: Resume gives the
-// model what was stored then.
-func TestResume_RewriterSeesEachAnswerOnce(t *testing.T) {
-	calls := []types.MessageToolCall{{ID: "c-cli", Name: "locate", Args: []byte(`{}`)}}
-	provider := &roundsProvider{
-		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
-		rounds:       []providers.PredictionResponse{{Content: "Locating.", ToolCalls: calls}},
-	}
-	rw := &wrappingRewriter{}
-	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider),
-		WithSkipSchemaValidation(), WithToolHook(rw))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
-	desc, err := conv.ToolRegistry().GetTool("locate")
-	require.NoError(t, err)
-	desc.Mode = "client"
-
-	ctx := context.Background()
-	_, err = conv.Send(ctx, "where am I?")
-	require.NoError(t, err)
-	_, rewritten := conv.RewrittenToolResult("c-cli")
-	assert.False(t, rewritten, "no answer is stored yet")
-	require.NoError(t, conv.SendToolResult(ctx, "c-cli", "Paris"))
-	require.Len(t, rw.requests(), 1, "rewritten when given")
-	text, rewritten := conv.RewrittenToolResult("c-cli")
-	require.True(t, rewritten)
-	assert.Equal(t, `<redacted:"Paris">`, text)
-
-	_, err = conv.Resume(ctx)
-	require.NoError(t, err)
-	assert.Len(t, rw.requests(), 1, "Resume does not rewrite it again")
-	provider.mu.Lock()
-	var seen string
-	for _, m := range provider.seen[len(provider.seen)-1] {
-		if m.ToolResult != nil {
-			seen = m.ToolResult.GetTextContent()
-		}
-	}
-	provider.mu.Unlock()
-	assert.Equal(t, text, seen)
-	_, rewritten = conv.RewrittenToolResult("c-cli")
-	assert.False(t, rewritten, "the answer was given to the model")
-}
-
-// An approved call's result is rewritten once, when it is approved.
-func TestContinue_RewriterSeesAnApprovedResultOnce(t *testing.T) {
-	rw := &wrappingRewriter{}
-	got := heldCallContinued(t, "sent", func(ctx context.Context, conv *Conversation, id string) error {
-		_, err := conv.ResolveTool(ctx, id)
-		assert.Len(t, rw.requests(), 1, "rewritten when approved")
-		return err
-	}, WithToolHook(rw))
-	assert.Equal(t, "<redacted:sent>", got.GetTextContent())
-	assert.Len(t, rw.requests(), 1, "Continue does not rewrite it again")
-}
-
 // A settled answer's name and rejection text come from the call it settles,
 // here one the history no longer names but the conversation approved.
 func TestResumeResult_NamesTheCallFromItsApproval(t *testing.T) {
@@ -245,4 +190,95 @@ func TestResumeResult_NamesTheCallFromItsApproval(t *testing.T) {
 	want := types.NewTextToolResult("c1", "send_message",
 		"Tool send_message denied: user declined consent. Try a different approach. Reason: not now")
 	assert.Equal(t, want, got)
+}
+
+// openLocateConv opens a conversation suspended on client calls to locate,
+// with rw rewriting results.
+func openLocateConv(
+	t *testing.T, rw hooks.ToolHook, calls []types.MessageToolCall, opts ...Option,
+) (*Conversation, *roundsProvider) {
+	t.Helper()
+	provider := &roundsProvider{
+		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
+		rounds:       []providers.PredictionResponse{{Content: "Locating.", ToolCalls: calls}},
+	}
+	opts = append([]Option{WithProvider(provider), WithSkipSchemaValidation(), WithToolHook(rw)}, opts...)
+	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", opts...)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	desc, err := conv.ToolRegistry().GetTool("locate")
+	require.NoError(t, err)
+	desc.Mode = "client"
+	_, err = conv.Send(context.Background(), "where am I?")
+	require.NoError(t, err)
+	return conv, provider
+}
+
+func lastResults(p *roundsProvider) map[string]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := map[string]string{}
+	for _, m := range p.seen[len(p.seen)-1] {
+		if m.ToolResult != nil {
+			out[m.ToolResult.ID] = m.ToolResult.GetTextContent()
+		}
+	}
+	return out
+}
+
+func rewrittenIDs(rw *wrappingRewriter) []string {
+	var ids []string
+	for _, req := range rw.requests() {
+		ids = append(ids, req.CallID)
+	}
+	return ids
+}
+
+// The rewriter runs once for each result delivered, when it is delivered:
+// not when the answer is given.
+func TestResume_RewriterRunsOncePerDeliveredResult(t *testing.T) {
+	rw := &wrappingRewriter{}
+	conv, provider := openLocateConv(t, rw, []types.MessageToolCall{{ID: "c1", Name: "locate", Args: []byte(`{}`)}})
+	ctx := context.Background()
+
+	require.NoError(t, conv.SendToolResult(ctx, "c1", "Paris"))
+	assert.Empty(t, rw.requests(), "an answer is not rewritten when it is given")
+	_, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c1"}, rewrittenIDs(rw))
+	assert.Equal(t, map[string]string{"c1": `<redacted:"Paris">`}, lastResults(provider))
+}
+
+// A second answer to the same call is dropped, and only the delivered one is
+// rewritten.
+func TestResume_DuplicateAnswerIsRewrittenOnce(t *testing.T) {
+	rw := &wrappingRewriter{}
+	conv, provider := openLocateConv(t, rw, []types.MessageToolCall{{ID: "c1", Name: "locate", Args: []byte(`{}`)}})
+	ctx := context.Background()
+
+	require.NoError(t, conv.SendToolResult(ctx, "c1", "Paris"))
+	require.NoError(t, conv.SendToolResult(ctx, "c1", "Lyon"))
+	_, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c1"}, rewrittenIDs(rw))
+	assert.Equal(t, map[string]string{"c1": `<redacted:"Paris">`}, lastResults(provider))
+}
+
+// An answer the call-rate limit refuses is not rewritten: the model gets the
+// limit error.
+func TestResume_RateLimitedAnswerIsNotRewritten(t *testing.T) {
+	rw := &wrappingRewriter{}
+	conv, provider := openLocateConv(t, rw, []types.MessageToolCall{
+		{ID: "c1", Name: "locate", Args: []byte(`{"n":1}`)}, {ID: "c2", Name: "locate", Args: []byte(`{"n":2}`)},
+	}, WithToolPolicy(&pipeline.ToolPolicy{MaxCallsPerMinute: 1, MaxParallelToolCalls: 1}))
+	ctx := context.Background()
+
+	require.NoError(t, conv.SendToolResult(ctx, "c1", "Paris"))
+	require.NoError(t, conv.SendToolResult(ctx, "c2", "Lyon"))
+	_, err := conv.Resume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c1"}, rewrittenIDs(rw), "the refused answer never reaches the rewriter")
+	results := lastResults(provider)
+	assert.Equal(t, `<redacted:"Paris">`, results["c1"])
+	assert.Equal(t, "Tool error: Tool locate not executed: its limit of 1 calls per minute is reached", results["c2"])
 }

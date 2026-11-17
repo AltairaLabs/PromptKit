@@ -619,6 +619,7 @@ func (r *toolRunner) buildPendingResult(
 			CallID:      toolCall.ID,
 			ToolName:    toolCall.Name,
 			Args:        argsMap,
+			RawArgs:     toolCall.Args,
 			PendingInfo: asyncResult.PendingInfo,
 			ToolResult:  toolResult,
 		},

@@ -17,10 +17,7 @@ import (
 // approved call, a client tool's answer) for the model, as the provider stage
 // prepares the result of a call it runs: rewritten by the conversation's
 // ToolResultRewriter hooks with the stage's request, and, where that fails,
-// answered with the stage's error result and a tool.call.failed event. A
-// result is rewritten once, when it enters the conversation (prepareAnswer,
-// prepareApproved); Continue, ContinueDuplex and Resume give the model what
-// was stored then.
+// answered with the stage's error result and a tool.call.failed event.
 
 // toolResultMessageSubmitter is a duplex session that records the given
 // result messages in the history, in place of ones built from the responses.
@@ -38,11 +35,7 @@ type toolResultMessageSubmitter interface {
 func (c *Conversation) continuedResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
-	prep, prepared := c.takePrepared(res)
-	call, known := prep.call, true
-	if !prepared {
-		call, known = c.callFor(calls, res)
-	}
+	call, known := c.callFor(calls, res)
 	switch {
 	case res.Rejected:
 		result := types.NewTextToolResult(res.ID, call.Name, fmt.Sprintf("Tool call rejected: %s", res.RejectionReason))
@@ -53,19 +46,12 @@ func (c *Conversation) continuedResult(
 		result := types.NewTextToolResult(res.ID, call.Name, "Tool error: "+errStr)
 		result.Error = errStr
 		return result
-	case prepared && prep.err != nil:
-		return c.settledFailure(ctx, call, prep.err)
 	}
-	var given tools.ModelResult
-	var err error
-	if prepared {
-		given = c.cappedPrepared(call, res, prep)
-	} else {
-		var rewrite func(string) (string, error)
-		if rewrite, err = c.rewriterFor(ctx, call, known); err == nil {
-			given, err = c.modelResult(call, res, rewrite, c.maxResultSize())
-		}
+	rewrite, err := c.rewriterFor(ctx, call, known)
+	if err != nil {
+		return c.settledFailure(ctx, call, err)
 	}
+	given, err := c.modelResult(call, res, rewrite)
 	if err != nil {
 		return c.settledFailure(ctx, call, err)
 	}
@@ -75,216 +61,63 @@ func (c *Conversation) continuedResult(
 	return types.NewTextToolResult(res.ID, call.Name, given.Text)
 }
 
-// cappedPrepared is the result Continue gives the model for res, whose
-// rewritten form prep holds: that form, capped at the registry's size limit.
-func (c *Conversation) cappedPrepared(
-	call types.MessageToolCall, res *sdktools.ToolResolution, prep preparedAnswer,
-) tools.ModelResult {
-	opts := tools.ModelResultOptions{ToolName: call.Name, MaxSize: c.maxResultSize()}
-	if prep.parts != nil {
-		given, _ := tools.BuildModelResult(nil, prep.parts, opts) // no rewrite: no error
-		return given
-	}
-	opts.Rewrite = func(string) (string, error) { return prep.text, nil }
-	given, _ := c.modelResult(call, res, opts.Rewrite, opts.MaxSize) // the rewrite cannot fail
-	return given
-}
-
-// maxResultSize is the registry's tool result size limit, zero for none.
-func (c *Conversation) maxResultSize() int {
-	if c.toolRegistry == nil {
-		return 0
-	}
-	return c.toolRegistry.MaxToolResultSize()
-}
-
 // resumeResult is the tool result Resume gives the model for a client's
 // answer res: the rejection, the failure (with the partial output the tool
-// produced), or what the client sent, unformatted and not truncated (it is
-// also the AG-UI TOOL_CALL_RESULT), as rewritten when it was given
-// (prepareAnswer). It names the tool of the call the answer settles.
+// produced, rewritten), or what the client sent, unformatted and not
+// truncated (it is also the AG-UI TOOL_CALL_RESULT), passed through the
+// conversation's ToolResultRewriter hooks. It names the tool of the call the
+// answer settles (callFor).
 func (c *Conversation) resumeResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
 ) types.MessageToolResult {
-	prep, prepared := c.takePrepared(res)
-	call := prep.call
-	if !prepared {
-		var known bool
-		call, known = c.callFor(calls, res)
-		prep, prepared = c.rewrittenAnswer(ctx, call, known, res)
-	}
-	result, err := c.resumeMessage(call, res, prep, prepared)
-	if err != nil {
-		return c.settledFailure(ctx, call, err)
-	}
-	return result
-}
-
-// resumeMessage is the tool result Resume gives the model for res, the answer
-// to call, with its rewritten form prep when prepared. The error, when the
-// rewrite failed, takes the result's place.
-func (c *Conversation) resumeMessage(
-	call types.MessageToolCall, res *sdktools.ToolResolution, prep preparedAnswer, prepared bool,
-) (types.MessageToolResult, error) {
+	call, known := c.callFor(calls, res)
 	var result types.MessageToolResult
 	switch {
 	case res.Rejected:
 		result = types.NewTextToolResult(res.ID, "", c.rejectionText(call.Name, res.RejectionReason))
 	case res.Error != nil:
-		errText := toolResultErrorText(res.Error)
-		content := "Tool error: " + errText
-		if len(res.ResultJSON) > 0 {
-			partial := string(res.ResultJSON)
-			if prepared {
-				if prep.err != nil {
-					return types.MessageToolResult{}, prep.err
-				}
-				partial = prep.text
-			}
-			content = partial + "\n\n" + content
-		}
-		result = types.NewTextToolResult(res.ID, "", content)
-		result.Error = errText
-	case prepared && prep.err != nil:
-		return types.MessageToolResult{}, prep.err
-	case len(res.Parts) > 0:
-		parts := res.Parts
-		if prepared {
-			parts = prep.parts
-		}
-		result = types.MessageToolResult{ID: res.ID, Parts: parts}
+		result = c.failedClientAnswer(ctx, call, known, res)
 	default:
-		text := string(res.ResultJSON)
-		if prepared {
-			text = prep.text
-		}
-		result = types.NewTextToolResult(res.ID, "", text)
+		result = c.clientAnswer(ctx, call, known, res)
 	}
 	// A provider matches a result to its call by the tool's name as well as
 	// the call ID (Gemini's functionResponse carries only the name).
 	result.Name = call.Name
-	return result, nil
+	return result
 }
 
-// preparedAnswer is a settled result as the conversation's rewriters
-// rewrote it when it was given.
-type preparedAnswer struct {
-	call types.MessageToolCall
-	// text is the rewritten text: of a client's answer as it was sent, of a
-	// failed client tool's partial output, or of an approved call's result
-	// as formatted for the model.
-	text string
-	// parts are a multimodal result's parts, their text rewritten.
-	parts []types.ContentPart
-	// err is why the result cannot be given: the rewrite failed, or no call
-	// it answers is known.
-	err error
-}
-
-// prepareAnswer rewrites res, a client's answer (or a failed client tool's
-// partial output) just stored, once, and keeps the rewritten form for the
-// result Continue, ContinueDuplex or Resume gives the model. Nothing is kept
-// when no hook rewrites results.
-func (c *Conversation) prepareAnswer(ctx context.Context, res *sdktools.ToolResolution) {
-	if !c.hookRegistry.HasToolResultRewriters() {
-		return
-	}
-	call, known := c.callFor(c.lazyCalls(ctx), res)
-	// Validated against the tool's output schema first, as the pipeline
-	// validates a result before rewriting it: a rewriter's output is not
-	// checked against the schema, and an answer that fails it is not rewritten.
-	c.validateAnswer(res, call.Name)
-	if prep, prepared := c.rewrittenAnswer(ctx, call, known, res); prepared {
-		c.keepPrepared(res, prep)
-	}
-}
-
-// storeAnswer stores res, a client's answer, for Resume (or Continue) to give
-// the model, rewritten once now (prepareAnswer).
-func (c *Conversation) storeAnswer(ctx context.Context, res *sdktools.ToolResolution) {
-	c.prepareAnswer(ctx, res)
-	c.resolvedStore.Add(res)
-}
-
-// rewrittenAnswer is res, a client's answer to call, as the conversation's
-// rewriters rewrite it; false when none rewrites results or there is nothing
-// to rewrite.
-func (c *Conversation) rewrittenAnswer(
+// failedClientAnswer is the result Resume gives the model for a client tool
+// that failed: its partial output, rewritten, when it produced one, then the
+// error.
+func (c *Conversation) failedClientAnswer(
 	ctx context.Context, call types.MessageToolCall, known bool, res *sdktools.ToolResolution,
-) (preparedAnswer, bool) {
-	if !c.hookRegistry.HasToolResultRewriters() || res.Rejected || (res.Error != nil && len(res.ResultJSON) == 0) {
-		return preparedAnswer{}, false
-	}
-	prep := preparedAnswer{call: call}
-	prep.text, prep.parts, prep.err = c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), res.Parts)
-	return prep, true
-}
-
-// prepareApproved rewrites res, an approved call's result, once, as the
-// provider stage rewrites a result it runs (formatted, before the size
-// limit), and keeps the rewritten form for Continue or ContinueDuplex.
-func (c *Conversation) prepareApproved(ctx context.Context, res *sdktools.ToolResolution) {
-	if !c.hookRegistry.HasToolResultRewriters() || res.Rejected || res.Error != nil {
-		return
-	}
-	call, known := c.callFor(c.lazyCalls(ctx), res)
-	prep := preparedAnswer{call: call}
-	rewrite, err := c.rewriterFor(ctx, call, known)
-	if err == nil {
-		var given tools.ModelResult
-		if given, err = c.modelResult(call, res, rewrite, 0); err == nil {
-			prep.text, prep.parts = given.Text, given.Parts
+) types.MessageToolResult {
+	errText := toolResultErrorText(res.Error)
+	content := "Tool error: " + errText
+	if len(res.ResultJSON) > 0 {
+		partial, _, err := c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), nil)
+		if err != nil {
+			return c.settledFailure(ctx, call, err)
 		}
+		content = partial + "\n\n" + content
 	}
-	prep.err = err
-	c.keepPrepared(res, prep)
+	result := types.NewTextToolResult(res.ID, "", content)
+	result.Error = errText
+	return result
 }
 
-// keepPrepared keeps prep for res.
-func (c *Conversation) keepPrepared(res *sdktools.ToolResolution, prep preparedAnswer) {
-	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
-	if c.prepared == nil {
-		c.prepared = make(map[*sdktools.ToolResolution]preparedAnswer)
-	}
-	c.prepared[res] = prep
-}
-
-// takePrepared returns and forgets what prepareAnswer or prepareApproved kept
-// for res.
-func (c *Conversation) takePrepared(res *sdktools.ToolResolution) (preparedAnswer, bool) {
-	c.settledMu.Lock()
-	defer c.settledMu.Unlock()
-	prep, ok := c.prepared[res]
-	delete(c.prepared, res)
-	return prep, ok
-}
-
-// RewrittenToolResult returns the text the model will be given for the
-// answer stored for the client tool call callID ([Conversation.SendToolResult],
-// [Conversation.SendToolResultMultimodal] or [Conversation.FailClientTool]),
-// as the conversation's ToolResultRewriter hooks rewrote it when it was
-// stored. It returns false when no hook rewrote it: the answer reaches the
-// model as it was given. An adapter that shows a client an answer before the
-// turn resumes (the AG-UI adapter, when only some calls are answered) uses it.
-func (c *Conversation) RewrittenToolResult(callID string) (string, bool) {
-	c.settledMu.Lock()
-	var res *sdktools.ToolResolution
-	var prep preparedAnswer
-	for r, p := range c.prepared {
-		if r.ID == callID {
-			res, prep = r, p
-		}
-	}
-	c.settledMu.Unlock()
-	if res == nil {
-		return "", false
-	}
-	result, err := c.resumeMessage(prep.call, res, prep, true)
+// clientAnswer is the result Resume gives the model for what a client sent.
+func (c *Conversation) clientAnswer(
+	ctx context.Context, call types.MessageToolCall, known bool, res *sdktools.ToolResolution,
+) types.MessageToolResult {
+	text, parts, err := c.rewriteAnswer(ctx, call, known, string(res.ResultJSON), res.Parts)
 	if err != nil {
-		result = tools.ErrorResult(callID, prep.call.Name, err)
+		return c.settledFailure(ctx, call, err)
 	}
-	return result.GetTextContent(), true
+	if len(res.Parts) > 0 {
+		return types.MessageToolResult{ID: res.ID, Parts: parts}
+	}
+	return types.NewTextToolResult(res.ID, "", text)
 }
 
 // rewriteAnswer passes a client's answer to call, its text or (when given)
@@ -328,23 +161,22 @@ func rewriteTextParts(parts []types.ContentPart, rewrite func(string) (string, e
 	return out, nil
 }
 
-// settled forgets what was kept for resolutions, now given to the model:
-// their approvals and their rewritten forms.
+// settled forgets the approvals recorded for resolutions, now given to the
+// model.
 func (c *Conversation) settled(resolutions []*sdktools.ToolResolution) {
 	c.settledMu.Lock()
 	defer c.settledMu.Unlock()
 	for _, res := range resolutions {
 		delete(c.admitted, res.ID)
-		delete(c.prepared, res)
 	}
 }
 
-// forgetSettled forgets everything kept for results not yet given to the
-// model: the turn they belong to was abandoned.
+// forgetSettled forgets every approval not yet given to the model: the turn
+// it belongs to was abandoned.
 func (c *Conversation) forgetSettled() {
 	c.settledMu.Lock()
 	defer c.settledMu.Unlock()
-	c.admitted, c.prepared = nil, nil
+	c.admitted = nil
 }
 
 // toolResponseOf is the response a realtime session is given for tr, with
@@ -383,7 +215,7 @@ func (c *Conversation) settledFailure(
 // passed through rewrite, then capped at the registry's size limit, its parts
 // kept. The error is rewrite's.
 func (c *Conversation) modelResult(
-	call types.MessageToolCall, res *sdktools.ToolResolution, rewrite func(string) (string, error), maxSize int,
+	call types.MessageToolCall, res *sdktools.ToolResolution, rewrite func(string) (string, error),
 ) (tools.ModelResult, error) {
 	raw := res.ResultJSON
 	if raw == nil && len(res.Parts) == 0 {
@@ -393,9 +225,11 @@ func (c *Conversation) modelResult(
 			raw = json.RawMessage(fmt.Sprintf("%v", res.Result))
 		}
 	}
-	return tools.BuildModelResult(raw, res.Parts, tools.ModelResultOptions{
-		ToolName: call.Name, Rewrite: rewrite, MaxSize: maxSize,
-	})
+	opts := tools.ModelResultOptions{ToolName: call.Name, Rewrite: rewrite}
+	if c.toolRegistry != nil {
+		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
+	}
+	return tools.BuildModelResult(raw, res.Parts, opts)
 }
 
 // rewriterFor passes a result's text for call through the conversation's

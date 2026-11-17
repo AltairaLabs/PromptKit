@@ -742,12 +742,13 @@ func copyStreamConfig(cfg *providers.StreamingInputConfig) *providers.StreamingI
 const maxRecordedCalls = 256
 
 // holdCalls records the calls of pending, held for SubmitToolResults, with
-// the name and arguments each pending entry carries.
+// the name each pending entry carries and the arguments as the model sent
+// them (encoded from the decoded arguments only for an entry without them).
 func (s *duplexSession) holdCalls(pending []tools.PendingToolExecution) {
 	calls := make([]types.MessageToolCall, 0, len(pending))
 	for i := range pending {
-		call := types.MessageToolCall{ID: pending[i].CallID, Name: pending[i].ToolName}
-		if pending[i].Args != nil {
+		call := types.MessageToolCall{ID: pending[i].CallID, Name: pending[i].ToolName, Args: pending[i].RawArgs}
+		if call.Args == nil && pending[i].Args != nil {
 			if args, err := json.Marshal(pending[i].Args); err == nil {
 				call.Args = args
 			}

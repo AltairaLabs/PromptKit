@@ -118,6 +118,7 @@ func executeDuplexToolCalls(
 					CallID:      tc.ID,
 					ToolName:    tc.Name,
 					Args:        argsMap,
+					RawArgs:     tc.Args,
 					PendingInfo: checkResult.PendingInfo,
 				})
 				continue
@@ -178,6 +179,7 @@ func addPendingTool(
 		CallID:      tc.ID,
 		ToolName:    tc.Name,
 		Args:        argsMap,
+		RawArgs:     tc.Args,
 		PendingInfo: ar.PendingInfo,
 	})
 }

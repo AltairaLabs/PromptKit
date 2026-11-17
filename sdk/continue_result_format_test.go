@@ -114,11 +114,10 @@ func TestContinue_ResultWithoutJSONIsFormattedAsJSON(t *testing.T) {
 	conv := newTestConversation()
 	conv.toolRegistry = tools.NewRegistry(tools.WithMaxToolResultSize(14))
 	call := types.MessageToolCall{ID: "c1", Name: "t"}
-	got, err := conv.modelResult(call, &sdktools.ToolResolution{Result: map[string]any{"a": "b"}}, nil, conv.maxResultSize())
+	got, err := conv.modelResult(call, &sdktools.ToolResolution{Result: map[string]any{"a": "b"}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "{\n  \"a\": \"b\"\n}", got.Text)
-	got, err = conv.modelResult(call, &sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}}, nil,
-		conv.maxResultSize())
+	got, err = conv.modelResult(call, &sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "{\n  \"a\": \"bbbb\n... [truncated, 23 bytes exceeded limit of 14 bytes]", got.Text)
 }

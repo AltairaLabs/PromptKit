@@ -735,7 +735,7 @@ func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathEx
 MapResponse applies a JMESPath expression to extract or reshape a JSON response.
 
 <a name="ErrToolsPending"></a>
-## type [ErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L54-L56>)
+## type [ErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L58-L60>)
 
 ErrToolsPending is returned by the provider stage when one or more tool calls returned ToolStatusPending. The pipeline should suspend: completed tool results are still returned alongside this error so they can be appended to the message history.
 
@@ -746,7 +746,7 @@ type ErrToolsPending struct {
 ```
 
 <a name="IsErrToolsPending"></a>
-### func [IsErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L67>)
+### func [IsErrToolsPending](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L71>)
 
 ```go
 func IsErrToolsPending(err error) (*ErrToolsPending, bool)
@@ -755,7 +755,7 @@ func IsErrToolsPending(err error) (*ErrToolsPending, bool)
 IsErrToolsPending checks whether err is or wraps an \*ErrToolsPending.
 
 <a name="ErrToolsPending.Error"></a>
-### func \(\*ErrToolsPending\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L58>)
+### func \(\*ErrToolsPending\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L62>)
 
 ```go
 func (e *ErrToolsPending) Error() string
@@ -1292,15 +1292,18 @@ type MultimodalExecutor interface {
 ```
 
 <a name="PendingToolExecution"></a>
-## type [PendingToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L42-L48>)
+## type [PendingToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/errors.go#L43-L52>)
 
 PendingToolExecution captures a single tool call that returned ToolStatusPending.
 
 ```go
 type PendingToolExecution struct {
-    CallID      string                  `json:"call_id"`
-    ToolName    string                  `json:"tool_name"`
-    Args        map[string]any          `json:"args"`
+    CallID   string         `json:"call_id"`
+    ToolName string         `json:"tool_name"`
+    Args     map[string]any `json:"args"`
+    // RawArgs are the call's arguments exactly as the model sent them, which
+    // Args decodes.
+    RawArgs     json.RawMessage         `json:"raw_args,omitempty"`
     PendingInfo *PendingToolInfo        `json:"pending_info,omitempty"`
     ToolResult  types.MessageToolResult `json:"tool_result"`
 }

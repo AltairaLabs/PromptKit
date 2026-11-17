@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -100,72 +99,4 @@ func TestClientToolValidateOutput_OffPassesResultThrough(t *testing.T) {
 	res := lastToolResult(t, provider, "c-loc")
 	assert.Empty(t, res.Error)
 	assert.JSONEq(t, `{"lat":48.8}`, res.GetTextContent())
-}
-
-// redactAllHook replaces every tool result with text no output schema allows,
-// recording how often it runs.
-type redactAllHook struct{ wrappingRewriter }
-
-func (h *redactAllHook) RewriteResult(ctx context.Context, req hooks.ToolRequest, content string) (string, error) {
-	_, _ = h.wrappingRewriter.RewriteResult(ctx, req, content)
-	return "[redacted]", nil
-}
-
-// suspendOnLocateRewriting is suspendOnLocate with validate_output set and a
-// rewriter configured.
-func suspendOnLocateRewriting(t *testing.T, rw hooks.ToolHook) (*Conversation, *roundsProvider) {
-	t.Helper()
-	provider := &roundsProvider{
-		ToolProvider: mock.NewToolProvider("x", "m", false, nil),
-		rounds: []providers.PredictionResponse{{
-			Content:   "Where?",
-			ToolCalls: []types.MessageToolCall{{ID: "c-loc", Name: "locate", Args: []byte(`{}`)}},
-		}},
-	}
-	conv, err := Open(writeWorkflowTestPack(t, twoToolPackJSON), "chat", WithProvider(provider),
-		WithSkipSchemaValidation(), WithToolHook(rw))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
-	desc, err := conv.ToolRegistry().GetTool("locate")
-	require.NoError(t, err)
-	desc.Mode = "client"
-	desc.OutputSchema = json.RawMessage(locateOutputSchema)
-	desc.ClientConfig = &tools.ClientConfig{ValidateOutput: true}
-	resp, err := conv.Send(context.Background(), "go")
-	require.NoError(t, err)
-	require.True(t, resp.HasPendingClientTools())
-	return conv, provider
-}
-
-// A valid answer is checked against the schema as the client sent it, then
-// rewritten: a redacting rewriter whose output would not satisfy the schema
-// still delivers its text, with no validation error.
-func TestClientToolValidateOutput_ValidatesBeforeRewriting(t *testing.T) {
-	rw := &redactAllHook{}
-	conv, provider := suspendOnLocateRewriting(t, rw)
-	ctx := context.Background()
-
-	require.NoError(t, conv.SendToolResult(ctx, "c-loc", map[string]any{"city": "Paris"}))
-	_, err := conv.Resume(ctx)
-	require.NoError(t, err)
-
-	res := lastToolResult(t, provider, "c-loc")
-	assert.Empty(t, res.Error)
-	assert.Equal(t, "[redacted]", res.GetTextContent())
-	assert.Len(t, rw.requests(), 1)
-}
-
-// An answer that fails the schema is refused before any rewriter sees it.
-func TestClientToolValidateOutput_InvalidAnswerIsNotRewritten(t *testing.T) {
-	rw := &redactAllHook{}
-	conv, provider := suspendOnLocateRewriting(t, rw)
-	ctx := context.Background()
-
-	require.NoError(t, conv.SendToolResult(ctx, "c-loc", map[string]any{"lat": 48.8}))
-	_, err := conv.Resume(ctx)
-	require.NoError(t, err)
-
-	res := lastToolResult(t, provider, "c-loc")
-	assert.Contains(t, res.Error, "result validation failed")
-	assert.Empty(t, rw.requests(), "the rewriter never sees an answer the schema refuses")
 }

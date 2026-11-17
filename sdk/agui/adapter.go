@@ -635,7 +635,7 @@ func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Resp
 	}
 	if !answersAll(pending, results) {
 		for i := range results {
-			st.emitResult(results[i].CallID, a.answerText(&results[i]))
+			st.emitResult(results[i].CallID, resultText(&results[i]))
 		}
 		return nil, nil
 	}
@@ -683,25 +683,6 @@ func toolMessagesByCall(msgs []types.Message) map[string]string {
 		}
 	}
 	return out
-}
-
-// rewrittenAnswerReader is implemented by conversations that tell the text
-// their tool-result rewriters made of an answer stored for a client tool call
-// (*sdk.Conversation does).
-type rewrittenAnswerReader interface {
-	RewrittenToolResult(callID string) (string, bool)
-}
-
-// answerText is the TOOL_CALL_RESULT content for an answer r the adapter
-// handed the conversation: what the conversation's tool-result rewriters made
-// of it, when they rewrote it, else resultText.
-func (a *EventAdapter) answerText(r *ToolResult) string {
-	if reader, ok := a.sender.(rewrittenAnswerReader); ok {
-		if text, rewritten := reader.RewrittenToolResult(r.CallID); rewritten {
-			return text
-		}
-	}
-	return resultText(r)
 }
 
 // resultText renders a caller-supplied result the way the conversation hands
@@ -921,16 +902,6 @@ func (w *workflowSender) RejectClientTool(ctx context.Context, callID, reason st
 	if conv := w.wc.ActiveConversation(); conv != nil {
 		conv.RejectClientTool(ctx, callID, reason)
 	}
-}
-
-// RewrittenToolResult tells what the active conversation's tool-result
-// rewriters made of the answer to callID.
-func (w *workflowSender) RewrittenToolResult(callID string) (string, bool) {
-	conv := w.wc.ActiveConversation()
-	if conv == nil {
-		return "", false
-	}
-	return conv.RewrittenToolResult(callID)
 }
 
 // Resume continues the active conversation after its client tools are answered.

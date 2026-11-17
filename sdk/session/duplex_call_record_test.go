@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -306,4 +307,16 @@ func TestDuplexSession_RecordsACallHeldAlongsideAnError(t *testing.T) {
 	got, kept := ds.ToolCall("call_7")
 	require.True(t, kept)
 	assert.Equal(t, "approve_refund", got.Name)
+}
+
+// A held call is recorded with its arguments exactly as the model sent them.
+func TestDuplexSession_HeldCallKeepsTheRawArguments(t *testing.T) {
+	s := &duplexSession{}
+	raw := json.RawMessage(`{"z": 1, "a": "two"}`)
+	s.holdCalls([]tools.PendingToolExecution{{
+		CallID: "c1", ToolName: "lookup", Args: map[string]any{"a": "two", "z": 1}, RawArgs: raw,
+	}})
+	got, kept := s.ToolCall("c1")
+	require.True(t, kept)
+	assert.Equal(t, types.MessageToolCall{ID: "c1", Name: "lookup", Args: raw}, got)
 }

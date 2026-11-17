@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,9 +41,12 @@ var (
 
 // PendingToolExecution captures a single tool call that returned ToolStatusPending.
 type PendingToolExecution struct {
-	CallID      string                  `json:"call_id"`
-	ToolName    string                  `json:"tool_name"`
-	Args        map[string]any          `json:"args"`
+	CallID   string         `json:"call_id"`
+	ToolName string         `json:"tool_name"`
+	Args     map[string]any `json:"args"`
+	// RawArgs are the call's arguments exactly as the model sent them, which
+	// Args decodes.
+	RawArgs     json.RawMessage         `json:"raw_args,omitempty"`
 	PendingInfo *PendingToolInfo        `json:"pending_info,omitempty"`
 	ToolResult  types.MessageToolResult `json:"tool_result"`
 }
