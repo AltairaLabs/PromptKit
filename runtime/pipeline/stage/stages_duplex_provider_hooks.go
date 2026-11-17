@@ -101,6 +101,24 @@ func (h *duplexHistory) fillUserTranscript(text string) {
 	}
 }
 
+// length is the number of messages in the history.
+func (h *duplexHistory) length() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.msgs)
+}
+
+// insert adds a text-only copy of m at position i (clamped to the history),
+// ahead of the messages already there from i on.
+func (h *duplexHistory) insert(i int, m *types.Message) {
+	c := *m
+	c.Parts = textOnlyParts(m.Parts)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	i = max(0, min(i, len(h.msgs)))
+	h.msgs = append(h.msgs[:i], append([]types.Message{c}, h.msgs[i:]...)...)
+}
+
 // textOnlyParts returns the text parts of parts.
 func textOnlyParts(parts []types.ContentPart) []types.ContentPart {
 	var out []types.ContentPart

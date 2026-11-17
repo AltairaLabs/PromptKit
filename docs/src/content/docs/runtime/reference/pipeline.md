@@ -2076,7 +2076,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L81-L222>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L81-L228>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2098,7 +2098,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L247-L250>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L253-L256>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2107,7 +2107,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L267-L271>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L273-L277>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2116,7 +2116,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L280-L285>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L286-L291>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2125,7 +2125,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L303-L307>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L309-L313>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2156,7 +2156,7 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 SetPromptDeclarations sets the pack declarations of the prompts, keyed by task, so each hook call carries the declaration of the prompt the session runs \(ProviderRequest.Prompt\), as ProviderStage's do through ProviderConfig.PromptDeclarations. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L239>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L245>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
@@ -2204,7 +2204,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L275>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L167-L290>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2254,6 +2254,21 @@ type ElementMetadata struct {
     // InterruptedTurnComplete marks the element that closes an
     // interrupted turn (downstream cleanup signal).
     InterruptedTurnComplete bool
+
+    // LateTranscript marks a user Message that DuplexProviderStage
+    // materialized from a provider's final input transcript after the reply
+    // to it had completed (OpenAI Realtime delivers it late). It is the
+    // answered turn's user message, never the next turn's: a
+    // TranscriptReorderStage still holding that turn places it ahead of the
+    // reply, and one that has already resolved the turn drops it.
+    LateTranscript bool
+
+    // ToolCallsRunning marks the turn-end element of a model response whose
+    // tool calls DuplexProviderStage runs itself: each call's result (or a
+    // PendingTools element for a call held for the caller) follows on a later
+    // element. TranscriptReorderStage does not time out a held turn while
+    // such a round is still running.
+    ToolCallsRunning bool
 
     // ToolResultMessages carries tool-execution result messages produced
     // by the streaming tool integration; the duplex provider stage
@@ -3385,7 +3400,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L278-L289>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L293-L304>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -6123,11 +6138,15 @@ type ToolCallRecorder interface {
 ```
 
 <a name="TranscriptReorderStage"></a>
-## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L34-L55>)
+## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L52-L85>)
 
-TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant text, even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
+TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant output, even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
 
-It buffers assistant TEXT elements and HOLDS the turn\-end until the user turn for that turn arrives \(or a short timeout elapses\), then emits user\-then\-text in order. AUDIO passes through immediately, so playback stays realtime. Only the transcript log is reordered. The turn\-end \(EndOfStream\) is held too, so a late transcript is never emitted after the turn boundary \(which both mis\-orders the log and can confuse downstream turn\-scoped stages\). If the transcript never arrives, a configurable placeholder user turn is emitted.
+Until the user turn for the current turn arrives it holds everything the model produced in answer: assistant TEXT, the turn\-end, and the messages a tool round adds \(the tool results that follow a tool\-call turn\-end\). Once the user turn arrives \(or a short timeout after a turn\-end elapses\) it emits the user turn, then what it held, in the order received. AUDIO passes through immediately, so playback stays realtime. Only the transcript log is reordered. If the transcript never arrives, a configurable placeholder user turn is emitted.
+
+A turn\-end that makes tool calls does not end the user's turn: the reply after the tool round answers the same utterance, so it is held \(or streamed, once the user turn is shown\) with it rather than waiting for a transcript of its own. The round's other elements \(results, calls held for the caller, errors\) are held with it. While a round DuplexProviderStage runs \(Meta.ToolCallsRunning\) is still running, a held turn is not timed out. A round whose calls never get results does not swallow the next turn: the next reply closes it.
+
+A user transcript marked Meta.LateTranscript belongs to the turn whose reply already completed: it fills that turn while the stage still holds it, and is dropped once the stage has resolved the turn \(with the placeholder\) rather than becoming the next turn's user message. A typed user turn \(TextInputTurnSource\) and any non\-user message for a later turn resolve a held finished turn first instead of joining it.
 
 The mechanism is provider\-agnostic; whether it is wired is decided upstream. It is a Transform stage: state is per\-turn and reset on each turn boundary, so a single instance handles one continuous duplex conversation.
 
@@ -6139,7 +6158,7 @@ type TranscriptReorderStage struct {
 ```
 
 <a name="NewTranscriptReorderStage"></a>
-### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L59>)
+### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L89>)
 
 ```go
 func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
@@ -6148,7 +6167,7 @@ func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
 NewTranscriptReorderStage creates a reorder stage with the given missing\-turn placeholder text \(empty to omit the user turn\) and the default hold timeout.
 
 <a name="NewTranscriptReorderStageWithTimeout"></a>
-### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L65>)
+### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L95>)
 
 ```go
 func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.Duration) *TranscriptReorderStage
@@ -6157,7 +6176,7 @@ func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.D
 NewTranscriptReorderStageWithTimeout is like NewTranscriptReorderStage but with an explicit hold timeout \(tests use a short value\).
 
 <a name="TranscriptReorderStage.Process"></a>
-### func \(\*TranscriptReorderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L74-L78>)
+### func \(\*TranscriptReorderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L104-L108>)
 
 ```go
 func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6166,7 +6185,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L305-L308>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L320-L323>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -6452,7 +6471,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L292-L301>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L307-L316>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

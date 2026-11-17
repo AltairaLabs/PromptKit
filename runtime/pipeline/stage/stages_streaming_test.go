@@ -1400,3 +1400,79 @@ func TestDuplexProviderStage_CompletedTurnSetsFinishReason(t *testing.T) {
 	assert.Equal(t, "stop", msg.FinishReason)
 	assert.Equal(t, "stop", msg.Meta[finishReasonMetaKey])
 }
+
+// runLateTranscriptAfterReply drives DuplexProviderStage on the streaming
+// path with a reply that completes BEFORE the user's transcript arrives (OpenAI
+// Realtime's ordering for a short reply), and returns the output elements.
+func runLateTranscriptAfterReply(t *testing.T, transcripts ...providers.StreamChunk) []StreamElement {
+	t.Helper()
+	finishReason := "stop"
+	chunks := []providers.StreamChunk{
+		{Content: "Hello.", Delta: "Hello."},
+		{FinishReason: &finishReason},
+	}
+	chunks = append(chunks, transcripts...)
+	inner := providersmock.NewStreamingProvider("test-stream", "mock-model", false)
+	inner.WithAutoRespond("ok")
+	inner.WithCloseAfterTurns(1)
+	st := NewDuplexProviderStage(&chunkInjectingProvider{StreamingProvider: inner, chunks: chunks}, baseConfig())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	input := make(chan StreamElement, 4)
+	output := make(chan StreamElement, 16)
+	input <- StreamElement{Audio: &AudioData{Samples: []byte("audio data here!"), SampleRate: 16000,
+		Format: AudioFormatPCM16}}
+	input <- StreamElement{EndOfStream: true}
+	close(input)
+
+	done := make(chan error, 1)
+	go func() { done <- st.Process(ctx, input, output) }()
+	var elements []StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+	require.NoError(t, <-done)
+	return elements
+}
+
+// A final transcript that lands after the reply to it has completed is still
+// that turn's user message: it is emitted (once, after the reply, for the
+// reorder stage to move ahead of it), not dropped because the turn already
+// completed.
+func TestDuplexProviderStage_FinalTranscriptAfterReplyIsEmitted(t *testing.T) {
+	elements := runLateTranscriptAfterReply(t, providers.StreamChunk{Metadata: map[string]interface{}{
+		"type": "input_transcription", "transcription": "Hi there", "transcription_final": true,
+	}})
+
+	var order []string
+	for i := range elements {
+		switch m := elements[i].Message; {
+		case m != nil && m.Role == roleUser:
+			order = append(order, "user:"+m.Content)
+		case m != nil && m.Role == roleAssistant && elements[i].EndOfStream:
+			order = append(order, "assistant:"+m.Content)
+		}
+	}
+	assert.Equal(t, []string{"assistant:Hello.", "user:Hi there"}, order)
+}
+
+// An incremental (non-final) transcript chunk that lands after the turn
+// completed is still not taken: it could belong to either turn, so it must
+// not bleed into the final transcript that follows.
+func TestDuplexProviderStage_IncrementalTranscriptAfterReplyIsDropped(t *testing.T) {
+	elements := runLateTranscriptAfterReply(t,
+		providers.StreamChunk{Metadata: map[string]interface{}{
+			"type": "input_transcription", "transcription": "Hi there ",
+		}},
+		providers.StreamChunk{Metadata: map[string]interface{}{
+			"type": "input_transcription", "transcription": "What time is it?", "transcription_final": true,
+		}})
+	var users []string
+	for i := range elements {
+		if m := elements[i].Message; m != nil && m.Role == roleUser {
+			users = append(users, m.Content)
+		}
+	}
+	assert.Equal(t, []string{"What time is it?"}, users)
+}

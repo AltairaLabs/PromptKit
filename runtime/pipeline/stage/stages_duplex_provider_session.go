@@ -111,6 +111,12 @@ type DuplexProviderStage struct {
 	// Flag to track if we've already captured transcription for this turn
 	transcriptionCaptured bool
 
+	// late is the bookkeeping that places a final transcript arriving after
+	// its reply (stages_duplex_late_transcript.go). Response goroutine only,
+	// but for inputUserTurn.
+	late          lateTranscriptState
+	inputUserTurn atomic.Bool
+
 	// Flag to track if we've already popped turn_id for this turn
 	// This prevents double-popping when there are multiple EndOfStream events
 	// (e.g., tool call response + final response)
@@ -843,6 +849,7 @@ func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
 	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
 	s.setTurnStart(time.Now())
 	s.userTurnDue = true
+	s.inputUserTurn.Store(true)
 	s.recordHistory(user)
 	elem.Message = user
 	s.pendingTypedUser = user
@@ -901,6 +908,7 @@ func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
 		now := time.Now()
 		s.setTurnStart(now)
 		s.userTurnDue = true
+		s.inputUserTurn.Store(true)
 		logger.Debug("DuplexProviderStage: started turn timing",
 			"turnStartTime", now.Format(time.RFC3339Nano))
 	}
@@ -1496,11 +1504,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		// cost counts, on that call. It touches no other call.
 		return s.handleStaleChunk(ctx, chunk, output)
 	}
-	if !isInputTranscriptionChunk(chunk) {
-		// Every generation has its own call and its own accumulation.
-		s.bindGeneration(ctx, chunk.Generation)
-		s.switchGeneration(chunk.Generation)
-	}
+	s.bindChunkGeneration(ctx, chunk)
 
 	// Accumulate text content for this turn
 	// For Gemini Live API, text comes via three paths:
@@ -1513,11 +1517,6 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	//
 	// Check metadata to distinguish the source
 	isOutputTranscription, isInputTranscription := classifyTranscriptionChunk(chunk)
-
-	// Handle input transcription (what user said)
-	if isInputTranscription {
-		s.captureInputTranscription(chunk)
-	}
 
 	// Fast-path streaming user-turn materialization (provider-agnostic).
 	//
@@ -1538,7 +1537,10 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// fallback (in this same method, below) is guarded on a non-empty buffer, so
 	// once we reset it cannot double-emit this turn. Providers that never send the
 	// marker fall through to that fallback unchanged.
-	if handled, err := s.tryFastPathUserTurn(ctx, chunk, isInputTranscription, output); handled {
+	//
+	// Before it, a final transcript of the turn just answered, or a repeat of a
+	// turn already shown, is placed (or dropped), not taken as a new user turn.
+	if handled, err := s.takeInputTranscription(ctx, chunk, isInputTranscription, output); handled {
 		return err
 	}
 
@@ -1558,7 +1560,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if isAssistantContentChunk(chunk, isOutputTranscription) && s.hasUncapturedStreamingTranscript() {
 		logger.Debug("DuplexProviderStage: materializing user turn at assistant response start",
 			"transcriptLen", s.inputTranscription.Len())
-		if err := s.emitBufferedUserTurn(ctx, output); err != nil {
+		if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
 			return err
 		}
 		// Reset + mark captured so late transcription chunks for this utterance are
@@ -1602,7 +1604,11 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if err != nil {
 		return s.failTurn(ctx, err, output)
 	}
+	s.noteChunkTurnEnd(chunk, &elem, turnDone)
 
+	if s.tools != nil && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+		elem.Meta.ToolCallsRunning = true // the stage runs them (queueToolRound)
+	}
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
 		"hasAudio", elem.Audio != nil,
@@ -1613,6 +1619,35 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return err
 	}
 	return s.queueToolRound(ctx, round)
+}
+
+// bindChunkGeneration binds the provider call and accumulation of the
+// chunk's generation: every generation has its own. A caller transcript
+// belongs to no call.
+func (s *DuplexProviderStage) bindChunkGeneration(ctx context.Context, chunk *providers.StreamChunk) {
+	if isInputTranscriptionChunk(chunk) {
+		return
+	}
+	s.bindGeneration(ctx, chunk.Generation)
+	s.switchGeneration(chunk.Generation)
+}
+
+// takeInputTranscription handles an input transcription chunk: a final one
+// owed to the turn just answered or repeating a turn shown is placed or
+// dropped (placeFinalTranscript); otherwise it is accumulated, and a final one
+// materializes the user turn at once (tryFastPathUserTurn). handled reports
+// that the chunk was consumed; err is then the result.
+func (s *DuplexProviderStage) takeInputTranscription(
+	ctx context.Context, chunk *providers.StreamChunk, isInputTranscription bool, output chan<- StreamElement,
+) (handled bool, err error) {
+	if !isInputTranscription {
+		return false, nil
+	}
+	if handled, err := s.placeFinalTranscript(ctx, chunk, output); handled {
+		return true, err
+	}
+	s.captureInputTranscription(chunk)
+	return s.tryFastPathUserTurn(ctx, chunk, isInputTranscription, output)
 }
 
 // completeChunkTurn charges what the chunk's turn cost and prepares its tool
@@ -1680,7 +1715,7 @@ func (s *DuplexProviderStage) materializeStreamingUserTurn(
 	}
 	logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
 		"transcriptLen", s.inputTranscription.Len())
-	if err := s.emitBufferedUserTurn(ctx, output); err != nil {
+	if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
 		return err
 	}
 	// Reset the per-turn transcription buffer so the next streaming turn
@@ -1756,7 +1791,7 @@ func (s *DuplexProviderStage) tryFastPathUserTurn(
 	}
 	logger.Debug("DuplexProviderStage: fast-path materializing user turn from final transcript",
 		"transcriptLen", s.inputTranscription.Len())
-	if err := s.emitBufferedUserTurn(ctx, output); err != nil {
+	if err := s.emitBufferedUserTurn(ctx, output, false); err != nil {
 		return true, err
 	}
 	s.inputTranscription.Reset()
@@ -1773,7 +1808,13 @@ func completesTurn(chunk *providers.StreamChunk, elem *StreamElement) bool {
 // provider-marked final transcript of a streaming user turn with a non-empty
 // buffered transcript (no turn_id queued, i.e. not the scenario path).
 func (s *DuplexProviderStage) isFinalUserTranscript(chunk *providers.StreamChunk) bool {
-	return s.transcriptionFinal(chunk) && s.inputTranscription.Len() > 0 && !s.hasQueuedTurnID()
+	return s.isStreamingFinalTranscript(chunk) && s.inputTranscription.Len() > 0
+}
+
+// isStreamingFinalTranscript reports whether a chunk is a provider-marked
+// final transcript on the streaming path (no turn_id queued).
+func (s *DuplexProviderStage) isStreamingFinalTranscript(chunk *providers.StreamChunk) bool {
+	return s.transcriptionFinal(chunk) && !s.hasQueuedTurnID()
 }
 
 // hasUncapturedStreamingTranscript reports whether a buffered user transcript
@@ -1792,10 +1833,15 @@ func isAssistantContentChunk(chunk *providers.StreamChunk, isOutputTranscription
 
 // captureInputTranscription accumulates an input transcription chunk. Only
 // accumulates if we haven't already captured transcription for this turn:
-// this prevents late-arriving transcription chunks from bleeding into the
-// next turn.
+// this prevents late-arriving incremental chunks from bleeding into the next
+// turn. A provider-marked final transcript on the streaming path is taken
+// regardless: it is a whole utterance, materialized as its own user turn at
+// once (tryFastPathUserTurn), so it cannot bleed into another. It is how a
+// late transcript of the turn just answered arrives (OpenAI Realtime), and
+// dropping it because the reply had already completed lost the user turn,
+// whether or not the caller's next audio had been seen yet.
 func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamChunk) {
-	if s.transcriptionCaptured {
+	if s.transcriptionCaptured && !s.isStreamingFinalTranscript(chunk) {
 		logger.Debug("DuplexProviderStage: ignoring late transcription chunk (turn already complete)")
 		return
 	}
@@ -1808,9 +1854,13 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 }
 
 // emitBufferedUserTurn emits the buffered input transcription as a user
-// Message element. The caller resets the buffer afterwards.
-func (s *DuplexProviderStage) emitBufferedUserTurn(ctx context.Context, output chan<- StreamElement) error {
+// Message element. The caller resets the buffer afterwards. fromDeltas
+// reports that it was assembled from incremental chunks, not a final one.
+func (s *DuplexProviderStage) emitBufferedUserTurn(
+	ctx context.Context, output chan<- StreamElement, fromDeltas bool,
+) error {
 	transcript := s.inputTranscription.String()
+	s.late.userShown(transcript, fromDeltas)
 	userMsg := &types.Message{
 		Role:    roleUser,
 		Content: transcript,
@@ -1839,6 +1889,7 @@ func (s *DuplexProviderStage) accumulateResponseChunk(
 	// input that started it could not be seen.
 	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
 		s.openToolRoundIfIdle(ctx)
+		s.noteReplyStarted()
 	}
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it
