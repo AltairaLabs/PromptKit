@@ -442,3 +442,119 @@ func TestAudioPacingStage_UnknownFormatForwardsImmediately(t *testing.T) {
 		t.Errorf("Opus chunks should not be paced (no fixed bps), got %v", delays)
 	}
 }
+
+// runFlushOnCut starts a flush-on-cut pacer whose sleeps last until the pacer
+// gives them up, as a real sleep does while audio plays. It forwards first
+// and waits for it to come out, then queues rest at once (a realtime model's
+// burst) and closes the input. It returns everything forwarded after first.
+func runFlushOnCut(t *testing.T, first StreamElement, rest []StreamElement) []StreamElement {
+	t.Helper()
+	clock := newFakeClock()
+	clock.onSleep = func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	stage := NewNamedAudioPacingStage("audio-pacing-output").WithFlushOnCut()
+	stage.clock = clock
+	stage.prerollChunks = 0
+
+	inCh := make(chan StreamElement, len(rest)+1)
+	outCh := make(chan StreamElement, len(rest)+1)
+	done := make(chan error, 1)
+	go func() { done <- stage.Process(context.Background(), inCh, outCh) }()
+
+	inCh <- first
+	select {
+	case <-outCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first chunk was never forwarded")
+	}
+	for _, e := range rest {
+		inCh <- e
+	}
+	close(inCh)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Process: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the cut never got past the queued audio")
+	}
+	var got []StreamElement
+	for e := range outCh {
+		got = append(got, e)
+	}
+	return got
+}
+
+// TestAudioPacingStage_CutDropsQueuedAudio pins barge-in and guardrail cuts on
+// the output pacer: a realtime model sends a whole reply's audio in a burst,
+// so seconds of it wait at the pacer. A cut (an Interrupt element, or one
+// marked Meta.Interrupted) must reach the speaker at once, the queued audio
+// of the cut reply must never play, and the next reply's audio must.
+func TestAudioPacingStage_CutDropsQueuedAudio(t *testing.T) {
+	const sampleRate = 24000
+	cuts := map[string]StreamElement{
+		"interrupt":   {Interrupt: true},
+		"interrupted": {Meta: ElementMetadata{Interrupted: true}},
+	}
+	for name, cut := range cuts {
+		t.Run(name, func(t *testing.T) {
+			var rest []StreamElement
+			for i := 0; i < 40; i++ { // 2 s of the reply, queued behind the first chunk
+				rest = append(rest, audioElem(2400, sampleRate))
+			}
+			cut.Sequence = 2
+			next := audioElem(2400, sampleRate) // the next reply's first chunk
+			next.Sequence = 3
+			rest = append(rest, cut, next)
+
+			got := runFlushOnCut(t, audioElem(2400, sampleRate), rest)
+			var seqs []int64
+			for _, e := range got {
+				seqs = append(seqs, e.Sequence)
+			}
+			if len(seqs) != 2 || seqs[0] != 2 || seqs[1] != 3 {
+				t.Fatalf("forwarded after the first chunk = %v, want [2 3] (the cut reply's queued audio dropped)", seqs)
+			}
+		})
+	}
+}
+
+// TestAudioPacingStage_CutKeepsWhatDroppedAudioCarried pins that a cut drops
+// only the audio: a queued chunk of the cut reply that also carries its
+// transcript or its end still reaches the session, without the audio, and a
+// cut that itself carries audio goes out at once.
+func TestAudioPacingStage_CutKeepsWhatDroppedAudioCarried(t *testing.T) {
+	const sampleRate = 24000
+	transcript := "the rest of the reply"
+	withText := audioElem(2400, sampleRate)
+	withText.Text = &transcript
+	withText.Sequence = 2
+	withEnd := audioElem(2400, sampleRate)
+	withEnd.EndOfStream = true
+	withEnd.Sequence = 3
+	cut := audioElem(2400, sampleRate)
+	cut.Interrupt = true
+	cut.Sequence = 4
+
+	got := runFlushOnCut(t, audioElem(2400, sampleRate), []StreamElement{
+		audioElem(2400, sampleRate), withText, withEnd, cut,
+	})
+	if len(got) != 3 {
+		t.Fatalf("forwarded %d elements after the first chunk, want 3 (text, end, cut)", len(got))
+	}
+	if got[0].Sequence != 2 || got[0].Text == nil || *got[0].Text != transcript || got[0].Audio != nil {
+		t.Errorf("got[0] = seq %d text %v audio %v, want seq 2 with its transcript and no audio",
+			got[0].Sequence, got[0].Text, got[0].Audio)
+	}
+	if got[1].Sequence != 3 || !got[1].EndOfStream || got[1].Audio != nil {
+		t.Errorf("got[1] = seq %d end %v audio %v, want seq 3 ending the stream with no audio",
+			got[1].Sequence, got[1].EndOfStream, got[1].Audio)
+	}
+	if got[2].Sequence != 4 || !got[2].Interrupt {
+		t.Errorf("got[2] = seq %d interrupt %v, want the cut (seq 4)", got[2].Sequence, got[2].Interrupt)
+	}
+}

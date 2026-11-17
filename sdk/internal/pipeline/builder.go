@@ -606,7 +606,7 @@ func collectPipelineStages(
 	// speaker's jitter buffer and the oldest audio is dropped (audible stutter).
 	// The "-output" suffix routes its health metrics to the output direction.
 	if cfg.PaceOutputAudio {
-		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output"))
+		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output").WithFlushOnCut())
 	}
 
 	return stages, nil

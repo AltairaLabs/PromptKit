@@ -56,6 +56,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewAudioPacingStage\(\) \*AudioPacingStage](<#NewAudioPacingStage>)
   - [func NewNamedAudioPacingStage\(name string\) \*AudioPacingStage](<#NewNamedAudioPacingStage>)
   - [func \(s \*AudioPacingStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#AudioPacingStage.Process>)
+  - [func \(s \*AudioPacingStage\) WithFlushOnCut\(\) \*AudioPacingStage](<#AudioPacingStage.WithFlushOnCut>)
 - [type AudioResampleConfig](<#AudioResampleConfig>)
   - [func DefaultAudioResampleConfig\(\) AudioResampleConfig](<#DefaultAudioResampleConfig>)
 - [type AudioResampleStage](<#AudioResampleStage>)
@@ -955,7 +956,7 @@ func (af AudioFormat) String() string
 String returns the string representation of the audio format.
 
 <a name="AudioPacingStage"></a>
-## type [AudioPacingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L89-L116>)
+## type [AudioPacingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L91-L122>)
 
 AudioPacingStage paces audio chunks toward downstream stages so they are forwarded at roughly real\-time rate, smoothing bursty producers \(e.g. file readers\) into a steady stream that real\-provider VAD and local sinks can consume without buffer overrun or premature turn\-end.
 
@@ -967,7 +968,7 @@ type AudioPacingStage struct {
 ```
 
 <a name="NewAudioPacingStage"></a>
-### func [NewAudioPacingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L151>)
+### func [NewAudioPacingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L192>)
 
 ```go
 func NewAudioPacingStage() *AudioPacingStage
@@ -978,7 +979,7 @@ NewAudioPacingStage creates a new audio pacing stage with the default preroll \(
 Use NewNamedAudioPacingStage when wiring two instances in the same pipeline \(input \+ output direction\); the pipeline builder rejects duplicate stage names.
 
 <a name="NewNamedAudioPacingStage"></a>
-### func [NewNamedAudioPacingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L160>)
+### func [NewNamedAudioPacingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L201>)
 
 ```go
 func NewNamedAudioPacingStage(name string) *AudioPacingStage
@@ -987,13 +988,22 @@ func NewNamedAudioPacingStage(name string) *AudioPacingStage
 NewNamedAudioPacingStage is like NewAudioPacingStage but lets the caller pick the stage name. Necessary when two pacing stages coexist in the same pipeline \(e.g. one for the input audio path, one for the output\). The pipeline builder treats stage names as unique IDs and would reject a second "audio\-pacing".
 
 <a name="AudioPacingStage.Process"></a>
-### func \(\*AudioPacingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L171-L175>)
+### func \(\*AudioPacingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L212-L216>)
 
 ```go
 func (s *AudioPacingStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 ```
 
 Process implements the Stage interface. For audio elements, blocks until the chunk's audio\-duration deadline is reached before forwarding. All other elements forward immediately and reset the pacing clock.
+
+<a name="AudioPacingStage.WithFlushOnCut"></a>
+### func \(\*AudioPacingStage\) [WithFlushOnCut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_pacing.go#L137>)
+
+```go
+func (s *AudioPacingStage) WithFlushOnCut() *AudioPacingStage
+```
+
+WithFlushOnCut makes an output\-direction pacer honor barge\-in and guardrail cuts. A realtime model sends a reply's audio faster than it plays, so without it the stage holds the pipeline at playback speed and a cut \(an Interrupt element, or one marked Meta.Interrupted\) waits behind every chunk of the reply sent before it: the caller hears the whole reply and everything upstream \(transcript, events\) stalls with it. With it the stage reads its input as fast as it arrives, forwards a cut at once, and drops the audio of the cut reply that has not been forwarded yet \(an element that carries more than audio, such as a transcript or the reply's end, still goes on without it\). Audio after the cut starts a new sequence. The read\-ahead queue is not bounded: it holds the unplayed audio of the replies in flight. Use it only on output audio: on input it would discard the caller's speech.
 
 <a name="AudioResampleConfig"></a>
 ## type [AudioResampleConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_resample.go#L18-L26>)
