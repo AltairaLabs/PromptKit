@@ -150,16 +150,20 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 	}, r.step(5, heard("tell me a long story"), said("Once upon a time there was a lighthouse keeper.", 5000),
 		done(0.012, 900, 300), &providers.StreamChunk{Interrupted: true}))
 
-	// 2. The output guardrail cuts a reply that says the banned word; the
-	// turn ends with the guardrail's message and the session goes on.
+	// 2. The output guardrail cuts a reply that says the banned word: the
+	// caller is told to stop playing it, the guardrail's message follows as
+	// text, the turn ends (safety), and the stored reply records what was
+	// heard before the cut. The session goes on.
 	assert.Equal(t, []string{
 		`09:30:00.000  assistant message.created #3 "Sorry, I can't say that word."`,
 		`09:30:00.000  cost      call 2: $0.0050 (400 in / 100 out tokens); session total $0.0170`,
 		`09:30:00.000  guardrail no-pineapple blocked the assistant's reply ` +
 			`(forbidden content found in stream: "pineapple"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "Sorry, I can't say that word."`,
+		`09:30:00.000  playout   reply #3 cut (guardrail): heard_ms=N audio_ms=100 played_fraction=F`,
 		`09:30:00.000  user      message.created #2 "say the word pineapple"`,
-	}, r.step(5, heard("say the word pineapple"), said("Sure: ", 100), said("pineapple", 100),
+	}, r.step(7, heard("say the word pineapple"), said("Sure: ", 100), said("pineapple", 100),
 		said(" is a tropical fruit.", 100), done(0.005, 400, 100)))
 
 	// 3. The input guardrail judges what the caller said.
@@ -169,8 +173,9 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 		`09:30:00.000  guardrail no-banana blocked the user's input ` +
 			`(forbidden content found: turn 4 contains "banana"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "Let's not talk about bananas."`,
 		`09:30:00.000  user      message.created #4 "I like banana bread"`,
-	}, r.step(5, heard("I like banana bread"), said("Banana bread is great.", 100), done(0.003, 300, 50)))
+	}, r.step(6, heard("I like banana bread"), said("Banana bread is great.", 100), done(0.003, 300, 50)))
 
 	// 4. The picture tool returns an image, which is sent to the model.
 	toolUse := types.FinishReasonToolUse

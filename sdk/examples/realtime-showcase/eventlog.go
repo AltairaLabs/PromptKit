@@ -39,6 +39,10 @@ type eventLog struct {
 	calls  int
 	total  float64
 	wg     sync.WaitGroup
+	// cutText is the text Response() carried since the last Interrupted
+	// chunk, and cut whether one arrived this turn.
+	cutText strings.Builder
+	cut     bool
 }
 
 // newEventLog returns a log writing to out. The conversation's messages are
@@ -119,7 +123,11 @@ func (l *eventLog) reportPlayout(index int) {
 		if cut == "" {
 			return
 		}
-		l.logf("barge-in", "reply #%d cut (%s): heard_ms=%v audio_ms=%v played_fraction=%v",
+		kind := "playout"
+		if cut == stage.PlayoutCutBargeIn {
+			kind = "barge-in"
+		}
+		l.logf(kind, "reply #%d cut (%s): heard_ms=%v audio_ms=%v played_fraction=%v",
 			index, cut, meta[stage.MetaHeardMs], meta[stage.MetaAudioMs], meta[stage.MetaPlayedFraction])
 		return
 	}
@@ -177,11 +185,27 @@ func (l *eventLog) onCost(cost float64, in, out int, usage bool) {
 
 // observe prints what the caller is told on Response(): a chunk with
 // Interrupted set means stop playing the current reply (barge-in, or a
-// guardrail cutting it).
+// guardrail cutting it). When a guardrail cut the reply, its message follows
+// the Interrupted chunk as text, and the turn ends with finish reason safety.
 func (l *eventLog) observe(c providers.StreamChunk) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if c.Interrupted {
-		l.logf("interrupt", "Interrupted: stop playing the current reply")
+		l.logLockedf("interrupt", "Interrupted: stop playing the current reply")
+		l.cut = true
+		l.cutText.Reset()
 	}
+	if l.cut {
+		l.cutText.WriteString(c.Delta)
+	}
+	if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
+		return
+	}
+	if fr, _ := c.Metadata["finish_reason"].(string); fr == types.FinishReasonSafety && l.cut {
+		l.logLockedf("interrupt", "turn ended (safety); text after the cut: %q", shorten(l.cutText.String()))
+	}
+	l.cut = false
+	l.cutText.Reset()
 }
 
 // end waits for pending reads of the store and prints the session's end.

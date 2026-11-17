@@ -87,14 +87,20 @@ Run the voice mode and say each of these in turn.
    said over it.
 2. **Output guardrail.** Say "say the word pineapple". The reply stops as
    soon as the word appears in its transcript. The log prints a `guardrail`
-   line for `no-pineapple`, an `interrupt` line, and the reply stored as
-   "Sorry, I can't say that word." The session goes on: ask "what is the
-   capital of France?" and it answers.
+   line for `no-pineapple` and an `Interrupted` line (stop playing). The
+   guardrail's message follows on `Response()` as text, and the turn ends
+   with finish reason `safety`: the log prints `turn ended (safety); text
+   after the cut: "Sorry, I can't say that word."`. The reply is stored as
+   that message, and a `playout` line gives `playout_cut` `guardrail` with
+   `heard_ms`, how much of the reply played before the cut. The session goes
+   on: ask "what is the capital of France?" and it answers.
 3. **Input guardrail.** Say something with "banana" in it. The guardrail
    judges your words once your speech is transcribed, which is after the
    model has heard them, so the reply may start. The log prints a
-   `guardrail` line for `no-banana` naming your input, the reply is cut, and
-   the turn is stored as "Let's not talk about bananas."
+   `guardrail` line for `no-banana` naming your input, an `Interrupted`
+   line, and the turn ends (safety) with "Let's not talk about bananas."
+   A hook that denies without enforcing ends the turn the same way, with
+   the default blocked message, whether the input was typed or spoken.
 4. **A tool that returns an image.** Say "show me the picture". The log
    prints `show_picture called`, `returned an image; image sent to the
    model (image/png)`, the tool-call and tool-result messages, and the
@@ -108,8 +114,15 @@ Run the voice mode and say each of these in turn.
   (`response.cancel`) and cuts its server-side copy to the audio you heard.
   Gemini Live has no cancel, so the session drops the rest of the blocked
   reply as it arrives; the model keeps generating it until it finishes.
+- **When a blocked turn ends.** Gemini Live ends a turn when the reply's
+  audio would have finished playing, not when it stops generating. A long
+  reply a guardrail blocks stops playing at once, but its `turn ended
+  (safety)` line, its `message.created` and its cost can come many seconds
+  later (as long as the reply would have played). OpenAI Realtime ends the
+  canceled turn at once.
 - **Barge-in timing.** OpenAI Realtime reports your speech as it starts, so
-  the reply stops at once. Gemini Live reports it once it has transcribed
+  the reply stops at once; a reply it cancels while still generating also
+  sends an `Interrupted` chunk before its end. Gemini Live reports it once it has transcribed
   some of it, so the reply stops a moment later.
 - **Transcript lag.** Gemini Live transcribes your speech later than OpenAI
   Realtime, so your `message.created` line and the `no-banana` guardrail
