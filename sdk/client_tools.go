@@ -608,14 +608,14 @@ func (c *Conversation) validateDeferredResults(
 // call its executor left pending) whose result or failure is being used. A result over the limit is refused: the
 // limit error replaces it, and the model is told the call was not executed.
 // A rejection is never counted. An approval is skipped, because
-// ResolveToolWithArgs admitted it: only sdktools.ResolveApproved sets
-// Arguments.
+// ResolveToolWithArgs admitted it (only sdktools.ResolveApproved sets
+// Arguments), and so is an answer SettleClientTool admitted.
 func (c *Conversation) admitDeferredResults(
 	resolutions []*sdktools.ToolResolution, callNames func() map[string]string,
 ) {
 	limit := c.callRateLimit()
 	for _, res := range resolutions {
-		if res.Rejected || res.Arguments != nil {
+		if res.Rejected || res.Arguments != nil || c.isPrepared(res) {
 			continue
 		}
 		name := callNames()[res.ID]
@@ -813,7 +813,28 @@ func (c *Conversation) checkAwaited(ctx context.Context, callID string) error {
 // the ones that would answer a call twice or answer a call the turn did not
 // make.
 func (c *Conversation) takeSettlement(history []types.Message) []*sdktools.ToolResolution {
-	return unansweredResolutions(history, c.resolvedStore.PopAll())
+	popped := c.resolvedStore.PopAll()
+	kept := unansweredResolutions(history, popped)
+	if len(kept) < len(popped) {
+		c.dropPrepared(popped, kept)
+	}
+	return kept
+}
+
+// dropPrepared forgets the results SettleClientTool prepared for the
+// resolutions in popped that kept does not hold: answers not used.
+func (c *Conversation) dropPrepared(popped, kept []*sdktools.ToolResolution) {
+	used := make(map[*sdktools.ToolResolution]bool, len(kept))
+	for _, res := range kept {
+		used[res] = true
+	}
+	c.settledMu.Lock()
+	defer c.settledMu.Unlock()
+	for _, res := range popped {
+		if !used[res] {
+			delete(c.prepared, res)
+		}
+	}
 }
 
 // settlementHistory reads the conversation's history once for a batch of

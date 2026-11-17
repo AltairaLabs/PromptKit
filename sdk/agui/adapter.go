@@ -55,6 +55,15 @@ type clientToolFailer interface {
 	FailClientTool(ctx context.Context, callID string, partial any, err error) error
 }
 
+// clientToolSettler is implemented by conversations that prepare an answer's
+// tool result when it is given, rewritten as the model will see it
+// (*sdk.Conversation does).
+type clientToolSettler interface {
+	HasToolResultRewriters() bool
+	SettleClientTool(ctx context.Context, callID string, result any, failure error) (
+		prepared types.MessageToolResult, answered bool, err error)
+}
+
 // workflowStateReader is implemented by conversations that run a workflow
 // state machine (*sdk.WorkflowConversation does).
 type workflowStateReader interface {
@@ -148,7 +157,10 @@ func WithWorkflowSteps(enabled bool) AdapterOption {
 // the adapter resolves them, emits a TOOL_CALL_RESULT for each, and resumes
 // the turn. Calls it leaves unanswered stay pending: the run finishes with
 // them unanswered, as AG-UI requires for a frontend tool, and the application
-// answers them in the next run (see [EventAdapter.RunResume]).
+// answers them in the next run (see [EventAdapter.RunResume]). The answers it
+// gave are reported before the run finishes; when the conversation has a
+// ToolResultRewriter, each is reported as the model will be given it,
+// rewritten (sdk.Conversation.SettleClientTool).
 //
 // Use it only for tools the server itself can answer. A frontend tool, one the
 // application advertised in RunAgentInput.tools, must not be answered by the
@@ -630,14 +642,11 @@ func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Resp
 	if err != nil {
 		return nil, err
 	}
+	if !answersAll(pending, results) {
+		return nil, st.reportAnswers(results)
+	}
 	if resolveErr := a.resolveClientTools(st.ctx, results); resolveErr != nil {
 		return nil, resolveErr
-	}
-	if !answersAll(pending, results) {
-		for i := range results {
-			st.emitResult(results[i].CallID, resultText(&results[i]))
-		}
-		return nil, nil
 	}
 	resp, err := a.sender.Resume(st.ctx)
 	if err != nil {
@@ -653,6 +662,46 @@ func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Resp
 		st.emitResult(results[i].CallID, content)
 	}
 	return resp, nil
+}
+
+// reportAnswers resolves answers that leave calls pending and emits a
+// TOOL_CALL_RESULT for each, before the turn resumes. With a
+// ToolResultRewriter on the conversation, each answer is settled now, as the
+// model will be given it (sdk.Conversation.SettleClientTool), and that is
+// what is reported: rewritten once, never for a second answer to a call or
+// one the call-rate limit refuses. Otherwise the answer is reported as given.
+func (st *runState) reportAnswers(results []ToolResult) error {
+	a := st.a
+	settler, ok := a.sender.(clientToolSettler)
+	if !ok || !settler.HasToolResultRewriters() {
+		if err := a.resolveClientTools(st.ctx, results); err != nil {
+			return err
+		}
+		for i := range results {
+			st.emitResult(results[i].CallID, resultText(&results[i]))
+		}
+		return nil
+	}
+	for i := range results {
+		r := &results[i]
+		if r.Rejected {
+			a.sender.RejectClientTool(st.ctx, r.CallID, r.Reason)
+			st.emitResult(r.CallID, resultText(r))
+			continue
+		}
+		var failure error
+		if r.Error != "" {
+			failure = errors.New(r.Error)
+		}
+		prepared, answered, err := settler.SettleClientTool(st.ctx, r.CallID, r.Result, failure)
+		if err != nil {
+			return err
+		}
+		if answered {
+			st.emitResult(r.CallID, toolResultText(&prepared))
+		}
+	}
+	return nil
 }
 
 func answersAll(pending []sdk.PendingClientTool, results []ToolResult) bool {

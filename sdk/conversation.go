@@ -202,6 +202,12 @@ type Conversation struct {
 	// model, by call ID (recordAdmittedRaw).
 	settledMu sync.Mutex
 	admitted  map[string]admittedCall
+	// prepared holds the results SettleClientTool prepared, by resolution,
+	// which Resume and Continue give the model as they are.
+	prepared map[*sdktools.ToolResolution]types.MessageToolResult
+	// settleMu makes SettleClientTool's check for an earlier answer and its
+	// record of the new one one step.
+	settleMu sync.Mutex
 
 	// Session hook dispatcher for lifecycle events (start, update, end)
 	sessionHooks *sessionHookDispatcher

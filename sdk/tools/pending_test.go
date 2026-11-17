@@ -328,3 +328,15 @@ func TestToolResolution_PartsField(t *testing.T) {
 	assert.Equal(t, "text", res.Parts[0].Type)
 	assert.Equal(t, "image/png", res.Parts[1].Media.MIMEType)
 }
+
+// Has reports whether a resolution for a call is stored, until PopAll takes
+// it.
+func TestResolvedStore_Has(t *testing.T) {
+	s := NewResolvedStore()
+	assert.False(t, s.Has("c1"))
+	s.Add(&ToolResolution{ID: "c1"})
+	assert.True(t, s.Has("c1"))
+	assert.False(t, s.Has("c2"))
+	s.PopAll()
+	assert.False(t, s.Has("c1"))
+}
