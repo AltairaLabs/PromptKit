@@ -422,7 +422,9 @@ func (s *ProviderStage) runner() *toolRunner {
 		stateResolver: s.stateResolver,
 		offers:        s.offerState(),
 	}
-	r.availability = func(names []string) map[string]string { return s.roundRefusals(r, names) }
+	r.availability = func(called []*tools.ToolDescriptor, _ map[string]bool) roundRefusals {
+		return s.roundRefusals(r, called)
+	}
 	return r
 }
 
@@ -437,32 +439,30 @@ func (s *ProviderStage) toolCallingProvider() (providers.ToolSupport, bool) {
 	return toolProvider, ok
 }
 
-// roundRefusals refuses each of names the model may not call this round:
+// roundRefusals refuses each called tool the model may not call this round:
 // those outside the offer the turn's allowed tools build (before a
 // ToolSelector narrows the request, without the turn's exclusions). A
 // provider that is never sent tools refuses nothing; one that is refuses
 // every tool outside the offer, all of them under tool_choice none.
-func (s *ProviderStage) roundRefusals(r *toolRunner, names []string) map[string]string {
+func (s *ProviderStage) roundRefusals(r *toolRunner, called []*tools.ToolDescriptor) roundRefusals {
 	if _, ok := s.toolCallingProvider(); !ok {
 		return nil
 	}
-	offered := r.offeredAmong(r.offers.allowedTools(), names)
-	refused := make(map[string]string)
-	for _, name := range names {
-		if !offered[name] {
-			refused[name] = notAvailableRefusal(name)
-		}
-	}
-	return refused
+	offered := r.offeredAmong(r.offers.allowedTools(), called)
+	return refuseAmong(called, func(name string) (string, bool) {
+		return notAvailableRefusal(name), !offered[name]
+	})
 }
 
-// executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls).
+// executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls),
+// refusing those the round would (classifyRound).
 //
 //nolint:unused // tests call it on the stage
 func (s *ProviderStage) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
 ) ([]types.Message, error) {
-	return s.runner().executeToolCalls(ctx, toolCalls, rr, nil)
+	r := s.runner()
+	return r.executeToolCalls(ctx, toolCalls, rr, r.classifyRound(toolCalls, nil))
 }
 
 // updateExcludedTools records a round's rejections (see
@@ -1203,7 +1203,7 @@ func (s *ProviderStage) applyStateHandoff(
 	// what the model is offered and what it may call change together.
 	var offered *describedTools
 	if handoff.SystemPrompt == acc.systemPrompt && !providerChanged &&
-		stringSlicesEqual(handoff.AllowedTools, acc.promptTools()) {
+		sameStringSet(handoff.AllowedTools, acc.promptTools()) {
 		var describedChanged bool
 		if describedChanged, offered = s.describedToolsChanged(handoff.AllowedTools, loop.excluded); !describedChanged {
 			return false, nil
@@ -3259,6 +3259,23 @@ func stringSlicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// sameStringSet reports whether two string slices name the same set of
+// strings, whatever their order and repeats; nil and empty are the same.
+func sameStringSet(a, b []string) bool {
+	inA := make(map[string]bool, len(a))
+	for _, s := range a {
+		inA[s] = true
+	}
+	inB := make(map[string]bool, len(b))
+	for _, s := range b {
+		if !inA[s] {
+			return false
+		}
+		inB[s] = true
+	}
+	return len(inA) == len(inB)
 }
 
 // offerableDescriptors returns the tools a tools build would offer

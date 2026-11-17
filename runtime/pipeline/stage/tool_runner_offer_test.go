@@ -201,21 +201,33 @@ func TestToolTurn_RunRound_GrantsReorderedIsNoChange(t *testing.T) {
 
 // offeredAmong resolves exactly the names the offer would hold: allowed,
 // wildcard-matched, granted and capability tools, less what DescribeTool
-// withholds; a tool neither selected nor kept is not offered.
+// withholds; a tool neither selected nor kept is not offered, and nor is the
+// registry name of a tool DescribeTool renames.
 func TestToolRunner_OfferedAmongMatchesTheOffer(t *testing.T) {
-	names := []string{"refund", "get_order", "skill__activate", "unlisted", "mcp__kb__search", "mcp__fs__read", "hidden"}
+	names := []string{
+		"refund", "get_order", "skill__activate", "unlisted", "mcp__kb__search", "mcp__fs__read", "hidden", "renamed",
+	}
 	r := offerRunner(t, nil, toolRunnerConfig{
 		ToolGrants: func() []string { return []string{"get_order"} },
 		DescribeTool: func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
-			if d.Name == "hidden" {
+			switch d.Name {
+			case "hidden":
 				return nil
+			case "renamed":
+				v2 := *d
+				v2.Name = "renamed_v2"
+				return &v2
 			}
 			return d
 		},
 	}, names...)
-	allowed := []string{"refund", "hidden", "mcp__kb__*"}
+	allowed := []string{"refund", "hidden", "renamed", "mcp__kb__*"}
+	called := make([]*tools.ToolDescriptor, 0, len(names))
+	for _, n := range names {
+		called = append(called, r.registry.Get(n))
+	}
 
-	got := r.offeredAmong(allowed, names)
+	got := r.offeredAmong(allowed, called)
 
 	want := map[string]bool{}
 	for _, n := range offerNames(r.offer(allowed, nil)) {
@@ -224,6 +236,10 @@ func TestToolRunner_OfferedAmongMatchesTheOffer(t *testing.T) {
 	for _, n := range names {
 		assert.Equal(t, want[n], got[n], "tool %s", n)
 	}
-	assert.Equal(t, []string{"get_order", "mcp__kb__search", "refund", "skill__activate"},
+	assert.Equal(t, []string{"get_order", "mcp__kb__search", "refund", "renamed_v2", "skill__activate"},
 		offerNames(r.offer(allowed, nil)))
+	assert.Equal(t, map[string]bool{
+		"refund": true, "get_order": true, "skill__activate": true, "mcp__kb__search": true,
+		"hidden": false, "renamed": false,
+	}, got)
 }

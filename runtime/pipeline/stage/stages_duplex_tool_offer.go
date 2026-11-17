@@ -31,8 +31,10 @@ import (
 // turn after repeated rejections is not withdrawn: a call to it still runs.
 // A call to a registered tool the conversation does not offer at all (never
 // granted, or a grant revoked since the session was last updated) is refused
-// too. Every such refusal is the tool runner's, after the blocklist and the
-// tool hooks, as on a text turn (roundAvailability).
+// too. Each round decides these from the offer and the session's tools as
+// they are when it begins (DuplexProviderStage.roundRefusals). Every such
+// refusal is the tool runner's, after the blocklist and the tool hooks, as on
+// a text turn.
 //
 // A spent max_tool_calls_per_turn budget does not change the offer: calls
 // over it are refused (overBudgetResults), and a session stripped of its
@@ -51,14 +53,10 @@ type sessionOffer struct {
 	// held are the tools the session holds, heldKey their fingerprint.
 	held    []providers.StreamingToolDefinition
 	heldKey string
-	// unsynced names the tools the conversation offers that the session does
-	// not hold, withdrawn the tools the session holds that the conversation no
-	// longer offers: a call to either is refused.
-	unsynced  map[string]bool
-	withdrawn map[string]bool
 	// updateFailed is set once a tool update of a session that can change its
-	// tools failed: only then can such a session lack an offered tool.
-	updateFailed bool
+	// tools failed: from then on it keeps the tools it holds. Readable
+	// without mu.
+	updateFailed atomic.Bool
 	// names are held's names, sorted, readable without mu.
 	names atomic.Pointer[[]string]
 }
@@ -80,26 +78,31 @@ func (o *sessionOffer) heldNames() []string {
 	return nil
 }
 
-// unsyncedRefusalLocked reports whether a call to name is refused because
-// the session's tools differ from the conversation's offer, and the refusal:
-// the conversation offers it but the session does not hold it, or the
-// session holds it but the conversation has withdrawn it. Called with mu
-// held.
-func (o *sessionOffer) unsyncedRefusalLocked(name string) (string, bool) {
-	var what, cannot string
-	switch {
-	case o.unsynced[name]:
-		what, cannot = "became available", "the provider cannot add tools to a live session"
-	case o.withdrawn[name]:
-		what, cannot = "was withdrawn", "the provider cannot remove tools from a live session"
-	default:
-		return "", false
+// heldSet returns the names of the tools the session holds, as a set.
+func (o *sessionOffer) heldSet() map[string]bool {
+	names := o.heldNames()
+	set := make(map[string]bool, len(names))
+	for _, name := range names {
+		set[name] = true
 	}
-	if o.updateFailed {
+	return set
+}
+
+// sessionSyncRefusal is the refusal of a call to name on a session that
+// cannot change its tools, or whose update failed, where they differ from
+// the conversation's offer: with wanted, the conversation offers it but the
+// session does not hold it; without, the session holds it but the
+// conversation has withdrawn it.
+func (o *sessionOffer) sessionSyncRefusal(name string, wanted bool) string {
+	what, cannot := "was withdrawn", "the provider cannot remove tools from a live session"
+	if wanted {
+		what, cannot = "became available", "the provider cannot add tools to a live session"
+	}
+	if o.updateFailed.Load() {
 		cannot = "the session's tools could not be updated"
 	}
 	return fmt.Sprintf("Tool %s was not run: it %s after this realtime session started, and %s",
-		name, what, cannot), true
+		name, what, cannot)
 }
 
 // sessionToolChoice is the session's tool_choice: the host's
@@ -232,15 +235,6 @@ func (s *DuplexProviderStage) syncSessionTools(
 	if key := sessionToolsKey(want); key != o.heldKey {
 		s.updateSessionToolsLocked(ctx, want, key)
 	}
-	o.unsynced = missingTools(want, o.held)
-	// A tool excluded for this turn only (repeated rejections) is not
-	// withdrawn: a call to it runs, as on a text turn. Only what the
-	// conversation no longer offers at all (a revoked grant) is.
-	conversation := want
-	if len(excluded) > 0 {
-		conversation = s.wantedSessionTools(nil)
-	}
-	o.withdrawn = missingTools(o.held, conversation)
 	if record {
 		dt.recordOffered(turn, o.heldNames())
 	}
@@ -262,29 +256,10 @@ func (s *DuplexProviderStage) updateSessionToolsLocked(
 	if err := updater.UpdateTools(ctx, want); err != nil {
 		logger.Warn("duplex provider stage: updating the session's tools failed; keeping its offer",
 			"error", err)
-		o.updateFailed = true
+		o.updateFailed.Store(true)
 		return
 	}
 	o.setHeldLocked(want, key)
-}
-
-// missingTools names the tools in want that held lacks, or nil.
-func missingTools(want, held []providers.StreamingToolDefinition) map[string]bool {
-	have := make(map[string]bool, len(held))
-	for i := range held {
-		have[held[i].Name] = true
-	}
-	var missing map[string]bool
-	for i := range want {
-		if have[want[i].Name] {
-			continue
-		}
-		if missing == nil {
-			missing = map[string]bool{}
-		}
-		missing[want[i].Name] = true
-	}
-	return missing
 }
 
 // isCurrent reports whether turn is the current tool turn.

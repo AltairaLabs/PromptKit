@@ -218,41 +218,67 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 		},
 		stateResolver: dt.resolver,
 	}
-	r.availability = func(names []string) map[string]string { return s.roundRefusals(r, names) }
+	r.availability = func(called []*tools.ToolDescriptor, excluded map[string]bool) roundRefusals {
+		return s.roundRefusals(r, called, excluded)
+	}
 	return r
 }
 
-// roundRefusals refuses each of names the model may not call this round on
-// the session: a tool the session lacks or the conversation has withdrawn
-// (sessionOffer.unsyncedRefusalLocked), or one outside what the session is
-// offered (the tools a text turn would offer, without the turn's
-// exclusions, and the host's StreamingInputConfig.Tools; none under a
-// tool_choice of none). The stage runs tools for the session, so this
-// applies even when the offer is empty. It is decided under the offer's
-// lock, so it matches one state of the session's tools.
-func (s *DuplexProviderStage) roundRefusals(r *toolRunner, names []string) map[string]string {
+// roundRefusals refuses each called tool the model may not call this round
+// on the session. What the conversation offers the session (wanted: the
+// tools a text turn would offer, without the turn's exclusions, and the
+// host's StreamingInputConfig.Tools; none under a tool_choice of none) and
+// what the session holds are both taken now, so a grant or a revocation
+// since the session's tools were last brought in line is judged as it stands
+// when the round begins.
+//
+// A wanted tool runs when the session holds it, or when the turn excluded
+// it and the session dropped it for that (an exclusion is not a
+// withdrawal; a tool the session never held is refused, and a refusal never
+// excludes a tool, so an excluded tool is one the session held). On a
+// session that cannot change its tools, or whose update failed, a wanted
+// tool it lacks is refused as having become available and a held tool not
+// wanted as withdrawn (sessionSyncRefusal). Any other is not available. The
+// stage runs tools for the session, so this applies even when the offer is
+// empty.
+//
+// No lock is taken: the session's tools are read from their snapshot, so a
+// sync holding the offer's lock across the provider's UpdateTools does not
+// hold up the round, and the host's ToolGrants and DescribeTool run under no
+// lock of the stage's.
+func (s *DuplexProviderStage) roundRefusals(
+	r *toolRunner, called []*tools.ToolDescriptor, excluded map[string]bool,
+) roundRefusals {
+	wanted := s.sessionOffers(r, called)
 	o := &s.tools.offer
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	offered := s.sessionOffers(r, names)
-	refused := make(map[string]string)
-	for _, name := range names {
-		if errMsg, no := o.unsyncedRefusalLocked(name); no {
-			refused[name] = errMsg
-		} else if !offered[name] {
-			refused[name] = notAvailableRefusal(name)
+	held := o.heldSet()
+	fixed := !s.sessionCanUpdateTools() || o.updateFailed.Load()
+	return refuseAmong(called, func(name string) (string, bool) {
+		switch {
+		case wanted[name] && (held[name] || excluded[name]):
+			return "", false
+		case fixed && wanted[name] != held[name]:
+			return o.sessionSyncRefusal(name, wanted[name]), true
+		default:
+			return notAvailableRefusal(name), true
 		}
-	}
-	return refused
+	})
 }
 
-// sessionOffers reports which of names wantedSessionTools(nil) would offer
-// the session, resolving names alone.
-func (s *DuplexProviderStage) sessionOffers(r *toolRunner, names []string) map[string]bool {
+// sessionCanUpdateTools reports whether the session can change its tools
+// (providers.StreamToolUpdater).
+func (s *DuplexProviderStage) sessionCanUpdateTools() bool {
+	_, ok := s.session.(providers.StreamToolUpdater)
+	return ok
+}
+
+// sessionOffers reports which of called wantedSessionTools(nil) would offer
+// the session, resolving called alone.
+func (s *DuplexProviderStage) sessionOffers(r *toolRunner, called []*tools.ToolDescriptor) map[string]bool {
 	if s.sessionToolChoice() == toolChoiceNone {
 		return nil
 	}
-	offered := r.offeredAmong(s.allowedTools(), names)
+	offered := r.offeredAmong(s.allowedTools(), called)
 	if r.toolsDisabled() || s.baseConfig == nil {
 		return offered
 	}

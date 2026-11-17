@@ -644,9 +644,11 @@ func TestDuplexToolOffer_FailedUpdateRefusesTheGrantedTool(t *testing.T) {
 }
 
 // A model that keeps calling a tool granted after setup, on a session that
-// cannot be given it, is refused as for any refused call: the repeated-call
-// breaker nudges it, then stops the tool turn, and the stopped turn's
-// refusals close the session after two more batches.
+// cannot be given it, is refused as for any refused call: each call gets its
+// refusal (the repeated-call breaker's nudge would say a result that never
+// existed will not change), the breaker still counts them and stops the tool
+// turn, and the stopped turn's refusals close the session after two more
+// batches.
 func TestDuplexToolOffer_RepeatedCallsToAToolTheSessionLacksCloseTheSession(t *testing.T) {
 	exec := &grantingExec{grant: []string{"refund"}}
 	reg := registryWithTools(t, "weather", "activate", "refund")
@@ -674,18 +676,15 @@ func TestDuplexToolOffer_RepeatedCallsToAToolTheSessionLacksCloseTheSession(t *t
 	const loop = "provider stage: tool loop persisted after a self-correction nudge: " +
 		`"refund" called with identical arguments`
 	const stopped = "Tool refund not executed: the turn's tool calls were stopped: " + loop
-	nudge := []providers.ToolResponse{{ToolCallID: "c4", Result: `Repeated call ignored: "refund" has been ` +
-		"called 3 times with identical arguments and was NOT executed again — the result will not change. " +
-		"Stop repeating this exact call: change the arguments, use a different tool, or finish the task."}}
 	assert.Equal(t, [][]providers.ToolResponse{
 		{{ToolCallID: "c1", Result: "ok"}},
 		refused("c2", unsynced),
 		refused("c3", unsynced),
-		nudge,
+		refused("c4", unsynced),
 		refused("c5", stopped),
 		refused("c6", stopped),
 		refused("c7", stopped),
-	}, h.sess().sentResponses(), "refusals, the nudge, the stop, two stopped-turn batches, then nothing")
+	}, h.sess().sentResponses(), "refusals, the stop, two stopped-turn batches, then nothing")
 	assert.True(t, h.sess().isClosed())
 	errs := streamErrors(elems)
 	require.Len(t, errs, 2)
@@ -810,28 +809,122 @@ func TestDuplexToolOffer_WithdrawnToolTheSessionStillHoldsIsRefused(t *testing.T
 }
 
 // A tool excluded for this tool turn after repeated failures is not
-// withdrawn from the conversation: on a session that cannot drop it, a
-// further call runs as it would on a text turn, and is not refused as
-// withdrawn.
+// withdrawn from the conversation: on a session that cannot drop it, and on
+// one that dropped it for the exclusion, a further call runs as it would on
+// a text turn, and is not refused.
 func TestDuplexToolOffer_TurnExclusionIsNotAWithdrawal(t *testing.T) {
-	call := func(id string) types.MessageToolCall {
-		return types.MessageToolCall{ID: id, Name: "flaky", Args: json.RawMessage(`{"n":"` + id + `"}`)}
+	for name, updatable := range map[string]bool{"no updater": false, "updater": true} {
+		t.Run(name, func(t *testing.T) {
+			call := func(id string) types.MessageToolCall {
+				return types.MessageToolCall{ID: id, Name: "flaky", Args: json.RawMessage(`{"n":"` + id + `"}`)}
+			}
+			reg := registryWithTools(t, "flaky")
+			reg.RegisterExecutor(failingExec{})
+			h := startRealtime(t, realtimeOpts{
+				registry:  reg,
+				turnState: &TurnState{AllowedTools: []string{"flaky"}},
+				script:    [][]providers.StreamChunk{toolCallTurn(call("c3"))},
+				updatable: updatable,
+			})
+
+			h.emit(toolCallTurn(call("c1"), call("c2")))
+			sent := h.awaitSent(2)
+			h.finish()
+
+			if updatable {
+				updates, _ := h.sess().toolUpdates()
+				require.NotEmpty(t, updates)
+				assert.Empty(t, updates[0], "the session dropped the excluded tool")
+			}
+			require.Len(t, sent[1], 1)
+			assert.Equal(t, "c3", sent[1][0].ToolCallID)
+			assert.True(t, sent[1][0].IsError)
+			assert.Contains(t, sent[1][0].Result, "backend down", "the call ran")
+			assert.NotContains(t, sent[1][0].Result, "not run")
+		})
 	}
-	reg := registryWithTools(t, "flaky")
-	reg.RegisterExecutor(failingExec{})
+}
+
+// grantNow replaces the live grants, as a host granting a tool between
+// rounds does.
+func (e *grantingExec) grantNow(names ...string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.granted = append([]string(nil), names...)
+}
+
+// A grant or a revocation made after the session's tools were last brought
+// in line, and before a round, is judged against what the session holds when
+// the round begins: on a session that cannot change its tools, a newly
+// granted tool it lacks is refused as having become available, and a revoked
+// tool it still holds as withdrawn. Neither runs.
+func TestDuplexToolOffer_GrantChangeSinceTheLastSyncIsJudgedAtTheRound(t *testing.T) {
+	for name, tc := range map[string]struct {
+		before, after []string
+		refusal       string
+	}{
+		"granted": {after: []string{"refund"}, refusal: "Tool refund was not run: it became available after this " +
+			"realtime session started, and the provider cannot add tools to a live session"},
+		"revoked": {before: []string{"refund"}, refusal: "Tool refund was not run: it was withdrawn after this " +
+			"realtime session started, and the provider cannot remove tools from a live session"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			exec := &grantingExec{granted: tc.before}
+			reg := registryWithTools(t, "weather", "refund")
+			reg.RegisterExecutor(exec)
+			h := startRealtime(t, realtimeOpts{
+				registry:  reg,
+				cfg:       DuplexToolConfig{ToolGrants: exec.grants},
+				turnState: &TurnState{AllowedTools: []string{"weather"}},
+			})
+
+			h.emit(toolCallTurn(namedCall("c1", "weather")))
+			h.awaitSent(1)
+			exec.grantNow(tc.after...)
+			h.emit(toolCallTurn(namedCall("c2", "refund"), weatherCall("c3")))
+			sent := h.awaitSent(2)
+			h.finish()
+
+			assert.Equal(t, []providers.ToolResponse{
+				{ToolCallID: "c2", Result: tc.refusal, IsError: true},
+				{ToolCallID: "c3", Result: "ok"},
+			}, sent[1])
+			assert.Equal(t, []string{"weather", "weather"}, exec.calls(), "refund never runs")
+		})
+	}
+}
+
+// Deciding a round's refusals takes no lock the session's tool sync holds
+// (across the provider's UpdateTools): a sync in progress does not hold up
+// a round, and no host code (ToolGrants, DescribeTool) runs under that lock.
+func TestDuplexToolOffer_RoundRefusalsDoNotWaitOnTheSessionSync(t *testing.T) {
+	exec := &grantingExec{}
+	reg := registryWithTools(t, "weather", "refund")
+	reg.RegisterExecutor(exec)
 	h := startRealtime(t, realtimeOpts{
 		registry:  reg,
-		turnState: &TurnState{AllowedTools: []string{"flaky"}},
-		script:    [][]providers.StreamChunk{toolCallTurn(call("c3"))},
+		cfg:       DuplexToolConfig{ToolGrants: exec.grants},
+		turnState: &TurnState{AllowedTools: []string{"weather"}},
 	})
+	t.Cleanup(func() { h.finish() })
+	// One round first: the stage has set up its session by the time it answers.
+	h.emit(toolCallTurn(namedCall("c0", "weather")))
+	h.awaitSent(1)
 
-	h.emit(toolCallTurn(call("c1"), call("c2")))
-	sent := h.awaitSent(2)
-	h.finish()
+	o := &h.stage.tools.offer
+	o.mu.Lock()
+	decided := make(chan roundRefusals, 1)
+	go func() {
+		decided <- h.stage.toolRunner().classifyRound([]types.MessageToolCall{
+			namedCall("c1", "refund"), namedCall("c2", "weather"),
+		}, nil)
+	}()
+	var got roundRefusals
+	select {
+	case got = <-decided:
+	case <-time.After(2 * time.Second):
+	}
+	o.mu.Unlock()
 
-	require.Len(t, sent[1], 1)
-	assert.Equal(t, "c3", sent[1][0].ToolCallID)
-	assert.True(t, sent[1][0].IsError)
-	assert.Contains(t, sent[1][0].Result, "backend down", "the call ran")
-	assert.NotContains(t, sent[1][0].Result, "withdrawn")
+	assert.Equal(t, roundRefusals{"refund": "Tool refund was not run: it is not available this turn"}, got)
 }

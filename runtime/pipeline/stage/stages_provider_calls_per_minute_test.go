@@ -171,6 +171,7 @@ func (deferringExecutor) ExecuteAsync(
 // the host uses its result.
 func TestProviderStage_MaxCallsPerMinuteDoesNotCountDeferredCalls(t *testing.T) {
 	stage := stageWithPromptPolicy(t, &pipeline.ToolPolicy{MaxCallsPerMinute: 2}, nil)
+	stage.offerState().setAllowed([]string{"read_kit"})
 	stage.callRate.counts.now = newFakeClock().now
 	stage.turnState.ConversationID = "conv-a"
 	stage.toolRegistry.RegisterExecutor(deferringExecutor{})
@@ -195,6 +196,7 @@ func TestProviderStage_MaxCallsPerMinuteDoesNotCountDeferredCalls(t *testing.T) 
 // same round.
 func TestProviderStage_MaxCallsPerMinuteDoesNotCountCallsThatNeverRun(t *testing.T) {
 	stage := stageWithPromptPolicy(t, &pipeline.ToolPolicy{MaxCallsPerMinute: 1}, nil)
+	stage.offerState().setAllowed([]string{"read_kit"})
 	stage.callRate.counts.now = newFakeClock().now
 	stage.turnState.ConversationID = "conv-a"
 	require.NoError(t, stage.toolRegistry.Register(&tools.ToolDescriptor{
@@ -232,6 +234,7 @@ func TestProviderStage_MaxCallsPerMinuteDoesNotCountRegistryLimitRefusals(t *tes
 	ts.AllowedTools = []string{"read_kit"}
 	stage := NewProviderStageWithTurnState(mock.NewToolProvider("test", "model", false, nil), registry,
 		&pipeline.ToolPolicy{MaxCallsPerMinute: 5}, &ProviderConfig{}, nil, nil, ts)
+	stage.offerState().setAllowed(ts.AllowedTools)
 	stage.callRate.counts.now = newFakeClock().now
 
 	results, err := stage.executeToolCalls(context.Background(), kitCalls("r", 3), roundRef{round: 1})
@@ -270,6 +273,7 @@ func TestCompositionExecutor_StepCallsCountUnderTheConversation(t *testing.T) {
 	outerTS.ConversationID = "conv-a"
 	outer := NewProviderStageWithTurnState(mock.NewToolProvider("p", "m", false, nil), outerReg, policy,
 		&ProviderConfig{CallRate: window}, nil, nil, outerTS)
+	outer.offerState().setAllowed([]string{"echo"})
 	results, err := outer.executeToolCalls(context.Background(),
 		[]types.MessageToolCall{{ID: "o1", Name: "echo", Args: json.RawMessage(`{}`)}}, roundRef{round: 1})
 	require.NoError(t, err)

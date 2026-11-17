@@ -48,10 +48,11 @@ type toolRunner struct {
 	// offers is the offer state of the stage that built the runner: it
 	// outlives the runner, which is rebuilt on each use.
 	offers *toolOffer
-	// availability returns, for a round's called tool names, the refusal of
-	// each the model may not call (see roundRefusals). Nil refuses nothing:
-	// the provider is never sent tools.
-	availability func(names []string) map[string]string
+	// availability decides, for the registered tools a round calls, the
+	// refusal of each the model may not call (see roundRefusals), given the
+	// turn's exclusions. Nil refuses nothing: the provider is never sent
+	// tools.
+	availability func(called []*tools.ToolDescriptor, excluded map[string]bool) roundRefusals
 }
 
 // notAvailableRefusal is the refusal of a call to a registered tool the
@@ -74,24 +75,40 @@ func (rf roundRefusals) refusal(name string) (string, bool) {
 }
 
 // classifyRound decides which of a round's calls the model may not call: the
-// registered names among them that availability refuses. A name the
-// registry lacks is not decided here: it keeps its not-found error.
-func (r *toolRunner) classifyRound(calls []types.MessageToolCall) roundRefusals {
+// registered tools among them that availability refuses, each resolved once,
+// given the turn's exclusions. A name the registry lacks is not decided
+// here: it keeps its not-found error.
+func (r *toolRunner) classifyRound(calls []types.MessageToolCall, excluded map[string]bool) roundRefusals {
 	if r.availability == nil || r.registry == nil {
 		return nil
 	}
 	seen := make(map[string]bool, len(calls))
-	names := make([]string, 0, len(calls))
+	called := make([]*tools.ToolDescriptor, 0, len(calls))
 	for _, tc := range calls {
-		if !seen[tc.Name] && r.registry.Get(tc.Name) != nil {
-			seen[tc.Name] = true
-			names = append(names, tc.Name)
+		if seen[tc.Name] {
+			continue
+		}
+		seen[tc.Name] = true
+		if tool := r.registry.Get(tc.Name); tool != nil {
+			called = append(called, tool)
 		}
 	}
-	if len(names) == 0 {
+	if len(called) == 0 {
 		return nil
 	}
-	return r.availability(names)
+	return r.availability(called, excluded)
+}
+
+// refuseAmong is the round's refusals of called: refuse's answer for each
+// tool's name, where it refuses one.
+func refuseAmong(called []*tools.ToolDescriptor, refuse func(name string) (string, bool)) roundRefusals {
+	refused := make(roundRefusals)
+	for _, tool := range called {
+		if errMsg, no := refuse(tool.Name); no {
+			refused[tool.Name] = errMsg
+		}
+	}
+	return refused
 }
 
 // availableCalls returns calls less those refused refuses.
@@ -941,7 +958,7 @@ func (t *toolTurn) runRound(
 	// self-correct — loops are often transient confusion (e.g. a model retrying
 	// a failing call verbatim). If it loops AGAIN after the nudge, abort.
 	// What the model may call is decided once, before any call runs.
-	refused := t.r.classifyRound(calls)
+	refused := t.r.classifyRound(calls, t.excluded)
 	if looping := t.identicalLoopCalls(calls); len(looping) > 0 {
 		return t.identicalLoopOutcome(ctx, calls, looping, rr, refused)
 	}
@@ -1039,6 +1056,8 @@ func (t *toolTurn) identicalLoopCalls(toolCalls []types.MessageToolCall) []types
 // loop was detected: the looping calls get a synthetic "you repeated this — stop"
 // result (NOT executed, since the result wouldn't change), while any non-looping
 // calls in the same round execute normally so every tool_use still has a result.
+// A looping call the round refuses never ran, so it is answered as the round
+// answers it (its refusal), not told its result would not change.
 func (t *toolTurn) loopFeedbackResults(
 	ctx context.Context, all, looping []types.MessageToolCall, rr roundRef, refused roundRefusals,
 ) []types.Message {
@@ -1051,7 +1070,7 @@ func (t *toolTurn) loopFeedbackResults(
 	var toExecute []types.MessageToolCall
 	for i := range all {
 		tc := all[i]
-		if !loopSet[tc.ID] {
+		if _, no := refused.refusal(tc.Name); no || !loopSet[tc.ID] {
 			toExecute = append(toExecute, tc)
 			continue
 		}
@@ -1138,7 +1157,8 @@ type toolOffer struct {
 	// tools array: what the model may call is the offer built from them.
 	allowed []string
 	// view is what DescribeTool last made of each tool it described: true
-	// kept, false withheld (descriptorCollector.view).
+	// offered under its own name, false withheld or renamed
+	// (descriptorCollector.view).
 	view map[string]bool
 }
 
@@ -1187,31 +1207,40 @@ func (r *toolRunner) offer(allowed []string, excluded map[string]bool) []*tools.
 	return r.collectDescriptors(r.withGrantedTools(allowed), excluded)
 }
 
-// offeredAmong reports which of names offer(allowed, nil) would offer:
-// those an allowed_tools entry or a grant selects (offerSelects) that
-// DescribeTool keeps, without the turn's exclusions. Only names is resolved:
-// a tool DescribeTool already described in this turn's offers is taken as it
+// offeredAmong reports which of the registered tools called offer(allowed,
+// nil) would offer the model under their own names: those an allowed_tools
+// entry or a grant selects (offerSelects) that DescribeTool keeps without
+// renaming, without the turn's exclusions. A tool DescribeTool renames is
+// offered under the new name only, so a call to its registry name is not to
+// a tool the model was offered. Only called is described: a tool
+// DescribeTool already described in this turn's offers is taken as it
 // described it then, and only one it never did is described now. None while
 // tool calling is off for the turn (tool_choice: none).
-func (r *toolRunner) offeredAmong(allowed, names []string) map[string]bool {
-	offered := make(map[string]bool, len(names))
+func (r *toolRunner) offeredAmong(allowed []string, called []*tools.ToolDescriptor) map[string]bool {
+	offered := make(map[string]bool, len(called))
 	if r.registry == nil || r.toolsDisabled() {
 		return offered
 	}
 	entries := r.withGrantedTools(allowed)
 	view := r.offers.lastView()
-	for _, name := range names {
-		tool := r.registry.Get(name)
-		if tool == nil || !offerSelects(entries, name) {
+	for _, tool := range called {
+		if !offerSelects(entries, tool.Name) {
 			continue
 		}
-		kept, described := view[name]
+		kept, described := view[tool.Name]
 		if !described {
-			kept = r.cfg.DescribeTool == nil || r.cfg.DescribeTool(tool) != nil
+			kept = r.cfg.DescribeTool == nil || offeredAsItself(tool.Name, r.cfg.DescribeTool(tool))
 		}
-		offered[name] = kept
+		offered[tool.Name] = kept
 	}
 	return offered
+}
+
+// offeredAsItself reports whether described, DescribeTool's result for the
+// registry tool name, offers the model that tool under name: it is kept,
+// and not renamed.
+func offeredAsItself(name string, described *tools.ToolDescriptor) bool {
+	return described != nil && described.Name == name
 }
 
 // offerSelects reports whether an offer built from entries includes name:
@@ -1292,7 +1321,8 @@ type descriptorCollector struct {
 	excluded    map[string]bool
 	seen        map[string]bool
 	descriptors []*tools.ToolDescriptor
-	// view records describe's outcome per tool: true kept, false withheld.
+	// view records describe's outcome per tool: true offered under its own
+	// name, false withheld or renamed (offeredAsItself).
 	view map[string]bool
 }
 
@@ -1332,7 +1362,7 @@ func (c *descriptorCollector) add(tool *tools.ToolDescriptor) {
 	if c.describe != nil {
 		name := tool.Name
 		tool = c.describe(tool)
-		c.view[name] = tool != nil
+		c.view[name] = offeredAsItself(name, tool)
 		if tool == nil {
 			return
 		}
