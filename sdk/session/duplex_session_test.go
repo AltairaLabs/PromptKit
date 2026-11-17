@@ -1151,3 +1151,16 @@ func TestConvertMediaDataImageWithMetadata(t *testing.T) {
 	assert.Equal(t, 240, elem.Image.Height)
 	assert.Equal(t, int64(3), elem.Image.FrameNum)
 }
+
+// A response's history message carries its parts when it has them, and its
+// text as the error when it is one.
+func TestToolResultOf(t *testing.T) {
+	image := types.NewImagePartFromData("aGk=", "image/png", nil)
+	parts := []types.ContentPart{types.NewTextPart("a photo"), image}
+	assert.Equal(t, types.MessageToolResult{ID: "c1", Name: "snap", Parts: parts},
+		toolResultOf(providers.ToolResponse{ToolCallID: "c1", Result: "a photo", Parts: parts}, "snap"))
+
+	failed := types.NewTextToolResult("c2", "snap", "boom")
+	failed.Error = "boom"
+	assert.Equal(t, failed, toolResultOf(providers.ToolResponse{ToolCallID: "c2", Result: "boom", IsError: true}, "snap"))
+}

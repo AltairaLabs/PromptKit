@@ -18,6 +18,15 @@ func heldCallContinued(
 	t *testing.T, result any, settle func(ctx context.Context, conv *Conversation, id string) error, opts ...Option,
 ) *types.MessageToolResult {
 	t.Helper()
+	got, _ := heldCallContinuedIn(t, result, settle, opts...)
+	return got
+}
+
+// heldCallContinuedIn is heldCallContinued that also returns the conversation.
+func heldCallContinuedIn(
+	t *testing.T, result any, settle func(ctx context.Context, conv *Conversation, id string) error, opts ...Option,
+) (*types.MessageToolResult, *Conversation) {
+	t.Helper()
 	conv, provider := openSettlementConv(t, 1, []string{"Done."}, opts...)
 	conv.OnToolAsync("send_message",
 		func(map[string]any) sdktools.PendingResult {
@@ -39,11 +48,11 @@ func heldCallContinued(
 	require.Len(t, provider.seen, 2)
 	for _, m := range provider.seen[1] {
 		if m.ToolResult != nil {
-			return m.ToolResult
+			return m.ToolResult, conv
 		}
 	}
 	t.Fatal("the model saw no tool result")
-	return nil
+	return nil, nil
 }
 
 var bigID = map[string]any{"id": int64(9007199254740993)}
@@ -105,11 +114,10 @@ func TestContinue_ResultWithoutJSONIsFormattedAsJSON(t *testing.T) {
 	conv := newTestConversation()
 	conv.toolRegistry = tools.NewRegistry(tools.WithMaxToolResultSize(14))
 	call := types.MessageToolCall{ID: "c1", Name: "t"}
-	got, err := conv.modelResult(context.Background(), call, &sdktools.ToolResolution{Result: map[string]any{"a": "b"}})
+	got, err := conv.modelResult(call, &sdktools.ToolResolution{Result: map[string]any{"a": "b"}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "{\n  \"a\": \"b\"\n}", got.Text)
-	got, err = conv.modelResult(context.Background(), call,
-		&sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}})
+	got, err = conv.modelResult(call, &sdktools.ToolResolution{Result: map[string]any{"a": "bbbbbbbbbb"}}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "{\n  \"a\": \"bbbb\n... [truncated, 23 bytes exceeded limit of 14 bytes]", got.Text)
 }

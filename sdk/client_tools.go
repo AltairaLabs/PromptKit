@@ -374,13 +374,13 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 // call the suspended turn did not make. Results stored for a suspended turn
 // are discarded when Send or Stream starts a new turn instead of resuming it.
 //
-// A client's result reaches the model as the JSON the client sent, unformatted,
-// not truncated and not passed through the conversation's
-// hooks.ToolResultRewriter hooks: the stored result is also what an AG-UI
-// consumer is shown as TOOL_CALL_RESULT, so changing it would change that wire
-// content. This differs from [Conversation.Continue] and
+// A client's result reaches the model as the JSON the client sent, unformatted
+// and not truncated: the stored result is also what an AG-UI consumer is shown
+// as TOOL_CALL_RESULT when the history is replayed. It is passed through the
+// conversation's hooks.ToolResultRewriter hooks, so what is stored, and
+// replayed, is the rewritten text. This differs from [Conversation.Continue] and
 // [Conversation.ContinueDuplex], which give the model an approved or answered
-// result as a tool the pipeline ran would, rewritten and capped.
+// result as a tool the pipeline ran would, formatted, rewritten and capped.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 
@@ -492,7 +492,8 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
 	}
-	callNames := c.lazyCallNames(ctx)
+	calls := c.lazyCalls(ctx)
+	callNames := callNamesOf(calls)
 	c.validateDeferredResults(resolutions, callNames)
 	c.admitDeferredResults(resolutions, callNames)
 
@@ -506,13 +507,8 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 		case res.Error != nil:
 			toolResult = types.NewTextToolResult(res.ID, "", toolErrorContent(res))
 			toolResult.Error = toolResultErrorText(res.Error)
-		case len(res.Parts) > 0:
-			toolResult = types.MessageToolResult{
-				ID:    res.ID,
-				Parts: res.Parts,
-			}
 		default:
-			toolResult = types.NewTextToolResult(res.ID, "", string(res.ResultJSON))
+			toolResult = c.clientAnswer(ctx, calls, res)
 		}
 		// A provider matches a result to its call by the tool's name as well
 		// as the call ID (Gemini's functionResponse carries only the name).
@@ -524,12 +520,6 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	c.emitClientToolResolvedEvents(resolutions)
 
 	return toolMsgs, nil
-}
-
-// lazyCallNames returns a function that maps each call the suspended assistant
-// message made to its tool name, reading the history on first use only.
-func (c *Conversation) lazyCallNames(ctx context.Context) func() map[string]string {
-	return callNamesOf(c.lazyCalls(ctx))
 }
 
 // lazyCalls returns a function that maps each call the suspended assistant
@@ -856,6 +846,7 @@ func (c *Conversation) discardAbandonedResolutions() {
 	if dropped := c.resolvedStore.PopAll(); len(dropped) > 0 {
 		logger.Debug("discarding tool answers for an abandoned suspended turn", "count", len(dropped))
 	}
+	c.forgetAdmitted()
 }
 
 // answeredSinceLastAssistant lists the calls answered by tool results after the

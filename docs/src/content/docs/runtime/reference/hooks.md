@@ -760,7 +760,7 @@ type SessionEvent struct {
 ```
 
 <a name="SessionHook"></a>
-## type [SessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L51-L56>)
+## type [SessionHook](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L53-L58>)
 
 SessionHook tracks session lifecycle.
 
@@ -827,11 +827,11 @@ type ToolResponse struct {
 ```
 
 <a name="ToolResultRewriter"></a>
-## type [ToolResultRewriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L46-L48>)
+## type [ToolResultRewriter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/hooks.go#L48-L50>)
 
 ToolResultRewriter is an opt\-in extension for ToolHook. A ToolHook that also implements it may rewrite the text of a tool's successful result before the model sees it, as a test harness does to plant an indirect prompt injection in live tool output.
 
-The provider stage calls it for the tools it runs: once with a plain result's text, or once per text part of a multimodal result, before the result size limit applies, on text turns and realtime duplex sessions alike. Rewriters run in registration order, each on the previous one's output; an error fails the tool call. The SDK also runs it on the results a host settles outside the turn and delivers with Continue or ContinueDuplex \(an approved call, a client tool's answer\), with the request the stage would give for the call. A client tool's answer delivered with Resume is not rewritten: it reaches the model as the client sent it. Parallel tool calls rewrite concurrently, so RewriteResult must be safe for concurrent use.
+The provider stage calls it for the tools it runs: once with a plain result's text, or once per text part of a multimodal result, before the result size limit applies, on text turns and realtime duplex sessions alike. Rewriters run in registration order, each on the previous one's output; an error fails the tool call. The SDK also runs it on the results a host settles outside the turn and delivers with Continue, ContinueDuplex or Resume \(an approved call, a client tool's answer\), with the request the stage would give for the call \(an approval with edits gives the edited arguments\), and the history keeps the rewritten result. On Resume it runs on the client's answer as sent, which is not formatted or truncated, and what is replayed from the history \(to AG\-UI, say\) is the rewritten text. Parallel tool calls rewrite concurrently, so RewriteResult must be safe for concurrent use.
 
 ```go
 type ToolResultRewriter interface {

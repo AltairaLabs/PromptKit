@@ -652,6 +652,17 @@ func (s *duplexSession) Error() error {
 // SubmitToolResults sends resolved/rejected tool results back into the
 // duplex pipeline so they flow to the provider via ToolResponseSupport.
 func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []providers.ToolResponse) error {
+	return s.SubmitToolResultMessages(ctx, responses, nil)
+}
+
+// SubmitToolResultMessages is SubmitToolResults that records results, one
+// per response and in the same order, in the history in place of the result
+// messages it would build from the responses (so a result keeps its error
+// and error type). A result without a name is given the call's. With no
+// results, the messages are built from the responses.
+func (s *duplexSession) SubmitToolResultMessages(
+	ctx context.Context, responses []providers.ToolResponse, results []types.MessageToolResult,
+) error {
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
@@ -664,23 +675,38 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 		ResultMessages:    make([]types.Message, 0, len(responses)),
 	}
 
-	for _, resp := range responses {
+	for i, resp := range responses {
 		// The response carries only the call ID. The result message joins
 		// the conversation history, and a provider that replays history keyed
 		// by name (unary Gemini's functionResponse.name) rejects an empty one.
 		name := s.takeCallName(resp.ToolCallID)
-		toolResult := types.NewTextToolResult(resp.ToolCallID, name, resp.Result)
-		if len(resp.Parts) > 0 {
-			// A multimodal result's media joins the history with its text.
-			toolResult = types.MessageToolResult{ID: resp.ToolCallID, Name: name, Parts: resp.Parts}
-		}
-		if resp.IsError {
-			toolResult.Error = resp.Result
+		var toolResult types.MessageToolResult
+		if i < len(results) {
+			toolResult = results[i]
+			if toolResult.Name == "" {
+				toolResult.Name = name
+			}
+		} else {
+			toolResult = toolResultOf(resp, name)
 		}
 		result.ResultMessages = append(result.ResultMessages, types.NewToolResultMessage(toolResult))
 	}
 
 	return s.sendInput(ctx, streaming.BuildToolResponseElement(result))
+}
+
+// toolResultOf is the history's result message for resp, a response to a
+// call of tool name.
+func toolResultOf(resp providers.ToolResponse, name string) types.MessageToolResult {
+	toolResult := types.NewTextToolResult(resp.ToolCallID, name, resp.Result)
+	if len(resp.Parts) > 0 {
+		// A multimodal result's media joins the history with its text.
+		toolResult = types.MessageToolResult{ID: resp.ToolCallID, Name: name, Parts: resp.Parts}
+	}
+	if resp.IsError {
+		toolResult.Error = resp.Result
+	}
+	return toolResult
 }
 
 // copyStreamConfig returns a shallow copy of cfg, or nil.

@@ -148,8 +148,9 @@ func (h *RedactHook) RewriteResult(_ context.Context, req hooks.ToolRequest, con
 - The model, the `tool.call.completed` event and `AfterExecution` all see the rewritten result.
 - A failed call isn't rewritten. A rewriter that returns an error fails the call: the model gets an error result, `tool.call.failed` is emitted, and the original text is not passed on.
 - Parallel tool calls are rewritten concurrently, so `RewriteResult` must be safe for concurrent use.
-- Tools the pipeline runs are rewritten, in text turns and realtime duplex sessions alike. So are results you settle outside the turn and deliver with `Continue` or `ContinueDuplex`: a call approved with `ResolveTool`, or a client tool answered with `SendToolResult`. The rewriter gets the same `ToolRequest` it would for a call the pipeline ran. A rewriter error replaces the result with a tool error.
-- A client tool's answer delivered with `Resume` is not rewritten. It reaches the model exactly as the client sent it, because the same stored result is what an AG-UI client is shown.
+- Tools the pipeline runs are rewritten, in text turns and realtime duplex sessions alike. So are results you settle outside the turn and deliver with `Continue`, `ContinueDuplex` or `Resume`: a call approved with `ResolveTool` or `ResolveToolWithArgs`, or a client tool answered with `SendToolResult`. The rewriter gets the same `ToolRequest` it would for a call the pipeline ran, with the edited arguments for a call approved with edits. A rewriter error replaces the result with the same error result a failed call gets, and `tool.call.failed` is emitted. The conversation history keeps the rewritten result.
+- `Resume` delivers a client tool's answer as the client sent it, without formatting or the size limit, so the rewriter sees that text. What is replayed from the history afterwards, an AG-UI tool result included, is the rewritten text.
+- When a rewriter is configured and a settled result answers a call the conversation cannot name (not in the suspended turn, and not a held call it approved), the result is replaced with a tool error rather than delivered unrewritten.
 
 ## SessionHook
 

@@ -166,14 +166,60 @@ func TestContinueDuplex_RewritesAnApprovedResultBeforeTruncating(t *testing.T) {
 	assert.Equal(t, caller, rw.reqs[0].Caller)
 }
 
-// A rewriter's error takes the place of the result: the session is told the
-// call failed and is never given the raw result.
+// A rewriter's error takes the place of the result as on a call the stage
+// ran: the session is told the call failed, the history records the error and
+// its type, and the raw result is never given.
 func TestContinueDuplex_RewriterErrorReplacesTheResult(t *testing.T) {
+	const errText = "rewriting the lookup_order result: redactor offline"
 	rw := &recordingRewriter{err: errors.New("redactor offline")}
-	got := duplexContinued(t, "secret", approveCall, sdk.WithToolHook(rw))
+	got, conv := duplexContinuedIn(t, "secret", approveCall, sdk.WithToolHook(rw))
 	assert.Equal(t, providers.ToolResponse{
 		ToolCallID: "call_1",
-		Result:     "Tool error: rewriting the lookup_order result: redactor offline",
+		Result:     "Error: " + errText,
 		IsError:    true,
 	}, got)
+	stored := storedToolResult(t, conv, "call_1")
+	assert.Equal(t, "Error: "+errText, stored.GetTextContent())
+	assert.Equal(t, errText, stored.Error)
+	assert.Equal(t, types.ToolErrorExecution, stored.ErrorType)
+}
+
+// storedToolResult waits for the history's tool result for id.
+func storedToolResult(t *testing.T, conv *sdk.Conversation, id string) *types.MessageToolResult {
+	t.Helper()
+	var found *types.MessageToolResult
+	require.Eventually(t, func() bool {
+		for _, m := range conv.Messages(context.Background()) {
+			if m.ToolResult != nil && m.ToolResult.ID == id {
+				found = m.ToolResult
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 20*time.Millisecond, "no tool result for %s in the history", id)
+	return found
+}
+
+// The history holds the rewritten result the session was given.
+func TestContinueDuplex_HistoryHoldsTheRewrittenResult(t *testing.T) {
+	_, conv := duplexContinuedIn(t, "secret", approveCall, sdk.WithToolHook(&recordingRewriter{}))
+	assert.Equal(t, "<redacted:secret>", storedToolResult(t, conv, "call_1").GetTextContent())
+}
+
+// With a rewriter configured, an answer for a call neither the history nor a
+// held call names is refused, not delivered unrewritten: the rewriter cannot
+// be given the call's request.
+func TestContinueDuplex_AnswerForAnUnknownCallFailsClosed(t *testing.T) {
+	rw := &recordingRewriter{}
+	got := duplexContinued(t, "unused", func(ctx context.Context, conv *sdk.Conversation) error {
+		return conv.SendToolResult(ctx, "ghost", "secret")
+	}, sdk.WithToolHook(rw))
+	assert.Equal(t, providers.ToolResponse{
+		ToolCallID: "ghost",
+		Result:     "Error: the result of call ghost was not delivered: no call it answers is known to rewrite it for",
+		IsError:    true,
+	}, got)
+	rw.mu.Lock()
+	defer rw.mu.Unlock()
+	assert.Empty(t, rw.reqs)
 }

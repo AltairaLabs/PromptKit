@@ -198,6 +198,11 @@ type Conversation struct {
 	// Hook registry for policy enforcement (nil = no hooks)
 	hookRegistry *hooks.Registry
 
+	// admitted holds, by call ID, the held calls approved and not yet given to
+	// the model (recordAdmitted).
+	admittedMu sync.Mutex
+	admitted   map[string]types.MessageToolCall
+
 	// Session hook dispatcher for lifecycle events (start, update, end)
 	sessionHooks *sessionHookDispatcher
 
