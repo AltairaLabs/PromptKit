@@ -933,6 +933,7 @@ func TestProviderStage_EmitsProviderCallCompletedEvent_NonStreaming(t *testing.T
 }
 
 func TestProviderStage_NoEventsWithNilEmitter(t *testing.T) {
+	t.Parallel()
 	// Create event bus to verify NO events are emitted
 	bus := events.NewEventBus()
 
@@ -1863,6 +1864,7 @@ func TestProviderStage_ExecuteToolCalls_PendingEmitsRequestAndCompleted(t *testi
 }
 
 func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
+	t.Parallel()
 	provider := mock.NewProvider("test", "model", false)
 	registry := tools.NewRegistry()
 	registry.Register(&tools.ToolDescriptor{
@@ -2004,6 +2006,7 @@ func TestProviderStage_ExecuteToolCalls_PropagatesMultimodalParts(t *testing.T) 
 }
 
 func TestProviderStage_ToolCallCompletedEvent_MetadataOnlyParts(t *testing.T) {
+	t.Parallel()
 	// ToolCallCompleted events should contain metadata-only parts (no binary data).
 	bus := events.NewEventBus()
 	emitter := events.NewEmitter(bus, "run", "sess", "conv")

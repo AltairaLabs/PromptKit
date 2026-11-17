@@ -1319,6 +1319,7 @@ func createMinimalPNG() []byte {
 }
 
 func TestMediaConvertStage_MessageAudioConversionSuccess(t *testing.T) {
+	t.Parallel()
 	// Skip if ffmpeg is not available
 	if err := media.CheckFFmpegAvailable(""); err != nil {
 		t.Skipf("ffmpeg not available, skipping conversion test: %v", err)

@@ -31,6 +31,7 @@ func drainOutput(out <-chan StreamElement) {
 }
 
 func TestPipeline_MaxConcurrentPipelines_BoundsExecute(t *testing.T) {
+	t.Parallel()
 	p := gatedPipeline(t, 1)
 
 	first := make(chan StreamElement)
@@ -54,6 +55,7 @@ func TestPipeline_MaxConcurrentPipelines_BoundsExecute(t *testing.T) {
 }
 
 func TestPipeline_MaxConcurrentPipelines_WaiterRunsWhenSlotFrees(t *testing.T) {
+	t.Parallel()
 	p := gatedPipeline(t, 1)
 
 	first := make(chan StreamElement)

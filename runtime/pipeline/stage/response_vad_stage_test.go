@@ -127,6 +127,7 @@ loop:
 }
 
 func TestResponseVADStage_DelaysEndOfStream(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultResponseVADConfig()
 	config.SilenceDuration = 200 * time.Millisecond
 	config.MaxWaitDuration = 2 * time.Second
@@ -178,6 +179,7 @@ func TestResponseVADStage_DelaysEndOfStream(t *testing.T) {
 }
 
 func TestResponseVADStage_EmitsEndOfStream_AfterSilence(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultResponseVADConfig()
 	config.SilenceDuration = 50 * time.Millisecond
 	config.MaxWaitDuration = 2 * time.Second
@@ -215,6 +217,7 @@ func TestResponseVADStage_EmitsEndOfStream_AfterSilence(t *testing.T) {
 }
 
 func TestResponseVADStage_EmitsEndOfStream_MaxWait(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultResponseVADConfig()
 	config.SilenceDuration = 10 * time.Second // Won't trigger
 	config.MaxWaitDuration = 150 * time.Millisecond
@@ -323,9 +326,10 @@ func TestResponseVADStage_InputClosed_EmitsPendingEndOfStream(t *testing.T) {
 }
 
 func TestResponseVADStage_PointerAliasingBug(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultResponseVADConfig()
-	config.SilenceDuration = 100 * time.Millisecond
-	config.MaxWaitDuration = 500 * time.Millisecond
+	config.SilenceDuration = 20 * time.Millisecond
+	config.MaxWaitDuration = 100 * time.Millisecond
 
 	s, err := stage.NewResponseVADStage(config)
 	require.NoError(t, err)
@@ -388,9 +392,10 @@ collectLoop:
 }
 
 func TestResponseVADStage_MultipleTurns(t *testing.T) {
+	t.Parallel()
 	config := stage.DefaultResponseVADConfig()
-	config.SilenceDuration = 50 * time.Millisecond
-	config.MaxWaitDuration = 200 * time.Millisecond
+	config.SilenceDuration = 20 * time.Millisecond
+	config.MaxWaitDuration = 60 * time.Millisecond
 
 	s, err := stage.NewResponseVADStage(config)
 	require.NoError(t, err)

@@ -45,6 +45,7 @@ func TestImageResizeStage_BasicOperation(t *testing.T) {
 }
 
 func TestImageResizeStage_ProcessImage(t *testing.T) {
+	t.Parallel()
 	config := ImageResizeStageConfig{
 		MaxWidth:            512,
 		MaxHeight:           512,

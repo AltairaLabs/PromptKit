@@ -39,6 +39,11 @@ const (
 	// long after input closed, so a hung tool cannot hold the session open.
 	finalToolWaitLimit = 5 * time.Minute
 
+	// inputForwardingGracePeriod is how long Process waits for the input
+	// goroutine to exit once the response loop ends. A goroutine still running
+	// (in a slow input hook, say) closes output when it exits.
+	inputForwardingGracePeriod = 100 * time.Millisecond
+
 	// MIME type for PCM audio
 	mimeTypeAudioPCM = "audio/pcm"
 
@@ -192,6 +197,8 @@ type DuplexProviderStage struct {
 	// finalToolWaitLimit; tests shorten them.
 	finalWait     time.Duration
 	toolWaitLimit time.Duration
+	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it.
+	inputGracePeriod time.Duration
 }
 
 // SetSessionObserver registers a callback invoked once with the streaming
@@ -220,6 +227,7 @@ func NewDuplexProviderStage(
 		systemPromptSent:       false,
 		finalWait:              finalResponseTimeout,
 		toolWaitLimit:          finalToolWaitLimit,
+		inputGracePeriod:       inputForwardingGracePeriod,
 	}
 }
 
@@ -318,7 +326,6 @@ func (s *DuplexProviderStage) Process(
 
 	// Wait for input forwarding to complete with a short grace period
 	// The goroutine should exit quickly since we canceled its context
-	const gracePeriod = 100 * time.Millisecond
 	select {
 	case inputErr := <-inputDone:
 		s.dropBlockedTurns()
@@ -326,7 +333,7 @@ func (s *DuplexProviderStage) Process(
 		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
 			responseErr = inputErr
 		}
-	case <-time.After(gracePeriod):
+	case <-time.After(s.inputGracePeriod):
 		// The goroutine is still running (in a slow input hook, say). It
 		// exits on the canceled context; output closes when it does.
 		logger.Debug("DuplexProviderStage: input forwarding still running; closing output when it exits")

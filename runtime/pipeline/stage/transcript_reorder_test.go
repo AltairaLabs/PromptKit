@@ -166,6 +166,7 @@ func TestTranscriptReorderStage_LateTranscriptHeldInOrder(t *testing.T) {
 // TestTranscriptReorderStage_HoldTimeoutFallsBackToPlaceholder: when no transcript
 // arrives within the hold timeout, the placeholder is emitted.
 func TestTranscriptReorderStage_HoldTimeoutFallsBackToPlaceholder(t *testing.T) {
+	t.Parallel()
 	s := NewTranscriptReorderStageWithTimeout("[none]", 40*time.Millisecond)
 	in := make(chan StreamElement, 4)
 	out := make(chan StreamElement, 16)

@@ -557,6 +557,7 @@ func TestDuplexTools_BlocklistedToolIsRefused(t *testing.T) {
 }
 
 func TestDuplexTools_ParallelLimit(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		policy *pipeline.ToolPolicy
@@ -567,7 +568,10 @@ func TestDuplexTools_ParallelLimit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), overlap: 300 * time.Millisecond}
+			t.Parallel()
+			// A serialized call waits out the whole window alone; a parallel one
+			// sees the other start within it.
+			exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), overlap: 100 * time.Millisecond}
 			h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), policy: tc.policy})
 
 			h.emit(toolCallTurn(weatherCall("c1"), weatherCall("c2")))
@@ -759,6 +763,7 @@ func TestDuplexTools_RoundPastTheLimitIsRefused(t *testing.T) {
 // provider.call.completed when its reply completes, timed between the two,
 // with the configured source and labels.
 func TestDuplexTools_ProviderCallTiming(t *testing.T) {
+	t.Parallel()
 	bus := events.NewEventBus()
 	var evMu sync.Mutex
 	var started []*events.ProviderCallStartedData
@@ -827,6 +832,7 @@ func TestDuplexTools_ProviderCallTiming(t *testing.T) {
 // A reply to input the stage cannot see the end of (audio the provider does
 // not transcribe) is a provider call from its first output.
 func TestDuplexTools_ProviderCallTimingWithoutUserTurn(t *testing.T) {
+	t.Parallel()
 	bus := events.NewEventBus()
 	var evMu sync.Mutex
 	var completed []*events.ProviderCallCompletedData
@@ -845,6 +851,12 @@ func TestDuplexTools_ProviderCallTimingWithoutUserTurn(t *testing.T) {
 	})
 
 	h.emit([]providers.StreamChunk{{Content: "Let me check", Delta: "Let me check"}})
+	// The call starts when the stage reads that output, not when it is sent.
+	require.Eventually(t, func() bool {
+		h.stage.tools.mu.Lock()
+		defer h.stage.tools.mu.Unlock()
+		return h.stage.tools.open != nil
+	}, 2*time.Second, time.Millisecond, "the reply's first output opens a provider call")
 	time.Sleep(streamTime)
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.awaitSent(1)
@@ -1536,10 +1548,11 @@ func TestDuplexTools_HeldTerminationToolDoesNotStopTheTurn(t *testing.T) {
 // reach the session and its reply reaches the caller, and the session then
 // closes.
 func TestDuplexTools_FinalWaitCoversARunningRoundAndItsReply(t *testing.T) {
-	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 300 * time.Millisecond}
+	t.Parallel()
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 120 * time.Millisecond}
 	h := startRealtime(t, realtimeOpts{
 		registry:  newWeatherRegistry(t, exec),
-		finalWait: 50 * time.Millisecond,
+		finalWait: 20 * time.Millisecond,
 	})
 
 	h.emit(toolCallTurn(weatherCall("c1")))
@@ -1548,7 +1561,7 @@ func TestDuplexTools_FinalWaitCoversARunningRoundAndItsReply(t *testing.T) {
 	h.awaitSent(1)
 	// The reply starts well after the round was delivered: several waits pass
 	// while it is awaited.
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
 	h.emit(textTurn("It is 21 degrees", nil))
 	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)
@@ -1564,11 +1577,12 @@ func TestDuplexTools_FinalWaitCoversARunningRoundAndItsReply(t *testing.T) {
 // A tool that never finishes cannot hold a session whose input closed open
 // past the wait limit.
 func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
+	t.Parallel()
 	exec := &realtimeToolExec{result: json.RawMessage(`"ok"`), gate: make(chan struct{})}
 	h := startRealtime(t, realtimeOpts{
 		registry:      newWeatherRegistry(t, exec),
-		finalWait:     20 * time.Millisecond,
-		toolWaitLimit: 200 * time.Millisecond,
+		finalWait:     10 * time.Millisecond,
+		toolWaitLimit: 80 * time.Millisecond,
 	})
 
 	h.emit(toolCallTurn(weatherCall("c1")))
@@ -1579,7 +1593,7 @@ func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
 	require.NoError(t, <-h.done)
 
 	assert.True(t, h.sess().isClosed())
-	assert.GreaterOrEqual(t, time.Since(start), 200*time.Millisecond, "the wait was extended for the running round")
+	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond, "the wait was extended for the running round")
 	assert.Less(t, time.Since(start), 2*time.Second, "but not past the limit")
 	assert.Empty(t, h.sess().sentResponses())
 }
@@ -1588,6 +1602,7 @@ func TestDuplexTools_FinalWaitIsBoundedForAHungTool(t *testing.T) {
 // with no tool round behind it (a typed turn the provider never answers) does
 // not hold a session whose input closed open past the normal wait.
 func TestDuplexTools_FinalWaitIsNotExtendedWithoutAToolRound(t *testing.T) {
+	t.Parallel()
 	h := startRealtime(t, realtimeOpts{
 		registry:      newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}),
 		finalWait:     20 * time.Millisecond,
@@ -1613,10 +1628,11 @@ func TestDuplexTools_FinalWaitIsNotExtendedWithoutAToolRound(t *testing.T) {
 // replied without calls while the round ran) still start a reply, and the
 // wait covers it though no provider call was opened for it.
 func TestDuplexTools_FinalWaitCoversTheReplyToAnEndedTurnsRound(t *testing.T) {
+	t.Parallel()
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
 	h := startRealtime(t, realtimeOpts{
 		registry:  newWeatherRegistry(t, exec),
-		finalWait: 30 * time.Millisecond,
+		finalWait: 20 * time.Millisecond,
 	})
 
 	h.emit(toolCallTurn(weatherCall("c1")))
@@ -1630,7 +1646,7 @@ func TestDuplexTools_FinalWaitCoversTheReplyToAnEndedTurnsRound(t *testing.T) {
 	close(h.input)
 	close(exec.gate)
 	h.awaitSent(1)
-	time.Sleep(200 * time.Millisecond) // several waits pass before the reply starts
+	time.Sleep(80 * time.Millisecond) // several waits pass before the reply starts
 	h.emit(textTurn("It is 21 degrees", nil))
 	elems := drainUntilClosed(t, h.output)
 	require.NoError(t, <-h.done)

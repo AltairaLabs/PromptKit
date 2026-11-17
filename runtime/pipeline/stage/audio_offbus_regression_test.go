@@ -17,6 +17,7 @@ import (
 // bus. Per-frame audio telemetry is direct-update only (see #853). If a future
 // change routes audio health through bus.Publish, this test fails.
 func TestAudioTelemetry_NeverPublishesToBus(t *testing.T) {
+	t.Parallel()
 	providers.ResetDefaultStreamMetrics()
 	t.Cleanup(providers.ResetDefaultStreamMetrics)
 	providers.RegisterDefaultStreamMetrics(prometheus.NewRegistry(), "test", nil)

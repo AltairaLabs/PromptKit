@@ -301,11 +301,12 @@ func waitForEvents(t *testing.T, snapshot func() []*events.Event, want int) []*e
 	return got
 }
 
-// drainEvents waits a short fixed interval and returns whatever arrived. Use it
-// to assert an event was NOT emitted: unlike waitForEvents there is nothing to
-// poll for, so it must give the bus real time to deliver a wrong send.
-func drainEvents(t *testing.T, snapshot func() []*events.Event) []*events.Event {
+// drainEvents closes bus and returns whatever arrived. Use it to assert an
+// event was NOT emitted, once everything that could emit it has returned:
+// Close delivers every event already published before it returns, so a wrong
+// send is seen without waiting a fixed interval.
+func drainEvents(t *testing.T, bus *events.EventBus, snapshot func() []*events.Event) []*events.Event {
 	t.Helper()
-	time.Sleep(300 * time.Millisecond)
+	bus.Close()
 	return snapshot()
 }

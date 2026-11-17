@@ -98,6 +98,7 @@ func setupDelayedStage(
 }
 
 func TestParallelToolCalls_ExecutesConcurrently(t *testing.T) {
+	t.Parallel()
 	executor := &delayedExecutor{
 		name:    "delayed-exec",
 		delay:   50 * time.Millisecond,
@@ -160,9 +161,10 @@ func TestParallelToolCalls_PreservesResultOrder(t *testing.T) {
 }
 
 func TestParallelToolCalls_MaxConcurrencyLimit(t *testing.T) {
+	t.Parallel()
 	executor := &delayedExecutor{
 		name:    "limit-exec",
-		delay:   50 * time.Millisecond,
+		delay:   20 * time.Millisecond,
 		status:  tools.ToolStatusComplete,
 		content: []byte(`{"ok":true}`),
 	}
@@ -352,6 +354,7 @@ func TestParallelToolCalls_PendingMixedWithComplete(t *testing.T) {
 }
 
 func TestParallelToolCalls_ContextCancellation(t *testing.T) {
+	t.Parallel()
 	executor := &delayedExecutor{
 		name:    "cancel-exec",
 		delay:   5 * time.Second, // very long — will be cancelled

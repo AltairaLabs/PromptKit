@@ -338,6 +338,7 @@ func TestTemplateStage_ForwardsUpstreamErrorWithoutRendering(t *testing.T) {
 // when a stage failure canceled the other stages, because MetricsStage
 // returned on ctx.Done without closing its output.
 func TestExecute_MetricsStageAfterUpstreamFailure(t *testing.T) {
+	t.Parallel()
 	for i := 0; i < 5; i++ {
 		forwardThenFail := NewStageFunc("a", StageTypeTransform,
 			func(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
@@ -351,7 +352,7 @@ func TestExecute_MetricsStageAfterUpstreamFailure(t *testing.T) {
 			func(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 				defer close(out)
 				for e := range in {
-					time.Sleep(20 * time.Millisecond)
+					time.Sleep(5 * time.Millisecond)
 					out <- e
 				}
 				return nil

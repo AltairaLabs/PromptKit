@@ -213,6 +213,7 @@ func TestTTSStageWithInterruption_ExtractText_FromMessageParts(t *testing.T) {
 }
 
 func TestTTSStageWithInterruption_ExtractText_EmptyMessageContent(t *testing.T) {
+	t.Parallel()
 	synthesized := false
 	mock := &mockTTSService{
 		synthesizeFunc: func(_ context.Context, _ string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
