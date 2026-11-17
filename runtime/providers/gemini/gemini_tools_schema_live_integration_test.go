@@ -152,7 +152,12 @@ func TestGemini3_ToolLoopTerminates_Live(t *testing.T) {
 			t.Logf("%s: loop terminated on round %d, answer=%.70q", model, round, resp.Content)
 			return
 		}
-		req.Messages = append(req.Messages, types.Message{Role: roleAssistant, ToolCalls: calls})
+		// Replay the round as the pipeline does (stages_provider.go): with the
+		// response's content and reasoning, whose thought signatures the
+		// Interactions API requires ahead of the function calls.
+		req.Messages = append(req.Messages, types.Message{
+			Role: roleAssistant, Content: resp.Content, Reasoning: resp.Reasoning, ToolCalls: calls,
+		})
 		for i := range calls {
 			req.Messages = append(req.Messages, types.NewToolResultMessage(
 				types.NewTextToolResult(calls[i].ID, calls[i].Name, `{"celsius": 21}`)))
