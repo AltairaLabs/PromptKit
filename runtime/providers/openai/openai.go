@@ -720,10 +720,8 @@ func (p *Provider) prepareOpenAIMessages(
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert message: %w", err)
 		}
-		if len(req.Messages[i].ToolCalls) > 0 {
-			converted.ToolCalls = openAIToolCalls(req.Messages[i].ToolCalls)
-		}
-		if tr := req.Messages[i].ToolResult; tr != nil && req.Messages[i].Role == roleToolResult {
+		converted.ToolCalls = openAIToolCalls(req.Messages[i].ToolCalls)
+		if tr := req.Messages[i].ToolResult; tr != nil {
 			converted.ToolCallID = tr.ID
 		}
 		messages = append(messages, converted)
