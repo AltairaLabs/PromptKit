@@ -84,9 +84,8 @@ func (rf roundRefusals) refusal(name string) (string, bool) {
 type roundDecision struct {
 	refused roundRefusals
 	// resolved holds, by name, the registered tool each of the round's calls
-	// names; a name it lacks names no registered tool. Nil when the round
-	// resolved none (no registry, or a caller outside a round): a tool is
-	// then looked up when needed.
+	// names; a name it lacks names no registered tool (or the decision is
+	// the zero value, which resolved nothing).
 	resolved map[string]*tools.ToolDescriptor
 }
 
@@ -95,22 +94,16 @@ func (d roundDecision) refusal(name string) (string, bool) {
 	return d.refused.refusal(name)
 }
 
-// allRefused reports whether the round refuses every one of calls, and has
-// at least one.
+// allRefused reports whether the round refuses every one of calls, a
+// round's calls (never none).
 func (d roundDecision) allRefused(calls []types.MessageToolCall) bool {
-	return len(calls) > 0 && len(availableCalls(calls, d)) == 0
+	return len(availableCalls(calls, d)) == 0
 }
 
 // tool returns the registered tool name names, as the round resolved it, or
-// nil when no tool is registered under it.
-func (r *toolRunner) tool(d roundDecision, name string) *tools.ToolDescriptor {
-	if d.resolved != nil {
-		return d.resolved[name]
-	}
-	if r.registry == nil {
-		return nil
-	}
-	return r.registry.Get(name)
+// nil when the round resolved none under it.
+func (d roundDecision) tool(name string) *tools.ToolDescriptor {
+	return d.resolved[name]
 }
 
 // classifyRound decides a round: it resolves the registered tools its calls
@@ -135,7 +128,7 @@ func (r *toolRunner) classifyRound(calls []types.MessageToolCall, excluded map[s
 		}
 	}
 	d := roundDecision{resolved: resolved}
-	if r.availability != nil && len(called) > 0 {
+	if r.availability != nil {
 		d.refused = r.availability(called, excluded)
 	}
 	return d
@@ -406,7 +399,7 @@ func (r *toolRunner) checkCallable(
 		logger.Warn("refused a call to a tool the model may not call this turn", "tool", toolCall.Name)
 		return r.refuseCall(ctx, toolCall, errMsg, errors.New(errMsg), rr), true
 	}
-	if r.tool(refused, toolCall.Name) != nil {
+	if refused.tool(toolCall.Name) != nil {
 		return toolCallResult{}, false
 	}
 	// The registry's own error names the missing tool.
@@ -427,7 +420,7 @@ func (r *toolRunner) executeSingleToolCall(
 	rr roundRef,
 	refused roundDecision,
 ) toolCallResult {
-	tool := r.tool(refused, toolCall.Name) // resolved once, for the whole round
+	tool := refused.tool(toolCall.Name) // resolved once, for the whole round
 	toolReq := r.toolRequest(toolCall, tool)
 	hookDecision, blocked, skip := r.preExecCheck(ctx, toolCall, toolReq)
 	if skip {
