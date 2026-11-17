@@ -111,7 +111,10 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 // The executor must implement the runtime/tools.Executor interface. An
 // executor that also implements [tools.CallExecutor] is given each call
 // through ExecuteCall, so it sees the provider's call ID and the caller the
-// conversation acts for ([WithCaller]).
+// conversation acts for ([WithCaller]). Otherwise one that implements
+// [tools.MultimodalExecutor] is given each call through ExecuteMultimodal.
+// Either way, the content parts it returns (images, audio) go to the model
+// with its result.
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
@@ -119,7 +122,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
 	delete(c.callHandlers, name)
-	if callExec, ok := executor.(tools.CallExecutor); ok {
+	if run := executorCallFunc(executor); run != nil {
 		if c.callHandlers == nil {
 			c.callHandlers = make(map[string]toolCallHandler)
 		}
@@ -130,7 +133,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 			if err != nil {
 				return nil, nil, err
 			}
-			return callExec.ExecuteCall(ctx, desc, call)
+			return run(ctx, desc, call)
 		}
 	}
 	c.ctxHandlers[name] = func(ctx context.Context, args map[string]any) (any, error) {
@@ -153,6 +156,27 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 
 		return parseToolResult(result), nil
 	}
+}
+
+// executorCallFunc returns the entry point that runs a whole call on
+// executor and returns its content parts with its result, as the tool
+// registry calls it: ExecuteCall for a tools.CallExecutor, otherwise
+// ExecuteMultimodal for a tools.MultimodalExecutor. It returns nil for an
+// executor with neither, which runs through Execute.
+func executorCallFunc(executor tools.Executor) func(
+	context.Context, *tools.ToolDescriptor, tools.ToolCall,
+) (json.RawMessage, []types.ContentPart, error) {
+	if callExec, ok := executor.(tools.CallExecutor); ok {
+		return callExec.ExecuteCall
+	}
+	if mmExec, ok := executor.(tools.MultimodalExecutor); ok {
+		return func(
+			ctx context.Context, desc *tools.ToolDescriptor, call tools.ToolCall,
+		) (json.RawMessage, []types.ContentPart, error) {
+			return mmExec.ExecuteMultimodal(ctx, desc, call.Args)
+		}
+	}
+	return nil
 }
 
 // ToolCall is one call of a tool, as a handler registered with
