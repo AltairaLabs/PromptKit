@@ -823,7 +823,7 @@ func (r *PCM16StreamResampler) Write(chunk []byte) []byte
 Write takes the next chunk of input and returns the output samples it completes. An output sample is completed once both input samples it interpolates between have arrived.
 
 <a name="Playout"></a>
-## type [Playout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L34-L39>)
+## type [Playout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L34-L43>)
 
 Playout estimates how much of the audio handed to a real\-time player has been heard. A realtime model sends a reply's audio faster than it plays, so most of a long reply is still playing after the model has finished it.
 
@@ -838,7 +838,7 @@ type Playout struct {
 ```
 
 <a name="NewPlayout"></a>
-### func [NewPlayout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L57>)
+### func [NewPlayout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L65>)
 
 ```go
 func NewPlayout(now func() time.Time) *Playout
@@ -847,7 +847,7 @@ func NewPlayout(now func() time.Time) *Playout
 NewPlayout returns an empty Playout on the clock now \(nil means time.Now\).
 
 <a name="Playout.Add"></a>
-### func \(\*Playout\) [Add](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L66>)
+### func \(\*Playout\) [Add](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L74>)
 
 ```go
 func (p *Playout) Add(itemID string, contentIndex int, d time.Duration)
@@ -856,7 +856,7 @@ func (p *Playout) Add(itemID string, contentIndex int, d time.Duration)
 Add records d of audio for the item \(itemID, contentIndex\) handed to the player now. Non\-positive d is ignored.
 
 <a name="Playout.Playing"></a>
-### func \(\*Playout\) [Playing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L89>)
+### func \(\*Playout\) [Playing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L98>)
 
 ```go
 func (p *Playout) Playing() bool
@@ -865,7 +865,7 @@ func (p *Playout) Playing() bool
 Playing reports whether audio handed to the player is still playing.
 
 <a name="Playout.Stop"></a>
-### func \(\*Playout\) [Stop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L96>)
+### func \(\*Playout\) [Stop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L105>)
 
 ```go
 func (p *Playout) Stop() []PlayoutCut
@@ -874,7 +874,7 @@ func (p *Playout) Stop() []PlayoutCut
 Stop ends the playout now and returns the items the listener had not fully heard, in playout order, each with how much of it they had heard \(0 for an item that had not started playing\).
 
 <a name="PlayoutCut"></a>
-## type [PlayoutCut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L50-L54>)
+## type [PlayoutCut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L58-L62>)
 
 PlayoutCut is an item the listener had not fully heard when the playout stopped, and how much of it they had heard.
 

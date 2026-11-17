@@ -206,3 +206,48 @@ func TestLivePlayout_TranscriptAfterAFinishedUtteranceBargesIn(t *testing.T) {
 
 	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
 }
+
+// replyAt plays a 5 s reply starting at start and completing at done.
+func replyAt(t *testing.T, s *StreamSession, at func(time.Duration), start, done time.Duration) {
+	t.Helper()
+	at(start)
+	process(t, s, audioSecond(), audioSecond(), audioSecond(), audioSecond(), audioSecond())
+	at(done)
+	process(t, s, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true}})
+}
+
+func sessionClock(t *testing.T) (*StreamSession, func(time.Duration)) {
+	t.Helper()
+	s, now := playoutSession(t)
+	t0 := *now
+	return s, func(d time.Duration) { *now = t0.Add(d) }
+}
+
+// The caller's speech had long stopped being transcribed when the reply
+// began: a transcript after the reply completed is a new utterance.
+func TestLivePlayout_OldTranscriptIsNotOpenWhenTheReplyBegins(t *testing.T) {
+	s, at := sessionClock(t)
+	process(t, s, callerSays("hello"))
+	replyAt(t, s, at, 2*time.Second, 3*time.Second)
+	at(3200 * time.Millisecond)
+	process(t, s, callerSays("wait"))
+
+	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
+}
+
+// A transcript first seen during generation (none before the reply) is the
+// caller's earlier speech; more of it right after the reply completed
+// continues it.
+func TestLivePlayout_TranscriptStartedDuringGenerationContinues(t *testing.T) {
+	s, at := sessionClock(t)
+	at(0)
+	process(t, s, audioSecond(), audioSecond(), audioSecond())
+	at(500 * time.Millisecond)
+	process(t, s, callerSays("what is"))
+	at(time.Second)
+	process(t, s, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true}})
+	at(1300 * time.Millisecond)
+	process(t, s, callerSays(" the weather"))
+
+	assert.Zero(t, interrupted(drainChunks(t, s)))
+}

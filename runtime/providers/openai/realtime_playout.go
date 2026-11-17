@@ -6,8 +6,10 @@ package openai
 const maxPendingTruncates = 32
 
 // truncateTracker remembers the conversation.item.truncate events sent and
-// not yet answered: conversation.item.truncated (keyed by item) acknowledges
-// one, an error naming its event ID rejects it. Receive goroutine only.
+// not yet answered. An error names the event it rejects by its ID. The
+// server's conversation.item.truncated does not echo the event ID, only the
+// item, so it acknowledges the item's oldest pending truncate (the server
+// answers an item's truncates in order). Receive goroutine only.
 type truncateTracker struct {
 	pending []pendingTruncate
 }
@@ -24,7 +26,8 @@ func (t *truncateTracker) sent(eventID, itemID string) {
 	t.pending = append(t.pending, pendingTruncate{eventID: eventID, itemID: itemID})
 }
 
-// done forgets the truncate of itemID the server acknowledged.
+// done forgets itemID's oldest pending truncate, which the server
+// acknowledged.
 func (t *truncateTracker) done(itemID string) {
 	t.remove(func(p pendingTruncate) bool { return p.itemID == itemID })
 }

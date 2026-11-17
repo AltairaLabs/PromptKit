@@ -76,22 +76,6 @@ func (m *vadStateMachine) update(probability float64, audioDuration time.Duratio
 	}
 }
 
-// pcm16Duration returns the duration represented by a PCM16-mono byte count at
-// the given sample rate. Returns 0 for a non-positive rate.
-//
-// Assumes single-channel PCM16. Interleaved stereo reports twice its true
-// duration, and non-PCM16 payloads (G.711, for instance) are meaningless when
-// reinterpreted as int16 — VADParams carries no channel count, and no stage on
-// the VAD path normalizes one. Callers must feed mono PCM16 at params.SampleRate.
-func pcm16Duration(byteLen, sampleRate int) time.Duration {
-	if sampleRate <= 0 {
-		return 0
-	}
-	const bytesPerSample16Bit = 2
-	samples := byteLen / bytesPerSample16Bit
-	return time.Duration(samples) * time.Second / time.Duration(sampleRate)
-}
-
 // computeNextState is a pure function that determines the next VAD state given
 // the current state, voice probability, and how long the VAD has been in the
 // current state.

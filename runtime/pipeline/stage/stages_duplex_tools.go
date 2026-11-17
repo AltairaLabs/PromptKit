@@ -135,10 +135,11 @@ type duplexTools struct {
 	turn  *duplexToolTurn
 	round int
 	open  *duplexRound
-	// last is the provider call completed last, which cost reported after
-	// its turn ended belongs to.
-	last  *duplexRound
-	spent float64
+	// deferred is a completed provider call that reported no cost yet, and
+	// interrupted one a barge-in cut short: their provider.call.completed
+	// waits for the cost the provider reports later (stages_duplex_cost.go).
+	deferred, interrupted *completedCall
+	spent                 float64
 	// terminal is set once a limit closes the session: nothing more is run
 	// or reported.
 	terminal bool
@@ -442,7 +443,6 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 		round = dt.openRoundLocked()
 	}
 	dt.open = nil
-	dt.last = round
 	turn := dt.turn
 	dt.mu.Unlock()
 	dt.replyDue.Store(false)
@@ -450,7 +450,7 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
 	}
-	s.emitRoundCompleted(ctx, msg, round)
+	s.settleCompleted(ctx, round, msg)
 	return turn, round.rr
 }
 
@@ -465,6 +465,13 @@ func (s *DuplexProviderStage) charge(turn *duplexToolTurn, cost *types.CostInfo)
 	err := t.AddCost(cost)
 	dt.spent = t.cumulativeCost
 	return err
+}
+
+// callInProgress reports whether a provider call is open.
+func (dt *duplexTools) callInProgress() bool {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+	return dt.open != nil
 }
 
 // setTerminal marks the session as closing for a limit and reports whether
@@ -593,10 +600,12 @@ func (s *DuplexProviderStage) budgetSpent(
 func (s *DuplexProviderStage) chargeInterruptedTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement,
 ) *duplexToolJob {
-	if s.tools == nil || s.tools.isTerminal() {
-		return nil
+	if s.tools == nil || !elem.Meta.Interrupted ||
+		(elem.Message == nil && chunk.CostInfo == nil && !s.tools.callInProgress()) {
+		return nil // nothing was under way to interrupt
 	}
-	if !elem.Meta.Interrupted || (elem.Message == nil && chunk.CostInfo == nil) {
+	if s.tools.isTerminal() {
+		s.chargeSpend(chunk.CostInfo)
 		return nil
 	}
 	msg := elem.Message
@@ -616,6 +625,7 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 // emitRoundStarted emits provider.call.started for a realtime round, as
 // ProviderStage.emitProviderCallStarted does for a round.
 func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, rr roundRef) {
+	s.flushDeferredCall(ctx) // the last call's cost is not coming: report it
 	if s.emitter == nil {
 		return
 	}
@@ -632,15 +642,16 @@ func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, rr roundRef)
 	s.emitter.ProviderCallStartedCtx(ctx, data)
 }
 
-// emitRoundCompleted emits provider.call.completed for a realtime round,
-// timed from the round's start, as ProviderStage.emitProviderCallCompleted
-// does for a round.
-func (s *DuplexProviderStage) emitRoundCompleted(ctx context.Context, msg *types.Message, round *duplexRound) {
+// emitRoundCompleted emits provider.call.completed for a realtime round that
+// took dur, as ProviderStage.emitProviderCallCompleted does for a round.
+func (s *DuplexProviderStage) emitRoundCompleted(
+	ctx context.Context, msg *types.Message, round *duplexRound, dur time.Duration,
+) {
 	if s.emitter == nil {
 		return
 	}
 	data := &events.ProviderCallCompletedData{
-		Duration:      time.Since(round.start),
+		Duration:      dur,
 		ToolCallCount: len(msg.ToolCalls),
 		FinishReason:  msg.FinishReason,
 		Source:        s.tools.cfg.Source,

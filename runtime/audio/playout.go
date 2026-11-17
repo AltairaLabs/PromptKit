@@ -34,15 +34,23 @@ func PCM16Duration(n, sampleRate, channels int) time.Duration {
 type Playout struct {
 	now   func() time.Time
 	until time.Time
-	// items are the items not yet fully heard, in playout order.
+	// items are the stretches of audio not yet fully heard, in playout order.
 	items []playoutItem
+	// before is how much of each item played in its earlier stretches: audio
+	// for an item that arrives after its earlier audio ran out (a stall)
+	// starts a new stretch.
+	before map[itemKey]time.Duration
+}
+
+type itemKey struct {
+	id           string
+	contentIndex int
 }
 
 type playoutItem struct {
-	id           string
-	contentIndex int
-	start        time.Time
-	dur          time.Duration
+	itemKey
+	start time.Time
+	dur   time.Duration
 }
 
 // PlayoutCut is an item the listener had not fully heard when the playout
@@ -73,15 +81,16 @@ func (p *Playout) Add(itemID string, contentIndex int, d time.Duration) {
 	if now.After(start) {
 		start = now
 	}
+	key := itemKey{id: itemID, contentIndex: contentIndex}
 	if n := len(p.items); n > 0 {
 		last := &p.items[n-1]
-		if last.id == itemID && last.contentIndex == contentIndex && last.start.Add(last.dur).Equal(start) {
+		if last.itemKey == key && last.start.Add(last.dur).Equal(start) {
 			last.dur += d
 			p.until = start.Add(d)
 			return
 		}
 	}
-	p.items = append(p.items, playoutItem{id: itemID, contentIndex: contentIndex, start: start, dur: d})
+	p.items = append(p.items, playoutItem{itemKey: key, start: start, dur: d})
 	p.until = start.Add(d)
 }
 
@@ -99,18 +108,25 @@ func (p *Playout) Stop() []PlayoutCut {
 	for _, it := range p.items {
 		heard := min(max(now.Sub(it.start), 0), it.dur)
 		if heard < it.dur {
-			cuts = append(cuts, PlayoutCut{ItemID: it.id, ContentIndex: it.contentIndex, Heard: heard})
+			cuts = append(cuts, PlayoutCut{ItemID: it.id, ContentIndex: it.contentIndex,
+				Heard: p.before[it.itemKey] + heard})
 		}
 	}
 	p.items = nil
+	p.before = nil
 	p.until = time.Time{}
 	return cuts
 }
 
-// prune drops the items fully heard by now.
+// prune drops the stretches fully heard by now, remembering how much of
+// their item they played.
 func (p *Playout) prune(now time.Time) {
 	i := 0
 	for i < len(p.items) && !p.items[i].start.Add(p.items[i].dur).After(now) {
+		if p.before == nil {
+			p.before = map[itemKey]time.Duration{}
+		}
+		p.before[p.items[i].itemKey] += p.items[i].dur
 		i++
 	}
 	p.items = p.items[i:]

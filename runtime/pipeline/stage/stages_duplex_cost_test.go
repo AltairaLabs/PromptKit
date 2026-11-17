@@ -89,21 +89,99 @@ func assertCall(t *testing.T, d *events.ProviderCallCompletedData, in, out int) 
 	assert.InDelta(t, float64(in+out)/1000, d.Cost, 1e-12, "cost")
 }
 
-// Usage reported after its turn ended (as Gemini 3.x reports a tool-call
-// turn's) belongs to the call completed last: it is reported on that call.
-func TestDuplexCost_LateUsageIsReportedOnTheCallItBelongsTo(t *testing.T) {
-	h, ev := costHarness(t, 0)
-	h.emit(textTurn("hello", usd(20, 5)))
+// sumCosts is the total of msgs' CostInfo.
+func sumCosts(msgs []*types.Message) *types.CostInfo {
+	var total *types.CostInfo
+	for _, m := range msgs {
+		total = addCost(total, m.CostInfo)
+	}
+	return total
+}
+
+func assertCostInfo(t *testing.T, want, got *types.CostInfo) {
+	t.Helper()
+	require.NotNil(t, got)
+	assert.Equal(t, want.InputTokens, got.InputTokens, "input tokens")
+	assert.Equal(t, want.OutputTokens, got.OutputTokens, "output tokens")
+	assert.InDelta(t, want.TotalCost, got.TotalCost, 1e-12, "total cost")
+}
+
+func (h *realtimeHarness) spent() float64 {
+	h.stage.tools.mu.Lock()
+	defer h.stage.tools.mu.Unlock()
+	return h.stage.tools.spent
+}
+
+// Gemini 3 reports a tool-call turn's usage after its tool calls. The tool
+// call's provider.call.completed waits for it and is emitted once, with it;
+// the conversation's messages carry it on the next reply, so they add up to
+// the spend a resumed conversation's budget is rebuilt from.
+func TestDuplexCost_LateUsageGoesOnItsCallAndTheNextMessage(t *testing.T) {
+	emitter, ev := newCallEvents()
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), emitter: emitter})
+	h.emit(toolCallTurn(weatherCall("c1")))
 	h.emit([]providers.StreamChunk{{CostInfo: usd(600, 12)}})
+	ev.await(t, 1) // the tool call's call, with its usage, before the tool finishes
+	close(exec.gate)
+	h.awaitSent(1)
+	h.emit(textTurn("It is 21 degrees", usd(20, 5)))
 	calls := ev.await(t, 2)
 	msgs := costedReplies(h.finish())
 
-	require.Len(t, ev.await(t, 2), 2, "one call, and its late usage")
-	assertCall(t, calls[0], 20, 5)
-	assertCall(t, calls[1], 600, 12)
-	assert.Equal(t, calls[0].CallID, calls[1].CallID, "on the call the usage belongs to")
-	require.Len(t, msgs, 1, "nothing is added to the conversation")
-	assert.Equal(t, usd(20, 5), msgs[0].CostInfo)
+	require.Len(t, ev.await(t, 2), 2, "one event per call")
+	assert.Equal(t, 1, calls[0].ToolCallCount)
+	assertCall(t, calls[0], 600, 12)
+	assertCall(t, calls[1], 20, 5)
+	assert.NotEqual(t, calls[0].CallID, calls[1].CallID)
+	require.Len(t, msgs, 2)
+	assert.Nil(t, msgs[0].CostInfo)
+	assertCostInfo(t, usd(620, 17), msgs[1].CostInfo)
+	assert.InDelta(t, h.spent(), sumHistoryCost(derefMessages(msgs)), 1e-12)
+	assert.InDelta(t, 0.637, h.spent(), 1e-12)
+}
+
+func derefMessages(msgs []*types.Message) []types.Message {
+	out := make([]types.Message, len(msgs))
+	for i, m := range msgs {
+		out[i] = *m
+	}
+	return out
+}
+
+// A call completed without a cost whose cost never comes is reported when
+// the next call starts.
+func TestDuplexCost_CallWithoutCostIsReportedWhenTheNextStarts(t *testing.T) {
+	h, ev := costHarness(t, 0)
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.awaitSent(1)
+	h.emit(textTurn("It is 21 degrees", usd(20, 5)))
+	calls := ev.await(t, 2)
+	h.finish()
+
+	require.Len(t, ev.await(t, 2), 2)
+	assertCall(t, calls[0], 0, 0)
+	assertCall(t, calls[1], 20, 5)
+}
+
+// With the host running the tools (no registry), a Gemini 3 two-tool chain's
+// messages still carry every usage but what is reported as the session ends
+// with no message after it.
+func TestDuplexCost_HostRunToolChainKeepsEveryCost(t *testing.T) {
+	h := startRealtime(t, realtimeOpts{noToolSet: true})
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.emit([]providers.StreamChunk{{CostInfo: usd(919, 12)}})
+	h.emit(toolCallTurn(weatherCall("c2")))
+	h.emit([]providers.StreamChunk{{CostInfo: usd(952, 13)}})
+	h.emit(textTurn("Rome and Oslo are hazy", usd(986, 129)))
+	h.emit([]providers.StreamChunk{{CostInfo: usd(7, 1)}}) // session-end remainder
+	msgs := costedReplies(h.finish())
+
+	require.Len(t, msgs, 3)
+	assert.Nil(t, msgs[0].CostInfo)
+	assertCostInfo(t, usd(919, 12), msgs[1].CostInfo)
+	assertCostInfo(t, usd(952+986, 13+129), msgs[2].CostInfo)
+	assertCostInfo(t, usd(919+952+986, 12+13+129), sumCosts(msgs))
 }
 
 func TestDuplexCost_UsageOnlyChunkIsChargedWhenItArrives(t *testing.T) {
@@ -119,10 +197,10 @@ func TestDuplexCost_UsageOnlyChunkIsChargedWhenItArrives(t *testing.T) {
 	assert.Empty(t, costedReplies(elems), "no message without content")
 }
 
-// A turn's end that carries cost but nothing to build a message from (no
-// tokens counted) is still charged, and completes its call.
+// A turn's end that carries a cost but nothing to build a message from is
+// still charged.
 func TestDuplexCost_TurnEndWithoutAMessageIsCharged(t *testing.T) {
-	h, ev := costHarness(t, 0.01)
+	h, _ := costHarness(t, 0.01)
 	stop := "stop"
 	h.emit([]providers.StreamChunk{{FinishReason: &stop, CostInfo: &types.CostInfo{TotalCost: 0.02}}})
 	elems := drainUntilClosed(t, h.output)
@@ -131,14 +209,11 @@ func TestDuplexCost_TurnEndWithoutAMessageIsCharged(t *testing.T) {
 	errs := streamErrors(elems)
 	require.Len(t, errs, 1)
 	assert.Equal(t, "provider stage: cost budget exceeded (0.0200 > 0.0100 USD)", errs[0].Error())
-	calls := ev.await(t, 1)
-	assert.InDelta(t, 0.02, calls[0].Cost, 1e-12)
-	assert.Equal(t, "stop", calls[0].FinishReason)
 }
 
-// A barge-in's partial reply carries what the turn cost so far; the cost its
-// completion reports afterwards goes on the interrupted call, not on the
-// reply that follows.
+// A barge-in's partial reply carries what the turn cost so far. Its
+// completion's cost goes on the interrupted call's event (held until then,
+// one event) and on the next message.
 func TestDuplexCost_InterruptedTurnCost(t *testing.T) {
 	stop := "stop"
 	h, ev := costHarness(t, 0)
@@ -148,37 +223,46 @@ func TestDuplexCost_InterruptedTurnCost(t *testing.T) {
 		{FinishReason: &stop, CostInfo: usd(0, 6)},
 	})
 	h.emit(textTurn("Yes?", usd(30, 2)))
-	calls := ev.await(t, 3)
+	calls := ev.await(t, 2)
 	msgs := costedReplies(h.finish())
 
-	require.Len(t, ev.await(t, 3), 3, "the interrupted call twice, the reply once")
+	require.Len(t, ev.await(t, 2), 2, "the interrupted call once, the reply once")
+	assert.Equal(t, types.FinishReasonInterrupted, calls[0].FinishReason)
+	assertCall(t, calls[0], 80, 10)
+	assertCall(t, calls[1], 30, 2)
 	require.Len(t, msgs, 2)
-	assert.True(t, msgs[0].IsInterrupted())
-	assert.Equal(t, usd(80, 4), msgs[0].CostInfo)
-	assert.Equal(t, usd(30, 2), msgs[1].CostInfo, "the reply carries only its own cost")
-	assertCall(t, calls[0], 80, 4)
-	assertCall(t, calls[1], 0, 6)
-	assert.Equal(t, calls[0].CallID, calls[1].CallID, "the completion's cost is the interrupted call's")
-	assertCall(t, calls[2], 30, 2)
+	assertCostInfo(t, usd(80, 4), msgs[0].CostInfo)
+	assertCostInfo(t, usd(30, 8), msgs[1].CostInfo)
 }
 
-// Usage reported as the session ends is charged and reported; it adds no
-// message to the conversation.
-func TestDuplexCost_UsageAtSessionEndAddsNoMessage(t *testing.T) {
-	h, ev := costHarness(t, 0)
-	h.emit(textTurn("hello", usd(20, 5)))
-	h.emit([]providers.StreamChunk{{CostInfo: usd(600, 12)}})
-	msgs := costedReplies(h.finish())
-
-	require.Len(t, msgs, 1)
-	assertCall(t, ev.await(t, 2)[1], 600, 12)
-}
-
-// A barge-in before the reply produced anything or reported a cost leaves its
-// call open: the completion that follows reports it, once.
-func TestDuplexCost_EmptyInterruptionLeavesTheCallToItsCompletion(t *testing.T) {
+// The interrupted call's completion can arrive after the caller's next turn
+// began: its cost is still the interrupted call's, not the new call's.
+func TestDuplexCost_InterruptedCompletionAfterTheNextTurnBegins(t *testing.T) {
 	stop := "stop"
 	h, ev := costHarness(t, 0)
+	h.emit([]providers.StreamChunk{{Content: "Once upon", Delta: "Once upon"}, {Interrupted: true}})
+	earlier := h.toolTurn()
+	user := types.Message{Role: roleUser, Content: "stop, tell me about Rome"}
+	h.input <- StreamElement{Message: &user}
+	h.awaitNewToolTurn(earlier)
+	h.emit([]providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(50, 3)}})
+	h.emit(textTurn("Rome is hazy", usd(30, 2)))
+	calls := ev.await(t, 2)
+	h.finish()
+
+	require.Len(t, ev.await(t, 2), 2, "no phantom call")
+	assert.Equal(t, types.FinishReasonInterrupted, calls[0].FinishReason)
+	assertCall(t, calls[0], 50, 3)
+	assertCall(t, calls[1], 30, 2)
+	assert.NotEqual(t, calls[0].CallID, calls[1].CallID)
+}
+
+// A barge-in before the reply produced anything or reported a cost: the
+// completion that follows reports the interrupted call, once.
+func TestDuplexCost_EmptyInterruptionIsReportedOnItsCompletion(t *testing.T) {
+	stop := "stop"
+	h, ev := costHarness(t, 0)
+	h.emit([]providers.StreamChunk{{Delta: "x", Metadata: map[string]interface{}{"type": "output_transcription"}}})
 	h.emit([]providers.StreamChunk{{Interrupted: true}, {FinishReason: &stop, CostInfo: usd(0, 6)}})
 	h.emit(textTurn("Yes?", usd(30, 2)))
 	calls := ev.await(t, 2)
@@ -186,19 +270,5 @@ func TestDuplexCost_EmptyInterruptionLeavesTheCallToItsCompletion(t *testing.T) 
 
 	require.Len(t, ev.await(t, 2), 2)
 	assertCall(t, calls[0], 0, 6)
-	assertCall(t, calls[1], 30, 2)
-}
-
-// A cut-short reply with no cost reported yet still completes its call.
-func TestDuplexCost_InterruptedReplyCompletesItsCall(t *testing.T) {
-	h, ev := costHarness(t, 0)
-	h.emit([]providers.StreamChunk{{Content: "Once", Delta: "Once"}, {Interrupted: true}})
-	h.emit(textTurn("Yes?", usd(30, 2)))
-	calls := ev.await(t, 2)
-	h.finish()
-
-	require.Len(t, ev.await(t, 2), 2)
-	assert.Equal(t, types.FinishReasonInterrupted, calls[0].FinishReason)
-	assertCall(t, calls[0], 0, 0)
 	assertCall(t, calls[1], 30, 2)
 }

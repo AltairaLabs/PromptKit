@@ -154,6 +154,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// the provider will start a new response.
 		if msg := s.takeInterruptedTurn("barge-in"); msg != nil {
 			msg.CostInfo = chunk.CostInfo // what the cut-short turn cost so far
+			s.costPlaced = true
 			elem.Message = msg
 		}
 

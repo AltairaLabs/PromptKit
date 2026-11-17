@@ -141,3 +141,20 @@ func TestLiveUsage_InterruptedTurnCarriesItsUsage(t *testing.T) {
 	assert.True(t, got[0].Interrupted, "the interruption carries the usage so far")
 	assertCosts(t, chunks, [3]int{80, 4, 0}, [3]int{0, 6, 1})
 }
+
+// Usage reported on its own after an interruption is the interrupted turn's:
+// reported at once, not held for the next reply.
+func TestLiveUsage_UsageAfterAnInterruptionIsTheInterruptedTurns(t *testing.T) {
+	s := newProtocolTestSession(t)
+	process(t, s,
+		said("Once upon"),
+		&ServerMessage{ServerContent: &ServerContent{Interrupted: true}},
+		&ServerMessage{UsageMetadata: textUsage(70, 5)},
+		said("Yes?"), turnComplete(textUsage(10, 2)),
+	)
+
+	chunks := drainChunks(t, s)
+	assertCosts(t, chunks, [3]int{70, 5, 0}, [3]int{10, 2, 1})
+	got := costs(chunks)
+	assert.False(t, got[0].Interrupted, "reported on its own, after the interruption")
+}

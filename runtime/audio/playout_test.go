@@ -59,7 +59,22 @@ func TestPlayout_AudioAfterSilencePlaysFromArrival(t *testing.T) {
 	p.Add("A", 0, time.Second) // same item, but after a gap: plays from now
 	c.t = playoutT0.Add(5200 * time.Millisecond)
 
-	assert.Equal(t, []PlayoutCut{{ItemID: "A", Heard: 200 * time.Millisecond}}, p.Stop())
+	assert.Equal(t, []PlayoutCut{{ItemID: "A", Heard: 1200 * time.Millisecond}}, p.Stop(),
+		"heard counts the item's audio across the stall")
+}
+
+// An item stalls after 1 s; its next 1 s arrives 4 s later. Stopped 500 ms
+// into the second stretch, the listener heard 1.5 s of it.
+func TestPlayout_HeardSpansAStall(t *testing.T) {
+	c := &testClock{t: playoutT0}
+	p := NewPlayout(c.now)
+	p.Add("A", 0, time.Second)
+	c.t = playoutT0.Add(5 * time.Second)
+	p.Add("B", 0, 0) // nothing: ignored
+	p.Add("A", 0, time.Second)
+	c.t = playoutT0.Add(5500 * time.Millisecond)
+
+	assert.Equal(t, []PlayoutCut{{ItemID: "A", Heard: 1500 * time.Millisecond}}, p.Stop())
 }
 
 func TestPlayout_IgnoresEmptyAudio(t *testing.T) {

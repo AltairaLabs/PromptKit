@@ -206,7 +206,6 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 			logger.Debug("StreamSession: ignoring usage on a toolCall message")
 		}
 		s.toolCallTurn = true
-		s.turnOpen = true
 		return s.handleToolCalls(msg.ToolCall)
 	}
 
@@ -356,6 +355,7 @@ func (s *StreamSession) processServerContent(content *ServerContent) error {
 		// still-arriving audio until the turn completes — plus the in-band
 		// Interrupted chunk for the pipeline.
 		s.playoutEstimate().Stop()
+		s.turnOpen = false // the interruption ends the turn; later usage is its
 		s.Barge()
 		marker := providers.BargeMarker()
 		if err := s.sendChunk(&marker); err != nil {

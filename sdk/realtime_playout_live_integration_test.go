@@ -235,8 +235,10 @@ func TestLiveRealtimePlayout_BargeInWhileTheFinishedReplyPlays(t *testing.T) {
 	}
 }
 
-// A Gemini Live tool turn is charged: its provider calls carry tokens and cost.
-func TestLiveRealtimePlayout_GeminiToolTurnCost(t *testing.T) {
+// A Gemini Live two-tool chain is charged in full: one provider.call.completed
+// per call, each tool call's carrying its own usage (reported after its tool
+// calls), and the conversation's messages adding up to the events' total.
+func TestLiveRealtimePlayout_GeminiToolChainCost(t *testing.T) {
 	if os.Getenv("GEMINI_API_KEY") == "" {
 		t.Skip("GEMINI_API_KEY not set")
 	}
@@ -244,44 +246,42 @@ func TestLiveRealtimePlayout_GeminiToolTurnCost(t *testing.T) {
 	bus, ev := rtlBus(t)
 	conv := rtlOpenDuplex(t, rt, rtlWeatherPackJSON, sdk.WithEventBus(bus))
 	calls := &rtlCalls{}
-	conv.OnToolCall("get_weather", calls.handler(rtlWeatherResult, nil))
+	conv.OnToolCall("get_weather", func(ctx context.Context, call sdk.ToolCall) (any, error) {
+		time.Sleep(300 * time.Millisecond) // a tool that takes a moment
+		return calls.handler(rtlWeatherResult, nil)(ctx, call)
+	})
 	st := rtlWatch(t, conv)
 
-	require.NoError(t, conv.SendText(context.Background(), rtlWeatherPrompt))
-	require.Truef(t, st.waitText(0, rtlTimeout, "tangerine"), "the reply never used the tool result: %q", st.Text())
-	var cost float64
-	var in, out int
-	require.Truef(t, rtlWaitUntil(10*time.Second, func() bool {
-		cost, in, out = 0, 0, 0
-		for _, d := range ev.providerCompleted() {
-			cost += d.Cost
-			in += d.InputTokens
-			out += d.OutputTokens
-		}
-		return len(ev.providerCompleted()) >= 3 && cost > 0
-	}), "the tool turn's provider calls carry no cost (events %s)", ev.summary())
+	require.NoError(t, conv.SendText(context.Background(),
+		"First call get_weather for Rome. After you get that result, call get_weather for Oslo. "+
+			"Then tell me both conditions in one sentence."))
+	require.Truef(t, rtlWaitUntil(rtlTimeout, func() bool { return calls.count() >= 2 }),
+		"the chain never made two calls; reply %q", st.Text())
+	require.Truef(t, st.waitText(0, rtlTimeout, "tangerine"), "the reply never used the results: %q", st.Text())
+	require.True(t, rtlWaitUntil(10*time.Second, func() bool { return len(ev.providerCompleted()) >= 3 }))
+	time.Sleep(2 * time.Second) // let the reply's event land
+
+	perCall := map[string]int{}
+	var eventCost float64
 	for _, d := range ev.providerCompleted() {
+		perCall[d.CallID]++
+		eventCost += d.Cost
 		t.Logf("provider.call.completed round=%d tools=%d in=%d out=%d cost=%.6f finish=%s",
 			d.Round, d.ToolCallCount, d.InputTokens, d.OutputTokens, d.Cost, d.FinishReason)
-	}
-	assert.Positive(t, in)
-	assert.Positive(t, out)
-	assert.Positive(t, cost)
-
-	// Gemini 3 reports the tool-call turn's own usage after its tool calls:
-	// it is reported on the tool call's provider call, not the reply's.
-	toolCalls := map[string]bool{}
-	var toolCallCost float64
-	for _, d := range ev.providerCompleted() {
 		if d.ToolCallCount > 0 {
-			toolCalls[d.CallID] = true
+			assert.Positive(t, d.Cost, "the tool call's provider call carries its own usage")
 		}
 	}
-	for _, d := range ev.providerCompleted() {
-		if toolCalls[d.CallID] {
-			toolCallCost += d.Cost
+	for id, n := range perCall {
+		assert.Equal(t, 1, n, "one provider.call.completed for call %s", id)
+	}
+	var messageCost float64
+	for _, m := range conv.Messages(context.Background()) {
+		if m.CostInfo != nil {
+			messageCost += m.CostInfo.TotalCost
 		}
 	}
-	require.NotEmpty(t, toolCalls)
-	assert.Positive(t, toolCallCost, "the tool-call turn's provider call carries its cost")
+	t.Logf("events total $%.6f, messages total $%.6f", eventCost, messageCost)
+	assert.Positive(t, eventCost)
+	assert.InDelta(t, eventCost, messageCost, 1e-9, "the messages carry every cost the events report")
 }

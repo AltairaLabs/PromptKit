@@ -288,3 +288,17 @@ func TestRealtimePlayout_PendingTruncatesAreBounded(t *testing.T) {
 	assert.True(t, tr.rejected(fmt.Sprintf("evt_%d", maxPendingTruncates)))
 	assert.False(t, tr.rejected(""))
 }
+
+// Two truncates pending for one item: an ack takes the older, and an error
+// still names the newer by its event ID.
+func TestRealtimePlayout_TwoTruncatesForOneItem(t *testing.T) {
+	var tr truncateTracker
+	tr.sent("evt_1", "item_a")
+	tr.sent("evt_2", "item_a")
+	tr.done("item_a")
+
+	assert.Equal(t, 1, tr.len())
+	assert.False(t, tr.rejected("evt_1"), "the ack took the older truncate")
+	assert.True(t, tr.rejected("evt_2"))
+	assert.Zero(t, tr.len())
+}

@@ -140,8 +140,10 @@ type DuplexProviderStage struct {
 	wasInterrupted bool
 
 	// costPlaced is set by chunkToElement when it puts the chunk's cost on the
-	// message it builds (stages_duplex_cost.go). Response goroutine only.
-	costPlaced bool
+	// message it builds; carriedCost is cost no emitted message carries yet
+	// (stages_duplex_cost.go). Response goroutine only.
+	costPlaced  bool
+	carriedCost *types.CostInfo
 
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
@@ -1259,10 +1261,12 @@ func (s *DuplexProviderStage) processResponseChunk(
 // stage needs a chance to receive even though context is canceled. This is
 // critical for capturing partial responses.
 func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output chan<- StreamElement) {
+	s.flushCompletedCalls(ctx)
 	msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx)))
 	if msg == nil {
 		return
 	}
+	s.takeCarriedCost(msg)
 	elem := StreamElement{
 		Message:     msg,
 		EndOfStream: true,
@@ -1373,6 +1377,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 			"accumulated_media_len", len(s.accumulatedMedia))
 	}
 
+	s.flushCompletedCalls(ctx)
 	msg := s.takeInterruptedTurn(cause)
 	if s.inputFailed.Load() {
 		// An input hook denied: its error element is the session's last
@@ -1383,6 +1388,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 	if msg == nil {
 		return s.flushBlockedTurns(ctx, output)
 	}
+	s.takeCarriedCost(msg)
 	elem := StreamElement{
 		Message:     msg,
 		EndOfStream: true,
@@ -1562,6 +1568,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 func (s *DuplexProviderStage) completeChunkTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement, turnDone bool,
 ) (*duplexToolJob, error) {
+	unplaced := chunk.CostInfo != nil && !s.costPlaced
 	round := s.chargeInterruptedTurn(ctx, chunk, elem)
 	if turnDone {
 		if err := s.guardCompletedTurn(ctx, elem); err != nil {
@@ -1569,9 +1576,10 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		}
 		round = s.prepareToolRound(ctx, elem)
 	}
-	if job := s.reportUnplacedCost(ctx, chunk, elem); job != nil {
+	if job := s.reportLateCost(ctx, chunk, elem, unplaced); job != nil {
 		round = job
 	}
+	s.placeCarriedCost(chunk, elem, unplaced)
 	return round, nil
 }
 
