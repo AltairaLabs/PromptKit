@@ -51,7 +51,9 @@ import (
 // # Format support
 //
 // This is a Transform stage: 1 input element → 1 output element, with
-// audio elements emitted at chunk-duration intervals. Operates on PCM16
+// audio elements emitted at chunk-duration intervals (with WithFlushOnCut, a
+// cut drops the queued audio of the reply it cuts and resets the sequence;
+// see WithFlushOnCut). Operates on PCM16
 // (and PCM Float32) audio only; chunks with no fixed bytes-per-sample
 // (Opus / MP3 / AAC) pass through without pacing — their wire-rate
 // duration can't be derived from a chunk's byte length, and we'd
@@ -113,6 +115,45 @@ type AudioPacingStage struct {
 	// during sleep without burning wall-clock time. nil falls back to
 	// realClock{} (time.Now / time.After).
 	clock pacingClock
+
+	// flushOnCut makes the stage read its input ahead of the pacing and drop
+	// the queued audio of a reply that is cut (see WithFlushOnCut).
+	flushOnCut bool
+}
+
+// WithFlushOnCut makes an output-direction pacer honor barge-in and
+// guardrail cuts. A realtime model sends a reply's audio faster than it
+// plays, so without it the stage holds the pipeline at playback speed and a
+// cut (an Interrupt element, or one marked Meta.Interrupted) waits behind
+// every chunk of the reply sent before it: the caller hears the whole reply
+// and everything upstream (transcript, events) stalls with it. With it the
+// stage reads its input as fast as it arrives, forwards a cut at once, and
+// drops the audio of the cut reply that has not been forwarded yet (an
+// element that carries more than audio, such as a transcript or the reply's
+// end, still goes on without it). Audio after the cut starts a new sequence.
+// The read-ahead queue is not bounded: it holds the unplayed audio of the
+// replies in flight. Use it only on output audio: on input
+// it would discard the caller's speech.
+func (s *AudioPacingStage) WithFlushOnCut() *AudioPacingStage {
+	s.flushOnCut = true
+	return s
+}
+
+// pacesAudio reports whether elem carries audio the stage paces.
+func pacesAudio(elem *StreamElement) bool {
+	return elem.Audio != nil && len(elem.Audio.Samples) > 0 && elem.Audio.SampleRate > 0
+}
+
+// resetSequence starts a new audio sequence: the next chunk forwards at once
+// and preroll re-arms.
+func (s *AudioPacingStage) resetSequence() {
+	s.last = time.Time{}
+	s.chunksThisSequence = 0
+}
+
+// isCut reports whether elem cuts the reply being played.
+func isCut(elem *StreamElement) bool {
+	return elem.Interrupt || elem.Meta.Interrupted
 }
 
 // pacingClock abstracts time access so tests can simulate the wall
@@ -173,10 +214,13 @@ func (s *AudioPacingStage) Process(
 	input <-chan StreamElement,
 	output chan<- StreamElement,
 ) error {
+	if s.flushOnCut {
+		return s.processFlushOnCut(ctx, input, output)
+	}
 	defer close(output)
 
 	for elem := range input {
-		if elem.Audio != nil && len(elem.Audio.Samples) > 0 && elem.Audio.SampleRate > 0 {
+		if pacesAudio(&elem) {
 			if err := s.paceFor(ctx, &elem); err != nil {
 				return err
 			}
@@ -189,8 +233,7 @@ func (s *AudioPacingStage) Process(
 		// transcript chunk releases another preroll burst and the
 		// downstream consumer accumulates seconds of buffered audio.
 		if elem.EndOfStream {
-			s.last = time.Time{}
-			s.chunksThisSequence = 0
+			s.resetSequence()
 		}
 
 		select {
