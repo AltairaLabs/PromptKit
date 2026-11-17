@@ -1777,7 +1777,7 @@ resp, _ = conv.Continue(ctx) // LLM receives tool results
 ```
 
 <a name="Conversation.ContinueDuplex"></a>
-### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L667>)
+### func \(\*Conversation\) [ContinueDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L672>)
 
 ```go
 func (c *Conversation) ContinueDuplex(ctx context.Context) error
@@ -1850,7 +1850,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L859>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L865>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -2456,7 +2456,7 @@ func (c *Conversation) PackGovernance() *Governance
 PackGovernance returns the pack\-level governance declaration, ignoring any agent scope. Use it to show what the pack claims as a whole; use Governance for what applies to this conversation.
 
 <a name="Conversation.PendingTools"></a>
-### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L732>)
+### func \(\*Conversation\) [PendingTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L738>)
 
 ```go
 func (c *Conversation) PendingTools(ctx context.Context) ([]*sdktools.PendingToolCall, error)
@@ -2674,7 +2674,7 @@ A session whose Response\(\) is never called does not stall: the SDK drops outpu
 A chunk with Error set does not end the channel: some errors are reported while the session goes on \(a realtime tool turn a limit stopped, say\), and later input is still answered. The channel closes when the session ends, after any error that ended it.
 
 <a name="Conversation.Resume"></a>
-### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L376>)
+### func \(\*Conversation\) [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L382>)
 
 ```go
 func (c *Conversation) Resume(ctx context.Context) (*Response, error)
@@ -2684,8 +2684,10 @@ Resume continues pipeline execution after all deferred client tools have been re
 
 The resolved tool results are injected as tool\-result messages and a new LLM round is triggered. The returned Response contains the assistant's reply. A result for a call the history already answers, or a second result for the same call, is dropped: each call is answered once. So is a result for a call the suspended turn did not make. Results stored for a suspended turn are discarded when Send or Stream starts a new turn instead of resuming it.
 
+A client's result reaches the model as the JSON the client sent, unformatted and not truncated: the stored result is also what an AG\-UI consumer is shown as TOOL\_CALL\_RESULT. This differs from [Conversation.Continue](<#Conversation.Continue>) and [Conversation.ContinueDuplex](<#Conversation.ContinueDuplex>), which give the model an approved result as a tool the pipeline ran would.
+
 <a name="Conversation.ResumeStream"></a>
-### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L428>)
+### func \(\*Conversation\) [ResumeStream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L434>)
 
 ```go
 func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk
@@ -3136,7 +3138,7 @@ If no handler has been registered via [Conversation.OnStreamEvent](<#Conversatio
 Returns the complete Response or an error.
 
 <a name="Conversation.ToolRegistry"></a>
-### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L748>)
+### func \(\*Conversation\) [ToolRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation_tools.go#L754>)
 
 ```go
 func (c *Conversation) ToolRegistry() *tools.Registry

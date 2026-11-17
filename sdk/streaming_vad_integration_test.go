@@ -11,7 +11,16 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
-// TestVADModeStreaming tests the VAD mode flow: text-based streaming with Gemini
+// vadGeminiModel is the Gemini model these live tests run against:
+// GEMINI_VAD_MODEL, or a current default.
+func vadGeminiModel() string {
+	if m := os.Getenv("GEMINI_VAD_MODEL"); m != "" {
+		return m
+	}
+	return "gemini-2.5-flash"
+}
+
+// TestVADModeStreaming tests the VAD mode flow: text-based streaming with Gemini.
 // This simulates what happens in the voice interview when speech is transcribed
 // and sent to the LLM for a response.
 func TestVADModeStreaming(t *testing.T) {
@@ -23,8 +32,8 @@ func TestVADModeStreaming(t *testing.T) {
 	// Create Gemini provider (same as VAD mode uses)
 	geminiProvider := gemini.NewProvider(
 		"gemini",
-		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
+		vadGeminiModel(),
+		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
 			MaxTokens:   500,
@@ -100,8 +109,8 @@ func TestVADModeStreamingWithParts(t *testing.T) {
 
 	geminiProvider := gemini.NewProvider(
 		"gemini",
-		"gemini-2.0-flash-exp",
-		"https://generativelanguage.googleapis.com",
+		vadGeminiModel(),
+		"https://generativelanguage.googleapis.com/v1beta",
 		providers.ProviderDefaults{
 			Temperature: 0.7,
 			MaxTokens:   500,

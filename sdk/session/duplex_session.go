@@ -668,7 +668,12 @@ func (s *duplexSession) SubmitToolResults(ctx context.Context, responses []provi
 		// The response carries only the call ID. The result message joins
 		// the conversation history, and a provider that replays history keyed
 		// by name (unary Gemini's functionResponse.name) rejects an empty one.
-		toolResult := types.NewTextToolResult(resp.ToolCallID, s.takeCallName(resp.ToolCallID), resp.Result)
+		name := s.takeCallName(resp.ToolCallID)
+		toolResult := types.NewTextToolResult(resp.ToolCallID, name, resp.Result)
+		if len(resp.Parts) > 0 {
+			// A multimodal result's media joins the history with its text.
+			toolResult = types.MessageToolResult{ID: resp.ToolCallID, Name: name, Parts: resp.Parts}
+		}
 		if resp.IsError {
 			toolResult.Error = resp.Result
 		}

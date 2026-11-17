@@ -113,7 +113,7 @@ func TestE2E_AbandonedApprovalDoesNotLeak(t *testing.T) {
 
 	last := provider.seen[len(provider.seen)-1]
 	assert.Empty(t, toolContents(last, "h1"), "the abandoned hold's result does not reach the model")
-	assert.Equal(t, []string{`"second"`}, toolContents(last, "h2"))
+	assert.Equal(t, []string{"second"}, toolContents(last, "h2"))
 }
 
 // A provider answered call_0 in run 1 and its TOOL_CALL_RESULT went out

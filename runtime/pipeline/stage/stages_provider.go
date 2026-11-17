@@ -464,7 +464,7 @@ func (s *ProviderStage) handleToolResult(
 //
 //nolint:unused // tests call it on the stage
 func (s *ProviderStage) enforceResultSizeLimit(toolName, content string) string {
-	return s.runner().enforceResultSizeLimit(toolName, content)
+	return tools.TruncateResultText(toolName, content, s.runner().maxResultSize())
 }
 
 // activeCall is the provider and parameters the next round runs with.

@@ -437,52 +437,6 @@ func TestIsToolBlocked(t *testing.T) {
 	}
 }
 
-func TestFormatToolResult(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    interface{}
-		expected string
-	}{
-		{
-			name:     "string value",
-			input:    "simple string",
-			expected: "simple string",
-		},
-		{
-			name:     "map value",
-			input:    map[string]interface{}{"key": "value"},
-			expected: "{\n  \"key\": \"value\"\n}",
-		},
-		{
-			name:     "array value",
-			input:    []interface{}{"a", "b"},
-			expected: "[\n  \"a\",\n  \"b\"\n]",
-		},
-		{
-			name:     "number value",
-			input:    42,
-			expected: "42",
-		},
-		{
-			name:     "boolean value",
-			input:    true,
-			expected: "true",
-		},
-		{
-			name:     "nil value",
-			input:    nil,
-			expected: "<nil>",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := formatToolResult(tt.input)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 // A stage built with no config still runs a turn: the user message reaches
 // the provider and the reply comes back as the assistant message.
 func TestNewProviderStage_NilConfig(t *testing.T) {
@@ -3389,4 +3343,23 @@ func TestProviderStage_BareTextIsTheUserTurn(t *testing.T) {
 		assert.Equal(t, []types.Message{{Role: "user", Content: "hi there"}}, provider.requests[0])
 		assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
 	})
+}
+
+// A tool result reaches the model with every value exact: a large integer
+// keeps its digits and null reads null.
+func TestProviderStage_HandleToolResult_ValuesStayExact(t *testing.T) {
+	stage := NewProviderStage(mock.NewProvider("test", "model", false), nil, nil, nil)
+	call := types.MessageToolCall{ID: "c", Name: "t", Args: json.RawMessage(`{}`)}
+
+	for content, want := range map[string]string{
+		`9007199254740993`:        "9007199254740993",
+		`10000000`:                "10000000",
+		`null`:                    "null",
+		`{"id":9007199254740993}`: "{\n  \"id\": 9007199254740993\n}",
+	} {
+		result := stage.handleToolResult(call, &tools.ToolExecutionResult{
+			Status: tools.ToolStatusComplete, Content: []byte(content),
+		})
+		assert.Equal(t, want, result.GetTextContent(), content)
+	}
 }

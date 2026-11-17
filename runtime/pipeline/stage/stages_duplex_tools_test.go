@@ -1385,8 +1385,8 @@ func TestDuplexTools_MediaOnlyResult(t *testing.T) {
 	}
 }
 
-// An empty text result has nothing dropped: it is sent empty, with no
-// placeholder, to a session that cannot send parts.
+// An empty text result has nothing dropped, and is not sent as an empty text
+// block (some providers reject one): it reads "" (two quote characters).
 func TestDuplexTools_EmptyTextResultGetsNoPlaceholder(t *testing.T) {
 	reg := registryWithTools(t, "weather")
 	reg.RegisterExecutor(&mockAsyncExecutor{name: "local", status: tools.ToolStatusComplete,
@@ -1399,7 +1399,7 @@ func TestDuplexTools_EmptyTextResultGetsNoPlaceholder(t *testing.T) {
 	require.Len(t, sent, 1)
 	require.Len(t, sent[0], 1)
 	assert.Equal(t, "c1", sent[0][0].ToolCallID)
-	assert.Equal(t, "", sent[0][0].Result)
+	assert.Equal(t, `""`, sent[0][0].Result)
 	h.finish()
 }
 

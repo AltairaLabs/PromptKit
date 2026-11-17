@@ -531,38 +531,20 @@ func (r *toolRunner) buildToolResult(
 		return failResult, nil
 
 	case tools.ToolStatusComplete:
-		// Tool completed successfully
-		content := string(asyncResult.Content)
-
-		// Try to format nicely if it's JSON
-		var resultValue interface{}
-		if json.Unmarshal(asyncResult.Content, &resultValue) == nil {
-			content = formatToolResult(resultValue)
+		// The model is given the result as BuildModelResult prepares it: formatted,
+		// rewritten, capped, and its multimodal parts kept.
+		result, err := tools.BuildModelResult(asyncResult.Content, asyncResult.Parts, tools.ModelResultOptions{
+			ToolName: call.Name,
+			MaxSize:  r.maxResultSize(),
+			Rewrite:  rewrite,
+		})
+		if err != nil {
+			return types.MessageToolResult{}, err
 		}
-
-		// If the executor returned multimodal parts, propagate them directly;
-		// otherwise wrap the text content as a single text ContentPart (legacy path).
-		if len(asyncResult.Parts) > 0 {
-			parts, err := r.rewriteTextParts(call.Name, asyncResult.Parts, rewrite)
-			if err != nil {
-				return types.MessageToolResult{}, err
-			}
-			return types.MessageToolResult{
-				ID:    call.ID,
-				Name:  call.Name,
-				Parts: parts,
-			}, nil
+		if len(result.Parts) > 0 {
+			return types.MessageToolResult{ID: call.ID, Name: call.Name, Parts: result.Parts}, nil
 		}
-
-		if rewrite != nil {
-			var err error
-			if content, err = rewrite(content); err != nil {
-				return types.MessageToolResult{}, err
-			}
-		}
-		// Enforce tool result size limit
-		content = r.enforceResultSizeLimit(call.Name, content)
-		return types.NewTextToolResult(call.ID, call.Name, content), nil
+		return types.NewTextToolResult(call.ID, call.Name, result.Text), nil
 
 	default:
 		unknownMsg := fmt.Sprintf("Unknown tool status: %v", asyncResult.Status)
@@ -572,54 +554,13 @@ func (r *toolRunner) buildToolResult(
 	}
 }
 
-// rewriteTextParts rewrites each text part of a multimodal result, capped
-// at the size limit, and keeps the media parts in place. Without rewrite the
-// parts are returned as they are.
-func (r *toolRunner) rewriteTextParts(
-	name string, parts []types.ContentPart, rewrite func(string) (string, error),
-) ([]types.ContentPart, error) {
-	if rewrite == nil {
-		return parts, nil
-	}
-	out := make([]types.ContentPart, len(parts))
-	for i, p := range parts {
-		if p.Type != types.ContentTypeText || p.Text == nil {
-			out[i] = p
-			continue
-		}
-		text, err := rewrite(*p.Text)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = types.NewTextPart(r.enforceResultSizeLimit(name, text))
-	}
-	return out, nil
-}
-
-// enforceResultSizeLimit truncates the tool result content if it exceeds the
-// configured maximum size from the tool registry.
-func (r *toolRunner) enforceResultSizeLimit(toolName, content string) string {
+// maxResultSize is the registry's tool result size limit in bytes, zero for
+// none.
+func (r *toolRunner) maxResultSize() int {
 	if r.registry == nil {
-		return content
+		return 0
 	}
-	maxSize := r.registry.MaxToolResultSize()
-	if maxSize <= 0 {
-		return content
-	}
-	size := len(content)
-	if size <= maxSize {
-		return content
-	}
-	logger.Warn("Tool result truncated",
-		"tool", toolName,
-		"size", size,
-		"limit", maxSize,
-	)
-	truncated := content[:maxSize]
-	return fmt.Sprintf(
-		"%s\n... [truncated, %d bytes exceeded limit of %d bytes]",
-		truncated, size, maxSize,
-	)
+	return r.registry.MaxToolResultSize()
 }
 
 // isToolBlocked checks if a tool is in the blocklist
@@ -630,30 +571,6 @@ func isToolBlocked(toolName string, blocklist []string) bool {
 		}
 	}
 	return false
-}
-
-// formatToolResult formats tool result for display
-func formatToolResult(value interface{}) string {
-	switch v := value.(type) {
-	case string:
-		return v
-	case map[string]interface{}:
-		// Pretty print JSON objects
-		bytes, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return string(bytes)
-	case []interface{}:
-		// Pretty print JSON arrays
-		bytes, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return string(bytes)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
 }
 
 // toolExcludedReason is the tool.excluded reason for the rejection rule.

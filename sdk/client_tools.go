@@ -373,6 +373,12 @@ func (c *Conversation) RejectClientTool(_ context.Context, callID, reason string
 // same call, is dropped: each call is answered once. So is a result for a
 // call the suspended turn did not make. Results stored for a suspended turn
 // are discarded when Send or Stream starts a new turn instead of resuming it.
+//
+// A client's result reaches the model as the JSON the client sent, unformatted
+// and not truncated: the stored result is also what an AG-UI consumer is shown
+// as TOOL_CALL_RESULT. This differs from [Conversation.Continue] and
+// [Conversation.ContinueDuplex], which give the model an approved result as a
+// tool the pipeline ran would.
 func (c *Conversation) Resume(ctx context.Context) (*Response, error) {
 	startTime := time.Now()
 

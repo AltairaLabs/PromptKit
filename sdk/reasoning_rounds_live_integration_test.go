@@ -319,10 +319,19 @@ func TestLive_NonRecordingConsumer_GetsCorrelatedReasoning(t *testing.T) {
 		"%d reasoning.delta, %d tool.call.started",
 		len(created), len(completed), len(deltas), len(toolStarted))
 
-	// Precondition: this really is the no-recording case. If message.created
-	// showed up, recording got wired somehow and the test proves nothing.
-	require.Empty(t, created,
-		"expected NO message.created without WithRecording; recording appears to be enabled")
+	// message.created is a live bus route (#1872): a store without WithRecording
+	// receives each message once, from the bus. Were recording on, the same
+	// store would get a second copy (or the bus copy would be dropped); either
+	// way the count would no longer match the history one-to-one.
+	seen := map[int]bool{}
+	for _, e := range created {
+		data, ok := e.Data.(*events.MessageCreatedData)
+		require.True(t, ok, "message.created carries MessageCreatedData")
+		require.False(t, seen[data.Index], "message %d reached the store twice", data.Index)
+		seen[data.Index] = true
+	}
+	require.Len(t, created, len(conv.Messages(ctx)),
+		"expected each message once on the bus without WithRecording")
 
 	require.NotEmpty(t, completed,
 		"a non-recording consumer received NO reasoning.completed — the assembled trace "+
@@ -415,7 +424,7 @@ func liveReasoningProviders() []liveReasoningProvider {
 	}
 	openaiModel := os.Getenv("OPENAI_REASONING_MODEL")
 	if openaiModel == "" {
-		openaiModel = "o4-mini"
+		openaiModel = "gpt-5-mini"
 	}
 
 	return []liveReasoningProvider{

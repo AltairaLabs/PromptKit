@@ -609,24 +609,29 @@ func (c *Conversation) Continue(ctx context.Context) (*Response, error) {
 	// Build tool result messages from resolutions
 	toolMsgs := make([]types.Message, 0, len(resolutions))
 	for _, res := range resolutions {
+		name := callNames()[res.ID]
 		var content string
 		var errStr string
-		if res.Rejected {
+		var parts []types.ContentPart
+		switch {
+		case res.Rejected:
 			content = fmt.Sprintf("Tool call rejected: %s", res.RejectionReason)
 			errStr = "rejected by user"
-		} else if res.Error != nil {
+		case res.Error != nil:
 			errStr = toolResultErrorText(res.Error)
 			content = "Tool error: " + errStr
-		} else if res.ResultJSON != nil {
-			content = string(res.ResultJSON)
-		} else {
-			content = fmt.Sprintf("%v", res.Result)
+		default:
+			given := c.modelResult(name, res)
+			content, parts = given.Text, given.Parts
 		}
 
 		// The result names the tool it answers, as an in-turn result does: a
 		// provider can match a result to its call by name (Gemini's
 		// functionResponse carries only the name).
-		toolResult := types.NewTextToolResult(res.ID, callNames()[res.ID], content)
+		toolResult := types.NewTextToolResult(res.ID, name, content)
+		if parts != nil {
+			toolResult = types.MessageToolResult{ID: res.ID, Name: name, Parts: parts}
+		}
 		toolResult.Error = errStr
 		toolMsgs = append(toolMsgs, types.NewToolResultMessage(toolResult))
 	}
@@ -676,11 +681,13 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	if len(resolutions) == 0 {
 		return fmt.Errorf("no resolved tools to continue with")
 	}
-	c.admitDeferredResults(resolutions, c.lazyCallNames(ctx))
+	names := c.lazyCallNames(ctx)
+	c.admitDeferredResults(resolutions, names)
 
 	responses := make([]providers.ToolResponse, 0, len(resolutions))
 	for _, res := range resolutions {
 		var result string
+		var parts []types.ContentPart
 		var isError bool
 		switch {
 		case res.Rejected:
@@ -689,14 +696,14 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 		case res.Error != nil:
 			result = "Tool error: " + toolResultErrorText(res.Error)
 			isError = true
-		case res.ResultJSON != nil:
-			result = toolResultText(res.ResultJSON)
 		default:
-			result = fmt.Sprintf("%v", res.Result)
+			given := c.modelResult(names()[res.ID], res)
+			result, parts = given.Text, given.Parts
 		}
 		responses = append(responses, providers.ToolResponse{
 			ToolCallID: res.ID,
 			Result:     result,
+			Parts:      parts,
 			IsError:    isError,
 		})
 	}
@@ -704,25 +711,24 @@ func (c *Conversation) ContinueDuplex(ctx context.Context) error {
 	return c.duplexSession.SubmitToolResults(ctx, responses)
 }
 
-// toolResultText is a JSON result as the model is given the result of a call
-// the pipeline runs (the provider stage's formatting): a string unquoted, an
-// object or array indented, any other value printed, and text that is not
-// JSON as it is. An approved realtime call's result then reads the same as
-// one that ran without approval.
-func toolResultText(raw json.RawMessage) string {
-	var value any
-	if json.Unmarshal(raw, &value) != nil {
-		return string(raw)
-	}
-	switch v := value.(type) {
-	case string:
-		return v
-	case map[string]any, []any:
-		if indented, err := json.MarshalIndent(v, "", "  "); err == nil {
-			return string(indented)
+// modelResult is an approved or answered call's result as the model is given
+// the result of a call the pipeline runs (tools.BuildModelResult): formatted,
+// and capped at the registry's size limit, its parts kept. Rewriting is not applied here (#2723).
+func (c *Conversation) modelResult(name string, res *sdktools.ToolResolution) tools.ModelResult {
+	raw := res.ResultJSON
+	if raw == nil && len(res.Parts) == 0 {
+		if marshaled, err := json.Marshal(res.Result); err == nil {
+			raw = marshaled
+		} else {
+			raw = json.RawMessage(fmt.Sprintf("%v", res.Result))
 		}
 	}
-	return fmt.Sprintf("%v", value)
+	opts := tools.ModelResultOptions{ToolName: name}
+	if c.toolRegistry != nil {
+		opts.MaxSize = c.toolRegistry.MaxToolResultSize()
+	}
+	given, _ := tools.BuildModelResult(raw, res.Parts, opts) // no rewrite: no error
+	return given
 }
 
 // PendingTools returns all pending tool calls awaiting approval for this
