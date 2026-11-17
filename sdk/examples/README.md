@@ -15,6 +15,12 @@ Demonstrates voice conversation through the Pipeline.
 - TTS responses
 - Full voice conversation flow
 
+### 🎙️ [realtime-showcase](./realtime-showcase/)
+A live voice session on OpenAI Realtime or Gemini Live with an event log.
+- Barge-in with how much of the reply was heard
+- Output and input guardrails cutting a spoken reply
+- A tool that returns an image, and per-call cost
+
 ### 🔄 [streaming](./streaming/)
 Basic streaming example showing real-time LLM responses.
 
