@@ -201,6 +201,12 @@ func rewriteTextParts(parts []types.ContentPart, rewrite func(string) (string, e
 	return out, nil
 }
 
+// RewritesToolResults reports whether the conversation has a tool hook that
+// rewrites tool results (hooks.ToolResultRewriter, see [WithToolHook]).
+func (c *Conversation) RewritesToolResults() bool {
+	return c.hookRegistry.HasToolResultRewriters()
+}
+
 // ToolResultForModel returns the tool result [Conversation.Resume] will give
 // the model for the answer stored for the client tool call callID
 // ([Conversation.SendToolResult], [Conversation.SendToolResultMultimodal],

@@ -216,3 +216,11 @@ func TestToolResultForModel_IsWhatResumeGives(t *testing.T) {
 	_, found = conv.ToolResultForModel(ctx, "c-cli")
 	assert.False(t, found, "the answer was given to the model")
 }
+
+// RewritesToolResults reports a tool hook that rewrites results.
+func TestRewritesToolResults(t *testing.T) {
+	conv := newTestConversation()
+	assert.False(t, conv.RewritesToolResults())
+	conv.hookRegistry = hooks.NewRegistry(hooks.WithToolHook(&wrappingRewriter{}))
+	assert.True(t, conv.RewritesToolResults())
+}

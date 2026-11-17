@@ -135,8 +135,7 @@ func TestE2E_ResumeDoesNotRepeatProviderAnswers(t *testing.T) {
 
 	run1, err := sendAndCollect(t, NewEventAdapter(conv, WithToolResultProvider(answerFirst)), "go")
 	require.NoError(t, err)
-	// The answer as the model will be given it: the JSON the client sent.
-	assert.Equal(t, []string{`call_0="Paris"`}, resultIDs(run1))
+	assert.Equal(t, []string{`call_0=Paris`}, resultIDs(run1))
 
 	b := NewEventAdapter(conv)
 	run2, err := continueAndCollect(t, b, run1, func(ctx context.Context) error {

@@ -55,10 +55,11 @@ type clientToolFailer interface {
 	FailClientTool(ctx context.Context, callID string, partial any, err error) error
 }
 
-// modelResultReader is implemented by conversations that tell the tool
-// result they will give the model for a stored client answer
-// (*sdk.Conversation does).
+// modelResultReader is implemented by conversations that tell whether they
+// rewrite tool results, and the tool result they will give the model for a
+// stored client answer (*sdk.Conversation does).
 type modelResultReader interface {
+	RewritesToolResults() bool
 	ToolResultForModel(ctx context.Context, callID string) (*types.MessageToolResult, bool)
 }
 
@@ -693,10 +694,12 @@ func toolMessagesByCall(msgs []types.Message) map[string]string {
 	return out
 }
 
-// answerText is the text the model will be given for a stored answer r: the
-// conversation's own (rewritten) result where it can tell it, else resultText.
+// answerText is the TOOL_CALL_RESULT content for a stored answer r of a turn
+// still waiting on other calls: resultText, or, when the conversation
+// rewrites tool results, the rewritten result it will give the model, so the
+// client is never shown what a rewriter removes.
 func (a *EventAdapter) answerText(ctx context.Context, r *ToolResult) string {
-	if reader, ok := a.sender.(modelResultReader); ok {
+	if reader, ok := a.sender.(modelResultReader); ok && reader.RewritesToolResults() {
 		if result, found := reader.ToolResultForModel(ctx, r.CallID); found {
 			return toolResultText(result)
 		}
@@ -921,6 +924,13 @@ func (w *workflowSender) RejectClientTool(ctx context.Context, callID, reason st
 	if conv := w.wc.ActiveConversation(); conv != nil {
 		conv.RejectClientTool(ctx, callID, reason)
 	}
+}
+
+// RewritesToolResults reports whether the active conversation rewrites tool
+// results.
+func (w *workflowSender) RewritesToolResults() bool {
+	conv := w.wc.ActiveConversation()
+	return conv != nil && conv.RewritesToolResults()
 }
 
 // ToolResultForModel tells the result the active conversation will give the

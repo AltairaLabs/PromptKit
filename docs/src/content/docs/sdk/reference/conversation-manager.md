@@ -299,6 +299,7 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) Response\(\) \(\<\-chan providers.StreamChunk, error\)](<#Conversation.Response>)
   - [func \(c \*Conversation\) Resume\(ctx context.Context\) \(\*Response, error\)](<#Conversation.Resume>)
   - [func \(c \*Conversation\) ResumeStream\(ctx context.Context\) \<\-chan StreamChunk](<#Conversation.ResumeStream>)
+  - [func \(c \*Conversation\) RewritesToolResults\(\) bool](<#Conversation.RewritesToolResults>)
   - [func \(c \*Conversation\) Send\(ctx context.Context, message any, opts ...SendOption\) \(\*Response, error\)](<#Conversation.Send>)
   - [func \(c \*Conversation\) SendChunk\(ctx context.Context, chunk \*providers.StreamChunk\) error](<#Conversation.SendChunk>)
   - [func \(c \*Conversation\) SendFrame\(ctx context.Context, frame \*session.ImageFrame\) error](<#Conversation.SendFrame>)
@@ -2710,6 +2711,15 @@ for chunk := range conv.ResumeStream(ctx) {
 
 As with [Conversation.Stream](<#Conversation.Stream>), drain the channel or cancel ctx: the stream holds the conversation's turn until it ends.
 
+<a name="Conversation.RewritesToolResults"></a>
+### func \(\*Conversation\) [RewritesToolResults](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settled_tool_results.go#L206>)
+
+```go
+func (c *Conversation) RewritesToolResults() bool
+```
+
+RewritesToolResults reports whether the conversation has a tool hook that rewrites tool results \(hooks.ToolResultRewriter, see [WithToolHook](<#WithToolHook>)\).
+
 <a name="Conversation.Send"></a>
 ### func \(\*Conversation\) [Send](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L319>)
 
@@ -3156,7 +3166,7 @@ for name, desc := range conv.ToolRegistry().GetTools() {
 ```
 
 <a name="Conversation.ToolResultForModel"></a>
-### func \(\*Conversation\) [ToolResultForModel](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settled_tool_results.go#L213>)
+### func \(\*Conversation\) [ToolResultForModel](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settled_tool_results.go#L219>)
 
 ```go
 func (c *Conversation) ToolResultForModel(ctx context.Context, callID string) (*types.MessageToolResult, bool)
