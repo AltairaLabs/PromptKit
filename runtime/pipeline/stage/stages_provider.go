@@ -425,6 +425,8 @@ func (s *ProviderStage) runner() *toolRunner {
 }
 
 // executeToolCalls runs a round's tool calls (see toolRunner.executeToolCalls).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) executeToolCalls(
 	ctx context.Context, toolCalls []types.MessageToolCall, rr roundRef,
 ) ([]types.Message, error) {
@@ -433,6 +435,8 @@ func (s *ProviderStage) executeToolCalls(
 
 // updateExcludedTools records a round's rejections (see
 // toolRunner.updateExcludedTools).
+//
+//nolint:unused // tests call it on the stage
 func (s *ProviderStage) updateExcludedTools(
 	ctx context.Context, results []types.Message, rejectionCounts map[string]int,
 	excluded map[string]bool, round int,
