@@ -112,7 +112,8 @@ type Provider struct {
 
 // UnattachedCalls returns the recorded provider calls no assistant message
 // took (NoMessage calls, and calls left waiting when the recording ended),
-// with their late usage folded in.
+// with their late usage folded in, and, as an entry with an empty CallID, the
+// total of usage events that named no call.
 func (p *Provider) UnattachedCalls() []events.ProviderCallCompletedData {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -171,11 +172,37 @@ type indexState struct {
 	// calls maps a provider call's CallID to its recorded data (on a turn,
 	// pending, or unattached), for its later usage events.
 	calls map[string]*events.ProviderCallCompletedData
+	// duplex is set for a recording whose calls precede their messages (a
+	// realtime session's): each call attaches to a message that follows it,
+	// never to one recorded before it.
+	duplex bool
+	// sessionUsage totals usage events that name no call.
+	sessionUsage *events.ProviderCallCompletedData
+}
+
+// callsPrecedeMessages reports whether the recording's first provider call
+// precedes its first assistant message, as a realtime session records them.
+func callsPrecedeMessages(evs []recording.RecordedEvent) bool {
+	for i := range evs {
+		if evs[i].Type == events.EventProviderCallCompleted {
+			return true
+		}
+		if evs[i].Type == events.EventMessageCreated {
+			var m events.MessageCreatedData
+			if json.Unmarshal(evs[i].Data, &m) == nil && m.Role == roleAssistant {
+				return false
+			}
+		}
+	}
+	return false
 }
 
 // indexRecording extracts assistant responses and builds lookup indexes.
 func (p *Provider) indexRecording() error {
-	state := &indexState{calls: map[string]*events.ProviderCallCompletedData{}}
+	state := &indexState{
+		calls:  map[string]*events.ProviderCallCompletedData{},
+		duplex: callsPrecedeMessages(p.recording.Events),
+	}
 
 	for i := range p.recording.Events {
 		event := &p.recording.Events[i]
@@ -239,6 +266,8 @@ func (p *Provider) addAssistantTurn(
 		call := state.pendingCalls[0]
 		state.pendingCalls = state.pendingCalls[1:]
 		p.attachCall(state, call)
+	} else if state.duplex {
+		state.pendingTurn = nil // a message with no call is costless; a later call is not its
 	}
 
 	if state.lastUserContent != "" {
@@ -258,7 +287,7 @@ func (p *Provider) processProviderCallEvent(event *recording.RecordedEvent, stat
 	switch {
 	case callData.NoMessage:
 		p.unattached = append(p.unattached, callData) // no message will take it
-	case state.pendingTurn == nil:
+	case state.duplex || state.pendingTurn == nil:
 		// A realtime session records the call ahead of its message.
 		state.pendingCalls = append(state.pendingCalls, callData)
 	default:
@@ -281,7 +310,16 @@ func (p *Provider) processProviderUsageEvent(event *recording.RecordedEvent, sta
 		return
 	}
 	info := state.calls[usage.CallID]
-	if info == nil || usage.CallID == "" {
+	if usage.CallID == "" {
+		// Usage naming no call (the session could not attribute it): a
+		// session-level total, reported with the unattached calls.
+		if state.sessionUsage == nil {
+			state.sessionUsage = &events.ProviderCallCompletedData{}
+			p.unattached = append(p.unattached, state.sessionUsage)
+		}
+		info = state.sessionUsage
+	}
+	if info == nil {
 		return
 	}
 	info.InputTokens += usage.InputTokens

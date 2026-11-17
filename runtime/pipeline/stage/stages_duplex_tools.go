@@ -371,13 +371,14 @@ func (s *DuplexProviderStage) beginToolUserTurn(ctx context.Context) {
 	}
 	// A call still open is superseded by the user's turn: it completes, as
 	// interrupted, before the new turn's first call starts.
-	superseded := dt.open
+	// Its provider.call.completed goes out under the lock, so no usage event
+	// for it can precede it.
+	s.completeSupersededLocked(ctx, dt.open)
 	dt.open = nil
 	// The turn's offer is what the session holds once it is brought in line.
 	turn := s.startToolTurnLocked(nil)
 	opened := dt.openRoundLocked()
 	dt.mu.Unlock()
-	s.completeSuperseded(ctx, superseded)
 	s.syncSessionTools(ctx, turn, nil, true)
 	s.emitRoundStarted(ctx, opened.rr)
 }
@@ -446,13 +447,20 @@ func (s *DuplexProviderStage) openNextToolRound(ctx context.Context, turn *duple
 	s.emitRoundStarted(ctx, opened.rr)
 }
 
-// completeRound completes the provider call in progress (starting one when
-// none is) and returns the tool turn it belongs to and its round.
+// completeRound completes the provider call the chunk being handled belongs
+// to: the call its generation is bound to, or the open call (starting one
+// when none is) for a generation not bound yet. It reports false, completing
+// nothing, when the generation's call has already completed (a user turn
+// superseded it): the chunk is then that call's late cost.
 func (s *DuplexProviderStage) completeRound(
 	ctx context.Context, msg *types.Message, noMessage bool,
-) (*duplexToolTurn, roundRef) {
+) (*duplexToolTurn, roundRef, bool) {
 	dt := s.tools
 	dt.mu.Lock()
+	if _, st := dt.lookupLocked(s.chunkGen); st == genCompleted || st == genForgotten {
+		dt.mu.Unlock()
+		return nil, roundRef{}, false
+	}
 	var started *duplexToolTurn
 	if dt.turn == nil {
 		started = s.startToolTurnLocked(dt.offer.heldNames())
@@ -474,7 +482,7 @@ func (s *DuplexProviderStage) completeRound(
 		s.emitRoundStarted(ctx, round.rr)
 	}
 	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start), noMessage)
-	return turn, round.rr
+	return turn, round.rr, true
 }
 
 // charge adds cost to the session's spend and returns the budget error once
@@ -610,7 +618,10 @@ func (s *DuplexProviderStage) settleTurnCall(ctx context.Context, elem *StreamEl
 			msg.FinishReason = *elem.Meta.FinishReason
 		}
 	}
-	turn, rr := s.completeRound(ctx, msg, noMessage)
+	turn, rr, ok := s.completeRound(ctx, msg, noMessage)
+	if !ok {
+		return nil // a superseded call's end: its cost is late cost
+	}
 	s.costReported = true // the message's cost, the chunk's when it had one
 	if !noMessage {
 		dt.stampToolsOffered(turn, msg)
@@ -679,7 +690,10 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 	}
 	withCost := *msg
 	withCost.CostInfo = chunk.CostInfo
-	turn, rr := s.completeRound(ctx, &withCost, elem.Message == nil)
+	turn, rr, ok := s.completeRound(ctx, &withCost, elem.Message == nil)
+	if !ok {
+		return nil
+	}
 	s.tools.endTurn(turn)
 	s.costReported = true
 	if err := s.charge(turn, chunk.CostInfo); err != nil {

@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -44,10 +45,11 @@ func costedReplies(elems []StreamElement) []*types.Message {
 
 // callEvents collects provider.call.started, completed and usage events.
 type callEvents struct {
-	mu      sync.Mutex
-	started []*events.ProviderCallStartedData
-	done    []*events.ProviderCallCompletedData
-	usage   []*events.ProviderCallUsageData
+	mu         sync.Mutex
+	started    []*events.ProviderCallStartedData
+	done       []*events.ProviderCallCompletedData
+	usage      []*events.ProviderCallUsageData
+	toolStarts []*events.ToolCallEventData
 }
 
 func newCallEvents() (*events.Emitter, *callEvents) {
@@ -63,6 +65,10 @@ func newCallEvents() (*events.Emitter, *callEvents) {
 			c.done = append(c.done, d)
 		case *events.ProviderCallUsageData:
 			c.usage = append(c.usage, d)
+		case *events.ToolCallEventData:
+			if e.Type == events.EventToolCallStarted {
+				c.toolStarts = append(c.toolStarts, d)
+			}
 		}
 	})
 	return events.NewEmitter(bus, "run", "sess", "conv"), c
@@ -403,4 +409,62 @@ func TestDuplexCost_ForgottenGenerationIsSessionLevel(t *testing.T) {
 	require.Len(t, usage, 2)
 	assertUsage(t, usage[0], "", 5, 0)
 	assertUsage(t, usage[1], done[1].CallID, 7, 0)
+}
+
+// A new generation while the open call is bound to another, with no user turn
+// between, completes that call and starts a tool turn of its own: round 1.
+func TestDuplexCost_NewGenerationStartsItsOwnToolTurn(t *testing.T) {
+	h, ev := costHarness(t, 0)
+	h.emit(gen(1, []providers.StreamChunk{{Content: "g1|", Delta: "g1|"}}))
+	h.emit(gen(2, textTurn("g2|", usd(20, 5))))
+	done, _ := ev.await(t, 2, 0)
+	msgs := costedReplies(h.finish())
+
+	ev.mu.Lock()
+	started := append([]*events.ProviderCallStartedData(nil), ev.started...)
+	ev.mu.Unlock()
+	require.Len(t, started, 2)
+	assert.Equal(t, []int{1, 1}, []int{started[0].Round, started[1].Round}, "each call starts its own tool turn")
+	assert.True(t, done[0].NoMessage)
+	assert.Equal(t, types.FinishReasonInterrupted, done[0].FinishReason)
+	assertCall(t, done[1], 20, 5)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "g2|", msgs[0].Content, "the superseded generation's text is not carried over")
+}
+
+// An interruption tagged with a generation the stage has not seen does not
+// interrupt an open call bound to another generation.
+func TestDuplexCost_UnboundInterruptionLeavesABoundCallOpen(t *testing.T) {
+	h, ev := costHarness(t, 0)
+	h.emit(gen(1, []providers.StreamChunk{{Content: "g1|", Delta: "g1|"}}))
+	h.emit([]providers.StreamChunk{{Interrupted: true, Generation: 7}})
+	stop := "stop"
+	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(10, 1)}}))
+	done, _ := ev.await(t, 1, 0)
+	msgs := costedReplies(h.finish())
+
+	require.Len(t, done, 1)
+	assert.Equal(t, "stop", done[0].FinishReason, "completed by its own turn end, not the interruption")
+	assertCall(t, done[0], 10, 1)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "g1|", msgs[0].Content)
+}
+
+// A provider error ends the turn: its open call completes, with the cost
+// reported for it while it was open.
+func TestDuplexCost_ErrorCompletesTheOpenCall(t *testing.T) {
+	h, ev := costHarness(t, 0)
+	h.emit(gen(1, []providers.StreamChunk{{Content: "g1|", Delta: "g1|"}}))
+	h.emit(gen(1, []providers.StreamChunk{{CostInfo: usd(4, 2)}}))
+	h.emit([]providers.StreamChunk{{Error: errors.New("socket reset")}})
+	elems := drainUntilClosed(t, h.output)
+	<-h.done
+
+	done, _ := ev.await(t, 1, 0)
+	require.Len(t, done, 1)
+	assertCall(t, done[0], 4, 2)
+	msgs := costedReplies(elems)
+	require.Len(t, msgs, 1)
+	assert.True(t, msgs[0].IsInterrupted())
+	assertCostInfo(t, usd(4, 2), msgs[0].CostInfo)
 }

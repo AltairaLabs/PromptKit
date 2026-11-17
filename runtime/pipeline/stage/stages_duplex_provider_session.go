@@ -150,6 +150,8 @@ type DuplexProviderStage struct {
 	chunkGen     int64
 	chunkCost    *types.CostInfo
 	costReported bool
+	// accGen is the generation whose output the turn's accumulation holds.
+	accGen int64
 
 	// Turn latency tracking - when the current turn started
 	// Set when user input is received, used to calculate LatencyMs on turn complete.
@@ -1679,7 +1681,10 @@ func (s *DuplexProviderStage) emitChunkError(
 ) error {
 	logger.Error("DuplexProviderStage: chunk error from session", "error", chunk.Error)
 	// Keep the turn's partial reply ahead of the error, as the unary stage does.
-	if msg := s.takeInterruptedTurn(chunk.Error.Error()); msg != nil {
+	msg := s.takeInterruptedTurn(chunk.Error.Error())
+	s.completeOpenCall(ctx, msg)
+	if msg != nil {
+		s.takeCarriedCost(msg)
 		select {
 		case output <- StreamElement{Message: msg, EndOfStream: true}:
 		case <-ctx.Done():
@@ -1817,6 +1822,7 @@ func (s *DuplexProviderStage) accumulateResponseChunk(
 	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
 		s.openToolRoundIfIdle(ctx)
 		s.bindGeneration(ctx, chunk.Generation)
+		s.trackAccumulation(chunk.Generation)
 	}
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it
@@ -1876,6 +1882,7 @@ func (s *DuplexProviderStage) accumulateReasoning(
 // starts. The transcription buffer will be reset when sendAudioElement is
 // called.
 func (s *DuplexProviderStage) resetTurnAccumulation() {
+	s.accGen = 0
 	s.accumulatedText.Reset()
 	s.accumulatedReasoning.Reset()
 	s.accumulatedOpaqueReasoning = nil

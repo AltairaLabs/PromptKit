@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,8 +53,8 @@ type costScenario struct {
 	// each user turn.
 	firstAfterUser []int
 	// over is set once the session has ended (a guardrail denied a turn).
-	over bool
-	started        func() []*events.ProviderCallStartedData
+	over    bool
+	started func() []*events.ProviderCallStartedData
 }
 
 func (sc *costScenario) cost() *types.CostInfo {
@@ -74,7 +75,7 @@ func (sc *costScenario) reply() {
 	g := sc.next()
 	stop := "stop"
 	sc.emit("reply", gen(g, []providers.StreamChunk{
-		{Content: "hi", Delta: "hi"},
+		{Content: tok(g), Delta: tok(g)},
 		{FinishReason: &stop, CostInfo: sc.cost()},
 	}))
 }
@@ -101,12 +102,12 @@ func (sc *costScenario) bargeIn() {
 	if sc.shape == openaiShape {
 		interrupted := types.FinishReasonInterrupted
 		sc.emit("barge-mid", gen(g, []providers.StreamChunk{
-			{Content: "once", Delta: "once"},
+			{Content: tok(g), Delta: tok(g)},
 			{FinishReason: &interrupted, CostInfo: sc.cost()},
 		}))
 		return
 	}
-	chunks := []providers.StreamChunk{{Content: "once", Delta: "once"}, {Interrupted: true}}
+	chunks := []providers.StreamChunk{{Content: tok(g), Delta: tok(g)}, {Interrupted: true}}
 	if sc.rng.Intn(2) == 0 {
 		chunks[1].CostInfo = sc.cost()
 	}
@@ -162,7 +163,7 @@ func (sc *costScenario) userDuringReply() {
 	g := sc.next()
 	sc.emitTool(g, toolCallTurn(weatherCall(fmt.Sprintf("c%d", g))))
 	r := sc.next()
-	sc.emit("reply-streaming", gen(r, []providers.StreamChunk{{Content: "it is", Delta: "it is"}}))
+	sc.emit("reply-streaming", gen(r, []providers.StreamChunk{{Content: tok(r), Delta: tok(r)}}))
 	sc.settle()
 	sc.log = append(sc.log, "user-mid-reply")
 	user := types.Message{Role: roleUser, Content: "actually, Rome"}
@@ -233,13 +234,13 @@ func (sc *costScenario) trailingCancelled() {
 	g := sc.next()
 	interrupted := types.FinishReasonInterrupted
 	sc.emit("cancelled", gen(g, []providers.StreamChunk{
-		{Content: "once", Delta: "once"},
+		{Content: tok(g), Delta: tok(g)},
 		{FinishReason: &interrupted, CostInfo: sc.cost()},
 	}))
 	n := sc.next()
-	sc.emit("next-starts", gen(n, []providers.StreamChunk{{Content: "sure", Delta: "sure"}}))
+	sc.emit("next-starts", gen(n, []providers.StreamChunk{{Content: tok(n), Delta: tok(n)}}))
 	sc.emit("trailing", gen(g, []providers.StreamChunk{
-		{Content: "upon", Delta: "upon"},
+		{Content: tok(g), Delta: tok(g)},
 		{ToolCalls: []types.MessageToolCall{weatherCall(fmt.Sprintf("late%d", g))}},
 	}))
 	stop := "stop"
@@ -323,6 +324,11 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 		}
 	}
 	elems := h.finish()
+	label := fmt.Sprintf("%s seed %d %v", shape, seed, sc.log)
+	ev.mu.Lock()
+	toolStarts := append([]*events.ToolCallEventData(nil), ev.toolStarts...)
+	ev.mu.Unlock()
+	assertOwnContent(t, elems, toolStarts, label)
 
 	var messageCost float64
 	for _, e := range elems {
@@ -413,6 +419,49 @@ func (denyReplyHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, resp
 		return hooks.Deny("no")
 	}
 	return hooks.Allow
+}
+
+// tok is a generation's content token: a message whose text mixes tokens
+// carries another generation's content.
+func tok(g int64) string { return fmt.Sprintf("g%d|", g) }
+
+// callGen is the generation a tool call ID names: c<g> or late<g>.
+func callGen(id string) string {
+	return strings.TrimLeft(id, "cdelat")
+}
+
+// assertOwnContent asserts every emitted assistant message carries only its
+// own generation's text and tool calls, and that each provider call ran only
+// its own generation's tool calls, and never a canceled response's.
+func assertOwnContent(t *testing.T, elems []StreamElement, tools []*events.ToolCallEventData, label string) {
+	t.Helper()
+	for _, e := range elems {
+		m := e.Message
+		if m == nil || m.Role != roleAssistant {
+			continue
+		}
+		gens := map[string]bool{}
+		for _, part := range strings.Split(m.Content, "|") {
+			if strings.HasPrefix(part, "g") {
+				gens[strings.TrimPrefix(part, "g")] = true
+			}
+		}
+		for _, tc := range m.ToolCalls {
+			gens[callGen(tc.ID)] = true
+		}
+		assert.LessOrEqualf(t, len(gens), 1, "%s: a message mixes generations: %q %v", label, m.Content, m.ToolCalls)
+	}
+	perCall := map[string]map[string]bool{}
+	for _, d := range tools {
+		assert.Falsef(t, strings.HasPrefix(d.CallID, "late"), "%s: a canceled response's tool call ran", label)
+		if perCall[d.ProviderCallID] == nil {
+			perCall[d.ProviderCallID] = map[string]bool{}
+		}
+		perCall[d.ProviderCallID][callGen(d.CallID)] = true
+	}
+	for call, gens := range perCall {
+		assert.LessOrEqualf(t, len(gens), 1, "%s: call %s ran tool calls of several generations", label, call)
+	}
 }
 
 func abs(f float64) float64 {

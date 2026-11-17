@@ -110,30 +110,34 @@ func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
 		return
 	}
 	dt.mu.Lock()
-	var superseded, opened *duplexRound
+	var opened *duplexRound
+	var started *duplexToolTurn
 	if _, st := dt.lookupLocked(gen); st == genUnbound && gen != 0 && dt.open != nil && dt.open.gen != 0 {
-		superseded = dt.open
+		// A new call with no user turn seen: it starts a tool turn of its
+		// own, at round 1.
+		s.completeSupersededLocked(ctx, dt.open)
 		dt.open = nil
+		dt.turn = nil
+		started = s.startToolTurnLocked(dt.offer.heldNames())
 		opened = dt.openRoundLocked()
 	}
 	dt.bindGenerationLocked(gen)
 	dt.mu.Unlock()
-	s.completeSuperseded(ctx, superseded)
+	s.syncStartedTurn(ctx, started)
 	if opened != nil {
 		s.emitRoundStarted(ctx, opened.rr)
 	}
 }
 
-// completeSuperseded completes a call superseded before it completed, as
-// interrupted, with the cost reported for it while it was open. Nil-safe.
-func (s *DuplexProviderStage) completeSuperseded(ctx context.Context, round *duplexRound) {
+// completeSupersededLocked completes a call superseded before it completed,
+// as interrupted, with the cost reported for it while it was open. Called
+// with dt.mu held, so its provider.call.completed precedes any usage event
+// for it. Nil-safe.
+func (s *DuplexProviderStage) completeSupersededLocked(ctx context.Context, round *duplexRound) {
 	if round == nil {
 		return
 	}
-	s.tools.mu.Lock()
-	pending := round.pending
-	s.tools.mu.Unlock()
-	msg := &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: pending}
+	msg := &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: round.pending}
 	s.emitRoundCompleted(ctx, msg, round, time.Since(round.start), true)
 }
 
@@ -144,7 +148,7 @@ func (dt *duplexTools) interruptsOpenCall(gen int64) bool {
 	dt.mu.Lock()
 	defer dt.mu.Unlock()
 	_, st := dt.lookupLocked(gen)
-	return st == genOpen || st == genUnbound
+	return st == genOpen || (st == genUnbound && (gen == 0 || dt.open == nil || dt.open.gen == 0))
 }
 
 // staleChunk reports whether chunk is output of a call that already
@@ -170,12 +174,41 @@ func (s *DuplexProviderStage) staleChunk(chunk *providers.StreamChunk) bool {
 // reportStaleCost charges a stale chunk's cost on its call and carries it for
 // the history. The chunk is not forwarded.
 func (s *DuplexProviderStage) reportStaleCost(ctx context.Context, chunk *providers.StreamChunk) error {
+	if s.accGen == chunk.Generation {
+		// What the superseded call accumulated is not anyone's message.
+		s.discardAccumulation()
+		s.accGen = 0
+	}
 	if chunk.CostInfo == nil {
 		return nil
 	}
 	job := s.attributeCost(ctx, chunk)
 	s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
 	return s.queueToolRound(ctx, job)
+}
+
+// trackAccumulation keeps the turn's accumulation to one generation's
+// output: output of another generation than the one accumulated (a new call
+// after a superseded one) discards what the other accumulated, so no
+// message carries another generation's content. Response goroutine only.
+func (s *DuplexProviderStage) trackAccumulation(gen int64) {
+	if gen == 0 {
+		return
+	}
+	if s.accGen != 0 && s.accGen != gen {
+		s.discardAccumulation()
+	}
+	s.accGen = gen
+}
+
+// discardAccumulation drops what the turn accumulated (text, reasoning,
+// media, tool calls) without ending the turn.
+func (s *DuplexProviderStage) discardAccumulation() {
+	s.accumulatedText.Reset()
+	s.accumulatedReasoning.Reset()
+	s.accumulatedOpaqueReasoning = nil
+	s.accumulatedMedia = nil
+	s.accumulatedToolCalls = nil
 }
 
 // attributeCost charges a cost no message or interruption reported and puts

@@ -454,7 +454,9 @@ func (m *MockStreamSession) emitAutoResponse() {
 		m.responseCount++
 		m.closeCalled = true
 		close(m.doneCh)
+		m.sendMu.Lock() // no EmitChunk is sending now
 		close(m.responses)
+		m.sendMu.Unlock()
 		return
 	}
 
@@ -532,7 +534,9 @@ func (m *MockStreamSession) closeAfterTurnIfConfigured() {
 		}
 		m.closeCalled = true
 		close(m.doneCh)
+		m.sendMu.Lock() // no EmitChunk is sending now
 		close(m.responses)
+		m.sendMu.Unlock()
 	}
 }
 

@@ -749,3 +749,45 @@ func TestProvider_CallsWithoutMessagesAreUnattached(t *testing.T) {
 	assert.InDelta(t, 0.0015, unattached[0].Cost, 1e-12, "with its late usage")
 	assert.Equal(t, "closing", unattached[1].CallID)
 }
+
+// In duplex order a message with no call before it (a blocked turn's reply)
+// is costless and does not take the next call, which belongs to the message
+// after it; usage naming no call is a session-level total.
+func TestProvider_DuplexMessageWithoutCallIsCostless(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "hi"}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "first", Cost: 0.001}),
+			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hello."}),
+			mk(4, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Not here."}),
+			mk(5, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "second", Cost: 0.002}),
+			mk(6, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Bye."}),
+			mk(7, events.EventProviderCallUsage, events.ProviderCallUsageData{Cost: 0.0004}),
+			mk(8, events.EventProviderCallUsage, events.ProviderCallUsageData{Cost: 0.0001}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	var costs []float64
+	for i := 0; i < 3; i++ {
+		resp, err := p.Predict(context.Background(), providers.PredictionRequest{})
+		require.NoError(t, err)
+		c := 0.0
+		if resp.CostInfo != nil {
+			c = resp.CostInfo.TotalCost
+		}
+		costs = append(costs, c)
+	}
+	assert.InDeltaSlice(t, []float64{0.001, 0, 0.002}, costs, 1e-12)
+	unattached := p.UnattachedCalls()
+	require.Len(t, unattached, 1)
+	assert.Empty(t, unattached[0].CallID)
+	assert.InDelta(t, 0.0005, unattached[0].Cost, 1e-12, "the session-level usage total")
+}

@@ -62,6 +62,14 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	return msg
 }
 
+// interruptOwnsTurn reports whether an interruption tagged gen cuts short the
+// turn being accumulated: it names that turn's generation, or one of them is
+// not numbered. An interruption naming another generation still reaches the
+// caller (it flushes playback) but leaves this turn's output alone.
+func (s *DuplexProviderStage) interruptOwnsTurn(gen int64) bool {
+	return gen == 0 || s.accGen == 0 || gen == s.accGen
+}
+
 // setTurnStart records when the current user turn started.
 func (s *DuplexProviderStage) setTurnStart(t time.Time) {
 	s.turnStartMu.Lock()
@@ -145,13 +153,14 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 
 	// Handle interruptions - provider detected user started speaking during response
 	// Capture the partial response and signal turn completion
-	if chunk.Interrupted {
+	if chunk.Interrupted && s.interruptOwnsTurn(chunk.Generation) {
 		logger.Debug("DuplexProviderStage: response interrupted",
 			"accumulatedTextLen", s.accumulatedText.Len(),
 			"accumulatedMediaLen", len(s.accumulatedMedia))
 
 		// Keep the partial reply (and clear the accumulators either way) —
 		// the provider will start a new response.
+		s.accGen = 0
 		if msg := s.takeInterruptedTurn("barge-in"); msg != nil {
 			msg.CostInfo = chunk.CostInfo // what the cut-short turn cost so far
 			s.costPlaced = true
@@ -165,6 +174,13 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		elem.Meta.Interrupted = true
 		elem.Meta.FinishReason = &interruptedReason
 		// Note: NOT setting EndOfStream - the provider will continue with new response
+		return elem
+	}
+
+	if chunk.Interrupted {
+		// Another generation's interruption: the caller still flushes its
+		// playback; this turn's output is untouched.
+		elem.Meta.Interrupted = true
 		return elem
 	}
 
