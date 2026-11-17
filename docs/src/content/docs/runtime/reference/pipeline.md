@@ -2349,7 +2349,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1459-L1466>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1468-L1475>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2365,7 +2365,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1478-L1482>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1487-L1491>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -4739,7 +4739,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1469-L1475>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1478-L1484>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5714,13 +5714,15 @@ type StreamExecution struct {
 ```
 
 <a name="StreamExecution.Err"></a>
-### func \(\*StreamExecution\) [Err](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L121>)
+### func \(\*StreamExecution\) [Err](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L128>)
 
 ```go
 func (e *StreamExecution) Err() error
 ```
 
-Err returns the error that ended the execution: the error of the stage that failed the turn \(as its error element on Output carries it\), or one wrapping ErrOutputTruncated when output was dropped. It is nil while the output is open, when the execution ended without a stage failing, and when it ended by the caller's own cancellation. An error element a stage emitted and carried on from never makes it non\-nil.
+Err returns the error that ended the execution: the error of the stage that failed the turn \(as its error element on Output carries it\), or one wrapping ErrOutputTruncated when output was dropped. It is nil when the execution ended without a stage failing, and when it ended by the caller's own cancellation. An error element a stage emitted and carried on from never makes it non\-nil.
+
+Err does not block. It is nil while the execution runs, and from the moment the execution ends and closes Output it returns the end error, which never changes after that. Output is buffered, so the execution can end, and Err become non\-nil, before the reader has taken the elements still buffered on Output. Read Output to its close first to see every element before the error that ended the execution.
 
 <a name="StreamExecution.Output"></a>
 ### func \(\*StreamExecution\) [Output](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L111>)
@@ -5758,7 +5760,7 @@ Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When P
 When Shutdown has abandoned the execution and output had to be dropped because the reader fell behind \(see Shutdown\), the stream still ends in an error: one wrapping ErrOutputTruncated, and the turn's own error when the turn failed. It is delivered with one last bounded wait for the reader.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1427>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1436>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -5769,7 +5771,7 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced. When Shutdown abandoned the execution and output was dropped, the error wraps ErrOutputTruncated \(see Shutdown\).
 
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1554>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1563>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
@@ -5778,7 +5780,7 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error
 Shutdown gracefully shuts down the pipeline, waiting for in\-flight executions to complete. When GracefulShutdownTimeout \(or ctx\) ends first it returns ErrShutdownTimeout. The executions still running carry on, and a consumer still reading their output gets all of it, the turn's error included. An execution whose consumer has stopped reading, so that a send waits a further GracefulShutdownTimeout \(at least 100ms\) with nothing taken, drops the rest of its output and returns. Its output still ends in an error wrapping ErrOutputTruncated \(and the turn's error, if the turn failed\), offered with one last wait of the same length; ExecuteSync returns that error even when its element was not taken.
 
 <a name="StreamPipeline.Start"></a>
-### func \(\*StreamPipeline\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L134>)
+### func \(\*StreamPipeline\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L141>)
 
 ```go
 func (p *StreamPipeline) Start(ctx context.Context, input <-chan StreamElement) (*StreamExecution, error)

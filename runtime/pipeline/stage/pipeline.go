@@ -114,10 +114,17 @@ func (e *StreamExecution) Output() <-chan StreamElement {
 
 // Err returns the error that ended the execution: the error of the stage
 // that failed the turn (as its error element on Output carries it), or one
-// wrapping ErrOutputTruncated when output was dropped. It is nil while the
-// output is open, when the execution ended without a stage failing, and when
-// it ended by the caller's own cancellation. An error element a stage
-// emitted and carried on from never makes it non-nil.
+// wrapping ErrOutputTruncated when output was dropped. It is nil when the
+// execution ended without a stage failing, and when it ended by the caller's
+// own cancellation. An error element a stage emitted and carried on from
+// never makes it non-nil.
+//
+// Err does not block. It is nil while the execution runs, and from the moment
+// the execution ends and closes Output it returns the end error, which never
+// changes after that. Output is buffered, so the execution can end, and Err
+// become non-nil, before the reader has taken the elements still buffered on
+// Output. Read Output to its close first to see every element before the
+// error that ended the execution.
 func (e *StreamExecution) Err() error {
 	select {
 	case <-e.out.closed:
@@ -282,8 +289,9 @@ func (p *StreamPipeline) executeBackground(
 	if out.truncation != nil {
 		out.endErr = out.truncation
 	}
-	close(out.ch)
+	// closed before ch: a reader that has seen ch close must find Err set.
 	close(out.closed)
+	close(out.ch)
 
 	firstError := p.waitForStageErrors(stageErrors)
 	if err := failure.get(); err != nil {
@@ -329,10 +337,11 @@ type callerOutput struct {
 	// close can read it.
 	truncation error
 	// endErr is the error that ended the execution (see StreamExecution.Err),
-	// set before ch and closed close.
+	// set before closed closes.
 	endErr error
-	// closed is closed with ch, so Err can tell an ended execution from a
-	// running one without reading ch.
+	// closed is closed just before ch, so Err can tell an ended execution
+	// from a running one without reading ch, and a reader that has seen ch
+	// close always sees the execution ended.
 	closed chan struct{}
 }
 
