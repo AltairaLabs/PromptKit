@@ -23,38 +23,62 @@ import (
 //     flags; attribution only decides which call a cost goes to.
 //   - Every cost is charged to the spend (MaxCostUSD) once, when it arrives;
 //     a budget it exceeds refuses on the call it belongs to.
+//   - Every call that starts completes exactly once: when its turn ends
+//     (with or without a message), when an interruption names it, when the
+//     next user turn or a new generation supersedes it (as interrupted), or
+//     when the session closes. A limit closing the session or an output
+//     guardrail denying the turn does not stop the call completing or its
+//     cost being charged.
 //   - Events: cost for a call still open is carried by its
 //     provider.call.completed; cost for a call already completed is a
 //     provider.call.usage event for it. A call's total is its completed Cost
-//     plus its usage events'. A cost whose generation the stage does not know
-//     (only a third-party provider sends one) goes to the call started last;
-//     with no call at all, it is a usage event with no CallID.
+//     plus its usage events'. Output of a completed call (a canceled
+//     response's trailing chunks) is dropped; only its cost counts. A cost
+//     with Generation 0 (a provider that does not number calls) goes to the
+//     call started last; a cost for a generation too old to remember is a
+//     usage event with no CallID.
 //   - Messages: a cost lands on exactly one emitted message: its own, or, when
 //     it has none, the next assistant message emitted; at close, the last
 //     message emitted then that can carry a cost. Only cost with no message
 //     emitted after it is in no message.
 
-// maxTrackedGenerations bounds the generations remembered.
-const maxTrackedGenerations = 16
+// maxTrackedGenerations bounds the generations remembered. The open call's
+// generation is never forgotten; usage for one forgotten is reported with no
+// CallID (a session-level provider.call.usage).
+const maxTrackedGenerations = 64
 
-// bindGeneration binds gen to the call open now, if neither is bound yet.
-// Response goroutine only. Nil-safe without tool execution.
-func (s *DuplexProviderStage) bindGeneration(gen int64) {
-	dt := s.tools
-	if dt == nil {
-		return
+// genState is what the stage knows of a generation.
+type genState int
+
+const (
+	genUnbound   genState = iota // not seen yet (or 0: the provider does not number them)
+	genOpen                      // bound to the call open now
+	genCompleted                 // bound to a call that has completed
+	genForgotten                 // bound once, no longer remembered
+)
+
+// lookupLocked returns the call gen is bound to and its state. Called with
+// dt.mu held.
+func (dt *duplexTools) lookupLocked(gen int64) (*duplexRound, genState) {
+	if gen == 0 {
+		return nil, genUnbound
 	}
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	dt.bindGenerationLocked(gen)
+	if r, ok := dt.gens[gen]; ok {
+		if r == dt.open {
+			return r, genOpen
+		}
+		return r, genCompleted
+	}
+	if gen <= dt.forgottenUpTo {
+		return nil, genForgotten
+	}
+	return nil, genUnbound
 }
 
-// bindGenerationLocked binds gen to the open call. Called with dt.mu held.
+// bindGenerationLocked binds gen to the open call, when gen is unbound and
+// the open call has none. Called with dt.mu held.
 func (dt *duplexTools) bindGenerationLocked(gen int64) {
-	if gen == 0 || dt.open == nil || dt.open.gen != 0 {
-		return
-	}
-	if _, bound := dt.gens[gen]; bound {
+	if _, st := dt.lookupLocked(gen); st != genUnbound || gen == 0 || dt.open == nil || dt.open.gen != 0 {
 		return
 	}
 	if dt.gens == nil {
@@ -64,16 +88,102 @@ func (dt *duplexTools) bindGenerationLocked(gen int64) {
 	dt.gens[gen] = dt.open
 	dt.genOrder = append(dt.genOrder, gen)
 	if len(dt.genOrder) > maxTrackedGenerations {
-		delete(dt.gens, dt.genOrder[0])
-		dt.genOrder = dt.genOrder[1:]
+		for i, old := range dt.genOrder {
+			if dt.gens[old] != dt.open {
+				delete(dt.gens, old)
+				dt.forgottenUpTo = max(dt.forgottenUpTo, old)
+				dt.genOrder = append(dt.genOrder[:i], dt.genOrder[i+1:]...)
+				break
+			}
+		}
 	}
 }
 
+// bindGeneration binds an output chunk's generation to its call. A new
+// generation while the open call is bound to another means the provider
+// started a new call the stage did not see the previous one end: that call
+// completes (interrupted) and a new one opens for the generation. Response
+// goroutine only. Nil-safe without tool execution.
+func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
+	dt := s.tools
+	if dt == nil {
+		return
+	}
+	dt.mu.Lock()
+	var superseded, opened *duplexRound
+	if _, st := dt.lookupLocked(gen); st == genUnbound && gen != 0 && dt.open != nil && dt.open.gen != 0 {
+		superseded = dt.open
+		dt.open = nil
+		opened = dt.openRoundLocked()
+	}
+	dt.bindGenerationLocked(gen)
+	dt.mu.Unlock()
+	s.completeSuperseded(ctx, superseded)
+	if opened != nil {
+		s.emitRoundStarted(ctx, opened.rr)
+	}
+}
+
+// completeSuperseded completes a call superseded before it completed, as
+// interrupted, with the cost reported for it while it was open. Nil-safe.
+func (s *DuplexProviderStage) completeSuperseded(ctx context.Context, round *duplexRound) {
+	if round == nil {
+		return
+	}
+	s.tools.mu.Lock()
+	pending := round.pending
+	s.tools.mu.Unlock()
+	msg := &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: pending}
+	s.emitRoundCompleted(ctx, msg, round, time.Since(round.start), true)
+}
+
+// interruptsOpenCall reports whether an interruption tagged gen interrupts
+// the open call: gen is the open call's, unbound, or 0 (not numbered). An
+// interruption naming a completed call interrupts nothing now.
+func (dt *duplexTools) interruptsOpenCall(gen int64) bool {
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+	_, st := dt.lookupLocked(gen)
+	return st == genOpen || st == genUnbound
+}
+
+// staleChunk reports whether chunk is output of a call that already
+// completed (a canceled response's trailing deltas or tool calls). An
+// interruption is never stale: it still flushes the caller's playback.
+func (s *DuplexProviderStage) staleChunk(chunk *providers.StreamChunk) bool {
+	dt := s.tools
+	if dt == nil || chunk.Generation == 0 || chunk.Interrupted {
+		return false
+	}
+	isOutput, isInput := classifyTranscriptionChunk(chunk)
+	output := isAssistantContentChunk(chunk, isOutput) || len(chunk.ToolCalls) > 0 ||
+		chunk.FinishReason != nil || chunk.Reasoning != ""
+	if isInput || !output {
+		return false
+	}
+	dt.mu.Lock()
+	defer dt.mu.Unlock()
+	_, st := dt.lookupLocked(chunk.Generation)
+	return st == genCompleted || st == genForgotten
+}
+
+// reportStaleCost charges a stale chunk's cost on its call and carries it for
+// the history. The chunk is not forwarded.
+func (s *DuplexProviderStage) reportStaleCost(ctx context.Context, chunk *providers.StreamChunk) error {
+	if chunk.CostInfo == nil {
+		return nil
+	}
+	job := s.attributeCost(ctx, chunk)
+	s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
+	return s.queueToolRound(ctx, job)
+}
+
 // attributeCost charges a cost no message or interruption reported and puts
-// it on its call: the call bound to the chunk's generation, or the call
-// started last when the generation is unknown. On a call still open it goes
-// on its completion; on a completed call it is a provider.call.usage. Returns
-// the job reporting a spent budget, or nil. Response goroutine only.
+// it on its call: the call its generation is bound to (on that call's
+// completion while it is open, else a provider.call.usage); for an
+// unnumbered chunk (Generation 0), the call started last; for a forgotten
+// generation, a session-level usage event with no CallID. Returns the job
+// reporting a spent budget, or nil. Response goroutine only.
 func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *providers.StreamChunk) *duplexToolJob {
 	dt := s.tools
 	if dt == nil {
@@ -81,9 +191,13 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 	}
 	cost := chunk.CostInfo
 	dt.mu.Lock()
-	round := dt.gens[chunk.Generation]
-	if round == nil || chunk.Generation == 0 {
+	dt.bindGenerationLocked(chunk.Generation) // a generation seen first with its cost
+	round, st := dt.lookupLocked(chunk.Generation)
+	if chunk.Generation == 0 {
 		round = dt.last
+	}
+	if st == genForgotten {
+		round = nil
 	}
 	open := round != nil && round == dt.open
 	if open {
@@ -101,7 +215,7 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 	if !open {
 		usageOf := round
 		if usageOf == nil {
-			usageOf = &duplexRound{} // no call was ever started
+			usageOf = &duplexRound{} // a session-level record: no call to name
 		}
 		s.emitRoundUsage(ctx, cost, usageOf)
 	}
@@ -173,7 +287,7 @@ func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.M
 		reported = *msg
 	}
 	reported.CostInfo = addCost(reported.CostInfo, pending)
-	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start))
+	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start), msg == nil)
 }
 
 // chargeSpend adds cost to the session's spend once a limit is closing the

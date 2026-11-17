@@ -79,11 +79,18 @@ type MockStreamSession struct {
 	chunks []*types.MediaChunk
 	texts  []string
 
+	// sendMu is held (read) by EmitChunk while it sends, and (write) by
+	// Close before it closes the channel.
+	sendMu sync.RWMutex
+
 	// gen numbers the session's generations (StreamChunk.Generation), as a
 	// realtime provider does; genEnded is set once the current one ended.
-	genMu       sync.Mutex
-	gen         int64
-	genEnded    bool
+	genMu    sync.Mutex
+	gen      int64
+	genEnded bool
+	// genInterrupted is set when the current generation ended interrupted.
+	genInterrupted bool
+
 	responses   chan providers.StreamChunk
 	doneCh      chan struct{}
 	err         error
@@ -310,13 +317,16 @@ func (m *MockStreamSession) Response() <-chan providers.StreamChunk {
 // Close implements StreamInputSession.Close.
 func (m *MockStreamSession) Close() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.closeCalled {
-		m.closeCalled = true
-		close(m.doneCh)
-		close(m.responses)
+	if m.closeCalled {
+		m.mu.Unlock()
+		return nil
 	}
+	m.closeCalled = true
+	close(m.doneCh) // wakes an EmitChunk blocked on a full channel
+	m.mu.Unlock()
+	m.sendMu.Lock() // no EmitChunk is sending now
+	close(m.responses)
+	m.sendMu.Unlock()
 	return nil
 }
 
@@ -343,35 +353,79 @@ func (m *MockStreamSession) EndInput() {
 	}
 }
 
+// genTag is a chunk tagged with its generation, and the session's
+// generation state once it is sent.
+type genTag struct {
+	chunk       providers.StreamChunk
+	gen         int64
+	genEnded    bool
+	interrupted bool
+}
+
 // tag stamps a chunk with the generation it belongs to, as a realtime
 // provider does: output (text, media, tool calls) after a turn ended starts a
-// new generation; a chunk with only a finish reason or a cost belongs to the
-// current one. A chunk that names its generation keeps it.
-func (m *MockStreamSession) tag(c providers.StreamChunk) providers.StreamChunk {
+// new generation, and so does a turn's end after a completed turn; a turn's
+// end after an interruption (its completion) and a cost-only chunk belong to
+// the current one. A chunk that names its generation keeps it. The
+// session's state advances only once the chunk is sent (sent).
+func (m *MockStreamSession) tag(c providers.StreamChunk) genTag {
 	m.genMu.Lock()
 	defer m.genMu.Unlock()
+	gen, ended, interrupted := m.gen, m.genEnded, m.genInterrupted
 	if c.Generation != 0 {
-		m.gen, m.genEnded = c.Generation, false
+		gen, ended, interrupted = c.Generation, false, false
 	} else {
 		output := c.Content != "" || c.Delta != "" || c.MediaData != nil || len(c.ToolCalls) > 0
-		if m.gen == 0 || (output && m.genEnded) {
-			m.gen++
-			m.genEnded = false
+		newTurnEnd := c.FinishReason != nil && !interrupted
+		if gen == 0 || (ended && (output || newTurnEnd)) {
+			gen++
+			ended, interrupted = false, false
 		}
-		c.Generation = m.gen
+		c.Generation = gen
 	}
-	if c.FinishReason != nil || c.Interrupted {
-		m.genEnded = true
+	if c.Interrupted {
+		ended, interrupted = true, true
+	} else if c.FinishReason != nil {
+		ended, interrupted = true, false
 	}
-	return c
+	return genTag{chunk: c, gen: gen, genEnded: ended, interrupted: interrupted}
+}
+
+// trySend sends a tagged chunk if the channel has room, and reports whether
+// it did.
+func (m *MockStreamSession) trySend(t genTag) bool {
+	select {
+	case m.responses <- t.chunk:
+		return true
+	default:
+		return false
+	}
+}
+
+// sent records that a tagged chunk was sent.
+func (m *MockStreamSession) sent(t genTag) {
+	m.genMu.Lock()
+	defer m.genMu.Unlock()
+	m.gen, m.genEnded, m.genInterrupted = t.gen, t.genEnded, t.interrupted
 }
 
 // EmitChunk sends a response chunk (for testing).
 func (m *MockStreamSession) EmitChunk(chunk *providers.StreamChunk) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !m.closeCalled {
-		m.responses <- m.tag(*chunk)
+	// Not under m.mu: a consumer that stopped reading closes the session,
+	// and Close takes m.mu. sendMu keeps Close from closing the channel
+	// while this sends.
+	m.sendMu.RLock()
+	defer m.sendMu.RUnlock()
+	select {
+	case <-m.doneCh:
+		return
+	default:
+	}
+	t := m.tag(*chunk)
+	select {
+	case m.responses <- t.chunk:
+		m.sent(t)
+	case <-m.doneCh:
 	}
 }
 
@@ -412,7 +466,9 @@ func (m *MockStreamSession) emitAutoResponse() {
 	} else if len(m.responseChunks) > 0 {
 		// Emit custom chunks
 		for i := range m.responseChunks {
-			m.responses <- m.tag(m.responseChunks[i])
+			t := m.tag(m.responseChunks[i])
+			m.responses <- t.chunk
+			m.sent(t)
 		}
 	} else {
 		m.emitTurnResponse(currentTurn)
@@ -437,18 +493,16 @@ func (m *MockStreamSession) emitInterruption(currentTurn int) {
 		Content: partialText,
 		Delta:   partialText,
 	}
-	select {
-	case m.responses <- m.tag(partialChunk):
-	default:
+	if t := m.tag(partialChunk); m.trySend(t) {
+		m.sent(t)
 	}
 
 	// 2. Emit interrupted flag (mimics Gemini's serverContent.interrupted)
 	interruptChunk := providers.StreamChunk{
 		Interrupted: true,
 	}
-	select {
-	case m.responses <- m.tag(interruptChunk):
-	default:
+	if t := m.tag(interruptChunk); m.trySend(t) {
+		m.sent(t)
 	}
 
 	// 3. Emit empty turnComplete (mimics Gemini's turnComplete after interruption)
@@ -456,9 +510,8 @@ func (m *MockStreamSession) emitInterruption(currentTurn int) {
 	emptyComplete := providers.StreamChunk{
 		FinishReason: &finishReason,
 	}
-	select {
-	case m.responses <- m.tag(emptyComplete):
-	default:
+	if t := m.tag(emptyComplete); m.trySend(t) {
+		m.sent(t)
 	}
 
 	m.interrupted = true
@@ -515,8 +568,10 @@ func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
 	// the only signal the consumer has that the turn ended. Dropping it on
 	// a full buffer races into a deadlock — DuplexProviderStage parks on
 	// the response channel forever after draining the queued audio chunks.
+	t := m.tag(chunk)
 	select {
-	case m.responses <- m.tag(chunk):
+	case m.responses <- t.chunk:
+		m.sent(t)
 	case <-m.doneCh:
 	}
 }
@@ -672,8 +727,10 @@ func (m *MockStreamSession) emitAudioChunks(fixture *mockAudioFixture) {
 		// emitted frames would silently lose response audio. Real providers
 		// pace their emission via the network frame rate; the mock relies on
 		// the consumer (DuplexProviderStage) to drain the channel.
+		t := m.tag(chunk)
 		select {
-		case m.responses <- m.tag(chunk):
+		case m.responses <- t.chunk:
+			m.sent(t)
 		case <-m.doneCh:
 			return
 		}

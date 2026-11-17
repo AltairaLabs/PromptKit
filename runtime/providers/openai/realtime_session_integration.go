@@ -86,9 +86,11 @@ type RealtimeSession struct {
 
 	// gen numbers the session's responses (StreamChunk.Generation): one per
 	// response, from response.created; respGens maps a response ID to its
-	// number until its response.done. Receive goroutine only.
-	gen      int64
-	respGens map[string]int64
+	// number, for the last maxRespGens responses (a canceled response's
+	// events can trail in after the next began). Receive goroutine only.
+	gen       int64
+	respGens  map[string]int64
+	respOrder []string
 
 	errCh   chan error
 	mu      sync.Mutex
@@ -669,13 +671,26 @@ func (s *RealtimeSession) startGeneration(responseID string) {
 		s.respGens = map[string]int64{}
 	}
 	s.respGens[responseID] = s.gen
+	s.respOrder = append(s.respOrder, responseID)
+	if len(s.respOrder) > maxRespGens {
+		delete(s.respGens, s.respOrder[0])
+		s.respOrder = s.respOrder[1:]
+	}
 }
 
-// emit hands a chunk to the pump, tagged with the generation it belongs to
-// (the response in progress unless it names one).
+// maxRespGens bounds the responses whose generation the session remembers.
+const maxRespGens = 32
+
+// emit hands a chunk to the pump, tagged with the generation of the response
+// it names (Metadata response_id), or the response in progress.
 func (s *RealtimeSession) emit(chunk providers.StreamChunk) {
 	if chunk.Generation == 0 {
 		chunk.Generation = s.gen
+		if id, ok := chunk.Metadata[keyResponseID].(string); ok {
+			if g, known := s.respGens[id]; known {
+				chunk.Generation = g
+			}
+		}
 	}
 	s.emitCh <- chunk
 }
@@ -919,9 +934,7 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 		Metadata: map[string]interface{}{
 			keyResponseID: e.Response.ID,
 		},
-		Generation: s.respGens[e.Response.ID], // 0 (current) for an unknown response
 	}
-	delete(s.respGens, e.Response.ID)
 
 	if e.Response.Usage != nil {
 		chunk.TokenCount = e.Response.Usage.TotalTokens

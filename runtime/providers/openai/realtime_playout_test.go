@@ -316,6 +316,8 @@ func TestRealtimeSession_ChunksCarryTheirResponsesGeneration(t *testing.T) {
 		`{"type":"response.created","response":{"id":"R2"}}`,
 		`{"type":"response.done","response":{"id":"R1","status":"cancelled","usage":{"total_tokens":3}}}`,
 		`{"type":"response.done","response":{"id":"R2","status":"completed","usage":{"total_tokens":5}}}`,
+		// R1's trailing delta, after R2 began and both ended: still R1's.
+		`{"type":"response.output_audio_transcript.delta","response_id":"R1","item_id":"i1","delta":"late"}`,
 	} {
 		s.handleMessage([]byte(ev))
 	}
@@ -324,5 +326,6 @@ func TestRealtimeSession_ChunksCarryTheirResponsesGeneration(t *testing.T) {
 	for c := range emitCh {
 		got = append(got, c.Generation)
 	}
-	assert.Equal(t, []int64{1, 1, 2}, got, "the audio and R1's done are generation 1, R2's done is 2")
+	assert.Equal(t, []int64{1, 1, 2, 1}, got,
+		"the audio, R1's done and R1's trailing delta are generation 1, R2's done is 2")
 }

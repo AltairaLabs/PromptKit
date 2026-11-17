@@ -104,6 +104,23 @@ type Provider struct {
 	turnIndex  int
 	turns      []recordedTurn
 	contentMap map[string]int // Maps user content to turn index
+	// unattached are the recorded provider calls no assistant message took:
+	// a realtime call cut short before any output, superseded, or open when
+	// the session closed. Their cost is not on a replayed turn.
+	unattached []*events.ProviderCallCompletedData
+}
+
+// UnattachedCalls returns the recorded provider calls no assistant message
+// took (NoMessage calls, and calls left waiting when the recording ended),
+// with their late usage folded in.
+func (p *Provider) UnattachedCalls() []events.ProviderCallCompletedData {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]events.ProviderCallCompletedData, len(p.unattached))
+	for i, c := range p.unattached {
+		out[i] = *c
+	}
+	return out
 }
 
 // NewProvider creates a replay provider from a session recording.
@@ -146,24 +163,27 @@ func NewProviderFromFile(path string, cfg *Config) (*Provider, error) {
 type indexState struct {
 	lastUserContent string
 	pendingTurn     *recordedTurn
-	pendingIdx      int // pendingTurn's index in p.turns
-	// pendingCall is a provider.call.completed recorded before the assistant
-	// message it belongs to (a realtime session records the call, then its
-	// message); the next assistant message takes it.
-	pendingCall *events.ProviderCallCompletedData
-	// callTurns maps a provider call's CallID to the turn its
-	// provider.call.completed was attached to, for its later usage events.
-	callTurns map[string]int
+	// pendingCalls are provider.call.completed events recorded before the
+	// assistant messages they belong to (a realtime session records each
+	// call, then its message), oldest first; each assistant message takes
+	// the oldest.
+	pendingCalls []*events.ProviderCallCompletedData
+	// calls maps a provider call's CallID to its recorded data (on a turn,
+	// pending, or unattached), for its later usage events.
+	calls map[string]*events.ProviderCallCompletedData
 }
 
 // indexRecording extracts assistant responses and builds lookup indexes.
 func (p *Provider) indexRecording() error {
-	state := &indexState{callTurns: map[string]int{}}
+	state := &indexState{calls: map[string]*events.ProviderCallCompletedData{}}
 
 	for i := range p.recording.Events {
 		event := &p.recording.Events[i]
 		p.processEvent(event, state)
 	}
+
+	// Calls still waiting for a message when the recording ended had none.
+	p.unattached = append(p.unattached, state.pendingCalls...)
 
 	if len(p.turns) == 0 {
 		return fmt.Errorf("no assistant responses found in recording")
@@ -215,10 +235,10 @@ func (p *Provider) addAssistantTurn(
 	turnIdx := len(p.turns)
 	p.turns = append(p.turns, turn)
 	state.pendingTurn = &p.turns[turnIdx]
-	state.pendingIdx = turnIdx
-	if state.pendingCall != nil { // the call recorded ahead of its message
-		p.attachCall(state, state.pendingCall)
-		state.pendingCall = nil
+	if len(state.pendingCalls) > 0 { // the oldest call recorded ahead of its message
+		call := state.pendingCalls[0]
+		state.pendingCalls = state.pendingCalls[1:]
+		p.attachCall(state, call)
 	}
 
 	if state.lastUserContent != "" {
@@ -228,24 +248,27 @@ func (p *Provider) addAssistantTurn(
 
 // processProviderCallEvent attaches cost info to pending turn.
 func (p *Provider) processProviderCallEvent(event *recording.RecordedEvent, state *indexState) {
-	var callData events.ProviderCallCompletedData
-	if json.Unmarshal(event.Data, &callData) != nil {
+	callData := &events.ProviderCallCompletedData{}
+	if json.Unmarshal(event.Data, callData) != nil {
 		return
 	}
-	if state.pendingTurn == nil {
+	if callData.CallID != "" {
+		state.calls[callData.CallID] = callData
+	}
+	switch {
+	case callData.NoMessage:
+		p.unattached = append(p.unattached, callData) // no message will take it
+	case state.pendingTurn == nil:
 		// A realtime session records the call ahead of its message.
-		state.pendingCall = &callData
-		return
+		state.pendingCalls = append(state.pendingCalls, callData)
+	default:
+		p.attachCall(state, callData)
 	}
-	p.attachCall(state, &callData)
 }
 
-// attachCall gives the pending turn the call's cost, and maps the call to it.
+// attachCall gives the pending turn the call's cost.
 func (p *Provider) attachCall(state *indexState, callData *events.ProviderCallCompletedData) {
 	state.pendingTurn.callInfo = callData
-	if callData.CallID != "" {
-		state.callTurns[callData.CallID] = state.pendingIdx
-	}
 	state.pendingTurn = nil
 }
 
@@ -257,13 +280,8 @@ func (p *Provider) processProviderUsageEvent(event *recording.RecordedEvent, sta
 	if json.Unmarshal(event.Data, &usage) != nil {
 		return
 	}
-	var info *events.ProviderCallCompletedData
-	if idx, ok := state.callTurns[usage.CallID]; ok {
-		info = p.turns[idx].callInfo
-	} else if state.pendingCall != nil && state.pendingCall.CallID == usage.CallID {
-		info = state.pendingCall // its message is still to come
-	}
-	if info == nil {
+	info := state.calls[usage.CallID]
+	if info == nil || usage.CallID == "" {
 		return
 	}
 	info.InputTokens += usage.InputTokens

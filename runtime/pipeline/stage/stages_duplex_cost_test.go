@@ -344,26 +344,31 @@ func TestDuplexCost_CarriedCostGoesOnTheBlockedTurnFlushedAtClose(t *testing.T) 
 	assert.Equal(t, []string{"half a reply=none", "Not here.=5/1"}, got)
 }
 
-// A turn's end with a cost and nothing to build a message from leaves the
-// call open, as before (ending turns follows the chunk's flags); its cost goes
-// on that call's completion, and on the next message.
-func TestDuplexCost_CostOnACallStillOpenIsOnItsCompletion(t *testing.T) {
+// A turn's end with a cost and nothing to build a message from completes its
+// call with that cost (marked as producing no message) and ends the tool
+// turn; the cost goes on the next message.
+func TestDuplexCost_TurnEndWithoutAMessageCompletesItsCall(t *testing.T) {
 	h, ev := costHarness(t, 0)
 	user := types.Message{Role: roleUser, Content: "hello?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	stop := "stop"
 	h.emit([]providers.StreamChunk{{FinishReason: &stop, CostInfo: &types.CostInfo{TotalCost: 0.02}, Generation: 1}})
-	h.emit(gen(1, textTurn("hello", usd(20, 5))))
-	done, _ := ev.await(t, 1, 0)
+	h.awaitToolTurnEnded()
+	h.emit(gen(2, textTurn("hello", usd(20, 5))))
+	ev.await(t, 2, 0)
 	msgs := costedReplies(h.finish())
 
-	done, usage := ev.await(t, 1, 0)
-	require.Len(t, done, 1, "one call")
+	done, usage := ev.await(t, 2, 0)
+	require.Len(t, done, 2)
 	assert.Empty(t, usage)
-	assert.InDelta(t, 0.045, done[0].Cost, 1e-12, "the call's completion carries both")
+	assert.InDelta(t, 0.02, done[0].Cost, 1e-12)
+	assert.True(t, done[0].NoMessage)
+	assert.Equal(t, "stop", done[0].FinishReason)
+	assertCall(t, done[1], 20, 5)
+	assert.False(t, done[1].NoMessage)
 	require.Len(t, msgs, 1)
-	assert.InDelta(t, 0.045, msgs[0].CostInfo.TotalCost, 1e-12)
+	assert.InDelta(t, 0.045, msgs[0].CostInfo.TotalCost, 1e-12, "the next message carries it")
 }
 
 // An interruption with nothing under way (no call open, no reply, no cost)
@@ -380,21 +385,22 @@ func TestDuplexCost_InterruptionWithNothingUnderWayReportsNoCall(t *testing.T) {
 	assertCall(t, done[0], 20, 5)
 }
 
-// Late usage is matched to the most recent generations only: one too old to
-// remember goes to the call started last.
-func TestDuplexCost_OnlyRecentGenerationsAreRemembered(t *testing.T) {
+// Usage for a generation too old to remember is a session-level usage event
+// (no CallID); never added to a call it does not belong to.
+func TestDuplexCost_ForgottenGenerationIsSessionLevel(t *testing.T) {
 	h, ev := costHarness(t, 0)
-	for g := int64(1); g <= maxTrackedGenerations+1; g++ {
+	n := maxTrackedGenerations + 1
+	for g := int64(1); g <= int64(n); g++ {
 		h.emit(gen(g, textTurn("hi", usd(1, 0))))
 	}
-	ev.await(t, maxTrackedGenerations+1, 0)
+	ev.await(t, n, 0)
 	h.emit(gen(1, []providers.StreamChunk{{CostInfo: usd(5, 0)}}))
 	h.emit(gen(2, []providers.StreamChunk{{CostInfo: usd(7, 0)}}))
-	done, usage := ev.await(t, maxTrackedGenerations+1, 2)
+	done, _ := ev.await(t, n, 2)
 	h.finish()
 
-	_, usage = ev.await(t, maxTrackedGenerations+1, 2)
+	_, usage := ev.await(t, n, 2)
 	require.Len(t, usage, 2)
-	assertUsage(t, usage[0], done[maxTrackedGenerations].CallID, 5, 0) // forgotten: the call started last
+	assertUsage(t, usage[0], "", 5, 0)
 	assertUsage(t, usage[1], done[1].CallID, 7, 0)
 }

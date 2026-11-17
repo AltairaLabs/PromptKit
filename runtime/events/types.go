@@ -332,6 +332,11 @@ type ProviderCallCompletedData struct {
 	// is carried by every tool call this round produced as
 	// ToolCallEventData.ProviderCallID.
 	CallID string
+
+	// NoMessage is set when the call produced no message in the conversation:
+	// a realtime call cut short before any output, superseded by the next
+	// turn, or open when the session closed.
+	NoMessage bool
 }
 
 // ProviderCallUsageData contains data for provider.call.usage events: usage a

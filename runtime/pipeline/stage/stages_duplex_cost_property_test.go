@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -49,6 +51,8 @@ type costScenario struct {
 	// userRounds are the indexes, in started order, of the first call after
 	// each user turn.
 	firstAfterUser []int
+	// over is set once the session has ended (a guardrail denied a turn).
+	over bool
 	started        func() []*events.ProviderCallStartedData
 }
 
@@ -81,15 +85,14 @@ func (sc *costScenario) toolTurn() {
 	if sc.shape == openaiShape {
 		turn[0].CostInfo = sc.cost() // OpenAI: response.done carries the cost
 	}
-	sc.emit("tool", gen(g, turn))
-	sc.sent++
-	sc.h.awaitSent(sc.sent)
+	sc.emitTool(g, turn)
 	if sc.shape == geminiShape {
 		// Gemini 3: the tool-call turn's usage, after its tool calls (here
 		// after the tool ran and the reply's call started).
 		sc.emit("late-usage", gen(g, []providers.StreamChunk{{CostInfo: sc.cost()}}))
 	}
 	sc.reply()
+	sc.turnEnded()
 }
 
 func (sc *costScenario) bargeIn() {
@@ -132,7 +135,7 @@ func (sc *costScenario) userTurn() {
 	before := len(sc.started())
 	user := types.Message{Role: roleUser, Content: "next"}
 	sc.h.input <- StreamElement{Message: &user}
-	sc.h.awaitNewToolTurn(nil)
+	sc.awaitUserTurn()
 	assert.Eventually(sc.t, func() bool { return len(sc.started()) > before }, 2*time.Second, time.Millisecond)
 	sc.firstAfterUser = append(sc.firstAfterUser, before)
 }
@@ -141,6 +144,137 @@ func (sc *costScenario) blockedTurn() {
 	sc.log = append(sc.log, "blocked")
 	text := "blocked input"
 	sc.h.input <- StreamElement{Text: &text}
+}
+
+// emitTool emits a tool-call turn and waits for its results to reach the
+// session (unless a limit closed it, or it refused the calls).
+func (sc *costScenario) emitTool(g int64, turn []providers.StreamChunk) {
+	before := len(sc.h.sess().sentResponses())
+	sc.emit("tool", gen(g, turn))
+	assert.Eventually(sc.t, func() bool {
+		return len(sc.h.sess().sentResponses()) > before || sc.h.sess().isClosed() || sc.h.stage.tools.isTerminal()
+	}, 2*time.Second, time.Millisecond)
+}
+
+// userDuringReply sends a user turn while the reply to a tool result (round
+// 2) streams, then finishes that reply.
+func (sc *costScenario) userDuringReply() {
+	g := sc.next()
+	sc.emitTool(g, toolCallTurn(weatherCall(fmt.Sprintf("c%d", g))))
+	r := sc.next()
+	sc.emit("reply-streaming", gen(r, []providers.StreamChunk{{Content: "it is", Delta: "it is"}}))
+	sc.settle()
+	sc.log = append(sc.log, "user-mid-reply")
+	user := types.Message{Role: roleUser, Content: "actually, Rome"}
+	sc.h.input <- StreamElement{Message: &user}
+	sc.settle()
+	stop := "stop"
+	// The superseded reply's end, then the reply to the user's turn.
+	sc.emit("reply-end", gen(r, []providers.StreamChunk{{FinishReason: &stop, CostInfo: sc.cost()}}))
+	sc.reply()
+	sc.turnEnded()
+}
+
+// bargeBeforeOutput: a user turn opens a call, and the provider reports an
+// interruption tagged with the generation completed before it (it saw no new
+// output), then replies.
+func (sc *costScenario) bargeBeforeOutput() {
+	if sc.h.toolTurn() != nil {
+		return
+	}
+	user := types.Message{Role: roleUser, Content: "hello?"}
+	sc.h.input <- StreamElement{Message: &user}
+	sc.awaitUserTurn()
+	chunk := providers.StreamChunk{Interrupted: true, Generation: sc.gen}
+	if sc.shape == geminiShape && sc.rng.Intn(2) == 0 {
+		chunk.CostInfo = sc.cost()
+	}
+	sc.emit("barge-before-output", []providers.StreamChunk{chunk})
+	sc.reply()
+	sc.turnEnded()
+}
+
+// zeroTokenEnd ends a turn with a cost but no tokens and no content.
+func (sc *costScenario) zeroTokenEnd() {
+	g := sc.next()
+	stop := "stop"
+	sc.emit("zero-token-end", gen(g, []providers.StreamChunk{
+		{Delta: "x", Metadata: map[string]interface{}{"type": "input_transcription", "transcription": "x"}},
+		{FinishReason: &stop, CostInfo: &types.CostInfo{TotalCost: float64(1+sc.rng.Intn(9)) / 1000}},
+	}))
+	sc.turnEnded()
+}
+
+// deniedReply is a reply the output guardrail denies.
+func (sc *costScenario) deniedReply() {
+	g := sc.next()
+	stop := "stop"
+	sc.emit("denied-reply", gen(g, []providers.StreamChunk{
+		{Content: "deny-me", Delta: "deny-me"},
+		{FinishReason: &stop, CostInfo: sc.cost()},
+	}))
+	sc.over = true // a denied turn ends the session
+}
+
+// manyGenerations runs more replies than the stage remembers generations
+// for, then reports usage for an early one.
+func (sc *costScenario) manyGenerations() {
+	early := sc.gen + 1
+	for i := 0; i < maxTrackedGenerations+4; i++ {
+		sc.reply()
+	}
+	sc.settle()
+	sc.emit(fmt.Sprintf("usage-evicted(g%d)", early), []providers.StreamChunk{{CostInfo: sc.cost(), Generation: early}})
+}
+
+// trailingCancelled: OpenAI cancels a response, starts the next, and the
+// cancelled one's deltas and a tool call trail in after the next began.
+func (sc *costScenario) trailingCancelled() {
+	g := sc.next()
+	interrupted := types.FinishReasonInterrupted
+	sc.emit("cancelled", gen(g, []providers.StreamChunk{
+		{Content: "once", Delta: "once"},
+		{FinishReason: &interrupted, CostInfo: sc.cost()},
+	}))
+	n := sc.next()
+	sc.emit("next-starts", gen(n, []providers.StreamChunk{{Content: "sure", Delta: "sure"}}))
+	sc.emit("trailing", gen(g, []providers.StreamChunk{
+		{Content: "upon", Delta: "upon"},
+		{ToolCalls: []types.MessageToolCall{weatherCall(fmt.Sprintf("late%d", g))}},
+	}))
+	stop := "stop"
+	sc.emit("next-ends", gen(n, []providers.StreamChunk{{FinishReason: &stop, CostInfo: sc.cost()}}))
+	sc.turnEnded()
+}
+
+// awaitUserTurn waits for the user's turn to begin its tool turn.
+func (sc *costScenario) awaitUserTurn() {
+	dt := sc.h.stage.tools
+	ok := assert.Eventuallyf(sc.t, func() bool { return sc.h.toolTurn() != nil || dt.isTerminal() },
+		2*time.Second, time.Millisecond, "the user turn began no tool turn: %v", sc.log)
+	if !ok {
+		dt.mu.Lock()
+		sc.t.Logf("open=%+v turn=%v round=%d terminal=%v", dt.open, dt.turn, dt.round, dt.terminal)
+		dt.mu.Unlock()
+	}
+}
+
+// turnEnded checks that once a turn has ended no call and no tool turn is
+// left open.
+func (sc *costScenario) turnEnded() {
+	dt := sc.h.stage.tools
+	if sc.h.sess().isClosed() || dt.isTerminal() {
+		return // a spent budget is closing the session
+	}
+	if !assert.Eventuallyf(sc.t, func() bool {
+		dt.mu.Lock()
+		defer dt.mu.Unlock()
+		return (dt.open == nil && dt.turn == nil) || dt.terminal
+	}, 2*time.Second, time.Millisecond, "a call or tool turn left open after a turn end: %v", sc.log) {
+		dt.mu.Lock()
+		sc.t.Logf("open=%+v turn=%v round=%d", dt.open, dt.turn != nil, dt.round)
+		dt.mu.Unlock()
+	}
 }
 
 // settle waits for the stage to handle everything emitted so far.
@@ -162,17 +296,31 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 		return append([]*events.ProviderCallStartedData(nil), ev.started...)
 	}
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
-	h := startRealtime(t, realtimeOpts{
-		registry: newWeatherRegistry(t, exec),
-		emitter:  emitter,
-		hookReg:  propertyHooks(),
-	})
+	opts := realtimeOpts{registry: newWeatherRegistry(t, exec), emitter: emitter, hookReg: propertyHooks(),
+		timeout: time.Minute, outputBuffer: 1 << 14}
+	if seed%4 == 0 {
+		// A budget spent mid-session: the session goes terminal, and what it
+		// still reports is accounted.
+		opts.policy = &pipeline.ToolPolicy{MaxCostUSD: 0.8}
+	}
+	h := startRealtime(t, opts)
 	sc := &costScenario{t: t, h: h, rng: rand.New(rand.NewSource(seed)), shape: shape, started: startedSnapshot}
 
-	ops := []func(){sc.reply, sc.toolTurn, sc.bargeIn, sc.playoutBargeIn, sc.usageOnly, sc.userTurn, sc.blockedTurn}
-	for i, n := 0, 4+sc.rng.Intn(8); i < n; i++ {
+	ops := []func(){sc.reply, sc.toolTurn, sc.bargeIn, sc.playoutBargeIn, sc.usageOnly, sc.userTurn, sc.blockedTurn,
+		sc.userDuringReply, sc.bargeBeforeOutput, sc.zeroTokenEnd, sc.deniedReply, sc.manyGenerations}
+	if shape == openaiShape {
+		ops = append(ops, sc.trailingCancelled)
+	}
+	for i, n := 0, 4+sc.rng.Intn(8); i < n && !sc.over; i++ {
 		ops[sc.rng.Intn(len(ops))]()
 		sc.settle()
+		if os.Getenv("COSTDEBUG") != "" {
+			dt := h.stage.tools
+			dt.mu.Lock()
+			t.Logf("%v: open=%v turn=%v round=%d terminal=%v spent=%.3f", sc.log, dt.open != nil, dt.turn != nil,
+				dt.round, dt.terminal, dt.spent)
+			dt.mu.Unlock()
+		}
 	}
 	elems := h.finish()
 
@@ -214,7 +362,7 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 	assert.InDeltaf(t, spend, eventCost, 1e-9, "%s seed %d %v: events (%d completed, %d usage) == spend",
 		shape, seed, sc.log, len(done), len(usage))
 	assert.InDeltaf(t, spend, messageCost+remainder, 1e-9,
-		"%s seed %d %v: spend == messages + remainder", shape, seed, sc.log)
+		"%s seed %d %v: spend %.6f == messages %.6f + remainder %.6f", shape, seed, sc.log, spend, messageCost, remainder)
 
 	startedIDs := map[string]int{}
 	for _, d := range startedSnapshot() {
@@ -244,7 +392,27 @@ func propertyHooks() *hooks.Registry {
 	if !propertyHooksOn {
 		return nil
 	}
-	return hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}))
+	return hooks.NewRegistry(
+		hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}),
+		hooks.WithProviderHook(denyReplyHook{}),
+	)
+}
+
+// denyReplyHook is an output guardrail that denies a completed reply saying
+// "deny-me".
+type denyReplyHook struct{}
+
+func (denyReplyHook) Name() string { return "deny_reply" }
+
+func (denyReplyHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (denyReplyHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+	if resp != nil && resp.Message.Content == "deny-me" {
+		return hooks.Deny("no")
+	}
+	return hooks.Allow
 }
 
 func abs(f float64) float64 {

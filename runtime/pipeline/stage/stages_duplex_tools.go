@@ -140,8 +140,10 @@ type duplexTools struct {
 	// started last (stages_duplex_cost.go). genOrder bounds gens.
 	gens     map[int64]*duplexRound
 	genOrder []int64
-	last     *duplexRound
-	spent    float64
+	// forgottenUpTo is the newest generation evicted from gens.
+	forgottenUpTo int64
+	last          *duplexRound
+	spent         float64
 	// terminal is set once a limit closes the session: nothing more is run
 	// or reported.
 	terminal bool
@@ -367,10 +369,15 @@ func (s *DuplexProviderStage) beginToolUserTurn(ctx context.Context) {
 		dt.mu.Unlock()
 		return
 	}
+	// A call still open is superseded by the user's turn: it completes, as
+	// interrupted, before the new turn's first call starts.
+	superseded := dt.open
+	dt.open = nil
 	// The turn's offer is what the session holds once it is brought in line.
 	turn := s.startToolTurnLocked(nil)
 	opened := dt.openRoundLocked()
 	dt.mu.Unlock()
+	s.completeSuperseded(ctx, superseded)
 	s.syncSessionTools(ctx, turn, nil, true)
 	s.emitRoundStarted(ctx, opened.rr)
 }
@@ -441,7 +448,9 @@ func (s *DuplexProviderStage) openNextToolRound(ctx context.Context, turn *duple
 
 // completeRound completes the provider call in progress (starting one when
 // none is) and returns the tool turn it belongs to and its round.
-func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Message) (*duplexToolTurn, roundRef) {
+func (s *DuplexProviderStage) completeRound(
+	ctx context.Context, msg *types.Message, noMessage bool,
+) (*duplexToolTurn, roundRef) {
 	dt := s.tools
 	dt.mu.Lock()
 	var started *duplexToolTurn
@@ -464,7 +473,7 @@ func (s *DuplexProviderStage) completeRound(ctx context.Context, msg *types.Mess
 	if opened {
 		s.emitRoundStarted(ctx, round.rr)
 	}
-	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start))
+	s.emitRoundCompleted(ctx, &reported, round, time.Since(round.start), noMessage)
 	return turn, round.rr
 }
 
@@ -570,29 +579,69 @@ func (s *DuplexProviderStage) toolRoundResults() <-chan *duplexToolResult {
 	return s.tools.results
 }
 
-// prepareToolRound is the response goroutine's part of a completed assistant
-// turn: it completes the turn's provider call, stamps the message with the
-// tools offered and the workflow state, charges the turn's cost, and returns
-// the round for the worker once the message is sent, or nil. Without tool
-// execution it does nothing.
-func (s *DuplexProviderStage) prepareToolRound(ctx context.Context, elem *StreamElement) *duplexToolJob {
+// settledCall is a turn's completed provider call: its tool turn and round,
+// the message (nil when the turn produced none), and the budget error its
+// cost hit.
+type settledCall struct {
+	turn      *duplexToolTurn
+	rr        roundRef
+	msg       *types.Message
+	chargeErr error
+}
+
+// settleTurnCall completes the provider call a turn's end completes and
+// charges its cost, whatever follows (a limit closing the session, an output
+// guardrail denying the turn). A turn's end with no message completes its
+// call too. Returns nil without tool execution or when the element ends no
+// turn.
+func (s *DuplexProviderStage) settleTurnCall(ctx context.Context, elem *StreamElement) *settledCall {
+	dt := s.tools
+	if dt == nil || !elem.EndOfStream {
+		return nil
+	}
 	msg := elem.Message
-	if s.tools == nil || msg == nil || msg.Role != roleAssistant || s.tools.isTerminal() {
+	if msg != nil && msg.Role != roleAssistant {
+		return nil
+	}
+	noMessage := msg == nil
+	if noMessage {
+		msg = &types.Message{Role: roleAssistant, CostInfo: s.chunkCost}
+		if elem.Meta.FinishReason != nil {
+			msg.FinishReason = *elem.Meta.FinishReason
+		}
+	}
+	turn, rr := s.completeRound(ctx, msg, noMessage)
+	s.costReported = true // the message's cost, the chunk's when it had one
+	if !noMessage {
+		dt.stampToolsOffered(turn, msg)
+		stampWorkflowStateMeta(dt.resolver, msg)
+	}
+	settled := &settledCall{turn: turn, rr: rr, chargeErr: s.charge(turn, msg.CostInfo)}
+	if !noMessage {
+		settled.msg = msg
+	}
+	return settled
+}
+
+// toolJob is the round for the worker a settled turn leaves: its calls, the
+// refusal of a spent budget, or nil (the tool turn ends). Nil-safe.
+func (s *DuplexProviderStage) toolJob(settled *settledCall) *duplexToolJob {
+	if settled == nil {
 		return nil
 	}
 	dt := s.tools
-	turn, rr := s.completeRound(ctx, msg)
-	s.costReported = true // the message's cost, the chunk's when it had one
-	dt.stampToolsOffered(turn, msg)
-	stampWorkflowStateMeta(dt.resolver, msg)
-	if err := s.charge(turn, msg.CostInfo); err != nil {
-		return s.budgetSpent(turn, msg.ToolCalls, rr, err)
+	var calls []types.MessageToolCall
+	if settled.msg != nil {
+		calls = settled.msg.ToolCalls
 	}
-	if len(msg.ToolCalls) == 0 {
-		dt.endTurn(turn)
+	if settled.chargeErr != nil {
+		return s.budgetSpent(settled.turn, calls, settled.rr, settled.chargeErr)
+	}
+	if len(calls) == 0 || dt.isTerminal() {
+		dt.endTurn(settled.turn)
 		return nil
 	}
-	return &duplexToolJob{turn: turn, calls: msg.ToolCalls, rr: rr}
+	return &duplexToolJob{turn: settled.turn, calls: calls, rr: settled.rr}
 }
 
 // budgetSpent is the job for a provider call that took the session past
@@ -615,13 +664,13 @@ func (s *DuplexProviderStage) budgetSpent(
 func (s *DuplexProviderStage) chargeInterruptedTurn(
 	ctx context.Context, chunk *providers.StreamChunk, elem *StreamElement,
 ) *duplexToolJob {
-	if s.tools == nil || !elem.Meta.Interrupted ||
-		(elem.Message == nil && chunk.CostInfo == nil && !s.tools.callInProgress()) {
-		return nil // nothing was under way to interrupt
+	if s.tools == nil || !elem.Meta.Interrupted {
+		return nil
 	}
-	if s.tools.isTerminal() {
-		s.chargeSpend(chunk.CostInfo)
-		s.costReported = true
+	if !s.tools.interruptsOpenCall(chunk.Generation) ||
+		(elem.Message == nil && chunk.CostInfo == nil && !s.tools.callInProgress()) {
+		// Nothing under way to interrupt, or the interruption names a call
+		// already completed: its cost, if any, is that call's late cost.
 		return nil
 	}
 	msg := elem.Message
@@ -630,7 +679,7 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 	}
 	withCost := *msg
 	withCost.CostInfo = chunk.CostInfo
-	turn, rr := s.completeRound(ctx, &withCost)
+	turn, rr := s.completeRound(ctx, &withCost, elem.Message == nil)
 	s.tools.endTurn(turn)
 	s.costReported = true
 	if err := s.charge(turn, chunk.CostInfo); err != nil {
@@ -661,7 +710,7 @@ func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, rr roundRef)
 // emitRoundCompleted emits provider.call.completed for a realtime round that
 // took dur, as ProviderStage.emitProviderCallCompleted does for a round.
 func (s *DuplexProviderStage) emitRoundCompleted(
-	ctx context.Context, msg *types.Message, round *duplexRound, dur time.Duration,
+	ctx context.Context, msg *types.Message, round *duplexRound, dur time.Duration, noMessage bool,
 ) {
 	if s.emitter == nil {
 		return
@@ -674,6 +723,7 @@ func (s *DuplexProviderStage) emitRoundCompleted(
 		Labels:        s.tools.cfg.Labels,
 		Round:         round.rr.round,
 		CallID:        round.rr.providerCallID,
+		NoMessage:     noMessage,
 	}
 	if s.provider != nil {
 		data.Provider = s.provider.ID()

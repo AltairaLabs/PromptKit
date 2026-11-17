@@ -710,3 +710,42 @@ func TestProvider_DuplexOrderCallBeforeMessage(t *testing.T) {
 	assert.Equal(t, 729, second.CostInfo.InputTokens, "its usage arrived before its message")
 	assert.InDelta(t, 0.00234, second.CostInfo.TotalCost, 1e-12)
 }
+
+// A recorded call with no message (cut short before any output) is reported
+// on its own, not shifted onto the next message; so is a call still waiting
+// for a message when the recording ends.
+func TestProvider_CallsWithoutMessagesAreUnattached(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "hi"}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "cut",
+				FinishReason: "interrupted", NoMessage: true, Cost: 0.001}),
+			mk(3, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "cut", Cost: 0.0005}),
+			mk(4, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "reply",
+				InputTokens: 30, Cost: 0.002}),
+			mk(5, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hello."}),
+			mk(6, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "closing",
+				Cost: 0.004}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, resp.CostInfo)
+	assert.Equal(t, 30, resp.CostInfo.InputTokens, "the message takes its own call")
+	assert.InDelta(t, 0.002, resp.CostInfo.TotalCost, 1e-12)
+
+	unattached := p.UnattachedCalls()
+	require.Len(t, unattached, 2)
+	assert.Equal(t, "cut", unattached[0].CallID)
+	assert.InDelta(t, 0.0015, unattached[0].Cost, 1e-12, "with its late usage")
+	assert.Equal(t, "closing", unattached[1].CallID)
+}

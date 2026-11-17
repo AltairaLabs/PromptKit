@@ -148,6 +148,7 @@ type DuplexProviderStage struct {
 	// set once its cost is charged and on a provider call event. Response
 	// goroutine only.
 	chunkGen     int64
+	chunkCost    *types.CostInfo
 	costReported bool
 
 	// Turn latency tracking - when the current turn started
@@ -1476,9 +1477,14 @@ func (s *DuplexProviderStage) handleResponseChunk(
 ) error {
 	// Whatever the chunk did to the turn, input-side hooks see it next.
 	defer s.syncReplyStreaming()
-	s.chunkGen = chunk.Generation
+	s.chunkGen, s.chunkCost = chunk.Generation, chunk.CostInfo
 	if chunk.Error != nil {
 		return s.emitChunkError(ctx, chunk, output)
+	}
+	if s.staleChunk(chunk) {
+		// Output of a call that already completed (a canceled response's
+		// trailing chunks): only its cost counts, on that call.
+		return s.reportStaleCost(ctx, chunk)
 	}
 
 	// Accumulate text content for this turn
@@ -1605,12 +1611,20 @@ func (s *DuplexProviderStage) completeChunkTurn(
 	s.costReported = false
 	round := s.chargeInterruptedTurn(ctx, chunk, elem)
 	if turnDone {
+		// The call completes and its cost is charged whatever the output
+		// guardrails decide.
+		settled := s.settleTurnCall(ctx, elem)
 		if err := s.guardCompletedTurn(ctx, elem); err != nil {
+			if settled != nil {
+				s.tools.endTurn(settled.turn)
+			}
+			// The denied turn's message is not emitted: its cost is carried.
+			s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
 			return nil, err
 		}
-		round = s.prepareToolRound(ctx, elem)
+		round = s.toolJob(settled)
 	}
-	if unplaced && !s.costReported {
+	if chunk.CostInfo != nil && !s.costReported {
 		if job := s.attributeCost(ctx, chunk); job != nil {
 			round = job
 		}
@@ -1802,7 +1816,7 @@ func (s *DuplexProviderStage) accumulateResponseChunk(
 	// input that started it could not be seen.
 	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
 		s.openToolRoundIfIdle(ctx)
-		s.bindGeneration(chunk.Generation)
+		s.bindGeneration(ctx, chunk.Generation)
 	}
 	if isOutputTranscription && chunk.Delta != "" {
 		// outputTranscription sends incremental text - append it
