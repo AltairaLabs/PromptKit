@@ -639,3 +639,189 @@ func TestProvider_MultimodalParts(t *testing.T) {
 		assert.Equal(t, types.MIMETypeImageJPEG, resp.Parts[1].Media.MIMEType)
 	})
 }
+
+// A recorded Gemini 3 tool-call turn: its completion carries no cost, and its
+// usage follows as provider.call.usage. The replayed turn costs both.
+func TestProvider_CostIncludesLateUsage(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "weather?"}),
+			mk(2, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: ""}),
+			mk(3, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "call-1"}),
+			mk(4, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "call-1",
+				InputTokens: 661, OutputTokens: 12, Cost: 0.001245}),
+			mk(5, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "unknown", Cost: 9}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, resp.CostInfo)
+	assert.Equal(t, 661, resp.CostInfo.InputTokens)
+	assert.Equal(t, 12, resp.CostInfo.OutputTokens)
+	assert.InDelta(t, 0.001245, resp.CostInfo.TotalCost, 1e-12)
+}
+
+// A recorded duplex session: each call is recorded before its assistant
+// message (the stage completes the call, then saves the message), and a
+// Gemini 3 tool-call turn's usage arrives after both. Each replayed turn costs
+// what its call did.
+func TestProvider_DuplexOrderCallBeforeMessage(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "weather?"}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "call-1"}),
+			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: ""}),
+			mk(4, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "call-1",
+				InputTokens: 661, OutputTokens: 12, Cost: 0.001245}),
+			mk(5, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "call-2",
+				InputTokens: 728, OutputTokens: 81, Cost: 0.002339}),
+			mk(6, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "call-2",
+				InputTokens: 1, OutputTokens: 1, Cost: 0.000001}),
+			mk(7, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hazy."}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	first, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, first.CostInfo)
+	assert.Equal(t, 661, first.CostInfo.InputTokens)
+	assert.InDelta(t, 0.001245, first.CostInfo.TotalCost, 1e-12)
+
+	second, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, second.CostInfo)
+	assert.Equal(t, 729, second.CostInfo.InputTokens, "its usage arrived before its message")
+	assert.InDelta(t, 0.00234, second.CostInfo.TotalCost, 1e-12)
+}
+
+// A recorded call with no message (cut short before any output) is reported
+// on its own, not shifted onto the next message; so is a call still waiting
+// for a message when the recording ends.
+func TestProvider_CallsWithoutMessagesAreUnattached(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "hi"}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "cut",
+				FinishReason: "interrupted", NoMessage: true, Cost: 0.001}),
+			mk(3, events.EventProviderCallUsage, events.ProviderCallUsageData{CallID: "cut", Cost: 0.0005}),
+			mk(4, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "reply",
+				InputTokens: 30, Cost: 0.002}),
+			mk(5, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hello."}),
+			mk(6, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "closing",
+				Cost: 0.004}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, resp.CostInfo)
+	assert.Equal(t, 30, resp.CostInfo.InputTokens, "the message takes its own call")
+	assert.InDelta(t, 0.002, resp.CostInfo.TotalCost, 1e-12)
+
+	unattached := p.UnattachedCalls()
+	require.Len(t, unattached, 2)
+	assert.Equal(t, "cut", unattached[0].CallID)
+	assert.InDelta(t, 0.0015, unattached[0].Cost, 1e-12, "with its late usage")
+	assert.Equal(t, "closing", unattached[1].CallID)
+}
+
+// In duplex order a message with no call before it (a blocked turn's reply)
+// is costless and does not take the next call, which belongs to the message
+// after it; usage naming no call is a session-level total.
+func TestProvider_DuplexMessageWithoutCallIsCostless(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "hi"}),
+			mk(2, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "first", Cost: 0.001, Realtime: true}),
+			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Hello."}),
+			mk(4, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Not here."}),
+			mk(5, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "second", Cost: 0.002, Realtime: true}),
+			mk(6, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Bye."}),
+			mk(7, events.EventProviderCallUsage, events.ProviderCallUsageData{Cost: 0.0004}),
+			mk(8, events.EventProviderCallUsage, events.ProviderCallUsageData{Cost: 0.0001}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	var costs []float64
+	for i := 0; i < 3; i++ {
+		resp, err := p.Predict(context.Background(), providers.PredictionRequest{})
+		require.NoError(t, err)
+		c := 0.0
+		if resp.CostInfo != nil {
+			c = resp.CostInfo.TotalCost
+		}
+		costs = append(costs, c)
+	}
+	assert.InDeltaSlice(t, []float64{0.001, 0, 0.002}, costs, 1e-12)
+	unattached := p.UnattachedCalls()
+	require.Len(t, unattached, 1)
+	assert.Empty(t, unattached[0].CallID)
+	assert.InDelta(t, 0.0005, unattached[0].Cost, 1e-12, "the session-level usage total")
+}
+
+// A realtime recording that starts with a resumed conversation's history:
+// the earlier assistant messages come before any call, are costless, and do
+// not take the calls recorded after them.
+func TestProvider_RealtimeRecordingWithResumedHistory(t *testing.T) {
+	base := time.Now()
+	mk := func(seq int64, tp events.EventType, data any) recording.RecordedEvent {
+		b, _ := json.Marshal(data)
+		return recording.RecordedEvent{Sequence: seq, Type: tp, Timestamp: base, SessionID: "s", Data: b}
+	}
+	rec := &recording.SessionRecording{
+		Metadata: recording.Metadata{SessionID: "s", StartTime: base, EndTime: base, Version: "1.0"},
+		Events: []recording.RecordedEvent{
+			mk(1, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "earlier"}),
+			mk(2, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Earlier reply."}),
+			mk(3, events.EventMessageCreated, events.MessageCreatedData{Role: "user", Content: "now"}),
+			mk(4, events.EventProviderCallCompleted, events.ProviderCallCompletedData{CallID: "now",
+				Cost: 0.003, Realtime: true}),
+			mk(5, events.EventMessageCreated, events.MessageCreatedData{Role: "assistant", Content: "Now reply."}),
+		},
+	}
+	p, err := NewProvider(rec, nil)
+	require.NoError(t, err)
+
+	first, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, first.CostInfo)
+	assert.Zero(t, first.CostInfo.TotalCost, "the resumed reply took no call's cost")
+	second, err := p.Predict(context.Background(), providers.PredictionRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, second.CostInfo)
+	assert.InDelta(t, 0.003, second.CostInfo.TotalCost, 1e-12)
+	assert.Empty(t, p.UnattachedCalls())
+}

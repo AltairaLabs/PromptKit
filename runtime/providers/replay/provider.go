@@ -104,6 +104,24 @@ type Provider struct {
 	turnIndex  int
 	turns      []recordedTurn
 	contentMap map[string]int // Maps user content to turn index
+	// unattached are the recorded provider calls no assistant message took:
+	// a realtime call cut short before any output, superseded, or open when
+	// the session closed. Their cost is not on a replayed turn.
+	unattached []*events.ProviderCallCompletedData
+}
+
+// UnattachedCalls returns the recorded provider calls no assistant message
+// took (NoMessage calls, and calls left waiting when the recording ended),
+// with their late usage folded in, and, as an entry with an empty CallID, the
+// total of usage events that named no call.
+func (p *Provider) UnattachedCalls() []events.ProviderCallCompletedData {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]events.ProviderCallCompletedData, len(p.unattached))
+	for i, c := range p.unattached {
+		out[i] = *c
+	}
+	return out
 }
 
 // NewProvider creates a replay provider from a session recording.
@@ -146,16 +164,52 @@ func NewProviderFromFile(path string, cfg *Config) (*Provider, error) {
 type indexState struct {
 	lastUserContent string
 	pendingTurn     *recordedTurn
+	// pendingCalls are provider.call.completed events recorded before the
+	// assistant messages they belong to (a realtime session records each
+	// call, then its message), oldest first; each assistant message takes
+	// the oldest.
+	pendingCalls []*events.ProviderCallCompletedData
+	// calls maps a provider call's CallID to its recorded data (on a turn,
+	// pending, or unattached), for its later usage events.
+	calls map[string]*events.ProviderCallCompletedData
+	// duplex is set for a recording whose calls precede their messages (a
+	// realtime session's): each call attaches to a message that follows it,
+	// never to one recorded before it.
+	duplex bool
+	// sessionUsage totals usage events that name no call.
+	sessionUsage *events.ProviderCallCompletedData
+}
+
+// callsPrecedeMessages reports whether the recording is a realtime
+// session's, whose calls are recorded before their messages: its
+// provider.call.completed events say so (Realtime).
+func callsPrecedeMessages(evs []recording.RecordedEvent) bool {
+	for i := range evs {
+		if evs[i].Type != events.EventProviderCallCompleted {
+			continue
+		}
+		var c events.ProviderCallCompletedData
+		if json.Unmarshal(evs[i].Data, &c) == nil && c.Realtime {
+			return true
+		}
+	}
+	return false
 }
 
 // indexRecording extracts assistant responses and builds lookup indexes.
 func (p *Provider) indexRecording() error {
-	state := &indexState{}
+	state := &indexState{
+		calls:  map[string]*events.ProviderCallCompletedData{},
+		duplex: callsPrecedeMessages(p.recording.Events),
+	}
 
 	for i := range p.recording.Events {
 		event := &p.recording.Events[i]
 		p.processEvent(event, state)
 	}
+
+	// Calls still waiting for a message when the recording ended had none.
+	p.unattached = append(p.unattached, state.pendingCalls...)
 
 	if len(p.turns) == 0 {
 		return fmt.Errorf("no assistant responses found in recording")
@@ -172,6 +226,8 @@ func (p *Provider) processEvent(event *recording.RecordedEvent, state *indexStat
 		p.processMessageEvent(event, state)
 	case events.EventProviderCallCompleted:
 		p.processProviderCallEvent(event, state)
+	case events.EventProviderCallUsage:
+		p.processProviderUsageEvent(event, state)
 	}
 }
 
@@ -205,6 +261,13 @@ func (p *Provider) addAssistantTurn(
 	turnIdx := len(p.turns)
 	p.turns = append(p.turns, turn)
 	state.pendingTurn = &p.turns[turnIdx]
+	if len(state.pendingCalls) > 0 { // the oldest call recorded ahead of its message
+		call := state.pendingCalls[0]
+		state.pendingCalls = state.pendingCalls[1:]
+		p.attachCall(state, call)
+	} else if state.duplex {
+		state.pendingTurn = nil // a message with no call is costless; a later call is not its
+	}
 
 	if state.lastUserContent != "" {
 		p.contentMap[state.lastUserContent] = turnIdx
@@ -213,17 +276,55 @@ func (p *Provider) addAssistantTurn(
 
 // processProviderCallEvent attaches cost info to pending turn.
 func (p *Provider) processProviderCallEvent(event *recording.RecordedEvent, state *indexState) {
-	if state.pendingTurn == nil {
+	callData := &events.ProviderCallCompletedData{}
+	if json.Unmarshal(event.Data, callData) != nil {
 		return
 	}
-
-	var callData events.ProviderCallCompletedData
-	if json.Unmarshal(event.Data, &callData) != nil {
-		return
+	if callData.CallID != "" {
+		state.calls[callData.CallID] = callData
 	}
+	switch {
+	case callData.NoMessage:
+		p.unattached = append(p.unattached, callData) // no message will take it
+	case state.duplex || state.pendingTurn == nil:
+		// A realtime session records the call ahead of its message.
+		state.pendingCalls = append(state.pendingCalls, callData)
+	default:
+		p.attachCall(state, callData)
+	}
+}
 
-	state.pendingTurn.callInfo = &callData
+// attachCall gives the pending turn the call's cost.
+func (p *Provider) attachCall(state *indexState, callData *events.ProviderCallCompletedData) {
+	state.pendingTurn.callInfo = callData
 	state.pendingTurn = nil
+}
+
+// processProviderUsageEvent adds usage reported for a call after it
+// completed (provider.call.usage) to the turn the call's completion was
+// attached to, so a replayed turn costs what the recorded call did.
+func (p *Provider) processProviderUsageEvent(event *recording.RecordedEvent, state *indexState) {
+	var usage events.ProviderCallUsageData
+	if json.Unmarshal(event.Data, &usage) != nil {
+		return
+	}
+	info := state.calls[usage.CallID]
+	if usage.CallID == "" {
+		// Usage naming no call (the session could not attribute it): a
+		// session-level total, reported with the unattached calls.
+		if state.sessionUsage == nil {
+			state.sessionUsage = &events.ProviderCallCompletedData{}
+			p.unattached = append(p.unattached, state.sessionUsage)
+		}
+		info = state.sessionUsage
+	}
+	if info == nil {
+		return
+	}
+	info.InputTokens += usage.InputTokens
+	info.OutputTokens += usage.OutputTokens
+	info.CachedTokens += usage.CachedTokens
+	info.Cost += usage.Cost
 }
 
 // ID returns the provider identifier.

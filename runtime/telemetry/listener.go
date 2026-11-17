@@ -45,12 +45,27 @@ type spanEntry struct {
 	span      trace.Span
 	ctx       context.Context //nolint:containedctx // needed to parent child spans
 	createdAt time.Time
+	// callID is a provider span's ProviderCallStartedData.CallID.
+	callID string
 }
 
 // sessionState tracks the root span for a session.
 type sessionState struct {
 	span trace.Span
 	ctx  context.Context //nolint:containedctx // needed to parent child spans
+	// cost and the token counts total the session's provider calls, their
+	// late usage included; set on the root span when the session ends.
+	cost         float64
+	inputTokens  int
+	outputTokens int
+}
+
+// addUsage adds a provider call's (or its late usage's) tokens and cost to
+// the session's totals. Caller holds l.mu.
+func (ss *sessionState) addUsage(in, out int, cost float64) {
+	ss.inputTokens += in
+	ss.outputTokens += out
+	ss.cost += cost
 }
 
 // pendingEnd buffers a span completion that arrived before the corresponding start.
@@ -197,6 +212,13 @@ func (l *OTelEventListener) EndSession(sessionID string) {
 	}
 	l.mu.Unlock()
 	if ok {
+		// The session's totals include usage reported after a call's span
+		// ended; a provider span's own cost attributes do not.
+		ss.span.SetAttributes(
+			attribute.Float64("promptkit.session.cost", ss.cost),
+			attribute.Int("promptkit.session.input_tokens", ss.inputTokens),
+			attribute.Int("promptkit.session.output_tokens", ss.outputTokens),
+		)
 		ss.span.End()
 	}
 }
@@ -216,6 +238,8 @@ func (l *OTelEventListener) OnEvent(evt *events.Event) {
 		l.startProvider(evt)
 	case events.EventProviderCallCompleted:
 		l.completeProvider(evt)
+	case events.EventProviderCallUsage:
+		l.recordProviderUsage(evt)
 	case events.EventProviderCallFailed:
 		l.failProvider(evt)
 	case events.EventToolCallStarted:
@@ -413,18 +437,61 @@ func (l *OTelEventListener) startProvider(evt *events.Event) {
 		attribute.String("promptkit.provider.source", data.Source),
 	}
 	attrs = append(attrs, labelsToAttributes(data.Labels)...)
-	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.ExecutionID), spanKeyProvider+evt.ExecutionID,
+	key := spanKeyProvider + evt.ExecutionID
+	l.startSpan(l.parentCtxForRun(evt.SessionID, evt.ExecutionID), key,
 		data.Provider+" chat",
 		trace.SpanKindClient,
 		attrs...,
 	)
+	l.mu.Lock()
+	if entry, ok := l.inflight[key]; ok {
+		entry.callID = data.CallID
+	}
+	l.mu.Unlock()
 }
+
+// recordProviderUsage records usage a provider reported for a call after the
+// call completed (provider.call.usage) as a span event: on the call's span
+// while it is still open, else on the session's root span. No span is
+// opened for a call that has ended.
+func (l *OTelEventListener) recordProviderUsage(evt *events.Event) {
+	data, ok := asPtr[events.ProviderCallUsageData](evt.Data)
+	if !ok {
+		return
+	}
+	attrs := trace.WithAttributes(
+		attribute.String("promptkit.provider.call_id", data.CallID),
+		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
+		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),
+		attribute.Float64("promptkit.provider.cost", data.Cost),
+		attribute.String("promptkit.provider.source", data.Source),
+	)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ss, haveSession := l.sessions[evt.SessionID]
+	if haveSession {
+		ss.addUsage(data.InputTokens, data.OutputTokens, data.Cost)
+	}
+	if entry, ok := l.inflight[spanKeyProvider+evt.ExecutionID]; ok && entry.callID != "" && entry.callID == data.CallID {
+		entry.span.AddEvent(eventProviderUsage, attrs)
+	} else if haveSession {
+		ss.span.AddEvent(eventProviderUsage, attrs)
+	}
+}
+
+// eventProviderUsage names the span event recordProviderUsage adds.
+const eventProviderUsage = "promptkit.provider.usage"
 
 func (l *OTelEventListener) completeProvider(evt *events.Event) {
 	data, ok := asPtr[events.ProviderCallCompletedData](evt.Data)
 	if !ok {
 		return
 	}
+	l.mu.Lock()
+	if ss, ok := l.sessions[evt.SessionID]; ok {
+		ss.addUsage(data.InputTokens, data.OutputTokens, data.Cost)
+	}
+	l.mu.Unlock()
 	l.endSpan(spanKeyProvider+evt.ExecutionID,
 		attribute.Int("gen_ai.usage.input_tokens", data.InputTokens),
 		attribute.Int("gen_ai.usage.output_tokens", data.OutputTokens),

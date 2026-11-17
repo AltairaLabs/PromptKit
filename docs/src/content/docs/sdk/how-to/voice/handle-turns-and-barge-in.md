@@ -90,7 +90,18 @@ the reply, synthesis, and playback, where the session assumes your player starts
 each audio chunk as it arrives. The pipeline cancels whatever is still in flight
 and drops the reply's remaining audio. Audio already delivered is in your
 player's buffer, so the session tells you to flush it: a chunk on `Response()`
-arrives with `Interrupted` set. The same signal arrives in ASM mode.
+arrives with `Interrupted` set.
+
+In ASM mode the same window applies. OpenAI Realtime and Gemini Live send a
+reply's audio faster than it plays, so most of a long reply is still playing
+after the model has finished it. The session estimates the playout the same
+way, and speech the provider hears before it ends is barge-in, with the same
+`Interrupted` chunk. OpenAI Realtime reports speech as it starts, and the
+session also cuts the model's copy of the reply to the audio the caller heard.
+Gemini Live reports nothing until it has transcribed some of the speech, so its
+`Interrupted` chunk arrives a moment later. A reply that OpenAI Realtime cuts
+short while still generating it ends with `finish_reason` `interrupted` instead
+of an `Interrupted` chunk.
 
 The speech that interrupted the reply is the user's next turn, and it is
 transcribed in full. Speech that starts after the reply has finished playing is

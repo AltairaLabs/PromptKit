@@ -333,6 +333,10 @@ type realtimeOpts struct {
 	// finalWait and toolWaitLimit replace the stage's waits once input
 	// closes; zero keeps the defaults.
 	finalWait, toolWaitLimit time.Duration
+	// timeout bounds the stage's run; zero means 5s. outputBuffer sizes the
+	// output channel, read only at the end; zero means 256.
+	timeout      time.Duration
+	outputBuffer int
 }
 
 func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
@@ -369,11 +373,15 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := o.timeout
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	h := &realtimeHarness{
 		t: t, provider: p, stage: st, cancel: cancel,
 		input:  make(chan StreamElement, 16),
-		output: make(chan StreamElement, 256),
+		output: make(chan StreamElement, max(o.outputBuffer, 256)),
 		done:   make(chan error, 1),
 	}
 	t.Cleanup(cancel)
@@ -560,12 +568,12 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 		case *events.ProviderCallStartedData:
 			got = append(got, step{e.Type, d.Round})
 			startedIDs[d.Round] = d.CallID
-		case *events.ProviderCallCompletedData:
-			assert.Equal(t, startedIDs[d.Round], d.CallID, "a round's started and completed name one call")
-			got = append(got, step{e.Type, d.Round})
 			if d.Round == 1 {
 				callID = d.CallID
 			}
+		case *events.ProviderCallCompletedData:
+			assert.Equal(t, startedIDs[d.Round], d.CallID, "a round's started and completed name one call")
+			got = append(got, step{e.Type, d.Round})
 		case *events.ToolCallEventData:
 			got = append(got, step{e.Type, d.Round})
 			assert.Equal(t, "c1", d.CallID)

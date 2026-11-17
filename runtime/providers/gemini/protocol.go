@@ -5,7 +5,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -29,26 +28,14 @@ func (s *StreamSession) handleToolCalls(toolCall *ToolCallMsg) error {
 		ToolCalls:    toolCalls,
 		FinishReason: &finishReason,
 	}
+	// The tool calls end the turn. Gemini 3.x reports its usage on a
+	// turnComplete that follows (carryToolCallUsage).
+	response.CostInfo = s.takeTurnCost()
+	s.turnOpen = false
 
 	if err := s.sendChunk(&response); err != nil {
 		return err
 	}
 	logger.Debug("Gemini tool calls emitted", "count", len(toolCalls))
 	return nil
-}
-
-// buildCostInfo prices usage metadata through the shared pricing engine, by
-// modality, against the descriptor resolved when the session was created,
-// together with any usage carried from a tool-call turn.
-func (s *StreamSession) buildCostInfo(usage *UsageMetadata) *types.CostInfo {
-	if usage == nil {
-		return nil
-	}
-	tokens := usage.tokens()
-	if s.carriedUsage != nil { // a tool-call turn's usage (carryToolCallUsage)
-		tokens = addTokenUsage(tokens, *s.carriedUsage)
-		s.carriedUsage = nil
-	}
-	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, tokens, nil, 0)
-	return &ci
 }

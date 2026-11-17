@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -92,6 +93,24 @@ type StreamSession struct {
 	// carryToolCallUsage). Both are touched by the receive goroutine only.
 	toolCallTurn bool
 	carriedUsage *base.TokenUsage
+
+	// turnOpen is set while a model generation is under way; gen numbers the
+	// generations, and every chunk carries the number of the one it belongs
+	// to (StreamChunk.Generation; see live_usage.go). Receive goroutine only.
+	turnOpen bool
+	gen      int64
+
+	// playout estimates the reply audio the caller is still hearing; replyDone
+	// is set once the model's turn completed; the input fields follow the
+	// caller's transcribed speech. Speech transcribed while a finished reply
+	// still plays is barge-in (live_playout.go). now is the clock (nil:
+	// time.Now). Receive goroutine only.
+	playout     *audio.Playout
+	replyDone   bool
+	inputLastAt time.Time
+	inputClosed bool
+	lateInput   bool
+	now         func() time.Time
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.

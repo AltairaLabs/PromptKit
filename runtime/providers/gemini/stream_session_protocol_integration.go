@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -196,8 +197,18 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil
 	}
 
+	// Usage (live_usage.go): Gemini Live reports each generation's own usage
+	// on the turnComplete that ends it.
 	if msg.ToolCall != nil && len(msg.ToolCall.FunctionCalls) > 0 {
+		if msg.UsageMetadata != nil {
+			// Never seen live; the generation's turnComplete reports it, so
+			// counting it here too would count it twice.
+			logger.Debug("StreamSession: ignoring usage on a toolCall message")
+		}
 		s.toolCallTurn = true
+		if !s.turnOpen {
+			s.gen++ // the tool calls are a generation of their own
+		}
 		return s.handleToolCalls(msg.ToolCall)
 	}
 
@@ -205,17 +216,16 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 		return nil
 	}
 
-	costInfo := s.buildCostInfo(msg.UsageMetadata)
-
 	if msg.ServerContent == nil {
-		return s.sendCostInfoIfPresent(costInfo)
+		return s.usageOnly(msg.UsageMetadata)
 	}
 
-	return s.processServerContent(msg.ServerContent, costInfo)
+	s.holdUsage(msg.UsageMetadata)
+	return s.processServerContent(msg.ServerContent)
 }
 
-// carryToolCallUsage holds the usage of a tool-call turn that Gemini reports
-// as a turnComplete with no content, and reports whether msg was that.
+// carryToolCallUsage reports the tool-call turn Gemini ends with a
+// turnComplete that has no content, and reports whether msg was that.
 //
 // Only a model that reports a tool-call turn's completion does this (see
 // reportsToolCallTurnComplete). Gemini 2.5 Live does not, so there a
@@ -224,13 +234,15 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 // apart: 3.x sends its tool-call turnComplete right after the toolCall, and a
 // fast tool's response can be sent before the client reads it.
 //
-// The tool calls already ended the turn (handleToolCalls reports them with
-// FinishReason tool_use: the model waits for their results). Gemini 3.x Live
-// then sends turnComplete carrying only the tool-call generation's usage;
-// reported as a turn, it would read as an empty reply after every tool call.
-// Its usage goes on the next turn completion instead, which is where Gemini
-// 2.5 Live reports it natively: one turnComplete after the reply, with the
-// usage of both.
+// Gemini 3.x Live sends that turnComplete, carrying the tool-call
+// generation's usage, after the toolCall (observed live on gemini-3.8-live).
+// Its usage is reported at once as a usage-only chunk: it belongs to the
+// tool-call turn that just ended, not to the reply (which may already be
+// under way: a fast tool's response can be sent before the client reads the
+// turnComplete). Reported as a turn of its own, the turnComplete would read
+// as an empty reply after every tool call. Gemini
+// 2.5 Live reports no tool-call turnComplete: one turnComplete after the
+// reply carries the usage of the whole server turn.
 func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 	sc := msg.ServerContent
 	if sc != nil && (sc.ModelTurn != nil || sc.Interrupted ||
@@ -249,12 +261,8 @@ func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 	if err := s.handleInputTranscription(sc); err != nil {
 		logger.Debug("StreamSession: input transcription not delivered", "error", err)
 	}
-	if msg.UsageMetadata != nil {
-		tokens := msg.UsageMetadata.tokens()
-		if s.carriedUsage != nil {
-			tokens = addTokenUsage(tokens, *s.carriedUsage)
-		}
-		s.carriedUsage = &tokens
+	if err := s.usageOnly(msg.UsageMetadata); err != nil {
+		logger.Debug("StreamSession: tool-call turn usage not delivered", "error", err)
 	}
 	return true
 }
@@ -280,20 +288,41 @@ func reportsToolCallTurnComplete(model string) bool {
 	return major >= firstToolCallTurnCompleteMajor
 }
 
-// flushCarriedUsage reports a tool-call turn's held usage that no later turn
-// completion took (the session ended first) as a usage-only chunk, without
-// blocking: the receive loop is exiting. Receive goroutine only.
+// holdUsage adds a server message's usage to the usage held for the chunk
+// that ends the turn. Receive goroutine only.
+func (s *StreamSession) holdUsage(usage *UsageMetadata) {
+	if usage == nil {
+		return
+	}
+	tokens := usage.tokens()
+	if s.carriedUsage != nil {
+		tokens = addTokenUsage(tokens, *s.carriedUsage)
+	}
+	s.carriedUsage = &tokens
+}
+
+// takeTurnCost prices the usage held for the turn and clears it; nil when
+// none is held. Receive goroutine only.
+func (s *StreamSession) takeTurnCost() *types.CostInfo {
+	if s.carriedUsage == nil {
+		return nil
+	}
+	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, *s.carriedUsage, nil, 0)
+	s.carriedUsage = nil
+	return &ci
+}
+
+// flushCarriedUsage reports usage no turn's end took when the session ends,
+// without blocking: the receive loop is
+// exiting. Receive goroutine only.
 func (s *StreamSession) flushCarriedUsage() {
 	if s.carriedUsage == nil {
 		return
 	}
-	tokens := *s.carriedUsage
-	ci := base.PriceUsage(s.pricing, s.providerID, base.ProviderTypeInference, tokens, nil, 0)
 	select {
-	case s.emitCh <- providers.StreamChunk{CostInfo: &ci}:
+	case s.emitCh <- providers.StreamChunk{CostInfo: s.takeTurnCost(), Generation: s.gen}:
 	default:
-		logger.Warn("StreamSession: a tool-call turn's usage was not reported: the response queue is full",
-			"input_tokens", tokens.Input, "output_tokens", tokens.Output)
+		logger.Warn("StreamSession: a turn's end was not reported at session end: the response queue is full")
 	}
 }
 
@@ -309,17 +338,10 @@ func addTokenUsage(a, b base.TokenUsage) base.TokenUsage {
 	}
 }
 
-// sendCostInfoIfPresent sends a chunk with cost info if present.
-func (s *StreamSession) sendCostInfoIfPresent(costInfo *types.CostInfo) error {
-	if costInfo == nil {
-		return nil
-	}
-	return s.sendChunk(&providers.StreamChunk{CostInfo: costInfo})
-}
-
 // sendChunk hands a chunk to the shared pump (via the session-owned emitCh),
 // which drains it to Response() without back-pressuring this receive loop.
 func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
+	chunk.Generation = s.gen
 	select {
 	case s.emitCh <- *chunk:
 		return nil
@@ -329,19 +351,22 @@ func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
 }
 
 // processServerContent handles server content including transcriptions and model turns.
-func (s *StreamSession) processServerContent(content *ServerContent, costInfo *types.CostInfo) error {
+func (s *StreamSession) processServerContent(content *ServerContent) error {
 	if content.Interrupted {
 		// Barge-in handled by the shared StreamPump (consistent with every
 		// provider): fire the out-of-band signal so a paced consumer flushes
 		// immediately, drop the interrupted response's queued audio, and skip
 		// still-arriving audio until the turn completes — plus the in-band
 		// Interrupted chunk for the pipeline.
+		s.playoutEstimate().Stop()
+		s.turnOpen = false // the interruption ends the turn; later usage is its
 		s.Barge()
 		marker := providers.BargeMarker()
 		if err := s.sendChunk(&marker); err != nil {
 			return err
 		}
-		return s.sendChunk(&providers.StreamChunk{Interrupted: true})
+		// The interruption ends the turn: it carries the usage held for it.
+		return s.sendChunk(&providers.StreamChunk{Interrupted: true, CostInfo: s.takeTurnCost()})
 	}
 
 	// A completed turn (clean, or the canceled one after barge-in) ends the
@@ -349,9 +374,18 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 	if content.TurnComplete {
 		s.ClearDrop()
 	}
+	if content.ModelTurn != nil || content.OutputTranscription != nil {
+		s.replyStarted()
+	}
 
+	if err := s.bargeInAfterReply(content); err != nil {
+		return err
+	}
 	if err := s.handleInputTranscription(content); err != nil {
 		return err
+	}
+	if content.TurnComplete {
+		defer s.turnEnded()
 	}
 
 	if err := s.handleOutputTranscription(content); err != nil {
@@ -362,12 +396,12 @@ func (s *StreamSession) processServerContent(content *ServerContent, costInfo *t
 		finishReason := finishReasonComplete
 		return s.sendChunk(&providers.StreamChunk{
 			FinishReason: &finishReason,
-			CostInfo:     costInfo,
+			CostInfo:     s.takeTurnCost(),
 		})
 	}
 
 	if content.ModelTurn != nil {
-		return s.processModelTurn(content.ModelTurn, content.TurnComplete, costInfo)
+		return s.processModelTurn(content.ModelTurn, content.TurnComplete)
 	}
 
 	return nil
@@ -402,7 +436,7 @@ func (s *StreamSession) handleOutputTranscription(content *ServerContent) error 
 }
 
 // processModelTurn processes a model turn from the server
-func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, costInfo *types.CostInfo) error {
+func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool) error {
 	response := providers.StreamChunk{
 		Content: "",
 	}
@@ -420,18 +454,20 @@ func (s *StreamSession) processModelTurn(turn *ModelTurn, turnComplete bool, cos
 		if part.InlineData != nil {
 			if media := s.decodeTurnMedia(part.InlineData); media != nil {
 				response.MediaData = media
+				s.playoutEstimate().Add("", 0, audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels))
 			}
 		}
 	}
 
-	// Mark turn completion and include cost info
+	// Mark turn completion and include the turn's cost
 	if turnComplete {
 		finishReason := finishReasonComplete
 		response.FinishReason = &finishReason
-		response.CostInfo = costInfo
+		response.CostInfo = s.takeTurnCost()
 	}
 
 	// Send response to the shared pump via the session-owned emitCh.
+	response.Generation = s.gen
 	select {
 	case s.emitCh <- response:
 		s.sequenceNum++

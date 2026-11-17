@@ -141,6 +141,7 @@ func isOutputTranscriptionChunk(chunk *providers.StreamChunk) bool {
 //nolint:gocognit // Cohesive provider-agnostic chunk dispatcher (interruption /
 func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) StreamElement {
 	elem := StreamElement{}
+	s.costPlaced = false
 
 	// Handle interruptions - provider detected user started speaking during response
 	// Capture the partial response and signal turn completion
@@ -151,12 +152,17 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 
 		// Keep the partial reply (and clear the accumulators either way) —
 		// the provider will start a new response.
+		s.accGen = 0
 		if msg := s.takeInterruptedTurn("barge-in"); msg != nil {
+			msg.CostInfo = chunk.CostInfo // what the cut-short turn cost so far
+			s.costPlaced = true
 			elem.Message = msg
 		}
 
-		// Mark that we saw an interruption - the next turnComplete without content should be skipped
+		// Mark that we saw an interruption - the next turnComplete without
+		// content (of the interrupted generation) should be skipped
 		s.wasInterrupted = true
+		s.interruptedGen = chunk.Generation
 
 		interruptedReason := finishReasonInterrupted
 		elem.Meta.Interrupted = true
@@ -232,7 +238,8 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// we should skip it - the real response will have its own cost info.
 		// A turn that makes tool calls is the real response, even with no text
 		// or audio: skipping it would leave its calls unanswered.
-		if !hasContent && !hasToolCalls && s.wasInterrupted {
+		if !hasContent && !hasToolCalls && s.wasInterrupted &&
+			(chunk.Generation == 0 || chunk.Generation == s.interruptedGen) {
 			logger.Debug("DuplexProviderStage: detected interrupted turn complete (empty response after interruption), skipping",
 				"hasCostInfo", hasCostInfo)
 			finishReason := *chunk.FinishReason
@@ -273,6 +280,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			msg.Reasoning = s.takeReasoning()
 
 			elem.Message = msg
+			s.costPlaced = true // the chunk's cost, if any, is on the message
 			logger.Debug("DuplexProviderStage: created message for turn",
 				"role", msg.Role,
 				"contentLen", len(msg.Content),

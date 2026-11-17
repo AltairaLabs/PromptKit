@@ -93,7 +93,11 @@ func OnValidationFailed(source EventSource, handler ValidationHandler) {
 // ProviderCallHandler is called when a provider (LLM) call completes.
 type ProviderCallHandler func(model string, inputTokens, outputTokens int, cost float64)
 
-// OnProviderCall subscribes to provider call completion events.
+// OnProviderCall subscribes to provider call completion events. It runs once
+// per provider call. Some providers report part of a call's usage after the
+// call completed (Gemini 3 Live reports a tool-call turn's usage after its
+// tool calls); OnProviderUsage delivers that, and a call's total is the cost
+// given here plus its OnProviderUsage callbacks.
 //
 // Use this to track costs and token usage:
 //
@@ -104,6 +108,37 @@ func OnProviderCall(source EventSource, handler ProviderCallHandler) {
 	On(source, events.EventProviderCallCompleted, func(e *events.Event) {
 		if data, ok := e.Data.(*events.ProviderCallCompletedData); ok {
 			handler(data.Model, data.InputTokens, data.OutputTokens, data.Cost)
+		}
+	})
+}
+
+// ProviderUsage is usage a provider reported for a call after the call
+// completed: CallID names the call (as on provider.call.completed).
+type ProviderUsage struct {
+	CallID       string
+	Model        string
+	InputTokens  int
+	OutputTokens int
+	CachedTokens int
+	Cost         float64
+}
+
+// ProviderUsageHandler is called with usage reported for a provider call
+// after it completed.
+type ProviderUsageHandler func(usage ProviderUsage)
+
+// OnProviderUsage subscribes to provider.call.usage events: usage a provider
+// reported for a call after the call completed. A call's total cost is the
+// cost OnProviderCall reported for it plus these callbacks for its CallID.
+//
+//	hooks.OnProviderUsage(conv, func(u hooks.ProviderUsage) {
+//	    log.Printf("call %s: %d in, %d out, $%.4f more", u.CallID, u.InputTokens, u.OutputTokens, u.Cost)
+//	})
+func OnProviderUsage(source EventSource, handler ProviderUsageHandler) {
+	On(source, events.EventProviderCallUsage, func(e *events.Event) {
+		if d, ok := e.Data.(*events.ProviderCallUsageData); ok {
+			handler(ProviderUsage{CallID: d.CallID, Model: d.Model, InputTokens: d.InputTokens,
+				OutputTokens: d.OutputTokens, CachedTokens: d.CachedTokens, Cost: d.Cost})
 		}
 	})
 }

@@ -54,6 +54,7 @@ for chunk := range audioStream {
 - [func DecodeMuLaw\(mulaw \[\]byte\) \[\]byte](<#DecodeMuLaw>)
 - [func EncodeALaw\(pcm16le \[\]byte\) \[\]byte](<#EncodeALaw>)
 - [func EncodeMuLaw\(pcm16le \[\]byte\) \[\]byte](<#EncodeMuLaw>)
+- [func PCM16Duration\(n, sampleRate, channels int\) time.Duration](<#PCM16Duration>)
 - [func Resample24kTo16k\(input \[\]byte\) \(\[\]byte, error\)](<#Resample24kTo16k>)
 - [func ResamplePCM16\(input \[\]byte, fromRate, toRate int\) \(\[\]byte, error\)](<#ResamplePCM16>)
 - [type AccumulatingTurnDetector](<#AccumulatingTurnDetector>)
@@ -110,6 +111,13 @@ for chunk := range audioStream {
   - [func NewPCM16StreamResampler\(fromRate, toRate int\) \(\*PCM16StreamResampler, error\)](<#NewPCM16StreamResampler>)
   - [func \(r \*PCM16StreamResampler\) Flush\(\) \[\]byte](<#PCM16StreamResampler.Flush>)
   - [func \(r \*PCM16StreamResampler\) Write\(chunk \[\]byte\) \[\]byte](<#PCM16StreamResampler.Write>)
+- [type Playout](<#Playout>)
+  - [func NewPlayout\(now func\(\) time.Time\) \*Playout](<#NewPlayout>)
+  - [func \(p \*Playout\) Add\(itemID string, contentIndex int, d time.Duration\)](<#Playout.Add>)
+  - [func \(p \*Playout\) NewResponse\(\)](<#Playout.NewResponse>)
+  - [func \(p \*Playout\) Playing\(\) bool](<#Playout.Playing>)
+  - [func \(p \*Playout\) Stop\(\) \[\]PlayoutCut](<#Playout.Stop>)
+- [type PlayoutCut](<#PlayoutCut>)
 - [type Session](<#Session>)
 - [type SilenceDetector](<#SilenceDetector>)
   - [func NewSilenceDetector\(threshold time.Duration, opts ...SilenceDetectorOption\) \*SilenceDetector](<#NewSilenceDetector>)
@@ -211,6 +219,15 @@ func EncodeMuLaw(pcm16le []byte) []byte
 ```
 
 EncodeMuLaw converts little\-endian PCM16 to G.711 mu\-law bytes \(1 byte/sample\).
+
+<a name="PCM16Duration"></a>
+## func [PCM16Duration](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L11>)
+
+```go
+func PCM16Duration(n, sampleRate, channels int) time.Duration
+```
+
+PCM16Duration is the playing time of n bytes of PCM16 audio with the given sample rate and channel count \(a channel count below 1 counts as mono\). It is 0 for a non\-positive sample rate.
 
 <a name="Resample24kTo16k"></a>
 ## func [Resample24kTo16k](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/resample.go#L132>)
@@ -805,6 +822,79 @@ func (r *PCM16StreamResampler) Write(chunk []byte) []byte
 ```
 
 Write takes the next chunk of input and returns the output samples it completes. An output sample is completed once both input samples it interpolates between have arrived.
+
+<a name="Playout"></a>
+## type [Playout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L34-L43>)
+
+Playout estimates how much of the audio handed to a real\-time player has been heard. A realtime model sends a reply's audio faster than it plays, so most of a long reply is still playing after the model has finished it.
+
+It assumes the player starts each chunk as it arrives, or as soon as the audio ahead of it finishes, and plays it in real time: each chunk extends the playout end by its duration, from now or the current end, whichever is later \(as InterruptionHandler.ExtendPlayback does for synthesized speech\). Audio is tracked per item, so an interruption can say how much of each item the listener heard.
+
+A Playout is not safe for concurrent use.
+
+```go
+type Playout struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewPlayout"></a>
+### func [NewPlayout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L65>)
+
+```go
+func NewPlayout(now func() time.Time) *Playout
+```
+
+NewPlayout returns an empty Playout on the clock now \(nil means time.Now\).
+
+<a name="Playout.Add"></a>
+### func \(\*Playout\) [Add](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L74>)
+
+```go
+func (p *Playout) Add(itemID string, contentIndex int, d time.Duration)
+```
+
+Add records d of audio for the item \(itemID, contentIndex\) handed to the player now. Non\-positive d is ignored.
+
+<a name="Playout.NewResponse"></a>
+### func \(\*Playout\) [NewResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L140>)
+
+```go
+func (p *Playout) NewResponse()
+```
+
+NewResponse marks the start of a new response: what earlier stretches played is forgotten for the items with nothing left to play, which belong to earlier responses and cannot resume. Call it when a response begins, so the record stays bounded by the items of one response.
+
+<a name="Playout.Playing"></a>
+### func \(\*Playout\) [Playing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L98>)
+
+```go
+func (p *Playout) Playing() bool
+```
+
+Playing reports whether audio handed to the player is still playing.
+
+<a name="Playout.Stop"></a>
+### func \(\*Playout\) [Stop](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L105>)
+
+```go
+func (p *Playout) Stop() []PlayoutCut
+```
+
+Stop ends the playout now and returns the items the listener had not fully heard, in playout order, each with how much of it they had heard \(0 for an item that had not started playing\).
+
+<a name="PlayoutCut"></a>
+## type [PlayoutCut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/playout.go#L58-L62>)
+
+PlayoutCut is an item the listener had not fully heard when the playout stopped, and how much of it they had heard.
+
+```go
+type PlayoutCut struct {
+    ItemID       string
+    ContentIndex int
+    Heard        time.Duration
+}
+```
 
 <a name="Session"></a>
 ## type [Session](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/media.go#L70-L79>)

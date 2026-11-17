@@ -248,3 +248,45 @@ func TestMultipleSubscribers(t *testing.T) {
 	require.Equal(t, 1, count2)
 	mu.Unlock()
 }
+
+// A Gemini 3 tool-call turn: its completion carries no cost and its usage
+// follows as provider.call.usage. OnProviderCall fires once for the call;
+// OnProviderUsage delivers the late usage with the call's ID, and the two add
+// up to the call's total.
+func TestOnProviderUsage_DeliversLateUsageSeparately(t *testing.T) {
+	source := newMockSource()
+	var mu sync.Mutex
+	var calls int
+	var callCost float64
+	var usage []ProviderUsage
+	OnProviderCall(source, func(_ string, _, _ int, c float64) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		callCost += c
+	})
+	OnProviderUsage(source, func(u ProviderUsage) {
+		mu.Lock()
+		defer mu.Unlock()
+		usage = append(usage, u)
+	})
+
+	source.bus.Publish(&events.Event{Type: events.EventProviderCallCompleted,
+		Data: &events.ProviderCallCompletedData{Model: "gemini-3.8-live", CallID: "call-1", ToolCallCount: 1}})
+	source.bus.Publish(&events.Event{Type: events.EventProviderCallUsage,
+		Data: &events.ProviderCallUsageData{Model: "gemini-3.8-live", CallID: "call-1",
+			InputTokens: 661, OutputTokens: 12, CachedTokens: 3, Cost: 0.001245}})
+
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls == 1 && len(usage) == 1
+	}, time.Second, time.Millisecond)
+	time.Sleep(20 * time.Millisecond) // nothing more arrives
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, calls, "OnProviderCall fires once per call")
+	assert.Equal(t, []ProviderUsage{{CallID: "call-1", Model: "gemini-3.8-live",
+		InputTokens: 661, OutputTokens: 12, CachedTokens: 3, Cost: 0.001245}}, usage)
+	assert.InDelta(t, 0.001245, callCost+usage[0].Cost, 1e-12, "the call's total")
+}

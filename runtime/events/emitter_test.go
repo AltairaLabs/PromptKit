@@ -1559,3 +1559,44 @@ func TestEmitterAudioTranscription(t *testing.T) {
 		t.Error("IsFinal = false; a completed STT turn is a final transcription")
 	}
 }
+
+func TestEmitter_ProviderCallUsageCtx(t *testing.T) {
+	t.Parallel()
+
+	bus := NewEventBus()
+	emitter := NewEmitter(bus, "run-u", "session-u", "conv-u")
+	var got []*Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(2)
+	bus.Subscribe(EventProviderCallUsage, func(e *Event) {
+		mu.Lock()
+		got = append(got, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	emitter.ProviderCallUsageCtx(context.Background(), nil) // nothing
+	emitter.ProviderCallUsageCtx(context.Background(), &ProviderCallUsageData{CallID: "call-1", Round: 2, Cost: 0.5})
+	emitter.ProviderCallUsageCtx(context.Background(), &ProviderCallUsageData{CallID: "call-2", Source: SourceJudge})
+	if !waitForWG(&wg, 200*time.Millisecond) {
+		t.Fatal("timed out waiting for events")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	byCall := map[string]*ProviderCallUsageData{}
+	for _, e := range got {
+		d := e.Data.(*ProviderCallUsageData)
+		byCall[d.CallID] = d
+		if e.Type != "provider.call.usage" {
+			t.Errorf("event type %q", e.Type)
+		}
+	}
+	if d := byCall["call-1"]; d == nil || d.Source != SourceAgent || d.Round != 2 || d.Cost != 0.5 {
+		t.Errorf("call-1: %+v (Source defaults to agent)", d)
+	}
+	if d := byCall["call-2"]; d == nil || d.Source != SourceJudge {
+		t.Errorf("call-2: %+v (an explicit Source is kept)", d)
+	}
+}

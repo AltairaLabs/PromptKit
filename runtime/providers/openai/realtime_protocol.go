@@ -140,6 +140,26 @@ type ResponseCancelEvent struct {
 	ClientEvent
 }
 
+// conversationItemTruncatedEvent (conversation.item.truncated) acknowledges
+// a conversation.item.truncate.
+type conversationItemTruncatedEvent struct {
+	ServerEvent
+	ItemID       string `json:"item_id"`
+	ContentIndex int    `json:"content_index"`
+	AudioEndMs   int    `json:"audio_end_ms"`
+}
+
+// conversationItemTruncateEvent (conversation.item.truncate) cuts an
+// assistant audio item to the audio_end_ms the caller heard, so the model's
+// context matches it: the server drops the audio after that point and the
+// transcript of it.
+type conversationItemTruncateEvent struct {
+	ClientEvent
+	ItemID       string `json:"item_id"`
+	ContentIndex int    `json:"content_index"`
+	AudioEndMs   int    `json:"audio_end_ms"`
+}
+
 // Server Events - received from server
 
 // ServerEvent is the base structure for all server events.
@@ -442,6 +462,9 @@ func ParseServerEvent(data []byte) (interface{}, error) {
 		return &e, json.Unmarshal(data, &e)
 	case "conversation.item.created":
 		var e ConversationItemCreatedEvent
+		return &e, json.Unmarshal(data, &e)
+	case "conversation.item.truncated":
+		var e conversationItemTruncatedEvent
 		return &e, json.Unmarshal(data, &e)
 	case "conversation.item.input_audio_transcription.completed":
 		var e ConversationItemInputAudioTranscriptionCompletedEvent

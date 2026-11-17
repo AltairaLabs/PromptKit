@@ -90,7 +90,7 @@ func (v *SimpleVAD) Analyze(_ context.Context, audioData []byte) (float64, error
 
 	// Advance the shared state machine by this chunk's AUDIO duration, so
 	// transitions do not depend on how fast audio is delivered.
-	v.update(probability, pcm16Duration(len(audioData), v.params.SampleRate))
+	v.update(probability, PCM16Duration(len(audioData), v.params.SampleRate, 1))
 
 	return probability, nil
 }

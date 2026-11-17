@@ -1247,15 +1247,10 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 	// speaking — and interruptible — until it would have finished. Extended
 	// before the synthesis flag drops, so there is no gap between the two.
 	if s.interruption != nil {
-		s.interruption.ExtendPlayback(pcm16Duration(len(samples), sampleRate))
+		s.interruption.ExtendPlayback(audio.PCM16Duration(len(samples), sampleRate, 1))
 	}
 	s.setBotSpeaking(false)
 	return s.forwardElement(ctx, outElem, output)
-}
-
-// pcm16Duration is the playback length of n bytes of 16-bit mono PCM.
-func pcm16Duration(n, sampleRate int) time.Duration {
-	return samplesToDuration(n/bytesPerSample16Bit, sampleRate)
 }
 
 // endResponse ends the reply AudioTurnStage began for the user's turn: its turn

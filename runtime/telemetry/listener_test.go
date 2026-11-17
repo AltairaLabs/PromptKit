@@ -1560,3 +1560,105 @@ func TestEvalMetricAttributes_CappedAndMarked(t *testing.T) {
 		t.Errorf("uncapped case = %v", got)
 	}
 }
+
+// usageEvent is provider.call.usage for call, Gemini 3 shaped (661/12).
+func usageEvent(call string) *events.Event {
+	return &events.Event{
+		Type: events.EventProviderCallUsage, SessionID: "sess-1", ExecutionID: "run-1",
+		Data: &events.ProviderCallUsageData{Provider: "gemini", Model: "gemini-3.8-live", CallID: call,
+			InputTokens: 661, OutputTokens: 12, Cost: 0.001245, Source: events.SourceAgent},
+	}
+}
+
+func providerEvent(tp events.EventType, call string) *events.Event {
+	var data events.EventData = &events.ProviderCallStartedData{Provider: "gemini", Model: "gemini-3.8-live", CallID: call}
+	if tp == events.EventProviderCallCompleted {
+		data = &events.ProviderCallCompletedData{Provider: "gemini", Model: "gemini-3.8-live", CallID: call,
+			FinishReason: "tool_use", ToolCallCount: 1}
+	}
+	return &events.Event{Type: tp, SessionID: "sess-1", ExecutionID: "run-1", Data: data}
+}
+
+func usageAttrs(e sdktrace.Event) map[string]string {
+	out := map[string]string{}
+	for _, a := range e.Attributes {
+		out[string(a.Key)] = a.Value.Emit()
+	}
+	return out
+}
+
+// Usage for a call that already completed goes on the session's span as an
+// event; no span is opened for it.
+func TestOTelEventListener_ProviderUsageAfterTheCallEnded(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	listener.StartSession(context.Background(), "sess-1")
+	listener.OnEvent(providerEvent(events.EventProviderCallStarted, "call-1"))
+	listener.OnEvent(providerEvent(events.EventProviderCallCompleted, "call-1"))
+	listener.OnEvent(usageEvent("call-1"))
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	require.Len(t, spans, 2, "the session and the one provider call")
+	provider := findSpan(t, spans, "gemini chat")
+	assert.Empty(t, provider.Events)
+	var session tracetest.SpanStub
+	for _, s := range spans {
+		if s.Name != "gemini chat" {
+			session = s
+		}
+	}
+	require.Len(t, session.Events, 1)
+	assert.Equal(t, "promptkit.provider.usage", session.Events[0].Name)
+	assert.Equal(t, map[string]string{
+		"promptkit.provider.call_id": "call-1", "gen_ai.usage.input_tokens": "661",
+		"gen_ai.usage.output_tokens": "12", "promptkit.provider.cost": "0.001245",
+		"promptkit.provider.source": "agent",
+	}, usageAttrs(session.Events[0]))
+}
+
+// Usage for the call whose span is still open goes on that span; usage for
+// another call does not.
+func TestOTelEventListener_ProviderUsageWhileTheCallIsOpen(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	listener.StartSession(context.Background(), "sess-1")
+	listener.OnEvent(providerEvent(events.EventProviderCallStarted, "call-2"))
+	listener.OnEvent(usageEvent("call-2"))
+	listener.OnEvent(usageEvent("call-1"))
+	listener.OnEvent(providerEvent(events.EventProviderCallCompleted, "call-2"))
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	provider := findSpan(t, spans, "gemini chat")
+	require.Len(t, provider.Events, 1)
+	assert.Equal(t, "call-2", usageAttrs(provider.Events[0])["promptkit.provider.call_id"])
+	for _, s := range spans {
+		if s.Name != "gemini chat" {
+			require.Len(t, s.Events, 1, "the other call's usage is on the session")
+			assert.Equal(t, "call-1", usageAttrs(s.Events[0])["promptkit.provider.call_id"])
+		}
+	}
+}
+
+// The session's root span totals its provider calls, late usage included.
+func TestOTelEventListener_SessionTotalsIncludeLateUsage(t *testing.T) {
+	listener, exp, tp := newTestListener(t)
+	listener.StartSession(context.Background(), "sess-1")
+	listener.OnEvent(providerEvent(events.EventProviderCallStarted, "call-1"))
+	completed := providerEvent(events.EventProviderCallCompleted, "call-1")
+	completed.Data.(*events.ProviderCallCompletedData).InputTokens = 100
+	completed.Data.(*events.ProviderCallCompletedData).OutputTokens = 5
+	completed.Data.(*events.ProviderCallCompletedData).Cost = 0.0005
+	listener.OnEvent(completed)
+	listener.OnEvent(usageEvent("call-1"))
+	listener.EndSession("sess-1")
+	spans := flushAndGetSpans(t, tp, exp)
+
+	session := findSpan(t, spans, "promptkit invoke_agent")
+	got := map[string]string{}
+	for _, a := range session.Attributes {
+		got[string(a.Key)] = a.Value.Emit()
+	}
+	assert.Equal(t, "0.001745", got["promptkit.session.cost"])
+	assert.Equal(t, "761", got["promptkit.session.input_tokens"])
+	assert.Equal(t, "17", got["promptkit.session.output_tokens"])
+}

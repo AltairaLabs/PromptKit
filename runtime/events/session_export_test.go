@@ -1212,3 +1212,30 @@ func TestSessionExporter_BuildFilterArgs_MapsStreamsPerConfig(t *testing.T) {
 		}
 	})
 }
+
+// A call's late usage is exported with the call it belongs to, so the
+// timeline's costs add up to the calls' totals.
+func TestBuildJSONTimeline_ProviderCallUsage(t *testing.T) {
+	base := time.Now()
+	evs := []*Event{
+		{Type: EventProviderCallCompleted, Timestamp: base, SessionID: "s",
+			Data: &ProviderCallCompletedData{Provider: "gemini", Model: "gemini-3.8-live", CallID: "call-1"}},
+		{Type: EventProviderCallUsage, Timestamp: base.Add(time.Millisecond), SessionID: "s",
+			Data: &ProviderCallUsageData{Provider: "gemini", Model: "gemini-3.8-live", CallID: "call-1", Cost: 0.001245}},
+	}
+	session := &AnnotatedSession{SessionID: "s", Events: evs, Timeline: NewMediaTimeline("s", evs, nil),
+		Metadata: SessionMetadata{StartTime: base, EndTime: base.Add(time.Millisecond), Duration: time.Millisecond}}
+
+	timeline := NewSessionExporter(session, nil).buildJSONTimeline()
+
+	require.Len(t, timeline.Events, 2)
+	assert.Equal(t, "provider.call.usage", timeline.Events[1].Type)
+	assert.Equal(t, map[string]interface{}{
+		"provider": "gemini", "model": "gemini-3.8-live", "cost": 0.001245, "call_id": "call-1",
+	}, timeline.Events[1].Data)
+	var total float64
+	for _, e := range timeline.Events {
+		total += e.Data["cost"].(float64)
+	}
+	assert.InDelta(t, 0.001245, total, 1e-12)
+}

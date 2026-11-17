@@ -91,7 +91,8 @@ func (p *Provider) CreateStreamSession(
 	p.applyStreamSampling(req.Sampling, &config)
 	p.applyStreamTools(req, &config)
 
-	session, err := newRealtimeSession(ctx, p.apiKey, &config, realtimeSessionOpts(dial))
+	session, err := newRealtimeSession(ctx, p.apiKey, &config,
+		realtimeSessionOpts{endpoint: dial.endpoint, dialHeaders: dial.dialHeaders})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create realtime session: %w", err)
 	}

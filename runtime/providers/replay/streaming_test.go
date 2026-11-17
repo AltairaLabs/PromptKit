@@ -3,6 +3,7 @@ package replay
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -696,4 +697,31 @@ func createTestStreamingProvider(t *testing.T, messages []arenaMessage) *Streami
 	}
 
 	return provider
+}
+
+// Each replayed response is a generation of its own: its chunks, the cost
+// carrying completion included, name it.
+func TestStreamSession_ChunksCarryTheirGeneration(t *testing.T) {
+	provider := createTestStreamingProvider(t, []arenaMessage{
+		{Role: "assistant", Content: "Response 1"},
+		{Role: "assistant", Content: "Response 2"},
+	})
+	provider.config.Timing = TimingInstant
+	session, _ := provider.CreateStreamSession(context.Background(), nil)
+	defer session.Close()
+
+	var gens []int64
+	for turn := 0; turn < 2; turn++ {
+		go func() { _ = session.(*StreamSession).SendText(context.Background(), "Hello") }()
+		for {
+			c := <-session.Response()
+			gens = append(gens, c.Generation)
+			if c.FinishReason != nil {
+				break
+			}
+		}
+	}
+	if fmt.Sprint(gens) != "[1 1 2 2]" {
+		t.Errorf("generations %v, want [1 1 2 2]", gens)
+	}
 }

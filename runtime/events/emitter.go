@@ -364,6 +364,18 @@ func (e *Emitter) ProviderCallCompletedCtx(ctx context.Context, data *ProviderCa
 	e.emitCtx(ctx, EventProviderCallCompleted, data)
 }
 
+// ProviderCallUsageCtx emits provider.call.usage with trace context.
+// Source defaults to "agent" if not already set on data.
+func (e *Emitter) ProviderCallUsageCtx(ctx context.Context, data *ProviderCallUsageData) {
+	if data == nil {
+		return
+	}
+	if data.Source == "" {
+		data.Source = SourceAgent
+	}
+	e.emitCtx(ctx, EventProviderCallUsage, data)
+}
+
 // ProviderCallFailedCtx emits provider.call.failed with trace context for exemplar correlation.
 // Source defaults to "agent" if not already set on data.
 func (e *Emitter) ProviderCallFailedCtx(ctx context.Context, data *ProviderCallFailedData) {

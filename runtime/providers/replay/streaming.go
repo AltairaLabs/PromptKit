@@ -303,6 +303,10 @@ func (s *StreamSession) safeSend(chunk *providers.StreamChunk) bool {
 		s.mu.Unlock()
 		return false
 	}
+	if chunk.Generation == 0 {
+		// Each replayed response is a generation: the turn being sent.
+		chunk.Generation = int64(max(s.turnIndex, 1))
+	}
 	// Register as an active send while holding the lock
 	s.sendWg.Add(1)
 	s.mu.Unlock()

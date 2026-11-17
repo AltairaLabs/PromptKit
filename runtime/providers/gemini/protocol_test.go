@@ -184,3 +184,14 @@ func TestHandleToolCalls(t *testing.T) {
 		}
 	})
 }
+
+// buildCostInfo (a test helper) prices usage metadata through the shared pricing engine, by
+// modality, against the descriptor resolved when the session was created,
+// together with any usage carried from a tool-call turn.
+func (s *StreamSession) buildCostInfo(usage *UsageMetadata) *types.CostInfo {
+	if usage == nil {
+		return nil
+	}
+	s.holdUsage(usage)
+	return s.takeTurnCost()
+}
