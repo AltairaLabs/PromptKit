@@ -19,20 +19,25 @@ import (
 // round's results: a user turn the caller speaks or types meanwhile, the reply
 // to it, a call message of a later round. Such a message is held, its element
 // with it, until the results are out, and is then emitted in the order it
-// came. Elements without a message (audio, text, reasoning, errors) are not
-// held. A call held for the caller (approval) is answered later, by the
-// caller: it holds nothing back once it is surfaced.
+// came. Once a message is held, a turn end or an error element is held behind
+// it too, so a consumer never sees a turn boundary before the message it
+// follows. Audio, text and reasoning deltas are not held. A call held for
+// approval awaits the result the caller gives like any other.
 //
-// When the session ends, a round the worker had not handed over is still
-// recorded, and each call left with no result (a round cut short, or never
-// run) is answered with a refusal, so the stored conversation never keeps a
-// call without its result.
+// The hooks' history follows the same order: a message's entry is taken out
+// while the message is held and put back when it is released.
+//
+// When the session ends, a round the worker handed over is still recorded, and
+// each call left with no result (a round cut short or never run, a call still
+// held for approval) is answered with a refusal, so the stored conversation
+// never keeps a call without its result. Once the context is canceled, what is
+// left is given partialResponseSendTimeout in all to be taken.
 
 // errSessionClosedBeforeRun is the cause recorded for a call the session's end
 // left unanswered.
 const errSessionClosedBeforeRun = "the session closed before it ran"
 
-// toolExchangeOrder holds the messages that follow a tool call message the
+// toolExchangeOrder holds the elements that follow a tool call message the
 // stage runs until the call's results are out.
 type toolExchangeOrder struct {
 	mu sync.Mutex
@@ -40,54 +45,103 @@ type toolExchangeOrder struct {
 	// yet, in the order the model made them.
 	awaiting []types.MessageToolCall
 	// held are the elements held behind them, in the order they came.
-	held []StreamElement
+	held []heldElement
+	// history is the hooks' history, kept in emission order; nil keeps none.
+	history *duplexHistory
 }
 
-// emit sends elem downstream, or holds it while a tool call message emitted
-// before it still awaits results (see toolExchangeOrder). It returns ctx.Err()
-// when canceled first.
+// heldElement is a held element, and whether its message's entry was taken out
+// of the hooks' history while it is held.
+type heldElement struct {
+	elem      StreamElement
+	inHistory bool
+}
+
+// sendMode is how an element is sent: a recorded element must reach the
+// transcript even once ctx is canceled, and is then given until deadline (a
+// deadline of its own when nil).
+type sendMode struct {
+	recorded bool
+	deadline *closeDeadline
+}
+
+// closeDeadline is one partialResponseSendTimeout shared by everything sent
+// with it after the context is canceled; it starts on its first use, and
+// once passed every send with it gives up at once.
+type closeDeadline struct {
+	once sync.Once
+	c    chan struct{}
+}
+
+func newCloseDeadline() *closeDeadline { return &closeDeadline{} }
+
+func (d *closeDeadline) done() <-chan struct{} {
+	d.once.Do(func() {
+		d.c = make(chan struct{})
+		time.AfterFunc(partialResponseSendTimeout, func() { close(d.c) })
+	})
+	return d.c
+}
+
+// emit sends elem downstream, or holds it (see toolExchangeOrder). It returns
+// ctx.Err() when canceled first.
 func (s *DuplexProviderStage) emit(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
-	return s.exchange.send(ctx, elem, output, false)
+	return s.exchange.send(ctx, elem, output, sendMode{})
 }
 
 // emitRecorded is emit for an element that must reach the transcript even
-// once ctx is canceled (a tool round's results): it is then given
-// partialResponseSendTimeout to be taken, as a canceled turn's partial reply
-// is.
+// once ctx is canceled (a tool round's results, a canceled turn's partial
+// reply): it is then given partialResponseSendTimeout to be taken.
 func (s *DuplexProviderStage) emitRecorded(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
-	return s.exchange.send(ctx, elem, output, true)
+	return s.exchange.send(ctx, elem, output, sendMode{recorded: true})
 }
 
-// send places elem: a message behind an unanswered call message is held; any
-// other element is sent, and a result or hold that answers the last call
-// releases what was held.
+// holdable reports whether elem keeps its place behind a held message: a
+// message, a turn end or an error.
+func holdable(elem *StreamElement) bool {
+	return elem.Message != nil || elem.EndOfStream || elem.Error != nil
+}
+
+// send places elem: a message behind an unanswered call message is held, and
+// so is a turn end or an error behind a held message; any other element is
+// sent, and a result that answers the last call releases what was held.
 func (o *toolExchangeOrder) send(
-	ctx context.Context, elem StreamElement, output chan<- StreamElement, recorded bool,
+	ctx context.Context, elem StreamElement, output chan<- StreamElement, mode sendMode,
 ) error {
-	if elem.Message == nil && len(elem.Meta.PendingTools) == 0 {
-		return sendElement(ctx, elem, output, recorded)
+	if !holdable(&elem) {
+		return sendElement(ctx, elem, output, mode)
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if elem.Message != nil && len(o.awaiting)+len(o.held) > 0 && !o.answersLocked(&elem) {
-		o.held = append(o.held, elem)
+	if !o.answersLocked(&elem) && (len(o.held) > 0 || (elem.Message != nil && len(o.awaiting) > 0)) {
+		o.holdLocked(elem)
 		return nil
 	}
-	if err := sendElement(ctx, elem, output, recorded); err != nil {
+	if err := sendElement(ctx, elem, output, mode); err != nil {
 		return err
 	}
 	o.trackLocked(&elem)
-	return o.releaseLocked(ctx, output, recorded)
+	return o.releaseLocked(ctx, output, mode)
+}
+
+// holdLocked holds elem, taking its message's entry out of the hooks'
+// history until it is released.
+func (o *toolExchangeOrder) holdLocked(elem StreamElement) {
+	h := heldElement{elem: elem}
+	if elem.Message != nil && o.history != nil {
+		h.inHistory = o.history.remove(elem.Message)
+	}
+	o.held = append(o.held, h)
 }
 
 // answersLocked reports whether elem is a result for an awaited call.
 func (o *toolExchangeOrder) answersLocked(elem *StreamElement) bool {
-	tr := elem.Message.ToolResult
-	if tr == nil {
+	if elem.Message == nil || elem.Message.ToolResult == nil {
 		return false
 	}
+	id := elem.Message.ToolResult.ID
 	for _, tc := range o.awaiting {
-		if tc.ID == tr.ID {
+		if tc.ID == id {
 			return true
 		}
 	}
@@ -95,18 +149,16 @@ func (o *toolExchangeOrder) answersLocked(elem *StreamElement) bool {
 }
 
 // trackLocked records what an emitted element does to the awaited calls: a
-// call message the stage runs makes its calls awaited; a result, or a hold for
-// the caller, answers one.
+// call message the stage runs makes its calls awaited, and a result answers
+// one.
 func (o *toolExchangeOrder) trackLocked(elem *StreamElement) {
-	if m := elem.Message; m != nil && elem.Meta.ToolCallsRunning && len(m.ToolCalls) > 0 {
+	m := elem.Message
+	switch {
+	case m == nil:
+	case elem.Meta.ToolCallsRunning && len(m.ToolCalls) > 0:
 		o.awaiting = append([]types.MessageToolCall(nil), m.ToolCalls...)
-		return
-	}
-	if m := elem.Message; m != nil && m.ToolResult != nil {
+	case m.ToolResult != nil:
 		o.answerLocked(m.ToolResult.ID)
-	}
-	for i := range elem.Meta.PendingTools {
-		o.answerLocked(elem.Meta.PendingTools[i].CallID)
 	}
 }
 
@@ -123,60 +175,74 @@ func (o *toolExchangeOrder) answerLocked(id string) {
 // releaseLocked emits the held elements, in order, while no call awaits
 // results: a held call message stops the release until its own results are
 // out. An element that cannot be sent stays held, at the front.
-func (o *toolExchangeOrder) releaseLocked(ctx context.Context, output chan<- StreamElement, recorded bool) error {
+func (o *toolExchangeOrder) releaseLocked(ctx context.Context, output chan<- StreamElement, mode sendMode) error {
 	for len(o.awaiting) == 0 && len(o.held) > 0 {
 		next := o.held[0]
-		if err := sendElement(ctx, next, output, recorded); err != nil {
+		if err := sendElement(ctx, next.elem, output, mode); err != nil {
 			return err
 		}
 		o.held = o.held[1:]
-		o.trackLocked(&next)
+		if next.inHistory {
+			o.history.add(next.elem.Message)
+		}
+		o.trackLocked(&next.elem)
 	}
 	return nil
 }
 
 // closeOut answers every call still awaiting results with a refusal naming
-// the session's end, and emits everything held, in order, as recorded
-// elements. Run once nothing else emits.
-func (o *toolExchangeOrder) closeOut(ctx context.Context, output chan<- StreamElement) {
+// the session's end, and emits everything held, in order. Run once nothing
+// else emits. The first element downstream does not take ends it: nothing
+// after it is sent, so no result goes out for a call message that did not.
+func (o *toolExchangeOrder) closeOut(ctx context.Context, output chan<- StreamElement, deadline *closeDeadline) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	mode := sendMode{recorded: true, deadline: deadline}
 	for len(o.awaiting)+len(o.held) > 0 {
 		for _, tc := range o.awaiting {
 			errMsg := fmt.Sprintf("Tool %s not executed: %s", tc.Name, errSessionClosedBeforeRun)
 			refusal := toolRefusal(tc, errMsg)
 			refusal.ToolResult.ErrorType = types.ToolErrorExecution
-			_ = sendElement(ctx, StreamElement{Message: &refusal}, output, true)
+			if sendElement(ctx, StreamElement{Message: &refusal}, output, mode) != nil {
+				o.dropLocked()
+				return
+			}
 		}
 		o.awaiting = nil
-		if err := o.releaseLocked(ctx, output, true); err != nil {
-			// Downstream stopped taking output: what is left cannot be
-			// recorded.
-			o.held = o.held[1:]
+		if o.releaseLocked(ctx, output, mode) != nil {
+			o.dropLocked()
+			return
 		}
 	}
 }
 
+// dropLocked forgets what is awaited and held: downstream stopped taking
+// output.
+func (o *toolExchangeOrder) dropLocked() {
+	o.awaiting = nil
+	o.held = nil
+}
+
 // sendElement sends elem on output. A recorded element whose ctx is canceled
-// first is still given partialResponseSendTimeout to be taken; it reports
-// ctx.Err() only when it was not.
-func sendElement(ctx context.Context, elem StreamElement, output chan<- StreamElement, recorded bool) error {
+// first is still given until its deadline to be taken; it reports ctx.Err()
+// only when it was not.
+func sendElement(ctx context.Context, elem StreamElement, output chan<- StreamElement, mode sendMode) error {
 	select {
 	case output <- elem:
 		return nil
 	case <-ctx.Done():
 	}
-	if !recorded {
+	if !mode.recorded {
 		return ctx.Err()
 	}
-	// NOSONAR: intentional fresh timer - ctx is canceled, and the result must
-	// still reach the stages that store it.
-	timer := time.NewTimer(partialResponseSendTimeout)
-	defer timer.Stop()
+	deadline := mode.deadline
+	if deadline == nil {
+		deadline = newCloseDeadline()
+	}
 	select {
 	case output <- elem:
 		return nil
-	case <-timer.C:
+	case <-deadline.done():
 		return ctx.Err()
 	}
 }

@@ -105,18 +105,26 @@ func TestDuplexToolExchange_QueuedRoundCutByCloseIsAnswered(t *testing.T) {
 	assert.Equal(t, []string{"weather"}, exec.calls(), "the queued round never ran")
 }
 
-// Process returns only once the tool worker has: a tool that does not watch
-// its context finishes before Process returns, and its result is stored.
-func TestDuplexToolExchange_ProcessJoinsTheToolWorker(t *testing.T) {
-	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 200 * time.Millisecond}
+// Process waits for the tool worker only for the stage's grace period: a
+// tool that does not watch its context does not hold the session's end. Its
+// call is answered with the session-closed refusal, and what the tool returns
+// later is discarded, never sent on the closed output.
+func TestDuplexToolExchange_ProcessWaitsForTheToolWorkerABoundedTime(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 600 * time.Millisecond}
 	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
+	h.stage.inputGracePeriod = 20 * time.Millisecond
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	awaitRunning(t, exec, 1)
+	start := time.Now()
 	elems := h.cancelAndCollect()
 
-	assert.Equal(t, 1, exec.done(), "the running tool finished before Process returned")
-	assert.Equal(t, []string{"assistant:calls c1", "tool:c1=" + weatherResult}, transcriptOf(elems))
+	assert.Less(t, time.Since(start), 400*time.Millisecond, "Process returned within its grace, not the tool's time")
+	assert.Equal(t, []string{"assistant:calls c1", "tool:c1=" + sessionClosedRefusal}, transcriptOf(elems))
+	require.Eventually(t, func() bool { return exec.done() == 1 }, 2*time.Second, time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // the worker hands its late result over, or drops it
+	_, open := <-h.output
+	assert.False(t, open, "nothing is sent after Process returned")
 }
 
 // A user turn that arrives while an earlier turn's round runs is stored after
@@ -144,15 +152,49 @@ func TestDuplexToolExchange_UserTurnDuringRoundFollowsTheResults(t *testing.T) {
 	}, transcriptOf(elems))
 }
 
-// A round held for the caller (approval) does not hold up the transcript: the
-// held call is answered later, by the caller, and what follows it is stored
-// as it comes.
-func TestDuplexToolExchange_HeldCallDoesNotHoldTheTranscript(t *testing.T) {
+// heldGate holds every call for approval.
+func heldGate(context.Context, string, string, map[string]any) (*tools.PendingToolInfo, error) {
+	return &tools.PendingToolInfo{Reason: "approval", Message: "approve weather"}, nil
+}
+
+// A call held for approval awaits its result like any other: what follows it
+// is stored after the result the caller gives, here after a user turn that
+// came in meanwhile.
+func TestDuplexToolExchange_ApprovedCallIsStoredBeforeTheTurnsAfterIt(t *testing.T) {
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
-	gate := func(context.Context, string, string, map[string]any) (*tools.PendingToolInfo, error) {
-		return &tools.PendingToolInfo{Reason: "approval", Message: "approve weather"}, nil
-	}
-	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), cfg: DuplexToolConfig{ApprovalGate: gate}})
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec),
+		cfg:      DuplexToolConfig{ApprovalGate: heldGate},
+		script:   [][]providers.StreamChunk{textTurn("Approved: 21 in Paris", nil)},
+	})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.settle()
+	require.Eventually(t, func() bool { return !h.stage.tools.roundOutstanding() }, 2*time.Second, time.Millisecond,
+		"the held round was never delivered")
+	earlier := h.toolTurn()
+	user := types.Message{Role: roleUser, Content: "still there?"}
+	h.input <- StreamElement{Message: &user}
+	h.awaitNewToolTurn(earlier)
+	approved := types.NewToolResultMessage(types.NewTextToolResult("c1", "weather", weatherResult))
+	var answer StreamElement
+	answer.Meta.ToolResultMessages = []types.Message{approved}
+	answer.Meta.ToolResponses = []providers.ToolResponse{{ToolCallID: "c1", Result: weatherResult}}
+	h.input <- answer
+	h.awaitSent(1)
+	h.settle()
+	elems := h.finish()
+
+	assert.Equal(t, []string{
+		"assistant:calls c1", "tool:c1=" + weatherResult, "user:still there?", "assistant:Approved: 21 in Paris",
+	}, transcriptOf(elems))
+}
+
+// A call still held for approval when the session ends gets the
+// session-closed refusal, ahead of the messages held behind it.
+func TestDuplexToolExchange_HeldCallUnansweredAtCloseIsRefused(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), cfg: DuplexToolConfig{ApprovalGate: heldGate}})
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.settle()
@@ -164,8 +206,132 @@ func TestDuplexToolExchange_HeldCallDoesNotHoldTheTranscript(t *testing.T) {
 	h.awaitNewToolTurn(earlier)
 	elems := h.finish()
 
-	assert.Equal(t, []string{"assistant:calls c1", "user:still there?"}, transcriptOf(elems))
+	assert.Equal(t, []string{"assistant:calls c1", "tool:c1=" + sessionClosedRefusal, "user:still there?"},
+		transcriptOf(elems))
 	assert.Empty(t, exec.calls())
+}
+
+// A turn end with no message (an empty reply) after a held user turn is held
+// behind it, so a consumer never sees a turn end before the turn's message.
+func TestDuplexToolExchange_TurnEndIsHeldBehindAHeldMessage(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	awaitRunning(t, exec, 1)
+	earlier := h.toolTurn()
+	user := types.Message{Role: roleUser, Content: "and in Rome?"}
+	h.input <- StreamElement{Message: &user}
+	h.awaitNewToolTurn(earlier)
+	stop := "stop"
+	h.emit([]providers.StreamChunk{{FinishReason: &stop}}) // an empty reply: a turn end with no message
+	h.settle()
+	close(exec.gate)
+	h.awaitSent(1)
+	elems := h.finish()
+
+	var order []string
+	for _, e := range elems {
+		switch {
+		case e.Message != nil:
+			order = append(order, transcriptOf([]StreamElement{e})...)
+		case e.EndOfStream:
+			order = append(order, "turn-end")
+		}
+	}
+	assert.Equal(t, []string{"assistant:calls c1", "tool:c1=" + weatherResult, "user:and in Rome?", "turn-end"}, order)
+}
+
+// A tool-call message whose call the provider's barge-in already completed is
+// never run: it is not emitted as a round the stage runs, so nothing after it
+// is held.
+func TestDuplexToolExchange_CallOfACompletedGenerationHoldsNothing(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
+
+	h.emit([]providers.StreamChunk{{Content: "Let me", Generation: 1}})
+	h.emit([]providers.StreamChunk{{Interrupted: true, Generation: 1}})
+	late := toolCallTurn(weatherCall("late1"))
+	late[0].Generation = 1
+	h.emit(late)
+	h.settle()
+	user := types.Message{Role: roleUser, Content: "hello?"}
+	h.input <- StreamElement{Message: &user}
+	require.Eventually(t, func() bool { return len(h.output) >= 3 }, 2*time.Second, time.Millisecond,
+		"the user turn was held") // the partial reply, its interruption, the user turn
+	reply := textTurn("Hi.", nil)
+	reply[0].Generation = 2
+	h.emit(reply)
+	h.settle()
+	elems := h.finish()
+
+	assert.Equal(t, []string{"assistant:Let me", "user:hello?", "assistant:Hi."}, transcriptOf(elems))
+	assert.Empty(t, exec.calls())
+}
+
+// A tool-call message that arrives once a limit is closing the session is a
+// round the stage answers: its calls are refused at once (recorded, not sent),
+// not left awaiting the session's end.
+func TestDuplexToolExchange_CallWhileTheSessionClosesIsRefusedAtOnce(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
+	require.True(t, h.stage.tools.setTerminal(), "a limit is closing the session")
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	h.settle()
+	elems := h.finish()
+
+	assert.Equal(t, []string{"assistant:calls c1",
+		"tool:c1=Tool weather not executed: the turn's tool calls were stopped: a limit is closing the session"},
+		transcriptOf(elems))
+	assert.Empty(t, exec.calls())
+	assert.Empty(t, h.sess().sentResponses(), "the refusal is recorded, not sent")
+}
+
+func indexOf(xs []string, x string) int {
+	for i := range xs {
+		if xs[i] == x {
+			return i
+		}
+	}
+	return -1
+}
+
+// passHook is a provider hook that allows everything, so the stage keeps the
+// hooks' history.
+type passHook struct{}
+
+func (passHook) Name() string { return "pass" }
+func (passHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+func (passHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+// The hooks' history keeps the order the messages are emitted in: a user turn
+// held behind a round's results follows them there too.
+func TestDuplexToolExchange_HooksHistoryFollowsTheEmittedOrder(t *testing.T) {
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), gate: make(chan struct{})}
+	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec),
+		hookReg: hooks.NewRegistry(hooks.WithProviderHook(passHook{}))})
+
+	h.emit(toolCallTurn(weatherCall("c1")))
+	awaitRunning(t, exec, 1)
+	earlier := h.toolTurn()
+	user := types.Message{Role: roleUser, Content: "and in Rome?"}
+	h.input <- StreamElement{Message: &user}
+	h.awaitNewToolTurn(earlier)
+	close(exec.gate)
+	h.awaitSent(1)
+	h.finish()
+
+	var got []string
+	for i := range h.stage.history.snapshot() {
+		m := h.stage.history.snapshot()[i]
+		got = append(got, transcriptOf([]StreamElement{{Message: &m}})...)
+	}
+	assert.Equal(t, []string{"assistant:calls c1", "tool:c1=" + weatherResult, "user:and in Rome?"}, got)
 }
 
 // blockingAllowHook allows BeforeCall once release is closed; entered is
@@ -220,4 +386,86 @@ func TestDuplexToolExchange_CallOpenedAfterTheSessionEndedIsCompleted(t *testing
 	assert.Equal(t, ev.started[0].CallID, ev.done[0].CallID)
 	assert.Equal(t, types.FinishReasonInterrupted, ev.done[0].FinishReason)
 	assert.True(t, ev.done[0].NoMessage)
+}
+
+// closeOut is bounded in total once the context is canceled, and stops at the
+// first element downstream does not take: a call message that cannot be sent
+// takes its results with it.
+func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
+	var o toolExchangeOrder
+	out := make(chan StreamElement, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	first := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+	first.Meta.ToolCallsRunning = true
+	require.NoError(t, o.send(ctx, first, out, sendMode{}))
+	<-out
+	for i := 0; i < 10; i++ {
+		later := StreamElement{Message: &types.Message{Role: roleAssistant,
+			ToolCalls: []types.MessageToolCall{weatherCall("c" + string(rune('2'+i)))}}}
+		later.Meta.ToolCallsRunning = true
+		require.NoError(t, o.send(ctx, later, out, sendMode{}))
+	}
+	cancel()
+
+	start := time.Now()
+	o.closeOut(ctx, out, newCloseDeadline())
+	assert.Less(t, time.Since(start), 2*partialResponseSendTimeout, "bounded in total, not per element")
+	close(out)
+	var got []StreamElement
+	for e := range out {
+		got = append(got, e)
+	}
+	assert.Equal(t, []string{"tool:c1=" + sessionClosedRefusal}, transcriptOf(got),
+		"no result is sent for a call message that was not")
+}
+
+// Once the shared close deadline has passed, every later send with it gives
+// up at once, not only the first.
+func TestCloseDeadline_EverySendAfterItGivesUp(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	d := newCloseDeadline()
+	full := make(chan StreamElement) // never read
+	mode := sendMode{recorded: true, deadline: d}
+	require.ErrorIs(t, sendElement(ctx, StreamElement{}, full, mode), context.Canceled)
+	start := time.Now()
+	for i := 0; i < 3; i++ {
+		require.ErrorIs(t, sendElement(ctx, StreamElement{}, full, mode), context.Canceled)
+	}
+	assert.Less(t, time.Since(start), partialResponseSendTimeout/2)
+}
+
+// The close deadline bounds closeOut as a whole: a downstream that takes each
+// element just inside the timeout does not stretch it to one timeout each.
+func TestToolExchangeOrder_CloseOutDeadlineIsShared(t *testing.T) {
+	var o toolExchangeOrder
+	out := make(chan StreamElement)
+	ctx, cancel := context.WithCancel(context.Background())
+	call := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+	call.Meta.ToolCallsRunning = true
+	go func() { <-out }()
+	require.NoError(t, o.send(ctx, call, out, sendMode{}))
+	for i := 0; i < 6; i++ {
+		require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u"}}, out, sendMode{}))
+	}
+	cancel()
+	taken := make(chan int)
+	go func() {
+		n := 0
+		for {
+			select {
+			case <-out:
+				n++
+			case <-time.After(3 * partialResponseSendTimeout):
+				taken <- n
+				return
+			}
+			time.Sleep(partialResponseSendTimeout * 2 / 5)
+		}
+	}()
+
+	start := time.Now()
+	o.closeOut(ctx, out, newCloseDeadline())
+	assert.Less(t, time.Since(start), partialResponseSendTimeout*3/2, "one timeout in all")
+	assert.Less(t, <-taken, 7, "what was not taken in time is dropped")
 }

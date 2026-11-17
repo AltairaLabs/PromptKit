@@ -323,7 +323,8 @@ func NewDuplexProviderStageWithTurnState(
 // used as the SystemInstruction for session creation.
 //
 // With tool execution (SetToolExecution), a tool call still running when the
-// session ends is canceled and waited for, and before output closes each tool
+// session ends is canceled and waited for up to the input grace period, and
+// before output closes each tool
 // call message it carries is followed by a result for each of its calls, but
 // a call held for approval, which the caller answers.
 func (s *DuplexProviderStage) Process(
@@ -359,6 +360,7 @@ func (s *DuplexProviderStage) Process(
 		s.tools.markClosed()
 		_ = s.session.Close()
 	}()
+	s.exchange.history = &s.history
 	s.startToolWorker(ctx)
 
 	logger.Debug("DuplexProviderStage: starting bidirectional streaming")
@@ -1631,8 +1633,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	}
 	s.noteChunkTurnEnd(chunk, &elem, turnDone)
 
-	if s.tools != nil && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
-		elem.Meta.ToolCallsRunning = true // the stage runs them (queueToolRound)
+	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+		elem.Meta.ToolCallsRunning = true // the stage answers them (queueToolRound)
 	}
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
@@ -1772,11 +1774,8 @@ func (s *DuplexProviderStage) emitChunkError(
 	if err := s.flushBlockedTurns(ctx, output); err != nil {
 		return err
 	}
-	elem := NewErrorElement(chunk.Error)
-	select {
-	case output <- elem:
-	case <-ctx.Done():
-		return ctx.Err()
+	if err := s.emit(ctx, NewErrorElement(chunk.Error), output); err != nil {
+		return err
 	}
 	return chunk.Error
 }

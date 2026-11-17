@@ -76,9 +76,9 @@ func TestPredict_UserAudioStillNeedsAnAudioModel(t *testing.T) {
 	require.ErrorContains(t, err, "audio content requires audio model with Chat Completions API")
 }
 
-// An audio model on Chat Completions takes audio, so a spoken reply's audio
-// is still sent to it.
-func TestPredict_AudioModelIsSentTheSpokenReplyAudio(t *testing.T) {
+// Chat Completions takes no audio on an assistant message even for an audio
+// model, so a spoken reply goes to one as its transcript too.
+func TestPredict_AudioModelIsSentTheSpokenReplyTranscript(t *testing.T) {
 	reply, wav := "It has shipped.", "UklGRg=="
 	msgs := []types.Message{
 		{Role: "user", Content: "where is order 7?"},
@@ -99,6 +99,5 @@ func TestPredict_AudioModelIsSentTheSpokenReplyAudio(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(body, &got))
 	require.Len(t, got.Messages, 2)
-	assert.JSONEq(t, `[{"type":"text","text":"It has shipped."},
-		{"type":"input_audio","input_audio":{"data":"UklGRg==","format":"wav"}}]`, string(got.Messages[1].Content))
+	assert.JSONEq(t, `[{"type":"text","text":"It has shipped."}]`, string(got.Messages[1].Content))
 }

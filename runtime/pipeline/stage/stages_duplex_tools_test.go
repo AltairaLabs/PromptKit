@@ -1085,7 +1085,12 @@ func TestDuplexTools_PendingCallIsSurfaced(t *testing.T) {
 	elems = append(elems, h.finish()...)
 	assert.Empty(t, h.sess().sentResponses(), "a held call is not answered")
 	assert.Empty(t, exec.calls())
-	assert.Empty(t, toolResultMessages(elems))
+	// Still held when the session ends: it is recorded with the session-closed
+	// refusal, so the stored call has its result.
+	results := toolResultMessages(elems)
+	require.Len(t, results, 1)
+	assert.Equal(t, "c1", results[0].ID)
+	assert.Equal(t, "Tool weather not executed: the session closed before it ran", results[0].Error)
 }
 
 // A user turn that arrives while a round runs starts a new tool turn: the

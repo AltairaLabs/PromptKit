@@ -3,7 +3,7 @@ package providers
 import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 
 // WithoutAssistantAudio returns msg without its audio parts when msg is an
-// assistant message, for a model that cannot take audio: a realtime session
+// assistant message, for an API that takes no audio there: a realtime session
 // stores each spoken reply with its audio and its transcript, and the
 // transcript is what such a model is sent. Any other message is returned
 // unchanged, so user audio meets the provider's own rule. The caller's

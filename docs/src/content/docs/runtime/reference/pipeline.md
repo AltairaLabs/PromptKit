@@ -2171,7 +2171,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L329-L333>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L330-L334>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2183,7 +2183,7 @@ For duplex streaming \(Gemini Live API\), this runs until: \- Context is cancele
 
 If no session is pre\-configured, the session is created lazily when the first element arrives. The system\_prompt from TurnState \(when wired\) is used as the SystemInstruction for session creation.
 
-With tool execution \(SetToolExecution\), a tool call still running when the session ends is canceled and waited for, and before output closes each tool call message it carries is followed by a result for each of its calls, but a call held for approval, which the caller answers.
+With tool execution \(SetToolExecution\), a tool call still running when the session ends is canceled and waited for up to the input grace period, and before output closes each tool call message it carries is followed by a result for each of its calls, but a call held for approval, which the caller answers.
 
 <a name="DuplexProviderStage.SetCaller"></a>
 ### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L61>)
