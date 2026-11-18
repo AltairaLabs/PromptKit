@@ -100,6 +100,25 @@ func TestGuardrail_StreamedOutputBlockIsMarkedSafety(t *testing.T) {
 	}
 }
 
+// The carry-forward summary a workflow transition hands the next state is
+// model context: it leaves out a blocked input turn, as the provider request
+// does.
+func TestWorkflowCarryForward_LeavesOutBlockedInputTurn(t *testing.T) {
+	conv, err := Open(blockedInputHistoryPack, "chat",
+		WithProvider(newHistoryRecordingProvider()), WithSkipSchemaValidation())
+	require.NoError(t, err)
+	defer conv.Close()
+	do := sendText(t)
+	firstReply := do(conv, historyCleanFirst)
+	require.Equal(t, historyCannedReply, do(conv, historyBlockedInput))
+
+	assert.Equal(t,
+		"[Previous state: intake, 2 messages]\n"+
+			"user: "+historyCleanFirst+"\n"+
+			"assistant: "+firstReply+"\n",
+		buildContextSummary("intake", conv))
+}
+
 func TestProviderHook_BlockedInputWithoutValidationStaysOutAfterResume(t *testing.T) {
 	store, err := file.NewStore(file.Options{Root: t.TempDir()})
 	require.NoError(t, err)

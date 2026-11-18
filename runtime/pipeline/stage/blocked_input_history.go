@@ -38,16 +38,47 @@ func withBlockedInputMark(meta map[string]interface{}) map[string]interface{} {
 	return out
 }
 
+// mergeMeta returns base's entries overlaid with add's, or nil when both are
+// empty. Neither map is written.
+func mergeMeta(base, add map[string]interface{}) map[string]interface{} {
+	if len(base) == 0 && len(add) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(base)+len(add))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range add {
+		out[k] = v
+	}
+	return out
+}
+
+// isMarkedBlockedInput reports whether m carries the blocked-input mark.
+func isMarkedBlockedInput(m *types.Message) bool {
+	marked, _ := m.Meta[types.MetaBlockedInput].(bool)
+	return marked
+}
+
 // isBlockedInputReply reports whether m is the canned reply substituted for a
 // turn an input guardrail or BeforeCall hook blocked.
 func isBlockedInputReply(m *types.Message) bool {
 	if m.Role != roleAssistant || len(m.ToolCalls) > 0 {
 		return false
 	}
-	if marked, _ := m.Meta[types.MetaBlockedInput].(bool); marked {
+	if isMarkedBlockedInput(m) {
 		return true
 	}
 	return m.FinishReason == types.FinishReasonSafety && hasInputValidation(m)
+}
+
+// isBlockedInputRequest reports whether m is a user message marked as blocked
+// itself: a spoken input whose transcript was blocked only after the reply to
+// it completed (DuplexProviderStage.emitLateUserTurn). There is no canned
+// reply to mark then; the reply is the model's own, already heard, and is
+// kept.
+func isBlockedInputRequest(m *types.Message) bool {
+	return m.Role == roleUser && isMarkedBlockedInput(m)
 }
 
 // hasInputValidation reports whether m records a guardrail firing on the
@@ -62,19 +93,26 @@ func hasInputValidation(m *types.Message) bool {
 }
 
 // blockedInputTurns marks the messages of msgs that belong to a blocked input
-// turn: each canned reply and the user message it answered. It returns nil
-// when msgs holds none.
+// turn: each canned reply and the user message it answered, and each user
+// message marked as blocked itself. It returns nil when msgs holds none.
+//
+// Known gap: a BeforeCall hook that blocks a later round of a tool loop (it
+// judged a tool result, not the user's message) leaves its canned reply after
+// that tool result. Only the reply is left out then; the tool exchange, which
+// the model already saw on the round before, is kept, and so is the result
+// the hook judged.
 func blockedInputTurns(msgs []types.Message) []bool {
 	var mask []bool
 	for i := range msgs {
-		if !isBlockedInputReply(&msgs[i]) {
+		reply := isBlockedInputReply(&msgs[i])
+		if !reply && !isBlockedInputRequest(&msgs[i]) {
 			continue
 		}
 		if mask == nil {
 			mask = make([]bool, len(msgs))
 		}
 		mask[i] = true
-		if i > 0 && msgs[i-1].Role == roleUser {
+		if reply && i > 0 && msgs[i-1].Role == roleUser {
 			mask[i-1] = true
 		}
 	}
@@ -103,8 +141,12 @@ func withoutMasked(msgs []types.Message, mask []bool) []types.Message {
 	return out
 }
 
-// excludeFromModelContext drops what never goes back to a model: interrupted
-// replies and blocked input turns.
-func excludeFromModelContext(msgs []types.Message) []types.Message {
+// ExcludeFromModelContext returns msgs without what never goes back to a
+// model: interrupted replies (types.ExcludeInterrupted) and blocked input
+// turns, the canned reply marked Meta[types.MetaBlockedInput] and the user
+// message it answered. A transcript keeps both; any path that builds model
+// context from one (a carry-forward summary, a host's own summarizer) passes
+// it through this first. msgs is returned as-is when it holds neither.
+func ExcludeFromModelContext(msgs []types.Message) []types.Message {
 	return excludeBlockedInputTurns(types.ExcludeInterrupted(msgs))
 }

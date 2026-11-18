@@ -93,16 +93,19 @@ func (s *DuplexProviderStage) emitLateUserTurn(
 	if s.hooksActive() {
 		s.history.insert(pos, user)
 	}
-	elem := StreamElement{Message: user}
-	elem.Meta.LateTranscript = true
-	if err := s.emit(ctx, elem, output); err != nil {
-		return err
-	}
 	// It is judged as the input it is, though its reply follows it in the
 	// history. A finished turn's reply completed: a block can only cut what
-	// still plays. A tool turn goes on: a block stops the rest of it.
-	s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn, inputID)
-	return nil
+	// still plays. A tool turn goes on: a block stops the rest of it. Either
+	// way the user message is marked as the blocked request, so it never goes
+	// back to the model. It is judged before it is emitted, so the mark is on
+	// the message the caller and the transcript get; a block only records
+	// state here, it emits nothing.
+	if s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn, inputID) {
+		markBlockedInput(user)
+	}
+	elem := StreamElement{Message: user}
+	elem.Meta.LateTranscript = true
+	return s.emit(ctx, elem, output)
 }
 
 // noteReplyStarted records that a reply is streaming: a finished turn still

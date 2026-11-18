@@ -37,6 +37,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func BudgetTokensFor\(p providers.Provider\) int](<#BudgetTokensFor>)
 - [func CosineSimilarity\(a, b \[\]float32\) float64](<#CosineSimilarity>)
 - [func DescribeCapabilities\(stage Stage\) string](<#DescribeCapabilities>)
+- [func ExcludeFromModelContext\(msgs \[\]types.Message\) \[\]types.Message](<#ExcludeFromModelContext>)
 - [func NewCompositionStepExecutor\(deps CompositionExecutorDeps\) engine.StepExecutor](<#NewCompositionStepExecutor>)
 - [func NewFileSchemaResolver\(configDir string\) func\(path string\) \(json.RawMessage, error\)](<#NewFileSchemaResolver>)
 - [func NormalizeEmbedding\(embedding \[\]float32\) \[\]float32](<#NormalizeEmbedding>)
@@ -786,6 +787,15 @@ func DescribeCapabilities(stage Stage) string
 ```
 
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
+
+<a name="ExcludeFromModelContext"></a>
+## func [ExcludeFromModelContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L150>)
+
+```go
+func ExcludeFromModelContext(msgs []types.Message) []types.Message
+```
+
+ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="NewCompositionStepExecutor"></a>
 ## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L132>)

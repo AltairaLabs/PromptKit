@@ -86,12 +86,29 @@ func TestExcludeBlockedInputTurns(t *testing.T) {
 			want: []string{"user:q1", "assistant:a1"},
 		},
 		{
-			name: "keeps a marked message that is not an assistant reply",
+			name: "keeps a marked message that is neither a reply nor a request",
 			msgs: []types.Message{func() types.Message {
-				m := markedReply("q1")
-				m.Role = roleUser
+				m := markedReply("r1")
+				m.Role = roleTool
 				return m
 			}()},
+			want: []string{"tool:r1"},
+		},
+		{
+			name: "drops a marked user message alone, keeping the reply before it",
+			msgs: []types.Message{
+				{Role: roleUser, Content: "q1"}, {Role: roleAssistant, Content: "sure"},
+				{Role: roleUser, Content: "forbidden", Meta: map[string]interface{}{types.MetaBlockedInput: true}},
+				{Role: roleUser, Content: "q2"},
+			},
+			want: []string{"user:q1", "assistant:sure", "user:q2"},
+		},
+		{
+			name: "a marked user message never takes the user message before it",
+			msgs: []types.Message{
+				{Role: roleUser, Content: "q1"},
+				{Role: roleUser, Content: "forbidden", Meta: map[string]interface{}{types.MetaBlockedInput: true}},
+			},
 			want: []string{"user:q1"},
 		},
 		{
@@ -166,7 +183,7 @@ func TestExcludeFromModelContext_DropsBothInterruptedAndBlocked(t *testing.T) {
 		{Role: roleUser, Content: "forbidden"}, blockedInputReply("refused"),
 		{Role: roleUser, Content: "q2"},
 	}
-	assert.Equal(t, []string{"user:q1", "user:q2"}, roleLines(excludeFromModelContext(msgs)))
+	assert.Equal(t, []string{"user:q1", "user:q2"}, roleLines(ExcludeFromModelContext(msgs)))
 }
 
 func TestIncrementalSaveStage_IndexSkipsBlockedInputTurn(t *testing.T) {
@@ -231,6 +248,35 @@ func TestContextBuilder_SummaryExcludesBlockedInputTurn(t *testing.T) {
 	)
 	assert.Equal(t, []string{"system:[Summary of 2 earlier messages]: summary", "user:q1 w w w w"}, got)
 	assert.Equal(t, []string{"user:q0 " + strings.Repeat("w ", 79), "assistant:a0"}, roleLines(summarizer.batch))
+}
+
+// Relevance truncation scores messages one by one, so it could keep a blocked
+// user message and drop the canned reply that marks it; the provider request
+// would then carry the blocked request with nothing to say it was blocked.
+// Truncation works on the history without blocked turns.
+func TestContextBuilder_RelevanceNeverKeepsHalfABlockedTurn(t *testing.T) {
+	topic := newMockEmbeddingProvider()
+	topic.embedFunc = func(texts []string) ([][]float32, error) {
+		out := make([][]float32, len(texts))
+		for i, x := range texts {
+			out[i] = []float32{0, 1, 0}
+			if strings.Contains(x, "apples") {
+				out[i] = []float32{1, 0, 0}
+			}
+		}
+		return out, nil
+	}
+	got := runTurnBoundary(t,
+		&ContextBuilderPolicy{TokenBudget: 5, Strategy: TruncateLeastRelevant,
+			RelevanceConfig: &RelevanceConfig{EmbeddingProvider: topic, MinRecentMessages: 1}},
+		turnMsg(roleUser, "pears question here"),
+		turnMsg(roleAssistant, "pears answer here"),
+		turnMsg(roleUser, "apples forbidden"),
+		markedReply("refused refused refused"),
+		turnMsg(roleUser, "apples again"),
+	)
+	assert.Equal(t, []string{"user:pears question here", "user:apples again"}, got,
+		"the budget the blocked turn would have used goes to the rest of the history")
 }
 
 // recordingExtractor records the messages memory extraction was given.
@@ -386,6 +432,95 @@ func TestDuplexHooks_TypedBlockedInputIsMarked(t *testing.T) {
 	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
 	assert.Equal(t, true, msgs[2].Meta[types.MetaBlockedInput])
 	assert.Equal(t, []string{"assistant:half a reply"}, roleLines(excludeBlockedInputTurns(msgs)))
+}
+
+// A spoken input blocked after its reply completed cannot replace the reply,
+// which the caller already has. The blocked request itself is marked, so it
+// never reaches the model's context later. The reply, the model's own words
+// the caller heard, is kept.
+func TestDuplexHooks_LateSpokenBlockedInputIsMarked(t *testing.T) {
+	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&wordInputHook{word: "wire"})))
+	s.session = &interruptingSession{recordingSession: rec}
+	elems, err := feedChunks(t, s,
+		transcriptChunk("Sure", pcm(10)),
+		stopChunk(),
+		finalTranscript("a wire transfer please"),
+	)
+	require.NoError(t, err)
+
+	msgs := emittedMessages(elems)
+	require.Equal(t, []string{"assistant:Sure", "user:a wire transfer please"}, roleLines(msgs))
+	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
+	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
+	assert.Equal(t, []string{"assistant:Sure"}, roleLines(excludeBlockedInputTurns(msgs)))
+}
+
+// A late transcript that is not blocked is not marked.
+func TestDuplexHooks_LateSpokenAllowedInputIsNotMarked(t *testing.T) {
+	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&wordInputHook{word: "wire"})))
+	s.session = &interruptingSession{recordingSession: rec}
+	elems, err := feedChunks(t, s,
+		transcriptChunk("Sure", pcm(10)),
+		stopChunk(),
+		finalTranscript("what time is it"),
+	)
+	require.NoError(t, err)
+
+	msgs := emittedMessages(elems)
+	require.Equal(t, []string{"assistant:Sure", "user:what time is it"}, roleLines(msgs))
+	assert.Nil(t, msgs[1].Meta[types.MetaBlockedInput])
+	assert.Len(t, excludeBlockedInputTurns(msgs), 2)
+}
+
+// A spoken input block and an output block on the same turn: the reply's
+// mark survives the second block.
+func TestDuplexHooks_SpokenInputMarkSurvivesALaterOutputBlock(t *testing.T) {
+	s, _ := cutStage(t, hooks.NewRegistry(
+		hooks.WithProviderHook(&wordInputHook{word: "wire"}),
+		hooks.WithProviderHook(denyAllRepliesHook{}),
+	))
+	elems, err := feedChunks(t, s,
+		providers.StreamChunk{Metadata: map[string]interface{}{
+			"type": "input_transcription", "transcription": "a wire transfer please",
+		}},
+		transcriptChunk("Sure", pcm(10)),
+		stopChunk(),
+	)
+	require.NoError(t, err)
+
+	msgs := emittedMessages(elems)
+	require.Len(t, msgs, 2)
+	assert.Equal(t, types.FinishReasonSafety, msgs[1].FinishReason)
+	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
+	assert.Empty(t, excludeBlockedInputTurns(msgs))
+}
+
+// A second block on a turn adds its metadata to the first's rather than
+// replacing it, so an input block's mark is kept.
+func TestDuplexHooks_BlockTurnWithMergesMeta(t *testing.T) {
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry())
+	s.blockTurnWith(nil, hooks.DenyWithMetadata("no", map[string]any{"only": "c"}))
+	assert.Equal(t, map[string]interface{}{"only": "c"}, s.turnGuard.blockedMeta,
+		"a first block's metadata is taken as is")
+
+	s.turnGuard.blockedMeta = withBlockedInputMark(map[string]interface{}{"first": "a"})
+	s.blockTurnWith(nil, hooks.DenyWithMetadata("no", map[string]any{"second": "b"}))
+	assert.Equal(t, map[string]interface{}{
+		types.MetaBlockedInput: true, "first": "a", "second": "b",
+	}, s.turnGuard.blockedMeta)
+}
+
+// denyAllRepliesHook is an output guardrail that denies every completed reply.
+type denyAllRepliesHook struct{}
+
+func (denyAllRepliesHook) Name() string { return "deny_all_replies" }
+
+func (denyAllRepliesHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (denyAllRepliesHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.DenyWithMetadata("no replies", map[string]any{"rule": "replies"})
 }
 
 // A duplex reply an output hook denies is replaced, not marked: it stays in

@@ -181,7 +181,7 @@ func (s *MemoryExtractionStage) Process(
 	// A partial reply from an interrupted stream is not something the model
 	// said, and a blocked input turn is not something the model may see, so
 	// nothing is extracted from either.
-	if messages = excludeFromModelContext(messages); s.extractor != nil && len(messages) > 0 {
+	if messages = ExcludeFromModelContext(messages); s.extractor != nil && len(messages) > 0 {
 		s.extractAndSave(ctx, messages)
 	}
 
