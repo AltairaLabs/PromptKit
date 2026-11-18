@@ -61,22 +61,29 @@ API key: `gpt-4.1-mini` for OpenAI, `gemini-2.5-flash` for Gemini, set in
 
 When a guardrail blocks a turn, its message is played by the pipeline, not
 said by the model, so the model never hears it and no guardrail can cut it.
-`-tts` picks what plays it, and the first line the showcase prints names it:
+The first line the showcase prints names what plays it:
 
 | Run | First line | What you hear |
 |---|---|---|
-| no `-tts` | `Guardrail messages: a short tone (no TTS service; ...)` | a short tone, with the message shown as text |
-| `-tts openai` | `Guardrail messages: spoken by openai TTS` | the message, spoken by OpenAI TTS in the session's voice when OpenAI TTS has a voice of that name |
-| `-tts gemini` | `Guardrail messages: spoken by gemini TTS` | the message, spoken by Gemini TTS in the session's voice when Gemini TTS has a voice of that name |
+| `-provider openai` | `Guardrail messages: spoken by the session in its own voice (out of band)` | the message, in the session's own voice |
+| `-provider gemini`, no `-tts` | `Guardrail messages: a short tone (no TTS service; ...)` | a short tone, with the message shown as text |
+| `-provider gemini -tts gemini` | `Guardrail messages: spoken by gemini TTS` | the message, spoken by Gemini TTS in the session's voice when Gemini TTS has a voice of that name |
+
+OpenAI Realtime speaks the message itself, outside the conversation (a
+response with `conversation: "none"`), so it is in the session's exact voice,
+the model's context never holds it, and no TTS service is needed. It checks
+the words it said against the message and asks once more if they differ; a
+`-tts` service is used only for a message it could not say.
+
+Gemini Live has no such response, so `-tts` picks what plays the message:
 
 ```bash
-go run . -provider openai -tts openai
 go run -tags portaudio . -provider gemini -tts gemini
 ```
 
 Match the TTS service to the provider to hear the session's own voice:
-`-tts openai` (needs `OPENAI_API_KEY`) has OpenAI Realtime's voices, and
-`-tts gemini` (needs `GEMINI_API_KEY`) has Gemini Live's. With the other
+`-tts gemini` (needs `GEMINI_API_KEY`) has Gemini Live's voices, and
+`-tts openai` (needs `OPENAI_API_KEY`) has OpenAI Realtime's. With the other
 service the message is spoken in that service's default voice, and the log
 warns once. The first session
 renders each of the pack's guardrail messages when it starts; a block in the

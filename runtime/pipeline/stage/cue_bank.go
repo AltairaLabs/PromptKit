@@ -216,8 +216,11 @@ func (b *cueBank) sessionStarted(ctx context.Context, sess providers.StreamInput
 	}
 	format := ClipFormat{Encoding: AudioFormatPCM16, SampleRate: out.SampleRate, Channels: 1}
 	// The session's own out-of-band audio, in its exact voice, goes first
-	// once a provider offers one (providers.OutOfBandSpeaker).
+	// (providers.OutOfBandSpeaker); a TTS service serves sessions without it.
 	var sources []clipSource
+	if src := newSessionClipSource(sess, out); src != nil {
+		sources = append(sources, src)
+	}
 	if src := newTTSClipSource(b.tts, out.Voice, out.SampleRate); src != nil {
 		sources = append(sources, src)
 	}
@@ -371,12 +374,28 @@ func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, bool, 
 // clip at once share one render (the leader's); each puts the clip in its own
 // cache. A render that bills reports its cost against the leader's session
 // only; a cache hit, and a render joined, are free.
+//
+// A render joined from a session that closed mid-render
+// (providers.ErrOutOfBandSessionClosed) failed for that session, not for the
+// text: it is rendered once more, on this session.
 func (b *cueBank) fetch(ctx context.Context, src clipSource, text string, format ClipFormat) (CueClip, error) {
+	clip, led, err := b.fetchOnce(ctx, src, text, format)
+	if err != nil && !led && errors.Is(err, providers.ErrOutOfBandSessionClosed) {
+		logger.Debug("CueStage: the session rendering a clip closed; rendering it on this one")
+		clip, _, err = b.fetchOnce(ctx, src, text, format)
+	}
+	return clip, err
+}
+
+// fetchOnce is fetch's one try. led reports whether this session ran the
+// render.
+func (b *cueBank) fetchOnce(ctx context.Context, src clipSource, text string, format ClipFormat) (
+	clip CueClip, led bool, err error,
+) {
 	key := ClipKeyFor(src.keyText(text), src.voice(), src.kind(), format)
 	if clip, ok := b.cached(ctx, key); ok {
-		return clip, nil
+		return clip, false, nil
 	}
-	led := false
 	ch := clipFlights.DoChan(string(key[:]), func() (any, error) {
 		led = true
 		// A session that ends does not fail the render for others waiting.
@@ -388,16 +407,16 @@ func (b *cueBank) fetch(ctx context.Context, src clipSource, text string, format
 	select {
 	case res := <-ch:
 		if res.Err != nil {
-			return CueClip{}, res.Err
+			return CueClip{}, led, res.Err
 		}
 		clip := res.Val.(CueClip)
 		if !led {
 			// Joined another session's render: keep it in this cache too.
 			b.keep(context.WithoutCancel(ctx), key, clip)
 		}
-		return clip, nil
+		return clip, led, nil
 	case <-ctx.Done():
-		return CueClip{}, ctx.Err()
+		return CueClip{}, true, ctx.Err()
 	}
 }
 
@@ -427,7 +446,7 @@ func (b *cueBank) renderAndKeep(ctx context.Context, src clipSource, text string
 	if clip, ok := b.cached(ctx, key); ok {
 		return clip, nil
 	}
-	rctx, cancel := context.WithTimeout(ctx, b.renderTimeout)
+	rctx, cancel := context.WithTimeout(ctx, b.renderTimeout*time.Duration(renderTries(src)))
 	defer cancel()
 	start := time.Now()
 	clip, cost, err := src.render(rctx, text, format)
@@ -453,7 +472,7 @@ func (b *cueBank) reportCost(ctx context.Context, c *clipRenderCost, clip CueCli
 	}
 	data := &events.TTSCallCompletedData{
 		CapabilityCallData: events.CapabilityCallData{
-			Provider:   c.svc.Name(),
+			Provider:   c.provider,
 			Capability: string(base.ProviderTypeTTS),
 			Source:     cueRenderSource,
 			Duration:   c.duration,
@@ -463,7 +482,12 @@ func (b *cueBank) reportCost(ctx context.Context, c *clipRenderCost, clip CueCli
 	if clip.Audio != nil {
 		data.AudioSeconds = clip.Audio.Duration.Seconds()
 	}
-	if cost := tts.ComputeTTSCost(c.svc, c.text, c.duration); cost != nil {
+	cost := c.cost
+	if c.svc != nil {
+		data.Provider = c.svc.Name()
+		cost = tts.ComputeTTSCost(c.svc, c.text, c.duration)
+	}
+	if cost != nil {
 		data.Cost = cost.TotalCost
 		data.Quantities = cost.Quantities
 	}

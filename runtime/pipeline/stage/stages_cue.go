@@ -66,7 +66,9 @@ type CueConfig struct {
 	// when the clip renders from the session's sources (NewCueStageFor), and
 	// with no clip otherwise. The clip itself is kept for the next cue.
 	OnDemandBudget time.Duration
-	// RenderTimeout bounds one clip's render; default 3s. A render that
+	// RenderTimeout bounds one clip's render; default 3s. The session's own
+	// audio gets it for each of its tries (it is asked again when it says
+	// other than the text). A render that
 	// finishes after OnDemandBudget, or after a cut dropped its cue, still
 	// keeps its clip for the next cue with that text.
 	RenderTimeout time.Duration
@@ -143,8 +145,16 @@ func NewCueStage(cfg CueConfig) *CueStage {
 // session, and wires duplex to it: when duplex creates its session the stage
 // learns the session's voice and output rate and starts rendering the
 // configured texts and the messages of duplex's guardrails. Clips come from
-// the first source that renders them: the TTS service, then a built-in
-// earcon (a short tone). A text not known in advance renders when first
+// the first source that renders them: the session's own out-of-band audio
+// (providers.OutOfBandSpeaker, OpenAI Realtime), in its exact voice and
+// outside the conversation; then the TTS service; then a built-in earcon (a
+// short tone). The session's audio is checked against the text by its
+// transcript (case, punctuation and spacing aside) and asked for once more
+// on a miss before the text falls to the next source. Its clips are cached
+// under the session's provider family and voice, so only the first session
+// of a family and voice renders them; a clip put in the cache for the TTS
+// service (a pre-warmed one) is not played on such a session, since its
+// own audio comes first. A text not known in advance renders when first
 // cued; past OnDemandBudget the earcon plays in its place. A session whose
 // replies are not spoken gets no cue audio; one that does not report its
 // output audio (providers.OutputAudioReporter) plays its configured clips and

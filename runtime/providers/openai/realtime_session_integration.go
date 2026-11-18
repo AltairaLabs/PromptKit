@@ -152,6 +152,18 @@ type RealtimeSession struct {
 	// turns is what the session knows of each turn's items, to forget one a
 	// guardrail blocked (realtime_forget.go). Guarded by recvMu.
 	turns turnLedger
+
+	// ready is closed on the first session.updated: the server has applied
+	// the session's configuration (voice), so an out-of-band response speaks
+	// in it. oob is the out-of-band responses in progress
+	// (realtime_out_of_band.go), guarded by recvMu.
+	// readyErr, set before ready is closed, is the server's rejection of that
+	// configuration; updateEventID is the session.update it answers.
+	ready         chan struct{}
+	readyOnce     sync.Once
+	readyErr      error
+	updateEventID string
+	oob           outOfBand
 }
 
 // realtimeSessionOpts carries internal/test-only construction overrides for a
@@ -212,6 +224,7 @@ func newRealtimeSession(
 		emitCh:     emitCh,
 		StreamPump: providers.NewStreamPump(sessionCtx, emitCh, responseChannelSize),
 		errCh:      make(chan error, 1),
+		ready:      make(chan struct{}),
 		config:     *config,
 		now:        opts.now,
 		newLoader:  opts.mediaLoader,
@@ -292,6 +305,7 @@ func (s *RealtimeSession) sendSessionUpdate() error {
 		},
 		Session: sessionConfig,
 	}
+	s.updateEventID = event.EventID
 
 	if configJSON, err := json.MarshalIndent(event, "", "  "); err == nil {
 		logger.Debug("OpenAI Realtime: sending session.update", "config", string(configJSON))
@@ -470,7 +484,9 @@ func (s *RealtimeSession) TriggerResponse(config *ResponseConfig) error {
 	return s.requestResponse(event)
 }
 
-// CancelResponse cancels an in-progress response.
+// CancelResponse cancels the reply in progress, naming it by its response
+// ID, so a response outside the conversation (SpeakOutOfBand) running beside
+// it is never canceled. With no reply in progress it sends nothing.
 func (s *RealtimeSession) CancelResponse() error {
 	s.mu.Lock()
 	if s.closed {
@@ -479,11 +495,18 @@ func (s *RealtimeSession) CancelResponse() error {
 	}
 	s.mu.Unlock()
 
+	s.recvMu.Lock()
+	defer s.recvMu.Unlock()
+	if !s.responseActive || len(s.respOrder) == 0 {
+		logger.Debug("OpenAI Realtime: no reply in progress to cancel")
+		return nil
+	}
 	event := ResponseCancelEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
 			Type:    realtimeEventResponseCancel,
 		},
+		ResponseID: s.respOrder[len(s.respOrder)-1],
 	}
 
 	return s.ws.Send(event)
@@ -668,6 +691,9 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		logger.Warn("OpenAI Realtime: failed to parse event", "error", err)
 		return
 	}
+	if s.routeOutOfBand(event) {
+		return
+	}
 
 	switch e := event.(type) {
 	case *ErrorEvent:
@@ -825,6 +851,9 @@ func (s *RealtimeSession) truncateHeard() {
 }
 
 func (s *RealtimeSession) handleError(e *ErrorEvent) {
+	// A rejected configuration fails the out-of-band renders waiting for it,
+	// and is still reported below.
+	s.configRejected(e)
 	// A rejected truncate leaves the model's copy of the reply uncut; the
 	// barge-in itself succeeded, so the turn goes on.
 	if s.truncates.rejected(e.Error.EventID) {
@@ -861,6 +890,7 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 
 func (s *RealtimeSession) handleSessionUpdated(e *SessionUpdatedEvent) {
 	s.sessionInfo = &e.Session
+	s.markReady()
 	logger.Debug("OpenAI Realtime: session updated", "modalities", e.Session.Modalities)
 }
 
