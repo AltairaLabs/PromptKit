@@ -40,8 +40,11 @@ type eventLog struct {
 	// callNums numbers each provider call by its CallID, in the order the
 	// calls completed, so late usage is labeled with the call it belongs to.
 	callNums map[string]int
-	total    float64
-	wg       sync.WaitGroup
+	// pendingUsage is usage for a call whose provider.call.completed has not
+	// arrived yet, printed after it.
+	pendingUsage map[string][]lateUsage
+	total        float64
+	wg           sync.WaitGroup
 	// cutText is the text Response() carried since the last Interrupted
 	// chunk, and cut whether one arrived this turn.
 	cutText strings.Builder
@@ -177,16 +180,22 @@ func (l *eventLog) onTool(t events.EventType, d *events.ToolCallEventData) {
 func (l *eventLog) onCost(cost float64, in, out int, callID string, usage bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.total += cost
 	if usage {
-		call := "the session" // no CallID, or a call not seen to complete
-		if n, ok := l.callNums[callID]; ok && callID != "" {
-			call = fmt.Sprintf("call %d", n)
+		line := lateUsage{cost: cost, in: in, out: out}
+		if _, known := l.callNums[callID]; callID != "" && !known {
+			// The bus delivers each event type on its own goroutine, so a
+			// call's usage can arrive before its provider.call.completed: it
+			// is printed after the call's line.
+			if l.pendingUsage == nil {
+				l.pendingUsage = map[string][]lateUsage{}
+			}
+			l.pendingUsage[callID] = append(l.pendingUsage[callID], line)
+			return
 		}
-		l.logLockedf("cost", "late usage for %s: +$%.4f (%d in / %d out tokens); session total $%.4f",
-			call, cost, in, out, l.total)
+		l.printLateUsageLocked(callID, line)
 		return
 	}
+	l.total += cost
 	l.calls++
 	if callID != "" {
 		if l.callNums == nil {
@@ -196,6 +205,29 @@ func (l *eventLog) onCost(cost float64, in, out int, callID string, usage bool) 
 	}
 	l.logLockedf("cost", "call %d: $%.4f (%d in / %d out tokens); session total $%.4f",
 		l.calls, cost, in, out, l.total)
+	for _, line := range l.pendingUsage[callID] {
+		l.printLateUsageLocked(callID, line)
+	}
+	delete(l.pendingUsage, callID)
+}
+
+// lateUsage is a provider.call.usage the log has not printed yet.
+type lateUsage struct {
+	cost    float64
+	in, out int
+}
+
+// printLateUsageLocked prints usage reported for callID's call after it
+// completed: "the session" when it names no call the log has seen complete.
+// Called with l.mu held.
+func (l *eventLog) printLateUsageLocked(callID string, u lateUsage) {
+	l.total += u.cost
+	call := "the session"
+	if n, ok := l.callNums[callID]; ok && callID != "" {
+		call = fmt.Sprintf("call %d", n)
+	}
+	l.logLockedf("cost", "late usage for %s: +$%.4f (%d in / %d out tokens); session total $%.4f",
+		call, u.cost, u.in, u.out, l.total)
 }
 
 // observe prints what the caller is told on Response(): a chunk with
@@ -229,6 +261,12 @@ func (l *eventLog) end() {
 	l.wg.Wait()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	for callID, lines := range l.pendingUsage { // usage for a call never seen to complete
+		for _, line := range lines {
+			l.printLateUsageLocked(callID, line)
+		}
+	}
+	l.pendingUsage = nil
 	l.logLockedf("session", "end: %d provider calls, total cost $%.4f", l.calls, l.total)
 }
 

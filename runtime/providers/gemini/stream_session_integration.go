@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -88,20 +87,16 @@ type StreamSession struct {
 	// Manual VAD control state
 	activityStartSent bool // True after activityStart has been sent for current turn
 
-	// toolCallTurn is set by a toolCall and cleared once the model produces
-	// content or a turn completes. toolGenEnding is set by a generationComplete
-	// read while the toolCall's chunk was held: the next content-free
-	// turnComplete is the tool-call generation's (live_tool_turn.go).
-	// carriedUsage is usage held for the chunk that ends the turn. All three
-	// are touched by the receive goroutine only.
+	// toolCallTurn is set by a toolCall (at toolCallAt) and cleared once the
+	// model produces content or a turn completes. toolGenEnding is set by a
+	// generationComplete that ends the tool-call generation: the next
+	// content-free turnComplete is that generation's (live_tool_turn.go).
+	// carriedUsage is usage held for the chunk that ends the turn. All are
+	// touched by the receive goroutine only.
 	toolCallTurn  bool
 	toolGenEnding bool
+	toolCallAt    time.Time
 	carriedUsage  *base.TokenUsage
-	// held is a toolCall's chunk held for its generation's end
-	// (live_tool_turn.go). toolResponded is set once a tool response is sent
-	// for the last toolCall (SendToolResponses, any goroutine).
-	held          heldToolCalls
-	toolResponded atomic.Bool
 
 	// turnOpen is set while a model generation is under way; gen numbers the
 	// generations, and every chunk carries the number of the one it belongs

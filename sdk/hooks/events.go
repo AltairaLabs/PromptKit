@@ -95,8 +95,8 @@ type ProviderCallHandler func(model string, inputTokens, outputTokens int, cost 
 
 // OnProviderCall subscribes to provider call completion events. It runs once
 // per provider call. Some providers report part of a call's usage after the
-// call completed (Gemini Live reports the usage of a reply cut short after
-// the cut); OnProviderUsage delivers that, and a call's total is the cost
+// call completed (Gemini 3 Live reports a tool-call turn's usage after its
+// tool calls); OnProviderUsage delivers that, and a call's total is the cost
 // given here plus its OnProviderUsage callbacks.
 //
 // Use this to track costs and token usage:

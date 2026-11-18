@@ -345,7 +345,7 @@ type ProviderCallCompletedData struct {
 
 // ProviderCallUsageData contains data for provider.call.usage events: usage a
 // provider reported for a call after the call completed (Gemini Live reports
-// the usage of a reply cut short after the cut). CallID and Round name the
+// a tool-call turn's usage after its tool calls). CallID and Round name the
 // call, as on its ProviderCallCompletedData.
 type ProviderCallUsageData struct {
 	baseEventData

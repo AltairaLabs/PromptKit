@@ -87,7 +87,6 @@ func (s *StreamSession) receiveLoop() {
 	// Signal the pump that no more chunks are coming and let it drain its queue
 	// and close Response() before this goroutine returns.
 	defer func() {
-		s.closeHold()
 		s.flushCarriedUsage()
 		close(s.emitCh)
 		s.Wait()
@@ -207,18 +206,14 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 			// counting it here too would count it twice.
 			logger.Debug("StreamSession: ignoring usage on a toolCall message")
 		}
-		s.toolCallTurn = true
-		s.toolResponded.Store(false)
+		s.noteToolCall()
 		if !s.turnOpen {
 			s.gen++ // the tool calls are a generation of their own
 		}
 		return s.handleToolCalls(msg.ToolCall)
 	}
 
-	if consumed, err := s.endHeldToolCallTurn(msg); consumed || err != nil {
-		return err
-	}
-	s.noteUnheldGenerationComplete(msg)
+	s.noteToolGenerationComplete(msg.ServerContent)
 	if s.carryToolCallUsage(msg) {
 		return nil
 	}
@@ -231,18 +226,15 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 	return s.processServerContent(msg.ServerContent)
 }
 
-// carryToolCallUsage reports the tool-call turn Gemini ends with a
-// turnComplete that has no content, once the tool calls were sent, and
-// reports whether msg was that.
-//
-// Usually that turnComplete is read while the tool calls are held, and its
-// usage goes on them (endHeldToolCallTurn). One read after they were sent is
-// the tool-call generation's when a generationComplete was read while they
-// were held (toolGenEnding): its usage is reported at once as a usage-only
-// chunk, for the tool-call turn, not as an empty reply. Otherwise it is the
-// reply's completion, which can be empty: a model that reports no tool-call
-// turnComplete (Gemini 2.5 Live) reports the usage of the whole server turn
-// on one turnComplete after the reply.
+// carryToolCallUsage reports the tool-call generation Gemini ends with a
+// turnComplete that has no content, and reports whether msg was that
+// (endsToolGeneration, live_tool_turn.go). Its usage is reported at once as a
+// usage-only chunk for that generation, which the stage reports on the
+// tool-call provider call (provider.call.usage); reported as a turn of its
+// own, it would read as an empty reply after every tool call. Otherwise the
+// turnComplete is the reply's completion, which can be empty: a model that
+// reports no tool-call turnComplete (Gemini 2.5 Live) reports the usage of
+// the whole server turn on one turnComplete after the reply.
 func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 	sc := msg.ServerContent
 	if sc != nil && hasModelOutput(sc) {
@@ -254,10 +246,11 @@ func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 		return false
 	}
 	s.toolCallTurn = false
-	if !s.toolGenEnding {
+	ends := s.endsToolGeneration()
+	s.toolGenEnding = false
+	if !ends {
 		return false // the reply's completion, possibly empty
 	}
-	s.toolGenEnding = false
 	s.ClearDrop()
 	if err := s.handleInputTranscription(sc); err != nil {
 		logger.Debug("StreamSession: input transcription not delivered", "error", err)

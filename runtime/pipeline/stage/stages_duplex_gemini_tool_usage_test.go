@@ -122,9 +122,11 @@ func runGeminiLive(t *testing.T, script func(conn *websocket.Conn)) (*callEvents
 }
 
 // Gemini Live (3.x) ends the tool-call generation with its own turnComplete,
-// carrying that generation's usage, right after the toolCall. The tool-call
-// call completes with that cost, and no usage event is reported late for it.
-func TestDuplexGeminiLive_ToolCallTurnCompletesWithItsOwnUsage(t *testing.T) {
+// carrying that generation's usage, right after the toolCall. The tool calls
+// run at once, so the tool-call call completes before that usage arrives: it
+// is reported as a provider.call.usage for that call, never as an empty
+// reply's call and never on the reply's.
+func TestDuplexGeminiLive_ToolCallTurnUsageIsReportedOnItsCall(t *testing.T) {
 	ev, elems := runGeminiLive(t, func(conn *websocket.Conn) {
 		send(conn, liveToolCall, liveGenerationComplete, liveTurnComplete(935, 6))
 		if !awaitToolResponse(conn) {
@@ -132,13 +134,14 @@ func TestDuplexGeminiLive_ToolCallTurnCompletesWithItsOwnUsage(t *testing.T) {
 		}
 		send(conn, liveReply, liveGenerationComplete, liveTurnComplete(1019, 74))
 	})
-	done, usage := ev.await(t, 2, 0)
+	done, usage := ev.await(t, 2, 1)
 
-	require.Len(t, done, 2, "the tool-call call and the reply's")
+	require.Len(t, done, 2, "the tool-call call and the reply's; no empty call")
 	assert.Equal(t, 1, done[0].ToolCallCount)
-	assertCall(t, done[0], 935, 6)
+	assertCall(t, done[0], 0, 0)
 	assertCall(t, done[1], 1019, 74)
-	assert.Empty(t, usage, "no cost is reported after its call completed")
+	require.Len(t, usage, 1)
+	assertUsage(t, usage[0], done[0].CallID, 935, 6)
 	msgs := costedReplies(elems)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "It is 21 degrees", msgs[1].Content)

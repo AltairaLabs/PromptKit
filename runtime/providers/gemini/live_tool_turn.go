@@ -1,250 +1,62 @@
 package gemini
 
-import (
-	"sync"
-	"time"
-
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-)
+import "time"
 
 // Gemini Live ends a tool-call generation in one of two ways, told apart by
 // the messages that follow the toolCall, never by the model's name:
 //
 //   - toolCall, generationComplete, then a turnComplete carrying that
-//     generation's usage, sent before the server has the tool response
-//     (observed live on gemini-3.8-live: all three read within 1ms);
+//     generation's usage and nothing else (observed live on gemini-3.8-live:
+//     all three read within 2ms, before the server has the tool response);
 //   - toolCall and nothing more: the reply to the tool response follows, and
 //     one turnComplete carries the usage of the whole server turn (observed
 //     live on gemini-2.5-flash-native-audio).
 //
-// So a toolCall's chunk is held (holdToolCalls) until the generation's end is
-// known. A generationComplete while it is held means the generation's
-// turnComplete follows: that turnComplete's usage goes on the tool calls'
-// chunk, so the provider call that made them carries its own cost. Anything
-// else, or the wait running out (toolTurnEndWait with no generationComplete,
-// toolTurnEndMaxWait after one), sends the chunk as it is. No tool response
-// can be sent before the chunk is, so a turnComplete read while it is held is
-// the tool-call generation's, never the reply's.
+// The tool calls are sent the moment the toolCall is read, so no tool waits.
+// What has to be decided is what a content-free turnComplete read after them
+// ends: the tool-call generation (its usage is then reported on its own, for
+// that generation, and ends no turn) or the reply to the tool response, which
+// can be empty (it ends the turn). It is the tool-call generation's when,
+// with no model output since the toolCall:
 //
-// The hold adapts to what the session has seen: once a held toolCall was not
-// followed by a generationComplete, the session sends every later toolCall at
-// once, with no hold, and a tool-call generation's usage that still comes
-// after it is reported on its own (a usage-only chunk) as before. A session
-// whose tool calls are followed by a generationComplete keeps holding them,
-// which costs the 0-2ms until the turnComplete.
-const (
-	// toolTurnEndWait is how long a toolCall's chunk is held for a
-	// generationComplete.
-	toolTurnEndWait = 250 * time.Millisecond
-	// toolTurnEndMaxWait is how long it is held, after a generationComplete,
-	// for the turnComplete carrying its usage.
-	toolTurnEndMaxWait = 2 * time.Second
-)
+//   - a generationComplete came within toolGenEndWindow of the toolCall, or
+//   - it came itself within toolGenEndWindow of the toolCall.
+//
+// The reply's generationComplete or turnComplete cannot come that soon: the
+// server sends them only after it has the tool response and has run the
+// model on it. Whether the client has sent the tool response yet does not
+// enter into it (a fast tool's response can go out before the client reads
+// the tool-call generation's end).
+const toolGenEndWindow = 100 * time.Millisecond
 
-// heldToolCalls is a toolCall's chunk held for its generation's end. The
-// receive goroutine holds and releases it; the hold's timer can release it
-// from its own goroutine, sending under mu so that it never sends once the
-// receive loop has closed the hold.
-type heldToolCalls struct {
-	mu     sync.Mutex
-	chunk  *providers.StreamChunk
-	timer  *time.Timer
-	closed bool
-	// genComplete is set once a generationComplete was read for the chunk
-	// held; unended once a held chunk was sent without one: the session then
-	// holds no more tool calls.
-	genComplete bool
-	unended     bool
-	// waits overrides toolTurnEndWait and toolTurnEndMaxWait (tests).
-	wait, maxWait time.Duration
-}
-
-// holdToolCalls holds chunk, a toolCall's, until its generation's end is
-// known or the wait runs out; it sends it at once when an earlier toolCall
-// of the session was not followed by a generationComplete. Receive goroutine
-// only.
-func (s *StreamSession) holdToolCalls(chunk providers.StreamChunk) error {
-	if err := s.releaseUnended(); err != nil { // never two held
-		return err
-	}
+// noteToolCall records a toolCall's arrival: a new tool-call generation whose
+// end is still to come. Receive goroutine only.
+func (s *StreamSession) noteToolCall() {
+	s.toolCallTurn = true
 	s.toolGenEnding = false
-	h := &s.held
-	h.mu.Lock()
-	if h.unended {
-		h.mu.Unlock()
-		chunk.CostInfo = s.takeTurnCost()
-		return s.emitHeld(&chunk)
-	}
-	defer h.mu.Unlock()
-	h.genComplete = false
-	h.chunk = &chunk
-	h.timer = s.releaseAfter(h.chunk, durationOr(h.wait, toolTurnEndWait))
-	return nil
+	s.toolCallAt = s.clock()
 }
 
-// releaseAfter starts the timer that sends held once d passes, unless it was
-// released before. Called with s.held.mu held.
-func (s *StreamSession) releaseAfter(held *providers.StreamChunk, d time.Duration) *time.Timer {
-	return time.AfterFunc(d, func() {
-		h := &s.held
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		if h.closed || h.chunk != held {
-			return
-		}
-		h.chunk = nil
-		h.unended = h.unended || !h.genComplete
-		logger.Debug("StreamSession: tool calls sent without their generation's end")
-		if err := s.emitHeld(held); err != nil {
-			logger.Debug("StreamSession: held tool calls not delivered", "error", err)
-		}
-	})
+// soonAfterToolCall reports whether now is within toolGenEndWindow of the
+// last toolCall.
+func (s *StreamSession) soonAfterToolCall() bool {
+	return s.clock().Sub(s.toolCallAt) < toolGenEndWindow
 }
 
-// extendHold gives the held chunk toolTurnEndMaxWait for its generation's
-// turnComplete, once a generationComplete says it follows. A timer that has
-// already fired has sent it. Receive goroutine only.
-func (s *StreamSession) extendHold() {
-	h := &s.held
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.chunk != nil {
-		h.genComplete = true
-	}
-	if h.chunk != nil && h.timer.Stop() {
-		h.timer = s.releaseAfter(h.chunk, durationOr(h.maxWait, toolTurnEndMaxWait))
-	}
-}
-
-// takeHeld returns the held chunk and stops holding it; nil when none is held.
-func (s *StreamSession) takeHeld() *providers.StreamChunk {
-	h := &s.held
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.takeLocked()
-}
-
-// takeLocked is takeHeld with h.mu held.
-func (h *heldToolCalls) takeLocked() *providers.StreamChunk {
-	held := h.chunk
-	h.chunk = nil
-	if h.timer != nil {
-		h.timer.Stop()
-	}
-	return held
-}
-
-// holdingToolCalls reports whether a toolCall's chunk is held.
-func (s *StreamSession) holdingToolCalls() bool {
-	h := &s.held
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.chunk != nil
-}
-
-// releaseToolCalls sends the held chunk, carrying the usage held for its
-// generation. Receive goroutine only.
-func (s *StreamSession) releaseToolCalls() error {
-	held := s.takeHeld()
-	if held == nil {
-		return nil
-	}
-	held.CostInfo = s.takeTurnCost()
-	return s.emitHeld(held)
-}
-
-// releaseUnended sends the held chunk because a message other than its
-// generation's end came; without a generationComplete before it, the session
-// holds no more tool calls. Receive goroutine only.
-func (s *StreamSession) releaseUnended() error {
-	h := &s.held
-	h.mu.Lock()
-	if h.chunk != nil && !h.genComplete {
-		h.unended = true
-	}
-	h.mu.Unlock()
-	return s.releaseToolCalls()
-}
-
-// closeHold sends the held chunk, if any, as the receive loop ends, without
-// blocking, and stops the timer sending it later. Receive goroutine only.
-func (s *StreamSession) closeHold() {
-	h := &s.held
-	h.mu.Lock()
-	h.closed = true
-	held := h.takeLocked()
-	h.mu.Unlock()
-	if held == nil {
-		return
-	}
-	held.CostInfo = s.takeTurnCost()
-	select {
-	case s.emitCh <- *held:
-	default:
-		logger.Warn("StreamSession: tool calls not reported at session end: the response queue is full")
-	}
-}
-
-// emitHeld sends a held chunk with the generation it was held with.
-func (s *StreamSession) emitHeld(chunk *providers.StreamChunk) error {
-	select {
-	case s.emitCh <- *chunk:
-		return nil
-	case <-s.ctx.Done():
-		return s.ctx.Err()
-	}
-}
-
-// endHeldToolCallTurn handles msg while a toolCall's chunk is held, and
-// reports whether msg was consumed: a generationComplete (its turnComplete
-// follows), that turnComplete (its usage goes on the tool calls, which are
-// sent), or usage on its own (the generation's). Anything else sends the held
-// chunk first and is processed as usual. Receive goroutine only.
-func (s *StreamSession) endHeldToolCallTurn(msg *ServerMessage) (bool, error) {
-	if !s.holdingToolCalls() {
-		return false, nil
-	}
-	sc := msg.ServerContent
-	switch {
-	case sc == nil:
-		s.holdUsage(msg.UsageMetadata)
-		return true, nil
-	case isGenerationCompleteOnly(sc):
-		s.toolGenEnding = true
-		s.extendHold()
-		return true, nil
-	case sc.TurnComplete && !hasModelOutput(sc):
-		s.holdUsage(msg.UsageMetadata)
-		s.toolGenEnding = false
-		s.toolCallTurn = false
-		if err := s.releaseToolCalls(); err != nil {
-			return true, err
-		}
-		s.ClearDrop()
-		return true, s.handleInputTranscription(sc)
-	default:
-		return false, s.releaseUnended()
-	}
-}
-
-// noteUnheldGenerationComplete marks the tool-call generation as ending when
-// a generationComplete comes after tool calls the session sent without a
-// hold, before any tool response was sent: a reply's generationComplete
-// cannot come before the tool response it answers. Its turnComplete is then
-// the tool-call generation's (carryToolCallUsage). Receive goroutine only.
-func (s *StreamSession) noteUnheldGenerationComplete(msg *ServerMessage) {
-	sc := msg.ServerContent
-	if s.toolCallTurn && sc != nil && isGenerationCompleteOnly(sc) && !s.toolResponded.Load() {
+// noteToolGenerationComplete marks the tool-call generation as ending when a
+// generationComplete comes soon after its toolCall, with no model output
+// since. Receive goroutine only.
+func (s *StreamSession) noteToolGenerationComplete(sc *ServerContent) {
+	if s.toolCallTurn && sc != nil && sc.GenerationComplete && !sc.TurnComplete &&
+		!hasModelOutput(sc) && s.soonAfterToolCall() {
 		s.toolGenEnding = true
 	}
 }
 
-// isGenerationCompleteOnly reports whether sc says only that the generation
-// is complete.
-func isGenerationCompleteOnly(sc *ServerContent) bool {
-	return sc.GenerationComplete && !sc.TurnComplete && !sc.Interrupted && !hasModelOutput(sc) &&
-		(sc.InputTranscription == nil || sc.InputTranscription.Text == "")
+// endsToolGeneration reports whether a content-free turnComplete read now
+// ends the tool-call generation rather than the reply.
+func (s *StreamSession) endsToolGeneration() bool {
+	return s.toolGenEnding || s.soonAfterToolCall()
 }
 
 // hasModelOutput reports whether sc carries the model's output or an
@@ -252,12 +64,4 @@ func isGenerationCompleteOnly(sc *ServerContent) bool {
 func hasModelOutput(sc *ServerContent) bool {
 	return sc.ModelTurn != nil || sc.Interrupted ||
 		(sc.OutputTranscription != nil && sc.OutputTranscription.Text != "")
-}
-
-// durationOr is d, or def when d is zero.
-func durationOr(d, def time.Duration) time.Duration {
-	if d > 0 {
-		return d
-	}
-	return def
 }

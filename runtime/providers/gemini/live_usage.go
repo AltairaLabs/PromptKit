@@ -13,12 +13,10 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 //
 // So usage is summed until the chunk that ends the turn (holdUsage,
 // takeTurnCost), and a toolCall's usage is not counted (it would count
-// twice). A toolCall's chunk is held for the turnComplete that can follow it
-// and carries that turnComplete's usage (live_tool_turn.go). Usage that
-// arrives once its turn has ended (a usage-only message right after a
-// turnComplete, a tool-call turnComplete that came after the hold ran out) is
-// reported at once as a usage-only chunk: it belongs to the turn that just
-// ended, and the stage reports it on that turn's provider call.
+// twice). Usage that arrives once its turn has ended (a 3.x tool-call
+// turnComplete, a usage-only message right after a turnComplete) is reported
+// at once as a usage-only chunk: it belongs to the turn that just ended, and
+// the stage reports it on that turn's provider call.
 
 // usageOnly handles a message that carries usage and nothing else.
 func (s *StreamSession) usageOnly(usage *UsageMetadata) error {

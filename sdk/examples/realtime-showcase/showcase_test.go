@@ -111,38 +111,37 @@ func done(cost float64, in, out int) *providers.StreamChunk {
 }
 
 // Late usage is labeled with the call its CallID names, not the call that
-// completed last; usage naming no call is the session's.
+// completed last. Usage that arrives before its call's provider.call.completed
+// (the bus delivers each event type on its own goroutine) is printed after
+// the call's line; usage naming no call is the session's.
 func TestShowcaseEventLog_LateUsageNamesItsCall(t *testing.T) {
-	bus := events.NewEventBus()
 	out := &syncBuffer{}
 	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
 	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
-	elog.attach(bus)
-	em := events.NewEmitter(bus, "run", "sess", conversationID)
+	completed := func(id string, cost float64) {
+		elog.onEvent(&events.Event{Data: &events.ProviderCallCompletedData{CallID: id, Cost: cost}})
+	}
+	usage := func(id string, cost float64, in int) {
+		elog.onEvent(&events.Event{Data: &events.ProviderCallUsageData{CallID: id, Cost: cost, InputTokens: in}})
+	}
 
-	em.ProviderCallCompletedCtx(context.Background(), &events.ProviderCallCompletedData{CallID: "a", Cost: 0.001})
-	em.ProviderCallCompletedCtx(context.Background(), &events.ProviderCallCompletedData{CallID: "b", Cost: 0.002})
-	waitLines(t, out, 2)
-	em.ProviderCallUsageCtx(context.Background(), &events.ProviderCallUsageData{
-		CallID: "a", Cost: 0.004, InputTokens: 40, OutputTokens: 4})
-	waitLines(t, out, 3)
-	em.ProviderCallUsageCtx(context.Background(), &events.ProviderCallUsageData{Cost: 0.008, InputTokens: 80})
-	waitLines(t, out, 4)
-	bus.Close()
+	completed("a", 0.001)
+	completed("b", 0.002)
+	usage("a", 0.004, 40)
+	usage("c", 0.008, 80) // before call c's completion
+	completed("c", 0.016)
+	usage("", 0.032, 320)
+	elog.end()
 
 	assert.Equal(t, []string{
 		"09:30:00.000  cost      call 1: $0.0010 (0 in / 0 out tokens); session total $0.0010",
 		"09:30:00.000  cost      call 2: $0.0020 (0 in / 0 out tokens); session total $0.0030",
-		"09:30:00.000  cost      late usage for call 1: +$0.0040 (40 in / 4 out tokens); session total $0.0070",
-		"09:30:00.000  cost      late usage for the session: +$0.0080 (80 in / 0 out tokens); session total $0.0150",
+		"09:30:00.000  cost      late usage for call 1: +$0.0040 (40 in / 0 out tokens); session total $0.0070",
+		"09:30:00.000  cost      call 3: $0.0160 (0 in / 0 out tokens); session total $0.0230",
+		"09:30:00.000  cost      late usage for call 3: +$0.0080 (80 in / 0 out tokens); session total $0.0310",
+		"09:30:00.000  cost      late usage for the session: +$0.0320 (320 in / 0 out tokens); session total $0.0630",
+		"09:30:00.000  session   end: 3 provider calls, total cost $0.0630",
 	}, out.lines())
-}
-
-// waitLines waits until out has n lines.
-func waitLines(t *testing.T, out *syncBuffer, n int) {
-	t.Helper()
-	require.Eventually(t, func() bool { return len(out.lines()) >= n && out.lines()[0] != "" },
-		2*time.Second, time.Millisecond, "want %d lines", n)
 }
 
 func TestShowcaseEventLog_ScriptedSession(t *testing.T) {

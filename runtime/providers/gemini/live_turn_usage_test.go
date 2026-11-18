@@ -74,6 +74,7 @@ func assertCosts(t *testing.T, chunks []providers.StreamChunk, want ...[3]int) {
 // the whole server turn's usage; the tool calls carry none.
 func TestLiveUsage_25ChainIsReportedOnTheReply(t *testing.T) {
 	s := newProtocolTestSession(t)
+	s.config.Model = "gemini-2.5-flash-native-audio-preview-12-2025"
 	process(t, s, toolCall("c1", "Rome"), toolCall("c2", "Oslo"), said("Rome is hazy, Oslo too."),
 		generationComplete(), turnComplete(textUsage(932, 244)))
 
@@ -87,8 +88,8 @@ func TestLiveUsage_25ChainIsReportedOnTheReply(t *testing.T) {
 }
 
 // Gemini 3.8: each tool-call generation ends with its own turnComplete. Each
-// is the generation's own usage (not a running total), reported once, on that
-// generation's tool calls; the reply carries only its own.
+// is the generation's own usage (not a running total), reported once, on its
+// own, as it arrives; the reply carries only its own.
 func TestLiveUsage_38ChainReportsEachGenerationOnce(t *testing.T) {
 	s := newProtocolTestSession(t)
 	process(t, s,
@@ -97,17 +98,15 @@ func TestLiveUsage_38ChainReportsEachGenerationOnce(t *testing.T) {
 		said("Rome is hazy, Oslo too."), generationComplete(), turnComplete(textUsage(986, 129)))
 
 	chunks := drainChunks(t, s)
-	ends := finishing(chunks)
-	require.Len(t, ends, 3)
-	assertCosts(t, chunks, [3]int{919, 12, 1}, [3]int{952, 13, 1}, [3]int{986, 129, 1})
-	assert.Equal(t, "c1", ends[0].ToolCalls[0].ID)
-	assert.Equal(t, "c2", ends[1].ToolCalls[0].ID)
+	require.Len(t, finishing(chunks), 3)
+	assertCosts(t, chunks, [3]int{919, 12, 0}, [3]int{952, 13, 0}, [3]int{986, 129, 1})
 }
 
 // Usage on a toolCall message is never counted: the generation's
 // turnComplete reports it.
 func TestLiveUsage_ToolCallUsageIsNotCountedTwice(t *testing.T) {
 	s := newProtocolTestSession(t)
+	s.config.Model = "gemini-2.5-flash-native-audio-preview-12-2025"
 	m := toolCall("c1", "Paris")
 	m.UsageMetadata = textUsage(500, 9)
 	process(t, s, m, said("It is hazy."), turnComplete(textUsage(697, 116)))
@@ -180,8 +179,6 @@ func TestLiveUsage_ChunksCarryTheirGeneration(t *testing.T) {
 	var got []tagged
 	for _, c := range drainChunks(t, s) {
 		switch {
-		case len(c.ToolCalls) > 0 && c.CostInfo != nil:
-			got = append(got, tagged{fmt.Sprintf("tools %d", c.CostInfo.InputTokens), c.Generation})
 		case len(c.ToolCalls) > 0:
 			got = append(got, tagged{"tools", c.Generation})
 		case c.Interrupted:
@@ -193,8 +190,8 @@ func TestLiveUsage_ChunksCarryTheirGeneration(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []tagged{
-		{"tools 919", 1},
-		{"tools 952", 2},
+		{"tools", 1}, {"usage 919", 1},
+		{"tools", 2}, {"usage 952", 2},
 		{"interrupted", 3}, {"usage 70", 3},
 		{"end", 4},
 	}, got)

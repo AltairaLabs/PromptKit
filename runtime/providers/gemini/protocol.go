@@ -27,15 +27,15 @@ func (s *StreamSession) handleToolCalls(toolCall *ToolCallMsg) error {
 	response := providers.StreamChunk{
 		ToolCalls:    toolCalls,
 		FinishReason: &finishReason,
-		Generation:   s.gen,
 	}
-	// The tool calls end the turn. They are held for the turnComplete that
-	// can follow with the generation's usage (live_tool_turn.go), which goes
-	// on them with the usage held so far.
+	// The tool calls end the turn and go out at once, with the usage held so
+	// far. A turnComplete that follows with the generation's usage is
+	// reported on its own (carryToolCallUsage, live_tool_turn.go).
+	response.CostInfo = s.takeTurnCost()
 	s.turnOpen = false
-	if err := s.holdToolCalls(response); err != nil {
+	if err := s.sendChunk(&response); err != nil {
 		return err
 	}
-	logger.Debug("Gemini tool calls held for their generation's end", "count", len(toolCalls))
+	logger.Debug("Gemini tool calls emitted", "count", len(toolCalls))
 	return nil
 }
