@@ -384,7 +384,7 @@ func TestCueVoice_DirCacheCarriesARenderToAnotherSession(t *testing.T) {
 	want := playedFor(t, first, text)
 	assert.Equal(t, cueFaded(pcm, 24000), want)
 
-	ro, err := NewDirClipCache(dir, ReadOnly())
+	ro, err := NewDirClipCache(dir, DirCacheReadOnly())
 	require.NoError(t, err)
 	got, ok, err := ro.Get(context.Background(), ClipKeyFor(text, "alloy", "tts:fake", pcm24k))
 	require.NoError(t, err)

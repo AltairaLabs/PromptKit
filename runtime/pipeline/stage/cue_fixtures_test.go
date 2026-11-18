@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,7 +32,7 @@ func (f cueFixture) meta() ClipMeta { return ClipMeta{Text: f.text, Voice: f.voi
 func (f cueFixture) String() string { return f.text }
 func cueFixtureCache(t *testing.T) ClipCache {
 	t.Helper()
-	c, err := NewDirClipCache(cueFixtureDir, ReadOnly())
+	c, err := NewDirClipCache(cueFixtureDir, DirCacheReadOnly())
 	require.NoError(t, err)
 	return c
 }
@@ -81,5 +80,4 @@ func TestRegenerateCueFixtures(t *testing.T) {
 		have = append(have, e.Name())
 	}
 	assert.ElementsMatch(t, want, have)
-	_ = filepath.Join
 }

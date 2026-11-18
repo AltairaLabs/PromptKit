@@ -159,7 +159,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewDebugStage\(stageName string\) \*DebugStage](<#NewDebugStage>)
   - [func \(s \*DebugStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DebugStage.Process>)
 - [type DirClipCacheOption](<#DirClipCacheOption>)
-  - [func ReadOnly\(\) DirClipCacheOption](<#ReadOnly>)
+  - [func DirCacheReadOnly\(\) DirClipCacheOption](<#DirCacheReadOnly>)
 - [type DropStrategy](<#DropStrategy>)
   - [func \(s DropStrategy\) String\(\) string](<#DropStrategy.String>)
 - [type DuplexProviderStage](<#DuplexProviderStage>)
@@ -1472,7 +1472,7 @@ type ClipCache interface {
 ```
 
 <a name="NewDirClipCache"></a>
-### func [NewDirClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L39>)
+### func [NewDirClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L49>)
 
 ```go
 func NewDirClipCache(dir string, opts ...DirClipCacheOption) (ClipCache, error)
@@ -1482,12 +1482,13 @@ NewDirClipCache is a ClipCache over dir. Each clip is two files named by the key
 
 ```
 {"text": "...", "voice": "alloy", "source": "tts:openai",
- "encoding": "pcm16", "sample_rate": 24000, "channels": 1, "duration_ms": 1830}
+ "encoding": "pcm16", "sample_rate": 24000, "channels": 1, "duration_ms": 1830,
+ "sha256": "..."}
 ```
 
-Writes are atomic \(temp file and rename, .pcm first, .json last\), so a .pcm without a .json, what a write cut short leaves, is a miss. Many writers, in one process or several, can share a directory. Get is a miss for a sidecar that is not the key's own: one whose text, voice, source or format does not make the key, or whose duration the .pcm does not fill.
+Writes are atomic \(temp file and rename, .pcm first, .json last\), so a .pcm without a .json, what a write cut short leaves, is a miss. Many writers, in one process or several, can share a directory. Get is a miss for a sidecar that is not the key's own \(its text, voice, source or format does not make the key\) and for a .pcm the sidecar does not vouch for \(another length, or another digest\). Put keeps only a clip Get would return, so it errors on one whose Meta does not make its key.
 
-A writable cache creates dir; a ReadOnly one needs it to exist.
+A writable cache creates dir and sweeps temp files a crashed writer left more than an hour ago; a DirCacheReadOnly one needs dir to exist and changes nothing in it.
 
 <a name="NewMemoryClipCache"></a>
 ### func [NewMemoryClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L93>)
@@ -2357,7 +2358,7 @@ func (s *DebugStage) Process(ctx context.Context, input <-chan StreamElement, ou
 Process logs each element as it passes through \(passthrough transform\).
 
 <a name="DirClipCacheOption"></a>
-## type [DirClipCacheOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L18>)
+## type [DirClipCacheOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L22>)
 
 DirClipCacheOption configures NewDirClipCache.
 
@@ -2365,14 +2366,14 @@ DirClipCacheOption configures NewDirClipCache.
 type DirClipCacheOption func(*dirClipCache)
 ```
 
-<a name="ReadOnly"></a>
-### func [ReadOnly](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L22>)
+<a name="DirCacheReadOnly"></a>
+### func [DirCacheReadOnly](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L27>)
 
 ```go
-func ReadOnly() DirClipCacheOption
+func DirCacheReadOnly() DirClipCacheOption
 ```
 
-ReadOnly makes Put of a directory clip cache a no\-op that returns nil, so a test or an arena run never writes. A clip the directory lacks is a miss.
+DirCacheReadOnly makes Put of a directory clip cache a no\-op that returns nil, so a test or an arena run never writes. A clip the directory lacks is a miss.
 
 <a name="DropStrategy"></a>
 ## type [DropStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L24>)
