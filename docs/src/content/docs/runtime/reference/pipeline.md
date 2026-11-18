@@ -42,6 +42,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func NewCompositionStepExecutor\(deps CompositionExecutorDeps\) engine.StepExecutor](<#NewCompositionStepExecutor>)
 - [func NewFileSchemaResolver\(configDir string\) func\(path string\) \(json.RawMessage, error\)](<#NewFileSchemaResolver>)
 - [func NormalizeEmbedding\(embedding \[\]float32\) \[\]float32](<#NormalizeEmbedding>)
+- [func PrewarmClips\(ctx context.Context, cache ClipCache, svc tts.Service, voice string, format ClipFormat, texts \[\]string\) error](<#PrewarmClips>)
 - [func PutElement\(elem \*StreamElement\)](<#PutElement>)
 - [func ResetIdleFromContext\(ctx context.Context\)](<#ResetIdleFromContext>)
 - [func ValidateCapabilities\(stages \[\]Stage, edges map\[string\]\[\]string\)](<#ValidateCapabilities>)
@@ -762,10 +763,23 @@ var ErrIdleTimeout = errors.New("pipeline idle timeout: no activity detected")
 var ErrMaxRoundsExceeded = errors.New("max rounds exceeded")
 ```
 
+<a name="ErrSessionBoundSource"></a>ErrSessionBoundSource is PrewarmClips' error for a clip source that needs a live session: a provider's own out\-of\-band audio renders only inside a session, so it cannot be pre\-warmed.
+
+```go
+var ErrSessionBoundSource = errors.New("the clip source is session-bound: a provider's out-of-band " +
+    "audio renders only inside a live session and cannot be pre-warmed; pre-warm with a TTS service")
+```
+
 <a name="ErrTemplateUnresolved"></a>ErrTemplateUnresolved is returned by TemplateStage when the system prompt references a variable nothing supplied. The turn fails and the error reaches the caller wrapped in a \*StageError, so errors.Is matches it. The stage does not send the unrendered template to the model.
 
 ```go
 var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")
+```
+
+<a name="ErrVoicePrewarmedByAnotherService"></a>ErrVoicePrewarmedByAnotherService is PrewarmClips' error for a text already pre\-warmed for the voice and format from another TTS service: a session with no TTS service plays one service's clips per voice, so a second service's is refused rather than mixed in.
+
+```go
+var ErrVoicePrewarmedByAnotherService = errors.New("the voice is already pre-warmed from another TTS service")
 ```
 
 <a name="BatchEmbeddingTexts"></a>
@@ -856,6 +870,19 @@ func NormalizeEmbedding(embedding []float32) []float32
 ```
 
 NormalizeEmbedding normalizes an embedding vector to unit length. This can improve similarity comparisons by ensuring all vectors have the same magnitude.
+
+<a name="PrewarmClips"></a>
+## func [PrewarmClips](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_prewarm.go#L78-L80>)
+
+```go
+func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice string, format ClipFormat, texts []string) error
+```
+
+PrewarmClips renders texts with the TTS service svc into cache, so a session started later plays them with no render. voice is the session's voice name: the clips are keyed by the service voice whose ID or name matches it, ignoring case \(the service's default voice when none does\), exactly as a session in that voice looks them up. format is the session's output format \(PCM16 mono; a zero SampleRate is 24 kHz\). A nil cache is the process\-wide default.
+
+Each clip is also kept under the session voice alone, so a session with no TTS service configured \(a test, an arena run, a host that warms a directory offline\) plays it too. That is skipped, with a warning, when the service has no voice matching voice. Pre\-warm one TTS service per voice and format: a text already kept for the voice with another service's audio returns ErrVoicePrewarmedByAnotherService.
+
+Each text renders once, through the same trimming, fade, resampling and process\-wide single\-flight a session uses, a few at a time. A text the service fails is named in the returned error; the others are still cached. svc must render PCM; nil, or a live session's audio, is session\-bound and returns ErrSessionBoundSource.
 
 <a name="PutElement"></a>
 ## func [PutElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element_pool.go#L37>)

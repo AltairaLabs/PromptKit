@@ -216,15 +216,12 @@ func (b *cueBank) sessionStarted(ctx context.Context, sess providers.StreamInput
 	}
 	format := ClipFormat{Encoding: AudioFormatPCM16, SampleRate: out.SampleRate, Channels: 1}
 	// The session's own out-of-band audio, in its exact voice, goes first
-	// (providers.OutOfBandSpeaker); a TTS service serves sessions without it.
-	var sources []clipSource
+	// (providers.OutOfBandSpeaker); see clipSourcesFor for the rest.
+	var oob clipSource
 	if src := newSessionClipSource(sess, out); src != nil {
-		sources = append(sources, src)
+		oob = src
 	}
-	if src := newTTSClipSource(b.tts, out.Voice, out.SampleRate); src != nil {
-		sources = append(sources, src)
-	}
-	sources = append(sources, earconSource{})
+	sources := clipSourcesFor(oob, b.tts, out)
 
 	b.mu.Lock()
 	b.state = cueSessionSpoken
@@ -235,6 +232,28 @@ func (b *cueBank) sessionStarted(ctx context.Context, sess providers.StreamInput
 	b.mu.Unlock()
 
 	go b.renderAll(ctx, texts, describeSources(sources), out.Voice)
+}
+
+// clipSourcesFor is a spoken session's clip sources in the order they are
+// tried: the session's own out-of-band audio (oob, nil when it has none), in
+// its exact voice; the TTS service svc, when it renders PCM; with no TTS
+// service configured, the clips pre-warmed for the session's voice
+// (PrewarmClips); and the earcon, which never fails. A configured service
+// that renders no PCM does not fall back to another service's pre-warmed
+// clips.
+func clipSourcesFor(oob clipSource, svc tts.Service, out providers.OutputAudio) []clipSource {
+	var sources []clipSource
+	if oob != nil {
+		sources = append(sources, oob)
+	}
+	if svc != nil {
+		if src := newTTSClipSource(svc, out.Voice, out.SampleRate); src != nil {
+			sources = append(sources, src)
+		}
+	} else {
+		sources = append(sources, prewarmedSource{sessionVoice: out.Voice})
+	}
+	return append(sources, earconSource{})
 }
 
 // dedupeTexts is the non-empty texts of lists, each once, in order.
@@ -355,6 +374,11 @@ func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, bool, 
 				b.mu.Unlock()
 			}
 			return clip, !fellBack, nil
+		}
+		if errors.Is(err, errNotPrewarmed) {
+			// A clip not pre-warmed is a miss, not a failure: the next
+			// source's clip is the text's own.
+			continue
 		}
 		logger.Debug("CueStage: a clip source failed for a text; trying the next", "source", src.kind(),
 			"error", err)

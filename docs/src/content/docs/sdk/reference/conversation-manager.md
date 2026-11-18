@@ -196,6 +196,7 @@ Mock response from mock model mock-model
 - [func DescribeGovernance\(g \*Governance\) string](<#DescribeGovernance>)
 - [func Evaluate\(ctx context.Context, opts EvaluateOpts\) \(\[\]evals.EvalResult, error\)](<#Evaluate>)
 - [func GracefulShutdown\(mgr \*ShutdownManager, timeout time.Duration\)](<#GracefulShutdown>)
+- [func PrewarmCueClips\(ctx context.Context, packPath string, svc tts.Service, voice string, opts ...Option\) error](<#PrewarmCueClips>)
 - [func RegisteredProviderTypes\(\) map\[string\]\[\]string](<#RegisteredProviderTypes>)
 - [func ValidateEvalTypes\(opts ValidateEvalTypesOpts\) \(\[\]evals.EvalDef, error\)](<#ValidateEvalTypes>)
 - [func ValidateOptions\(opts ...Option\) error](<#ValidateOptions>)
@@ -780,6 +781,21 @@ GracefulShutdown listens for SIGTERM and SIGINT, then calls mgr.Shutdown with th
 ```
 go sdk.GracefulShutdown(mgr, 30*time.Second)
 ```
+
+<a name="PrewarmCueClips"></a>
+## func [PrewarmCueClips](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/cue_prewarm.go#L44>)
+
+```go
+func PrewarmCueClips(ctx context.Context, packPath string, svc tts.Service, voice string, opts ...Option) error
+```
+
+PrewarmCueClips renders a pack's static guardrail messages with the TTS service svc into the clip cache realtime conversations play cues from, so a conversation opened later speaks them with no render. A host calls it at startup or deploy.
+
+The messages are every prompt's validator messages, as an open of that prompt compiles them, the messages of guardrails given as options \(WithGuardrail\), and the default blocked message. voice is the session's voice name \(for example "alloy"\): clips are keyed by the service voice whose ID or name matches it, ignoring case, exactly as a session in that voice looks them up. Clips render as PCM16 mono at 24 kHz, the rate OpenAI Realtime and Gemini Live speak at.
+
+The cache is WithCueClipCache's, else the process\-wide default every conversation uses. Any \[stage.ClipCache\] works: a writable \[stage.NewDirClipCache\] fills a directory offline, which a conversation opened on it with \[stage.DirCacheReadOnly\] and no TTS service plays from.
+
+Only a TTS service can be pre\-warmed: a provider's out\-of\-band audio needs a live session, so a nil svc, or a session passed as one, returns \[stage.ErrSessionBoundSource\]. A message the service fails is named in the returned error; the others are still cached. opts are Open's; those that shape the guardrails \(WithEvalRegistry, WithGuardrail, WithJudgeProvider, WithSkipSchemaValidation\) apply here as they do there.
 
 <a name="RegisteredProviderTypes"></a>
 ## func [RegisteredProviderTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/provider_introspection.go#L30>)
@@ -1495,7 +1511,7 @@ type Conversation struct {
 ```
 
 <a name="Open"></a>
-### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L90>)
+### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L91>)
 
 ```go
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1579,7 +1595,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1365>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1369>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1607,7 +1623,7 @@ fmt.Println(string(resp.CompositionOutput()))
 ```
 
 <a name="OpenDuplex"></a>
-### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L141>)
+### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L142>)
 
 ```go
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1647,7 +1663,7 @@ Provider requirements depend on how the input side is driven:
 The session runs on a context detached from any caller, so its tool calls see no context values; use [OpenDuplexContext](<#OpenDuplexContext>) to give them the host's.
 
 <a name="OpenDuplexContext"></a>
-### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L156>)
+### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L157>)
 
 ```go
 func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1688,7 +1704,7 @@ func OpenVoiceContext(ctx context.Context, packPath, promptName string, opts ...
 OpenVoiceContext is [OpenVoice](<#OpenVoice>) with a base context for the session, as [OpenDuplexContext](<#OpenDuplexContext>): the session's tool calls see ctx's values. The context passed to Start only bounds the audio pumps; it does not reach tool calls.
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1219>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1223>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1716,7 +1732,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1331>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1335>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1748,7 +1764,7 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 In a realtime \(ASM\) conversation the new provider session is given the persisted user and assistant turns before the caller's first input, through the provider's own mechanism \(OpenAI Realtime conversation.item.create items, Gemini Live client\_content turns\). A provider that cannot take them \(see \[providers.StreamHistorySupport\]\) makes ResumeDuplex return [ErrResumeHistoryUnsupported](<#ErrConversationClosed>) rather than continue without memory. In VAD mode each turn's request carries the history, as in a unary conversation.
 
 <a name="ResumeDuplexContext"></a>
-### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1337-L1339>)
+### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1341-L1343>)
 
 ```go
 func ResumeDuplexContext(ctx context.Context, conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
