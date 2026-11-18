@@ -219,6 +219,15 @@ type DuplexProviderStage struct {
 	cutPending  bool
 	cutGen      int64
 	blockedLive *string
+	// forgetPending is set when an input guardrail blocked a spoken turn and
+	// the session is still to be asked to forget it (providers.TurnForgetter):
+	// forgetInput is the session's ID for that input. Response goroutine only.
+	forgetPending bool
+	forgetInput   string
+	// transcriptItemID is the session's ID for the input the buffered
+	// transcription belongs to (providers.InputItemIDKey), taken when the
+	// buffered user turn is emitted. Guarded by transcriptMu.
+	transcriptItemID string
 	// blockedLiveSpoken is set when blockedLive is a message to speak
 	// (queueAnnouncement), announce is the spoken blocked message's state, and
 	// chunkAnnounces is set while the chunk being handled is part of it.
@@ -1110,6 +1119,7 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 	s.transcriptMu.Lock()
 	if s.transcriptionCaptured {
 		s.inputTranscription.Reset()
+		s.transcriptItemID = ""
 		s.transcriptionCaptured = false
 		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
 		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
@@ -1612,6 +1622,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		// ignored (sendAudioElement clears the flag when the next user turn starts).
 		s.transcriptMu.Lock()
 		s.inputTranscription.Reset()
+		s.transcriptItemID = ""
 		s.transcriptionCaptured = true
 		s.transcriptMu.Unlock()
 	}
@@ -1922,6 +1933,9 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 	}
 	if transcript, ok := chunk.Metadata["transcription"].(string); ok && transcript != "" {
 		s.inputTranscription.WriteString(transcript)
+		if id, ok := chunk.Metadata[providers.InputItemIDKey].(string); ok && id != "" {
+			s.transcriptItemID = id
+		}
 		logger.Debug("DuplexProviderStage: captured input transcription",
 			"transcriptLen", len(transcript),
 			"totalInputTranscriptLen", s.inputTranscription.Len())
@@ -1936,7 +1950,7 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 func (s *DuplexProviderStage) emitBufferedUserTurn(
 	ctx context.Context, output chan<- StreamElement, fromDeltas bool,
 ) error {
-	transcript := s.transcriptText()
+	transcript, inputID := s.takeTranscript()
 	s.late.userShown(transcript, fromDeltas)
 	userMsg := &types.Message{
 		Role:    roleUser,
@@ -1951,7 +1965,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	if err := s.emit(ctx, StreamElement{Message: userMsg}, output); err != nil {
 		return err
 	}
-	s.guardSpokenInput(ctx, s.history.snapshot(), false)
+	s.guardSpokenInput(ctx, s.history.snapshot(), false, inputID)
 	return nil
 }
 
@@ -2071,18 +2085,22 @@ func (s *DuplexProviderStage) transcriptLen() int {
 	return s.inputTranscription.Len()
 }
 
-// transcriptText is the buffered input transcription.
-func (s *DuplexProviderStage) transcriptText() string {
+// takeTranscript returns the buffered input transcription and the session's
+// ID for the input it belongs to, which it hands over once.
+func (s *DuplexProviderStage) takeTranscript() (text, inputID string) {
 	s.transcriptMu.Lock()
 	defer s.transcriptMu.Unlock()
-	return s.inputTranscription.String()
+	inputID, s.transcriptItemID = s.transcriptItemID, ""
+	return s.inputTranscription.String(), inputID
 }
 
-// resetTranscript empties the buffered input transcription.
+// resetTranscript empties the buffered input transcription, and forgets the
+// input it belonged to.
 func (s *DuplexProviderStage) resetTranscript() {
 	s.transcriptMu.Lock()
 	defer s.transcriptMu.Unlock()
 	s.inputTranscription.Reset()
+	s.transcriptItemID = ""
 }
 
 // chunkToElement, buildAssistantParts, and takeReasoning — the pure transforms —

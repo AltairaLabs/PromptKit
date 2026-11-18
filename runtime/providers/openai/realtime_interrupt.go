@@ -43,13 +43,7 @@ func (s *RealtimeSession) InterruptResponse(_ context.Context, generation int64)
 	if s.emitClosed {
 		return errors.New(errSessionClosed)
 	}
-	target := generation
-	if target == 0 {
-		target = s.gen
-		if !s.responseActive {
-			target++
-		}
-	}
+	target := s.targetGeneration(generation)
 	switch {
 	case target > s.gen:
 		s.cancelGen = target // not created yet: none of it has played
@@ -62,6 +56,18 @@ func (s *RealtimeSession) InterruptResponse(_ context.Context, generation int64)
 		s.truncateHeard()
 	}
 	return nil
+}
+
+// targetGeneration is the response a caller's generation names: itself, or,
+// for 0, the response in progress, or the next one. Called with recvMu held.
+func (s *RealtimeSession) targetGeneration(generation int64) int64 {
+	if generation != 0 {
+		return generation
+	}
+	if s.responseActive {
+		return s.gen
+	}
+	return s.gen + 1
 }
 
 // cancelResponse cancels the response in progress and drops its audio still

@@ -475,6 +475,9 @@ func ParseServerEvent(data []byte) (interface{}, error) {
 	case "conversation.item.truncated":
 		var e conversationItemTruncatedEvent
 		return &e, json.Unmarshal(data, &e)
+	case realtimeEventItemDeleted:
+		var e conversationItemDeletedEvent
+		return &e, json.Unmarshal(data, &e)
 	case "conversation.item.input_audio_transcription.completed":
 		var e ConversationItemInputAudioTranscriptionCompletedEvent
 		return &e, json.Unmarshal(data, &e)
