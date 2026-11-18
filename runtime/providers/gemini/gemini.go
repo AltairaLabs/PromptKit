@@ -73,8 +73,8 @@ type Provider struct {
 	// summaries. Both come from additional_config — see gemini_thinking.go.
 	thinkingBudget  *int
 	includeThoughts bool
-	// apiMode pins which Gemini API this provider uses. Unset leaves the
-	// per-request capability fallback in resolveAPIMode to decide.
+	// apiMode pins which Gemini API this provider uses. Unset means
+	// generateContent (resolveAPIMode).
 	apiMode APIMode
 	// thinkingLevel is Gemini 3's replacement for thinkingBudget. Mutually
 	// exclusive with it: Gemini 2.5 rejects thinkingLevel with HTTP 400, and

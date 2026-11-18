@@ -11,8 +11,8 @@ import (
 //
 // This API is shaped differently from generateContent throughout: a flat list
 // of typed steps rather than candidates/parts, tools declared flat rather than
-// under functionDeclarations, and a response_format that constrains only the
-// turn producing a final answer.
+// under functionDeclarations, and a response_format in place of
+// responseMimeType/responseSchema.
 //
 // It is used statelessly here — the full transcript is replayed as input on
 // every call, with no previous_interaction_id — so the runtime keeps ownership
@@ -55,8 +55,9 @@ type interactionsTool struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 }
 
-// interactionsRespFmt carries the caller's schema. Unlike generateContent's
-// responseMimeType/responseSchema pair, this constrains only the answering turn.
+// interactionsRespFmt carries the caller's schema. Like generateContent's
+// responseSchema it cannot share a round with tools (#2771), so it is sent
+// only on rounds without them; see schema_with_tools.go.
 type interactionsRespFmt struct {
 	Type     string          `json:"type"`
 	MIMEType string          `json:"mime_type,omitempty"`

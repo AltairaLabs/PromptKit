@@ -27,7 +27,7 @@ Attach PDF documents to a message so the model can summarize, compare or extract
 ## Prerequisites
 
 - A pack with a prompt to open, such as `document-analyzer`.
-- A provider that accepts documents: Claude or Gemini. Claude takes PDF only. Gemini takes PDF, Microsoft Office and OpenDocument files, and text formats such as plain text, Markdown, CSV, JSON and XML, which it reads as plain text. A Gemini request goes to the Interactions API when `additional_config.api_mode` is `interactions`, or when it has tools and a JSON-schema response format and the model is not a `gemini-1.` or `gemini-2.` model. The Interactions API takes PDF, CSV, Microsoft Office and OpenDocument files but no other text format.
+- A provider that accepts documents: Claude or Gemini. Claude takes PDF only. Gemini takes PDF, Microsoft Office and OpenDocument files, and text formats such as plain text, Markdown, CSV, JSON and XML, which it reads as plain text. A Gemini request goes to the Interactions API when `additional_config.api_mode` is `interactions`. The Interactions API takes PDF, CSV, Microsoft Office and OpenDocument files but no other text format.
 
 ## Steps
 

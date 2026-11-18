@@ -6321,7 +6321,7 @@ func (p *StreamPipeline) Start(ctx context.Context, input <-chan StreamElement) 
 Start is Execute, returning the execution so that the caller can learn the error that ended it \(StreamExecution.Err\) once its output has closed: an error element on the output alone does not say whether the stage carried on from it, and elements may follow the one that failed the turn.
 
 <a name="StructuredOutputMode"></a>
-## type [StructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L35>)
+## type [StructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L39>)
 
 StructuredOutputMode selects when a caller's ResponseFormat is applied to a tool loop.
 
@@ -6336,7 +6336,9 @@ gemini-3.7-flash     terminates 5/5 -> 1/5
 
 On a production underwriting pack the same model that scores 5.8 here reached tool\_use in 1 run out of 5. The effect scales with task complexity, so these numbers understate it. Every failure arrives as a successful HTTP 200.
 
-The fix is to constrain only the turn that produces the final answer, which is what the providers that hold up are already doing server\-side \(Anthropic's stronger models; Gemini's Interactions API\). Doing it in the stage rather than per provider means no per\-model support table: the rule is mechanical and every provider gets it, including ones added later.
+The fix is to constrain only the turn that produces the final answer, which is what Anthropic's stronger models already do server\-side. Doing it in the stage rather than per provider means no per\-model support table: the rule is mechanical and every provider gets it, including ones added later.
+
+Gemini cannot carry a schema on a round with tools on either of its APIs, so its provider applies the same rule itself: under every\_round it sends each tool round without the schema and asks a round that answers again under it, which costs two calls per answering round, as final\_turn does.
 
 ```go
 type StructuredOutputMode string
@@ -6362,7 +6364,7 @@ const (
 ```
 
 <a name="ParseStructuredOutputMode"></a>
-### func [ParseStructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L60>)
+### func [ParseStructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L64>)
 
 ```go
 func ParseStructuredOutputMode(raw string) StructuredOutputMode

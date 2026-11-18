@@ -10,13 +10,10 @@ import (
 
 // APIMode selects which Gemini API a request is sent to.
 //
-// The two APIs differ in more than shape. On generateContent a response schema
-// constrains EVERY turn, so it cannot coexist with function calling: Gemini 2.5
-// rejects the combination outright, and Gemini 3 accepts it and then never
-// stops calling tools. The Interactions API constrains only the turn that
-// produces a final answer, so a tool loop there returns conforming JSON.
-//
-// See issue #1851.
+// Only configuration chooses it. Neither API can apply a response schema to a
+// round that may call tools — on either one the model keeps calling the tool
+// and never answers — so a schema alongside tools is handled the same way on
+// both (see predictSchemaAfterTools) rather than by switching API (#2771).
 type APIMode string
 
 const (
@@ -61,48 +58,18 @@ func configuredAPIMode(additionalConfig map[string]any) APIMode {
 	}
 }
 
-// resolveAPIMode decides where a single request goes.
+// resolveAPIMode decides where a request goes: the configured API, else
+// generateContent.
 //
-// Priority:
-//  1. Explicit config — always wins, so an operator can pin either API.
-//  2. Capability fallback — a response schema alongside tools ONLY works on
-//     interactions. Routing there beats the alternative, which is silently
-//     dropping the caller's schema and answering in prose.
-//  3. generateContent.
-//
-// The fallback is per-request rather than per-provider because whether a round
-// carries tools is a property of the round, not of the configuration.
-func (p *Provider) resolveAPIMode(rf *providers.ResponseFormat, hasTools bool) APIMode {
+// There is no automatic choice. One used to send a schema alongside tools to
+// the Interactions API, on the premise that it applies the schema only to the
+// answering turn; measured live on gemini-3.7-flash it does not, and the model
+// called the tool on every round (#2771).
+func (p *Provider) resolveAPIMode() APIMode {
 	if p.apiMode != apiModeUnset {
 		return p.apiMode
 	}
-	if hasTools && wantsSchema(rf) && honorsInteractionsSchema(p.model) {
-		return APIModeInteractions
-	}
 	return APIModeGenerateContent
-}
-
-// honorsInteractionsSchema reports whether a model actually applies
-// response_format on the Interactions API.
-//
-// Gemini 3 does. Gemini 2.5 accepts the field and IGNORES it — verified live
-// with no tools involved, so it is not a tool interaction: asked to report a
-// city and temperature under a schema it answered "City: Bristol, Celsius: 21".
-// Routing 2.5 there would therefore gain nothing and change its behavior for
-// no benefit.
-//
-// This is a DENYLIST of generations known not to honor it, not an allowlist of
-// those that do. An unrecognized model is assumed capable, so a new release
-// gains the behavior automatically and only a regression needs an entry —
-// where an allowlist would silently withhold the feature from every future
-// model until someone remembered to add it.
-func honorsInteractionsSchema(model string) bool {
-	for _, family := range []string{"gemini-1.", "gemini-2."} {
-		if strings.HasPrefix(model, family) {
-			return false
-		}
-	}
-	return true
 }
 
 // applyAPIModeConfig reads additional_config.api_mode onto the provider.

@@ -55,9 +55,7 @@ func (p *ToolProvider) buildInteractionsRequest(
 }
 
 // predictWithInteractions runs a non-streaming turn through the Interactions
-// API. It exists because a response schema alongside tools only works here:
-// on generateContent the schema constrains every turn, so it either fails the
-// request or traps the model in a tool loop. See issue #1851.
+// API, for a provider configured with api_mode interactions.
 func (p *ToolProvider) predictWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {

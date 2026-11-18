@@ -64,51 +64,18 @@ func TestApplyAPIModeConfig_WiredFromSpec(t *testing.T) {
 	assert.Equal(t, apiModeUnset, p.apiMode, "an absent config clears rather than sticks")
 }
 
-// TestResolveAPIMode_ExplicitConfigWins pins the priority order.
-func TestResolveAPIMode_ExplicitConfigWins(t *testing.T) {
+// TestResolveAPIMode_ConfigOnly pins that only configuration picks the API:
+// no model and no request shape moves a request to the Interactions API
+// (#2771).
+func TestResolveAPIMode_ConfigOnly(t *testing.T) {
 	p := &Provider{model: "gemini-2.5-flash", apiMode: APIModeInteractions}
-	assert.Equal(t, APIModeInteractions, p.resolveAPIMode(nil, false),
-		"explicit config beats every automatic rule, including the model gate")
+	assert.Equal(t, APIModeInteractions, p.resolveAPIMode(), "explicit interactions is honored")
 
 	p = &Provider{model: "gemini-3.7-flash", apiMode: APIModeGenerateContent}
-	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(schemaFormat(), true),
-		"pinning generateContent must stop the automatic upgrade")
-}
+	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(), "explicit generate_content is honored")
 
-// TestResolveAPIMode_AutomaticIsNarrow keeps the automatic choice to exactly
-// the case generateContent cannot serve, so no existing behavior moves.
-func TestResolveAPIMode_AutomaticIsNarrow(t *testing.T) {
-	p := &Provider{model: "gemini-3.7-flash"}
-
-	assert.Equal(t, APIModeInteractions, p.resolveAPIMode(schemaFormat(), true),
-		"schema + tools is the case generateContent cannot serve")
-
-	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(schemaFormat(), false),
-		"without tools there is no conflict, so nothing needs to move")
-	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(nil, true),
-		"tools without a schema is ordinary generateContent work")
-	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(
-		&providers.ResponseFormat{Type: providers.ResponseFormatText}, true),
-		"a text response format asks for no constraint")
-}
-
-// TestHonorsInteractionsSchema pins the model gate in BOTH directions. Gemini
-// 2.5 accepts response_format on that API and ignores it, so routing it there
-// would move the request and still return prose.
-func TestHonorsInteractionsSchema(t *testing.T) {
-	for _, m := range []string{"gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro"} {
-		assert.Falsef(t, honorsInteractionsSchema(m), "%s ignores response_format on interactions", m)
-	}
-	for _, m := range []string{"gemini-3.7-flash", "gemini-3.5-flash", "gemini-3-flash-preview", "gemini-4-future"} {
-		assert.Truef(t, honorsInteractionsSchema(m),
-			"%s: unrecognized models are assumed capable so new releases are not silently withheld", m)
-	}
-}
-
-func TestResolveAPIMode_GateAppliesToOlderModels(t *testing.T) {
-	p := &Provider{model: "gemini-2.5-flash"}
-	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(schemaFormat(), true),
-		"routing 2.5 to interactions gains nothing and changes the API it uses")
+	p = &Provider{model: "gemini-3.7-flash"}
+	assert.Equal(t, APIModeGenerateContent, p.resolveAPIMode(), "unset means generateContent")
 }
 
 // TestInteractionsURL pins that neither platform carries a credential in the
@@ -251,9 +218,10 @@ func TestPredictWithInteractions_SurfacesErrors(t *testing.T) {
 	}
 }
 
-// TestPredictWithInteractions_RoutedFromPredictWithTools proves the routing is
-// reachable from the public entry point, not just from resolveAPIMode. A
-// correct decision that nothing acts on is the inert-declaration failure.
+// TestPredictWithInteractions_RoutedFromPredictWithTools proves a configured
+// Interactions API is reachable from the public entry point, not just from
+// resolveAPIMode. A correct decision that nothing acts on is the
+// inert-declaration failure.
 func TestPredictWithInteractions_RoutedFromPredictWithTools(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -264,16 +232,17 @@ func TestPredictWithInteractions_RoutedFromPredictWithTools(t *testing.T) {
 	defer srv.Close()
 
 	tp := interactionsTestProvider(t, srv.URL)
+	tp.apiMode = APIModeInteractions
 	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
 		Name: "probe", Description: "p", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	require.NoError(t, err)
 
-	_, _, err = tp.PredictWithTools(context.Background(), providers.PredictionRequest{
-		Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
-		ResponseFormat: schemaFormat(),
+	resp, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
 	}, tools, "auto")
 	require.NoError(t, err)
 
+	assert.Equal(t, "{}", resp.Content)
 	assert.Contains(t, gotPath, "/interactions",
-		"a schema alongside tools must actually reach the Interactions endpoint")
+		"api_mode interactions must actually reach the Interactions endpoint")
 }

@@ -45,15 +45,16 @@ func newInteractionsMediaServer(t *testing.T) *interactionsMediaServer {
 	return s
 }
 
-// predictInteractions sends msgs through the public tool entry point with a
-// schema, so the request is routed to the Interactions API.
+// predictInteractions sends msgs through the public tool entry point of a
+// provider configured for the Interactions API.
 func predictInteractions(t *testing.T, url string, stream bool, msgs []types.Message) error {
 	t.Helper()
 	tp := interactionsTestProvider(t, url)
+	tp.apiMode = APIModeInteractions
 	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
 		Name: "probe", Description: "p", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	require.NoError(t, err)
-	req := providers.PredictionRequest{Messages: msgs, ResponseFormat: schemaFormat()}
+	req := providers.PredictionRequest{Messages: msgs}
 	if !stream {
 		_, _, err = tp.PredictWithTools(context.Background(), req, tools, "auto")
 		return err
