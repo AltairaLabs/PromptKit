@@ -88,11 +88,17 @@ type StreamSession struct {
 	activityStartSent bool // True after activityStart has been sent for current turn
 
 	// toolCallTurn is set by a toolCall and cleared once the model produces
-	// content or a turn completes. carriedUsage is the usage of a tool-call
-	// turn reported without content, held for the next turn completion (see
-	// carryToolCallUsage). Both are touched by the receive goroutine only.
-	toolCallTurn bool
-	carriedUsage *base.TokenUsage
+	// content or a turn completes. toolGenEnding is set by a generationComplete
+	// read while the toolCall's chunk was held: the next content-free
+	// turnComplete is the tool-call generation's (live_tool_turn.go).
+	// carriedUsage is usage held for the chunk that ends the turn. All three
+	// are touched by the receive goroutine only.
+	toolCallTurn  bool
+	toolGenEnding bool
+	carriedUsage  *base.TokenUsage
+	// held is a toolCall's chunk held for its generation's end
+	// (live_tool_turn.go).
+	held heldToolCalls
 
 	// turnOpen is set while a model generation is under way; gen numbers the
 	// generations, and every chunk carries the number of the one it belongs

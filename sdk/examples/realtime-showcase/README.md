@@ -130,9 +130,11 @@ Run the voice mode and say each of these in turn.
 - **Transcript lag.** Gemini Live transcribes your speech later than OpenAI
   Realtime, so your `message.created` line and the `no-bruno` guardrail
   arrive later, and more of the blocked reply plays first.
-- **Late usage.** Gemini Live reports a tool-call turn's usage after its tool
-  calls. The log prints it as a `late usage for call N` line, and the session
-  total includes it.
+- **Late usage.** Gemini Live reports the usage of a reply a guardrail cut
+  after the cut, once that call has completed. The log prints it as a `late
+  usage for call N` line, and the session total includes it. A tool-call
+  turn's usage is on that call's own `cost` line, except on Gemini 2.x Live,
+  which reports it together with the reply's.
 - **The picture.** Gemini Live sends a tool's images to Gemini 3 and later
   models; on Gemini 2.x the model does not see the picture.
 

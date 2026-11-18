@@ -92,8 +92,8 @@ type StreamChunk struct {
 	// Generation identifies the model generation a realtime session's chunk
 	// belongs to: a session counts its generations (a reply, a turn of tool
 	// calls) from 1, and a chunk reporting a generation's usage after the
-	// generation ended (Gemini Live reports a tool-call turn's usage after its
-	// tool calls) carries that generation's number. 0 means the session does
+	// generation ended (Gemini Live reports the usage of a reply cut short
+	// after the cut) carries that generation's number. 0 means the session does
 	// not number its generations.
 	Generation int64 `json:"generation,omitempty"`
 
