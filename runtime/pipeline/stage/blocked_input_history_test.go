@@ -739,6 +739,42 @@ func (p *requestRecordingProvider) PredictStream(
 	return p.Provider.PredictStream(ctx, req)
 }
 
+// A blocked spoken input is both forgotten by the session and kept out of
+// model context: late (after its reply completed) and mid-reply.
+func TestDuplexForget_BlockedSpokenInputIsForgottenAndMarked(t *testing.T) {
+	t.Run("late", func(t *testing.T) {
+		s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+		elems, err := feedChunks(t, s,
+			genChunk(3, transcriptChunk("Sure", pcm(10))), genChunk(3, stopChunk()),
+			spoken("a wire transfer please", "item_A"))
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"item_A"}, sess.forgotten())
+		msgs := emittedMessages(elems)
+		require.Equal(t, []string{"assistant:Sure", "user:a wire transfer please"}, roleLines(msgs))
+		assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
+		assert.Equal(t, true, msgs[1].Meta[blockedReplyBeforeMetaKey])
+		assert.Empty(t, excludeBlockedInputTurns(msgs))
+	})
+	t.Run("mid-reply", func(t *testing.T) {
+		s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+		elems, err := feedChunks(t, s,
+			genChunk(5, transcriptChunk("Sure, ", pcm(10))),
+			spoken("a wire transfer please", "item_A"),
+			genChunk(5, transcriptChunk("sending it", pcm(20))),
+			genChunk(5, stopChunk()))
+		require.NoError(t, err)
+
+		assert.Equal(t, []string{"item_A"}, sess.forgotten())
+		msgs := emittedMessages(elems)
+		require.NotEmpty(t, msgs)
+		last := msgs[len(msgs)-1]
+		assert.Equal(t, roleAssistant, last.Role)
+		assert.Equal(t, true, last.Meta[types.MetaBlockedInput])
+		assert.Empty(t, excludeBlockedInputTurns(msgs))
+	})
+}
+
 // A late transcript that is not blocked is not marked.
 func TestDuplexHooks_LateSpokenAllowedInputIsNotMarked(t *testing.T) {
 	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&wordInputHook{word: "wire"})))

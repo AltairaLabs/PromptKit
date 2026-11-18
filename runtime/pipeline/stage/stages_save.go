@@ -349,6 +349,19 @@ func (s *IncrementalSaveStage) indexNewMessages(
 	}
 }
 
+// summaryBatch returns the first n messages of tail as a summary may see them:
+// without interrupted replies or blocked input turns. Blocked turns are found
+// on the whole tail before interrupted replies are taken out (see
+// withoutInterrupted), so a batch ending between a blocked request and the
+// reply that marks it still leaves the request out.
+func summaryBatch(tail []types.Message, n int) []types.Message {
+	var blocked []bool
+	if mask := blockedInputTurns(tail); mask != nil {
+		blocked = mask[:n]
+	}
+	return types.ExcludeInterrupted(withoutMasked(tail[:n], blocked))
+}
+
 // maybeSummarize checks if summarization is needed and triggers it.
 func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string) {
 	reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader)
@@ -422,12 +435,7 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 	// shown. The turn range still covers them. Blocked turns are found on the
 	// whole tail, so a batch that ends between a blocked user message and its
 	// canned reply still leaves the user message out.
-	batchLen := endTurn - lastSummarizedTurn
-	var blockedInBatch []bool
-	if mask := blockedInputTurns(tail); mask != nil {
-		blockedInBatch = mask[:batchLen]
-	}
-	batch := types.ExcludeInterrupted(withoutMasked(tail[:batchLen], blockedInBatch))
+	batch := summaryBatch(tail, endTurn-lastSummarizedTurn)
 	content, err := s.config.Summarizer.Summarize(ctx, batch)
 	if err != nil {
 		logger.Error("Auto-summarize: summarization failed",
