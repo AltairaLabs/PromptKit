@@ -223,6 +223,9 @@ func (b *cueBank) sessionStarted(ctx context.Context, sess providers.StreamInput
 	}
 	if src := newTTSClipSource(b.tts, out.Voice, out.SampleRate); src != nil {
 		sources = append(sources, src)
+	} else {
+		// No TTS service: clips pre-warmed for the session's voice (PrewarmClips).
+		sources = append(sources, prewarmedSource{sessionVoice: out.Voice})
 	}
 	sources = append(sources, earconSource{})
 
@@ -355,6 +358,11 @@ func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, bool, 
 				b.mu.Unlock()
 			}
 			return clip, !fellBack, nil
+		}
+		if errors.Is(err, errNotPrewarmed) {
+			// A clip not pre-warmed is a miss, not a failure: the next
+			// source's clip is the text's own.
+			continue
 		}
 		logger.Debug("CueStage: a clip source failed for a text; trying the next", "source", src.kind(),
 			"error", err)

@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/mcp"
@@ -455,19 +456,27 @@ var packCache sync.Map // map[string]*pack.Pack
 // state (RFC 0010) — prompt_task is intentionally empty for these states, so
 // the prompt-not-found check is skipped and a zero-value Prompt is returned.
 func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, *pack.Prompt, error) {
+	p, err := loadPackFile(packPath, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	prompt, err := findPrompt(p, promptName, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	return p, prompt, nil
+}
+
+// loadPackFile is the pack at packPath, loaded and validated once per process.
+func loadPackFile(packPath string, cfg *config) (*pack.Pack, error) {
 	absPath, err := resolvePackPath(packPath)
 	if err != nil {
-		return nil, nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
+		return nil, packLoadError(packPath, fmt.Errorf("failed to resolve pack path: %w", err))
 	}
 
 	// Check cache first.
 	if cached, ok := packCache.Load(absPath); ok {
-		p := cached.(*pack.Pack)
-		prompt, findErr := findPrompt(p, promptName, cfg)
-		if findErr != nil {
-			return nil, nil, findErr
-		}
-		return p, prompt, nil
+		return cached.(*pack.Pack), nil
 	}
 
 	// Cache miss — load from disk and validate.
@@ -477,18 +486,13 @@ func loadAndValidatePack(packPath, promptName string, cfg *config) (*pack.Pack, 
 
 	p, err := pack.Load(absPath, loadOpts)
 	if err != nil {
-		return nil, nil, packLoadError(absPath, err)
+		return nil, packLoadError(absPath, err)
 	}
 
 	// Store in cache. If another goroutine raced us, that's fine —
 	// both loaded the same file and the result is identical.
 	packCache.Store(absPath, p)
-
-	prompt, err := findPrompt(p, promptName, cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	return p, prompt, nil
+	return p, nil
 }
 
 // findPrompt returns the prompt an open runs, for every open path: the named
@@ -1556,8 +1560,25 @@ func resolveA2AHeaders(cfg *tools.A2AConfig) map[string]string {
 // A validator that cannot be built fails Open() rather than being dropped: see
 // the failure policy on guardrails.CompileValidators.
 func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
+	packHooks, err := compilePackValidators(p, cfg)
+	if err != nil {
+		// Fatal, and deliberately so: an unknown eval type or a param set the
+		// handler itself rejects both mean this guardrail cannot run, and
+		// dropping either leaves the conversation silently unprotected while
+		// Open() reports success.
+		return err
+	}
+	if len(packHooks) > 0 {
+		cfg.providerHooks = append(packHooks, cfg.providerHooks...)
+	}
+	return nil
+}
+
+// compilePackValidators is the provider hooks p's validators compile to, as
+// an open of p builds them.
+func compilePackValidators(p *pack.Prompt, cfg *config) ([]hooks.ProviderHook, error) {
 	if len(p.Validators) == 0 {
-		return nil
+		return nil, nil
 	}
 	specs := make([]rtprompt.ValidatorConfig, 0, len(p.Validators))
 	for _, v := range p.Validators {
@@ -1596,18 +1617,7 @@ func convertPackValidatorsToHooks(p *pack.Prompt, cfg *config) error {
 		guardrailOpts = append(guardrailOpts, guardrails.WithEvalTimeout(cfg.guardrailTimeout))
 	}
 
-	packHooks, err := guardrails.CompileValidatorsWithOptions(specs, cfg.evalRegistry, guardrailOpts...)
-	if err != nil {
-		// Fatal, and deliberately so: an unknown eval type or a param set the
-		// handler itself rejects both mean this guardrail cannot run, and
-		// dropping either leaves the conversation silently unprotected while
-		// Open() reports success.
-		return err
-	}
-	if len(packHooks) > 0 {
-		cfg.providerHooks = append(packHooks, cfg.providerHooks...)
-	}
-	return nil
+	return guardrails.CompileValidatorsWithOptions(specs, cfg.evalRegistry, guardrailOpts...)
 }
 
 // resolvePackPath converts a pack path to an absolute path.
