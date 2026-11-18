@@ -41,8 +41,11 @@ type eventLog struct {
 	// calls completed, so late usage is labeled with the call it belongs to.
 	callNums map[string]int
 	// pendingUsage is usage for a call whose provider.call.completed has not
-	// arrived yet, printed after it.
+	// arrived yet, printed after it; pendingOrder is those calls in the
+	// order their usage first arrived, so what is still pending at the end
+	// prints in call order.
 	pendingUsage map[string][]lateUsage
+	pendingOrder []string
 	total        float64
 	wg           sync.WaitGroup
 	// cutText is the text Response() carried since the last Interrupted
@@ -189,6 +192,9 @@ func (l *eventLog) onCost(cost float64, in, out int, callID string, usage bool) 
 			if l.pendingUsage == nil {
 				l.pendingUsage = map[string][]lateUsage{}
 			}
+			if _, queued := l.pendingUsage[callID]; !queued {
+				l.pendingOrder = append(l.pendingOrder, callID)
+			}
 			l.pendingUsage[callID] = append(l.pendingUsage[callID], line)
 			return
 		}
@@ -261,12 +267,12 @@ func (l *eventLog) end() {
 	l.wg.Wait()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for callID, lines := range l.pendingUsage { // usage for a call never seen to complete
-		for _, line := range lines {
+	for _, callID := range l.pendingOrder { // usage for a call never seen to complete
+		for _, line := range l.pendingUsage[callID] { // none when its call completed
 			l.printLateUsageLocked(callID, line)
 		}
 	}
-	l.pendingUsage = nil
+	l.pendingUsage, l.pendingOrder = nil, nil
 	l.logLockedf("session", "end: %d provider calls, total cost $%.4f", l.calls, l.total)
 }
 

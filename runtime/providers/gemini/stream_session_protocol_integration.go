@@ -206,7 +206,7 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 			// counting it here too would count it twice.
 			logger.Debug("StreamSession: ignoring usage on a toolCall message")
 		}
-		s.noteToolCall()
+		s.noteToolCall(msg.ToolCall)
 		if !s.turnOpen {
 			s.gen++ // the tool calls are a generation of their own
 		}
@@ -249,7 +249,12 @@ func (s *StreamSession) carryToolCallUsage(msg *ServerMessage) bool {
 	ends := s.endsToolGeneration()
 	s.toolGenEnding = false
 	if !ends {
-		return false // the reply's completion, possibly empty
+		// The reply's completion, possibly empty. An empty one is still a
+		// generation of its own: the tool-call generation already ended.
+		if !s.turnOpen {
+			s.gen++
+		}
+		return false
 	}
 	s.ClearDrop()
 	if err := s.handleInputTranscription(sc); err != nil {

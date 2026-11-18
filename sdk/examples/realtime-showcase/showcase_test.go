@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image/png"
 	"regexp"
 	"sort"
@@ -142,6 +143,29 @@ func TestShowcaseEventLog_LateUsageNamesItsCall(t *testing.T) {
 		"09:30:00.000  cost      late usage for the session: +$0.0320 (320 in / 0 out tokens); session total $0.0630",
 		"09:30:00.000  session   end: 3 provider calls, total cost $0.0630",
 	}, out.lines())
+}
+
+// Usage for calls never seen to complete is printed at the session's end in
+// the order it arrived, every run.
+func TestShowcaseEventLog_PendingUsageIsPrintedInArrivalOrder(t *testing.T) {
+	ids := []string{"k", "c", "x", "a", "q", "b", "z", "m"}
+	var want []string
+	for i := range ids {
+		want = append(want, fmt.Sprintf(
+			"09:30:00.000  cost      late usage for the session: +$0.0010 (%d in / 0 out tokens); session total $%.4f",
+			i+1, float64(i+1)*0.001))
+	}
+	want = append(want, "09:30:00.000  session   end: 0 provider calls, total cost $0.0080")
+	for range 20 { // map order would differ between runs
+		out := &syncBuffer{}
+		elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+		elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+		for i, id := range ids {
+			elog.onEvent(&events.Event{Data: &events.ProviderCallUsageData{CallID: id, Cost: 0.001, InputTokens: i + 1}})
+		}
+		elog.end()
+		require.Equal(t, want, out.lines())
+	}
 }
 
 func TestShowcaseEventLog_ScriptedSession(t *testing.T) {

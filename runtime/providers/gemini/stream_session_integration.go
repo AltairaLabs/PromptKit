@@ -87,16 +87,18 @@ type StreamSession struct {
 	// Manual VAD control state
 	activityStartSent bool // True after activityStart has been sent for current turn
 
-	// toolCallTurn is set by a toolCall (at toolCallAt) and cleared once the
-	// model produces content or a turn completes. toolGenEnding is set by a
+	// toolCallTurn is set by a toolCall and cleared once the model produces
+	// content or a turn completes. toolGenEnding is set by a
 	// generationComplete that ends the tool-call generation: the next
 	// content-free turnComplete is that generation's (live_tool_turn.go).
 	// carriedUsage is usage held for the chunk that ends the turn. All are
-	// touched by the receive goroutine only.
+	// touched by the receive goroutine only. toolAnswer, under toolMu, records
+	// whether the last toolCall's response has been sent.
 	toolCallTurn  bool
 	toolGenEnding bool
-	toolCallAt    time.Time
 	carriedUsage  *base.TokenUsage
+	toolMu        sync.Mutex
+	toolAnswer    toolAnswer
 
 	// turnOpen is set while a model generation is under way; gen numbers the
 	// generations, and every chunk carries the number of the one it belongs
@@ -184,6 +186,9 @@ type StreamSessionConfig struct {
 	// dialHeaders, set by the provider for a platform session, authenticates
 	// every handshake (reconnects included) in place of the API key.
 	dialHeaders func(context.Context) (http.Header, error)
+
+	// now, set by tests, is the session's clock (nil: time.Now).
+	now func() time.Time
 }
 
 // NewStreamSession creates a new streaming session
@@ -249,6 +254,7 @@ func createSession(
 		config:            *config,
 		autoReconnect:     config.AutoReconnect,
 		maxReconnectTries: maxReconnectTries,
+		now:               config.now,
 	}
 }
 

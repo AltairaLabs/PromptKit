@@ -55,7 +55,7 @@ func (c *testClock) advance(d time.Duration) {
 
 // withClock gives s a clock the test moves.
 func withClock(s *StreamSession) *testClock {
-	c := &testClock{t: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)}
+	c := newTestClock()
 	s.now = c.now
 	return c
 }
@@ -101,18 +101,22 @@ func usageOnlyChunks(chunks []providers.StreamChunk) []providers.StreamChunk {
 // live on gemini-3.8-live). The tool calls go out at once. That turnComplete
 // is not a model turn: reported as one, it reads as an empty reply after
 // every tool call. Its usage is reported on its own, for the tool-call
-// generation, and the reply carries only its own.
+// generation, and the reply carries only its own. Read before the tool
+// response is sent, the generation end is the tool call's however late it is
+// read: the reply cannot begin before the server has the response.
 func TestLiveToolCallTurn_TurnCompleteAfterToolCallIsTheToolGenerationsUsage(t *testing.T) {
 	s := newProtocolTestSession(t)
-	msgs := []*ServerMessage{
-		toolCall("call_1", "Paris"),
-		generationComplete(),
-		turnComplete(textUsage(600, 12)),
+	clock := withClock(s)
+	require.NoError(t, s.processServerMessage(toolCall("call_1", "Paris")))
+	clock.advance(5 * time.Second) // a stalled read: no window applies before the response
+	require.NoError(t, s.processServerMessage(generationComplete()))
+	clock.advance(5 * time.Second)
+	require.NoError(t, s.processServerMessage(turnComplete(textUsage(600, 12))))
+	for _, m := range []*ServerMessage{
 		{ServerContent: &ServerContent{ModelTurn: &ModelTurn{Parts: []Part{{Text: "It is hazy."}}}}},
 		generationComplete(),
 		turnComplete(textUsage(700, 20)),
-	}
-	for _, m := range msgs {
+	} {
 		require.NoError(t, s.processServerMessage(m))
 	}
 
@@ -177,34 +181,132 @@ func TestLiveToolCallTurn_UsageOnlyTurnCompleteWithoutToolCallStillEndsTheTurn(t
 }
 
 // On Gemini 2.5 Live a reply to a tool result can be empty: a content-free
-// turnComplete well after the toolCall (the server had to receive the tool
-// response and run the model first). Nothing ended the tool-call generation,
-// so it is that reply's completion and ends the turn.
+// generation end read after the tool response was sent. Unless a
+// generationComplete came within toolGenEndWindow of sending the response, it
+// is the reply's completion: it ends the turn, as a generation of its own.
 func TestLiveToolCallTurn_EmptyReplyAfterToolResponseEndsTheTurn(t *testing.T) {
-	s := newProtocolTestSession(t)
-	clock := withClock(s)
-	require.NoError(t, s.processServerMessage(toolCall("call_1", "Paris")))
-	clock.advance(toolGenEndWindow + 400*time.Millisecond)
-	require.NoError(t, s.processServerMessage(generationComplete()))
-	require.NoError(t, s.processServerMessage(turnComplete(textUsage(900, 0))))
+	for name, script := range map[string][]*ServerMessage{
+		// The model ran on the response before its generationComplete.
+		"generationComplete after the window": {generationComplete(), turnComplete(textUsage(900, 0))},
+		// No generationComplete: a turnComplete alone, however soon, is the
+		// reply's once the response is sent.
+		"turnComplete alone": {turnComplete(textUsage(900, 0))},
+	} {
+		t.Run(name, func(t *testing.T) {
+			clock := newTestClock()
+			session := scriptedLiveServerOnClock(t, "test-live", clock, func(conn *websocket.Conn) {
+				writeToolCall(conn, "call_1")
+				if !readUntilToolResponse(conn) {
+					return
+				}
+				if len(script) > 1 {
+					clock.advance(toolGenEndWindow) // the response was sent before this
+				}
+				for _, m := range script {
+					writeServer(conn, m)
+				}
+				_, _, _ = conn.ReadMessage()
+			})
 
-	chunks := drainChunks(t, s)
-	ends := finishing(chunks)
-	require.Len(t, ends, 2, "the empty reply completes its turn")
-	assert.Equal(t, finishReasonComplete, *ends[1].FinishReason)
-	require.NotNil(t, ends[1].CostInfo)
-	assert.Equal(t, 900, ends[1].CostInfo.InputTokens)
-	assert.Empty(t, usageOnlyChunks(chunks))
+			ends, usage := toolChainEnds(t, session, 2)
+			assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
+			assert.Equal(t, finishReasonComplete, *ends[1].FinishReason, "the empty reply completes its turn")
+			assert.Equal(t, ends[0].Generation+1, ends[1].Generation, "the reply is a generation of its own")
+			require.NotNil(t, ends[1].CostInfo)
+			assert.Equal(t, 900, ends[1].CostInfo.InputTokens)
+			assert.Empty(t, usage)
+		})
+	}
 }
 
-// The tool-call generation's generationComplete can be followed by its
-// turnComplete later than the window: the generationComplete came soon after
-// the toolCall, so the turnComplete is still that generation's.
+// A toolCall whose calls are answered one at a time is answered from the
+// first response: a generationComplete read toolGenEndWindow after it is the
+// reply's, however recent the last response.
+func TestLiveToolCallTurn_ParallelCallsAreAnsweredFromTheFirstResponse(t *testing.T) {
+	clock := newTestClock()
+	session := scriptedLiveServerOnClock(t, "test-live", clock, func(conn *websocket.Conn) {
+		writeServer(conn, &ServerMessage{ToolCall: &ToolCallMsg{FunctionCalls: []FunctionCall{
+			{ID: "call_1", Name: "get_weather"}, {ID: "call_2", Name: "get_weather"}}}})
+		for range 2 {
+			if !readUntilToolResponse(conn) {
+				return
+			}
+		}
+		writeServer(conn, generationComplete())
+		writeServer(conn, turnComplete(textUsage(900, 0)))
+		_, _, _ = conn.ReadMessage()
+	})
+
+	var ends, usage []providers.StreamChunk
+	deadline := time.After(3 * time.Second)
+	for len(ends) < 2 {
+		select {
+		case c := <-session.Response():
+			switch {
+			case c.FinishReason != nil:
+				ends = append(ends, c)
+				if len(c.ToolCalls) == 2 {
+					for i, tc := range c.ToolCalls {
+						if i > 0 {
+							clock.advance(toolGenEndWindow)
+						}
+						require.NoError(t, session.SendToolResponses(context.Background(),
+							[]providers.ToolResponse{{ToolCallID: tc.ID, Result: `{}`}}))
+					}
+				}
+			case c.CostInfo != nil:
+				usage = append(usage, c)
+			}
+		case <-deadline:
+			t.Fatalf("got %d turn completions, want 2", len(ends))
+		}
+	}
+	assert.Equal(t, finishReasonComplete, *ends[1].FinishReason, "the empty reply completes its turn")
+	assert.Empty(t, usage)
+}
+
+// A response to a call of an earlier toolCall does not answer the last one:
+// a generation end read then is still the last tool-call generation's.
+func TestLiveToolCallTurn_AResponseToAnotherCallDoesNotAnswerTheToolCall(t *testing.T) {
+	clock := newTestClock()
+	session := scriptedLiveServerOnClock(t, "test-live", clock, func(conn *websocket.Conn) {
+		writeToolCall(conn, "call_2")
+		if !readUntilToolResponse(conn) {
+			return
+		}
+		clock.advance(time.Minute)
+		writeServer(conn, turnComplete(textUsage(600, 12)))
+		_, _, _ = conn.ReadMessage()
+	})
+
+	var usage []providers.StreamChunk
+	deadline := time.After(3 * time.Second)
+	for len(usage) == 0 {
+		select {
+		case c := <-session.Response():
+			if c.FinishReason != nil {
+				require.Equal(t, types.FinishReasonToolUse, *c.FinishReason, "no turn but the tool call's ends")
+				require.NoError(t, session.SendToolResponses(context.Background(),
+					[]providers.ToolResponse{{ToolCallID: "call_1", Result: `{}`}}))
+			} else if c.CostInfo != nil {
+				usage = append(usage, c)
+			}
+		case <-deadline:
+			t.Fatal("the tool-call generation's usage was never reported")
+		}
+	}
+	assert.Equal(t, 600, usage[0].CostInfo.InputTokens)
+}
+
+// The tool-call generation's generationComplete, read before the tool
+// response was sent, can be followed by its turnComplete read after it and
+// much later: the turnComplete is still that generation's.
 func TestLiveToolCallTurn_LateTurnCompleteAfterAnEarlyGenerationComplete(t *testing.T) {
 	s := newProtocolTestSession(t)
 	clock := withClock(s)
 	require.NoError(t, s.processServerMessage(toolCall("call_1", "Paris")))
 	require.NoError(t, s.processServerMessage(generationComplete()))
+	s.noteToolResponse([]providers.ToolResponse{{ToolCallID: "call_1"}})
 	clock.advance(2 * time.Second)
 	require.NoError(t, s.processServerMessage(turnComplete(textUsage(600, 12))))
 
@@ -252,7 +354,9 @@ func TestLiveToolCallTurn_MessagesBeforeTheGenerationCompleteChangeNothing(t *te
 		assert.Equal(t, ends[1].Generation, usage[0].Generation)
 	})
 	t.Run("a fast tool response before the generationComplete is read", func(t *testing.T) {
-		session := scriptedLiveServer(t, "test-live", func(conn *websocket.Conn) {
+		// The clock stands still: the generationComplete is read within
+		// toolGenEndWindow of the response, whatever the runner's load.
+		session := scriptedLiveServerOnClock(t, "test-live", newTestClock(), func(conn *websocket.Conn) {
 			writeToolCall(conn, "call_1")
 			if !readUntilToolResponse(conn) {
 				return
@@ -340,20 +444,21 @@ func TestLiveToolCallTurn_ToolCallsAreReportedWhenTheSessionEnds(t *testing.T) {
 // one's usage is reported once, for its own generation; the reply carries
 // only its own. The model's name plays no part: here it is a 2.5 name.
 func TestLiveToolCallTurn_ChainedToolCallsReportEachUsage(t *testing.T) {
-	session := scriptedLiveServer(t, "gemini-2.5-flash-native-audio-preview-12-2025", func(conn *websocket.Conn) {
-		for i, id := range []string{"call_1", "call_2"} {
-			writeToolCall(conn, id)
-			writeServer(conn, generationComplete())
-			writeServer(conn, turnComplete(textUsage(100*(i+1), 10)))
-			if !readUntilToolResponse(conn) {
-				return
+	session := scriptedLiveServerOnClock(t, "gemini-2.5-flash-native-audio-preview-12-2025", newTestClock(),
+		func(conn *websocket.Conn) {
+			for i, id := range []string{"call_1", "call_2"} {
+				writeToolCall(conn, id)
+				writeServer(conn, generationComplete())
+				writeServer(conn, turnComplete(textUsage(100*(i+1), 10)))
+				if !readUntilToolResponse(conn) {
+					return
+				}
 			}
-		}
-		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{
-			ModelTurn: &ModelTurn{Parts: []Part{{Text: "It is hazy."}}}}})
-		writeServer(conn, turnComplete(textUsage(400, 20)))
-		_, _, _ = conn.ReadMessage()
-	})
+			writeServer(conn, &ServerMessage{ServerContent: &ServerContent{
+				ModelTurn: &ModelTurn{Parts: []Part{{Text: "It is hazy."}}}}})
+			writeServer(conn, turnComplete(textUsage(400, 20)))
+			_, _, _ = conn.ReadMessage()
+		})
 
 	ends, usage := toolChainEnds(t, session, 3)
 	assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
@@ -372,6 +477,24 @@ func TestLiveToolCallTurn_ChainedToolCallsReportEachUsage(t *testing.T) {
 // script on the connection.
 func scriptedLiveServer(t *testing.T, model string, script func(conn *websocket.Conn)) *StreamSession {
 	t.Helper()
+	return scriptedLiveServerOnClock(t, model, nil, script)
+}
+
+// newTestClock is a clock a test moves by hand, standing still otherwise.
+func newTestClock() *testClock {
+	return &testClock{t: time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)}
+}
+
+// scriptedLiveServerOnClock is scriptedLiveServer with a session on clock
+// (nil: the wall clock).
+func scriptedLiveServerOnClock(
+	t *testing.T, model string, clock *testClock, script func(conn *websocket.Conn),
+) *StreamSession {
+	t.Helper()
+	config := &StreamSessionConfig{Model: model}
+	if clock != nil {
+		config.now = clock.now
+	}
 	server := newMockWebSocketServer(func(conn *websocket.Conn) {
 		_, _, _ = conn.ReadMessage() // setup
 		data, _ := json.Marshal(ServerMessage{SetupComplete: &SetupComplete{}})
@@ -379,8 +502,7 @@ func scriptedLiveServer(t *testing.T, model string, script func(conn *websocket.
 		script(conn)
 	})
 	t.Cleanup(server.Close)
-	session, err := NewStreamSession(context.Background(), server.URL(), "test-key",
-		&StreamSessionConfig{Model: model})
+	session, err := NewStreamSession(context.Background(), server.URL(), "test-key", config)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.Close() })
 	return session
