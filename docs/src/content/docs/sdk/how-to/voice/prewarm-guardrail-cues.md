@@ -33,7 +33,7 @@ func warm(ctx context.Context) {
 }
 ```
 
-It renders every prompt's validator messages, the messages of guardrails you pass with `sdk.WithGuardrail`, and the default blocked message. Each renders once, as PCM16 mono at 24 kHz, the rate OpenAI Realtime and Gemini Live speak at. The voice is matched to the service's voices the way a session matches its own voice: by ID or name, ignoring case.
+It renders every prompt's validator messages, the messages of guardrails you pass with `sdk.WithGuardrail`, and the default blocked message. Each renders once, as PCM16 mono at 24 kHz, the rate OpenAI Realtime and Gemini Live speak at. The voice is matched to the service's voices the way a session matches its own voice: by ID or name, ignoring case. Pre-warm one TTS service per voice: a message already pre-warmed for the voice with another service's audio is refused with `stage.ErrVoicePrewarmedByAnotherService`.
 
 A message the service fails to render is named in the returned error, and the other messages are still cached. A failed pre-warm does not stop a session from working: a message not in the cache is rendered when the session starts.
 
@@ -64,7 +64,7 @@ if err != nil {
 err = sdk.PrewarmCueClips(ctx, "./assistant.pack.json", speech, "alloy", sdk.WithCueClipCache(cache))
 ```
 
-Open conversations on it read-only. With no TTS service configured, a session plays the clips pre-warmed for its voice and makes no TTS call:
+Open conversations on it read-only. A session with no TTS service configured plays the clips pre-warmed for its voice and makes no TTS call. A session whose TTS service renders no PCM does not use them. When the pre-warming service has no voice matching the one you name, it renders in its default voice and those clips are not kept for sessions without a TTS service; a warning names the voice:
 
 ```go
 cues, err := stage.NewDirClipCache("./cues", stage.DirCacheReadOnly())

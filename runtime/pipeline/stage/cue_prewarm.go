@@ -1,12 +1,14 @@
 package stage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
@@ -16,6 +18,12 @@ import (
 // session, so it cannot be pre-warmed.
 var ErrSessionBoundSource = errors.New("the clip source is session-bound: a provider's out-of-band " +
 	"audio renders only inside a live session and cannot be pre-warmed; pre-warm with a TTS service")
+
+// ErrVoicePrewarmedByAnotherService is PrewarmClips' error for a text already
+// pre-warmed for the voice and format from another TTS service: a session with
+// no TTS service plays one service's clips per voice, so a second service's is
+// refused rather than mixed in.
+var ErrVoicePrewarmedByAnotherService = errors.New("the voice is already pre-warmed from another TTS service")
 
 // errNotPrewarmed is prewarmedSource's render error: it only reads the cache.
 var errNotPrewarmed = errors.New("the clip was not pre-warmed")
@@ -33,6 +41,20 @@ func (prewarmedSource) render(context.Context, string, ClipFormat) (CueClip, *cl
 	return CueClip{}, nil, errNotPrewarmed
 }
 
+// keepForVoice keeps clip under the session voice alone, for a session with
+// no TTS service (prewarmedSource). A different clip already kept there came
+// from another service: it is refused, not replaced.
+func keepForVoice(ctx context.Context, b *cueBank, voice, text string, format ClipFormat, clip CueClip) error {
+	pw := prewarmedSource{sessionVoice: voice}
+	clip.Meta = ClipMeta{Text: pw.keyText(text), Voice: pw.voice(), Source: pw.kind()}
+	key := ClipKeyFor(clip.Meta.Text, clip.Meta.Voice, clip.Meta.Source, format)
+	if held, ok := b.cached(ctx, key); ok && held.Audio != nil && !bytes.Equal(held.Audio.Samples, clip.Audio.Samples) {
+		return fmt.Errorf("pre-warm %q for voice %q: %w", text, voice, ErrVoicePrewarmedByAnotherService)
+	}
+	b.keep(ctx, key, clip)
+	return nil
+}
+
 // PrewarmClips renders texts with the TTS service svc into cache, so a session
 // started later plays them with no render. voice is the session's voice name:
 // the clips are keyed by the service voice whose ID or name matches it,
@@ -42,8 +64,11 @@ func (prewarmedSource) render(context.Context, string, ClipFormat) (CueClip, *cl
 // default.
 //
 // Each clip is also kept under the session voice alone, so a session with no
-// TTS service (a test, an arena run, a host that warms a directory offline)
-// plays it too.
+// TTS service configured (a test, an arena run, a host that warms a directory
+// offline) plays it too. That is skipped, with a warning, when the service has
+// no voice matching voice. Pre-warm one TTS service per voice and format: a
+// text already kept for the voice with another service's audio returns
+// ErrVoicePrewarmedByAnotherService.
 //
 // Each text renders once, through the same trimming, fade, resampling and
 // process-wide single-flight a session uses, a few at a time. A text the
@@ -67,6 +92,13 @@ func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice s
 	if src == nil {
 		return fmt.Errorf("pre-warm: the TTS service %q renders no PCM", svc.Name())
 	}
+	// The clips are kept for the voice only when the service speaks in it: a
+	// service's default voice is not the voice a session asked for.
+	forVoice := voice == "" || src.voiceID != ""
+	if !forVoice {
+		logger.Warn("pre-warm: the TTS service has no voice matching the session's; its clips are not kept "+
+			"for sessions without a TTS service", "tts", svc.Name(), "session_voice", voice)
+	}
 	b := newCueBank(&CueConfig{Cache: cache, RenderTimeout: defaultCueRenderTimeout})
 	b.state, b.format, b.sources = cueSessionSpoken, format, []clipSource{src}
 
@@ -84,11 +116,9 @@ func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice s
 				errs[i] = fmt.Errorf("pre-warm %q: %w", text, err)
 				return
 			}
-			// Also under the session voice alone, for a session with no TTS
-			// service (prewarmedSource).
-			pw := prewarmedSource{sessionVoice: voice}
-			clip.Meta = ClipMeta{Text: pw.keyText(text), Voice: pw.voice(), Source: pw.kind()}
-			b.keep(ctx, ClipKeyFor(clip.Meta.Text, clip.Meta.Voice, clip.Meta.Source, format), clip)
+			if forVoice {
+				errs[i] = keepForVoice(ctx, b, voice, text, format, clip)
+			}
 		}()
 	}
 	wg.Wait()

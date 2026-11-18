@@ -776,6 +776,12 @@ var ErrSessionBoundSource = errors.New("the clip source is session-bound: a prov
 var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")
 ```
 
+<a name="ErrVoicePrewarmedByAnotherService"></a>ErrVoicePrewarmedByAnotherService is PrewarmClips' error for a text already pre\-warmed for the voice and format from another TTS service: a session with no TTS service plays one service's clips per voice, so a second service's is refused rather than mixed in.
+
+```go
+var ErrVoicePrewarmedByAnotherService = errors.New("the voice is already pre-warmed from another TTS service")
+```
+
 <a name="BatchEmbeddingTexts"></a>
 ## func [BatchEmbeddingTexts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/similarity.go#L95>)
 
@@ -866,7 +872,7 @@ func NormalizeEmbedding(embedding []float32) []float32
 NormalizeEmbedding normalizes an embedding vector to unit length. This can improve similarity comparisons by ensuring all vectors have the same magnitude.
 
 <a name="PrewarmClips"></a>
-## func [PrewarmClips](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_prewarm.go#L53-L55>)
+## func [PrewarmClips](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_prewarm.go#L78-L80>)
 
 ```go
 func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice string, format ClipFormat, texts []string) error
@@ -874,7 +880,7 @@ func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice s
 
 PrewarmClips renders texts with the TTS service svc into cache, so a session started later plays them with no render. voice is the session's voice name: the clips are keyed by the service voice whose ID or name matches it, ignoring case \(the service's default voice when none does\), exactly as a session in that voice looks them up. format is the session's output format \(PCM16 mono; a zero SampleRate is 24 kHz\). A nil cache is the process\-wide default.
 
-Each clip is also kept under the session voice alone, so a session with no TTS service \(a test, an arena run, a host that warms a directory offline\) plays it too.
+Each clip is also kept under the session voice alone, so a session with no TTS service configured \(a test, an arena run, a host that warms a directory offline\) plays it too. That is skipped, with a warning, when the service has no voice matching voice. Pre\-warm one TTS service per voice and format: a text already kept for the voice with another service's audio returns ErrVoicePrewarmedByAnotherService.
 
 Each text renders once, through the same trimming, fade, resampling and process\-wide single\-flight a session uses, a few at a time. A text the service fails is named in the returned error; the others are still cached. svc must render PCM; nil, or a live session's audio, is session\-bound and returns ErrSessionBoundSource.
 
