@@ -2006,8 +2006,9 @@ func (s *ProviderStage) executeRound(
 	prov := s.callProvider() // one read per round: events, call and cost agree
 	ResetIdleFromContext(ctx)
 	// Interrupted replies stay in the transcript but never go back to the
-	// model, its guardrails, or the tool-path decision.
-	messages = types.ExcludeInterrupted(messages)
+	// model, its guardrails, or the tool-path decision. Blocked input turns
+	// are found first, on the history as given (see withoutInterrupted).
+	messages, blockedTurns := withoutInterrupted(messages)
 
 	if blocked, handled, err := s.runBeforeCallHooks(
 		ctx, messages, systemPrompt, round, metadata,
@@ -2015,10 +2016,11 @@ func (s *ProviderStage) executeRound(
 		return blocked, false, err
 	}
 
-	// Build provider request
+	// Build provider request. A turn an input guardrail blocked reaches the
+	// hooks above but never the model (see blockedInputTurns).
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
-		Messages:       withRenderedMessageMetadata(messages, messageMetadataTemplate(prov)),
+		Messages:       withRenderedMessageMetadata(withoutMasked(messages, blockedTurns), messageMetadataTemplate(prov)),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
@@ -2131,8 +2133,10 @@ func (s *ProviderStage) executeStreamingRound(
 	ResetIdleFromContext(ctx)
 	prov := s.callProvider() // one read per round: events, call and cost agree
 	// Interrupted replies stay in the transcript but never go back to the
-	// model, its guardrails, or the tool-path decision.
-	params.messages = types.ExcludeInterrupted(params.messages)
+	// model, its guardrails, or the tool-path decision. Blocked input turns
+	// are found first, on the history as given (see withoutInterrupted).
+	var blockedTurns []bool
+	params.messages, blockedTurns = withoutInterrupted(params.messages)
 
 	if blocked, handled, err := s.runBeforeCallHooks(
 		ctx, params.messages, params.systemPrompt, params.round, params.metadata,
@@ -2145,10 +2149,12 @@ func (s *ProviderStage) executeStreamingRound(
 		return blocked, false, err
 	}
 
-	// Build provider request
+	// Build provider request. A turn an input guardrail blocked reaches the
+	// hooks above but never the model (see blockedInputTurns).
 	req := providers.PredictionRequest{
-		System:         params.systemPrompt,
-		Messages:       withRenderedMessageMetadata(params.messages, messageMetadataTemplate(prov)),
+		System: params.systemPrompt,
+		Messages: withRenderedMessageMetadata(
+			withoutMasked(params.messages, blockedTurns), messageMetadataTemplate(prov)),
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
 		ResponseFormat: s.roundResponseFormat(params.providerTools),
@@ -2630,8 +2636,11 @@ func (s *ProviderStage) interceptChunk(
 	}
 	if d.Enforced {
 		// Hook enforced (e.g., truncated content) — use the
-		// modified chunk content and stop reading the stream.
+		// modified chunk content and stop reading the stream. The turn is
+		// marked safety, as applyEnforcedResponse marks an enforced unary
+		// one: the provider's own reason describes a reply that was replaced.
 		acc.content = chunk.Content
+		acc.finishReason = types.FinishReasonSafety
 		return true, nil
 	}
 	return false, &providers.ValidationAbortError{
@@ -2930,6 +2939,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	}
 	// Guardrail skipped the provider call: no request, no tokens.
 	blocked := s.blockedMessage(hookReq, d)
+	markBlockedInput(&blocked)
 	s.recordGuardrailFiring(&blocked, d, hooks.DirectionInput, time.Since(hookStart))
 	return blocked, true, nil
 }

@@ -324,6 +324,7 @@ func (s *DuplexProviderStage) guardInputText(
 		duration: time.Since(start),
 		user:     s.pendingTypedUser,
 	}
+	markBlockedInput(&blocked.msg)
 	s.dropTurnID(elem)
 	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
 		s.sendToolResponses(ctx, toolResponses)
@@ -598,7 +599,9 @@ func (s *DuplexProviderStage) replyGeneration() int64 {
 func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.Decision) {
 	blocked := blockedTurnMessage(req, d)
 	s.turnGuard.blockedText = &blocked.Content
-	s.turnGuard.blockedMeta = blocked.Meta
+	// Merged, not replaced: a mark an earlier block on this turn set (a
+	// blocked input's) must survive this one.
+	s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
 	s.blockTurn()
 	s.showBlockedText(blocked.Content, true)
 }
@@ -695,12 +698,13 @@ func interruptElement(reason string) StreamElement {
 // with replyDone (the reply already completed and was emitted), only cuts what
 // is still playing. Either way the session is asked to forget the input,
 // named by inputID, the session's ID for it, and the reply to it
-// (forgetBlockedTurn), so the model does not remember what was blocked.
+// (forgetBlockedTurn), so the model does not remember what was blocked. It
+// reports whether the turn was blocked.
 func (s *DuplexProviderStage) guardSpokenInput(
 	ctx context.Context, messages []types.Message, replyDone bool, inputID string,
-) {
+) bool {
 	if !s.hooksActive() {
-		return
+		return false
 	}
 	defer keepIdleAlive(ctx)()
 
@@ -708,18 +712,21 @@ func (s *DuplexProviderStage) guardSpokenInput(
 	start := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, req)
 	if d.Allow {
-		return
+		return false
 	}
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, time.Since(start), req.TurnIndex)
 	s.forgetInputOf(inputID)
 	if replyDone {
 		s.cutReplyOf(s.lastReplyGen)
-		return
+		return true
 	}
 	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
 		s.turnGuard.validations = append(s.turnGuard.validations, v)
 	}
 	s.blockTurnWith(req, d)
+	// The reply that replaces the turn is a blocked input turn's canned reply.
+	s.turnGuard.blockedMeta = withBlockedInputMark(s.turnGuard.blockedMeta)
+	return true
 }
 
 // turnText is the current turn's text: the blocked text of a turn a block
@@ -828,6 +835,9 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 		return false
 	}
 	recordGuardrailFiring(s.emitter, msg, d, hooks.DirectionOutput, time.Since(start), req.TurnIndex)
+	// An output block replaces the turn's Meta with its own; a turn an input
+	// block already replaced stays marked as one.
+	blockedInput := isMarkedBlockedInput(msg)
 	if d.Enforced {
 		var dropped []types.MessageToolCall
 		applyEnforcedResponse(msg, &dropped, resp, d, known)
@@ -837,6 +847,9 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 		if blocked.Meta != nil {
 			msg.Meta = blocked.Meta
 		}
+	}
+	if blockedInput {
+		markBlockedInput(msg)
 	}
 	markEnforcedTurn(msg, elem)
 	return true

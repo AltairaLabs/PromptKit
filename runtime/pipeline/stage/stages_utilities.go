@@ -875,8 +875,12 @@ func (s *ContextBuilderStage) Process(
 		return s.emitMessages(ctx, messages, fromHistory, firstElem, output, false)
 	}
 
-	// Apply truncation strategy
-	truncated, err := s.truncateMessages(ctx, messages, available)
+	// Apply truncation strategy. It works on the history without blocked input
+	// turns: a strategy that keeps messages one by one (relevance) could keep a
+	// blocked user message and drop the canned reply that marks it, and the
+	// model would then be sent the blocked request. A summary is model context
+	// too, so it is never built from one either.
+	truncated, err := s.truncateMessages(ctx, excludeBlockedInputTurns(messages), available)
 	if err != nil {
 		return fmt.Errorf("context builder: %w", err)
 	}

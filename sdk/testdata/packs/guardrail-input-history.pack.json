@@ -1,0 +1,47 @@
+{
+  "$schema": "https://promptpack.org/schema/latest/promptpack.schema.json",
+  "id": "guardrail-input-history",
+  "name": "Guardrail Input History Pack",
+  "version": "1.0.0",
+  "description": "A pack with an input content_excludes guardrail, for what later turns send to the model",
+  "template_engine": {
+    "version": "v1",
+    "syntax": "{{variable}}"
+  },
+  "prompts": {
+    "chat": {
+      "id": "chat",
+      "name": "Chat",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant.",
+      "validators": [
+        {
+          "id": "no-bruno",
+          "type": "content_excludes",
+          "message": "We don't talk about Bruno.",
+          "params": {
+            "patterns": ["Bruno"],
+            "direction": "input"
+          }
+        }
+      ]
+    },
+    "chat-output": {
+      "id": "chat-output",
+      "name": "Chat with an output guardrail",
+      "version": "1.0.0",
+      "system_template": "You are a helpful assistant.",
+      "validators": [
+        {
+          "id": "no-mock",
+          "type": "content_excludes",
+          "message": "That reply was withheld.",
+          "params": {
+            "patterns": ["Mock response"],
+            "direction": "output"
+          }
+        }
+      ]
+    }
+  }
+}

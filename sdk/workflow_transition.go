@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/workflow"
 )
@@ -37,9 +38,12 @@ func (wc *WorkflowConversation) transitionInternal(event, contextSummary string)
 // buildContextSummary creates a text summary of the previous state's conversation
 // for injection into the next state. It includes the state name, turn count,
 // and the last few message exchanges.
+//
+// The summary is model context for the next state, so it leaves out what the
+// provider request does: interrupted replies and blocked input turns.
 func buildContextSummary(stateName string, conv *Conversation) string {
 	ctx := context.Background()
-	messages := conv.Messages(ctx)
+	messages := stage.ExcludeFromModelContext(conv.Messages(ctx))
 	return summarizeMessages(stateName, messages)
 }
 
