@@ -102,6 +102,33 @@ priced := providers.ProviderDefaults{
 
 `ProviderDefaults.MaxTokens` caps output tokens. A request's own `MaxTokens` overrides it. Leave `MaxTokens` at zero, or set it to `providers.MaxTokensUnlimited`, to send no limit and let the model's own maximum apply. Claude requires a limit: it sends 4096 when none is set, and `CreateProviderFromSpec` rejects `MaxTokensUnlimited` for it.
 
+## Turn on Claude extended thinking
+
+Set `thinking_budget` in the `claude` provider's `additional_config` to turn on extended thinking. Leave it out to keep thinking off.
+
+| Key | Type | Effect |
+|-----|------|--------|
+| `thinking_budget` | int | Turns on extended thinking. With the `budget` shape it caps reasoning tokens (at least 1024), and `max_tokens` is raised above it when it leaves no room for an answer. The `adaptive` shape takes no budget. |
+| `thinking_mode` | `adaptive` or `budget` | The thinking shape the model takes: `adaptive`, or `budget` (`type: enabled` with `budget_tokens`). Any other value fails provider construction. |
+
+Claude models take one of two request shapes for thinking, and the API rejects the wrong one with a 400. Models up to 4.5 take only `budget`, models from 4.7 take only `adaptive`, and 4.6 takes both.
+
+With `thinking_mode` set, the provider always sends that shape and never switches. Without it, the provider guesses from the model name: Anthropic API names of 4.5 and older models get `budget`, every other name gets `adaptive`. When the API rejects the guess, the provider retries the request once with the other shape and keeps that shape for later requests. Set `thinking_mode` when the model string is not an Anthropic API name, such as a Bedrock model ID, an inference profile, an ARN or an Azure deployment name, to skip the rejected first request.
+
+```yaml
+id: claude-bedrock
+type: claude
+model: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+platform:
+  type: bedrock
+  region: us-east-1
+additional_config:
+  thinking_budget: 4096
+  thinking_mode: budget
+```
+
+With extended thinking on, the provider does not send `temperature` or `top_k`, because the API rejects both alongside thinking.
+
 ## Fall back across providers
 
 Try each provider in order and return the first success:

@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
@@ -121,6 +123,14 @@ type Provider struct {
 	// thinkingBudget, when non-nil, enables Claude extended thinking with this
 	// token budget. Set from additional_config.thinking_budget. nil = off.
 	thinkingBudget *int
+	// thinkingMode is the thinking wire type the config declares
+	// (additional_config.thinking_mode), or "" when it declares none. A
+	// declared type is always sent and never corrected from a 400.
+	thinkingMode string
+	// learnedThinking holds the thinking wire type the API corrected this
+	// provider to; shared by copies of the provider. nil on a Provider built
+	// without a constructor, which then never learns.
+	learnedThinking *learnedThinkingType
 	// contextWindow, when positive, overrides the built-in context-window table.
 	// Set from additional_config.context_window.
 	contextWindow int
@@ -138,11 +148,12 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 	)
 
 	p := &Provider{
-		BaseProvider: baseProvider,
-		model:        model,
-		baseURL:      normalizeBaseURL(baseURL),
-		apiKey:       apiKey,
-		defaults:     defaults,
+		BaseProvider:    baseProvider,
+		model:           model,
+		baseURL:         normalizeBaseURL(baseURL),
+		apiKey:          apiKey,
+		defaults:        defaults,
+		learnedThinking: &learnedThinkingType{},
 	}
 	p.SetCredential(p.authCredential())
 	return p
@@ -174,14 +185,15 @@ func NewProviderWithCredential(
 	}
 
 	p := &Provider{
-		BaseProvider:   baseProvider,
-		model:          model,
-		baseURL:        normalizeBaseURL(baseURL),
-		apiKey:         apiKey,
-		credential:     cred,
-		defaults:       defaults,
-		platform:       platform,
-		platformConfig: platformConfig,
+		BaseProvider:    baseProvider,
+		model:           model,
+		baseURL:         normalizeBaseURL(baseURL),
+		apiKey:          apiKey,
+		credential:      cred,
+		defaults:        defaults,
+		platform:        platform,
+		platformConfig:  platformConfig,
+		learnedThinking: &learnedThinkingType{},
 	}
 	p.SetCredential(p.authCredential())
 	return p
@@ -420,13 +432,100 @@ func requiresLegacyThinking(model string) bool {
 // max_tokens leaves no room for an answer after reasoning.
 const thinkingAnswerHeadroom = 1024
 
+// thinkingType returns the thinking wire type to send: the type the config
+// declares, else the one the API corrected this provider to, else a guess from
+// the model name. The guess fits Anthropic API names only; for any other model
+// string (a Bedrock ID or ARN, an Azure deployment) a wrong guess costs one
+// rejected request, after which the provider sends the type the API accepts.
+func (p *Provider) thinkingType() string {
+	if p.thinkingMode != "" {
+		return p.thinkingMode
+	}
+	if t := p.learnedThinking.get(); t != "" {
+		return t
+	}
+	if requiresLegacyThinking(p.model) {
+		return thinkingTypeEnabled
+	}
+	return thinkingTypeAdaptive
+}
+
+// learnedThinkingType is the thinking wire type the API corrected a provider
+// to, "" until it does.
+type learnedThinkingType struct {
+	mu  sync.RWMutex
+	typ string
+}
+
+func (l *learnedThinkingType) get() string {
+	if l == nil {
+		return ""
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.typ
+}
+
+func (l *learnedThinkingType) set(typ string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.typ = typ
+}
+
+// rejectedThinkingType returns the thinking wire type a 400 says the model does
+// not take, or "" when err is not that rejection. The messages, captured live:
+//
+//	adaptive thinking is not supported on this model
+//	"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" ...
+//
+// Bedrock and Azure carry the same message, so the body is matched wherever it
+// sits in the error text.
+func rejectedThinkingType(err error) string {
+	var httpErr *providers.ProviderHTTPError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusBadRequest {
+		return ""
+	}
+	switch {
+	case strings.Contains(httpErr.Body, "adaptive thinking is not supported"):
+		return thinkingTypeAdaptive
+	case strings.Contains(httpErr.Body, "thinking.type.enabled") &&
+		strings.Contains(httpErr.Body, "not supported"):
+		return thinkingTypeEnabled
+	default:
+		return ""
+	}
+}
+
+// withThinkingFallback runs call, and when it fails because the model rejects
+// the thinking wire type sent, records the other type for this provider and
+// runs call once more. A type the config declares is never second-guessed.
+func (p *Provider) withThinkingFallback(call func() error) error {
+	err := call()
+	if p.thinkingBudget == nil || p.thinkingMode != "" || p.learnedThinking == nil {
+		return err
+	}
+	rejected := rejectedThinkingType(err)
+	if rejected == "" {
+		return err
+	}
+	other := thinkingTypeAdaptive
+	if rejected == thinkingTypeAdaptive {
+		other = thinkingTypeEnabled
+	}
+	p.learnedThinking.set(other)
+	logger.Warn("claude: the model rejected the thinking type; retrying with the other one "+
+		"(set additional_config.thinking_mode to skip the first attempt)",
+		"provider", p.ID(), "model", p.model, "rejected", rejected, "now_sending", other)
+	return call()
+}
+
 // claudeThinkingFor returns the thinking block to attach, or nil when extended
 // thinking is not configured for this provider.
 func (p *Provider) claudeThinkingFor() *claudeThinking {
 	if p.thinkingBudget == nil {
 		return nil
 	}
-	if requiresLegacyThinking(p.model) {
+	if p.thinkingType() == thinkingTypeEnabled {
 		return &claudeThinking{Type: thinkingTypeEnabled, BudgetTokens: *p.thinkingBudget}
 	}
 	// Adaptive takes no budget. Say so rather than silently discarding a number
@@ -893,12 +992,18 @@ func (p *Provider) predictOnce(
 }
 
 // Predict runs predictOnce, retrying without any sampling parameter the API
-// rejects for this model (providers.BaseProvider.RetryRejectedParams).
+// rejects for this model (providers.BaseProvider.RetryRejectedParams), and with
+// the other thinking type if the model rejects the one sent.
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
-			return p.predictOnce(ctx, r)
-		})
+	var resp providers.PredictionResponse
+	err := p.withThinkingFallback(func() (err error) {
+		resp, err = providers.RetryCall(&p.BaseProvider, req,
+			func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+				return p.predictOnce(ctx, r)
+			})
+		return err
+	})
+	return resp, err
 }
 
 // claudeUsageToTokens maps Anthropic's cache-EXCLUSIVE input accounting into
