@@ -319,8 +319,10 @@ func TestConvertToolsToResponsesFormat(t *testing.T) {
 		t.Errorf("expected strict=true on first tool")
 	}
 	second := got[1].(map[string]any)
-	if _, hasStrict := second["strict"]; hasStrict {
-		t.Errorf("non-strict tool should omit strict key, got %+v", second)
+	// Omitted, the Responses API tries to normalize the schema into strict
+	// mode; only an explicit false keeps the tool non-strict.
+	if got, hasStrict := second["strict"]; !hasStrict || got != false {
+		t.Errorf("non-strict tool must send strict: false, got %+v", second)
 	}
 }
 

@@ -295,16 +295,18 @@ func (p *Provider) convertToolsToResponsesFormat(tools any) []any {
 
 	result := make([]any, len(openAITools))
 	for i, tool := range openAITools {
-		entry := map[string]any{
+		// strict is always sent. Omitted, the Responses API tries to normalize
+		// the schema into strict mode ("To keep non-strict behavior, set
+		// strict: false explicitly" —
+		// https://developers.openai.com/api/docs/guides/function-calling), which
+		// undoes BuildTooling sending a strict-incompatible tool non-strict.
+		result[i] = map[string]any{
 			keyType:       typeFunction,
 			keyName:       tool.Function.Name,
 			"description": tool.Function.Description,
 			"parameters":  tool.Function.Parameters,
+			keyStrict:     tool.Function.Strict,
 		}
-		if tool.Function.Strict {
-			entry[keyStrict] = true
-		}
-		result[i] = entry
 	}
 	return result
 }

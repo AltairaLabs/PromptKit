@@ -117,7 +117,10 @@ func desc(name, schema string) *providers.ToolDescriptor {
 func TestBuildTooling_StrictIncompatibleToolIsSentNonStrictVerbatim(t *testing.T) {
 	wantChat := `[{"type":"function","function":{"name":"dream_propose","description":"d",` +
 		`"parameters":` + dreamProposeSchema + `}}]`
-	wantResponses := `[{"type":"function","name":"dream_propose","description":"d",` +
+	// Responses says strict: false outright: with the key omitted, OpenAI's
+	// function-calling guide says the API tries to normalize the schema into
+	// strict mode, and to "set strict: false explicitly" to keep it non-strict.
+	wantResponses := `[{"type":"function","name":"dream_propose","description":"d","strict":false,` +
 		`"parameters":` + dreamProposeSchema + `}]`
 
 	cases := []struct {
@@ -167,6 +170,18 @@ func TestBuildTooling_StrictCompatibilityIsDecidedBySchema(t *testing.T) {
 			`"$defs":{"v":{"allOf":[{"type":"string"}]}}}`,
 		"uniqueItems in anyOf branch": `{"type":"object","properties":{"v":{"anyOf":[` +
 			`{"type":"array","items":{"type":"string"},"uniqueItems":true},{"type":"null"}]}}}`,
+		// Tuple-form items: strict mode requires items to be one schema.
+		"tuple items": `{"type":"object","properties":{"pair":{"type":"array",` +
+			`"items":[{"type":"string"},{"type":"integer"}]}}}`,
+		// draft-07 spelling of dependentRequired / dependentSchemas.
+		"dependencies": `{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"string"}},` +
+			`"dependencies":{"a":["b"]}}`,
+		// A nested free-form object: closing it would accept no keys at all.
+		"nested free-form object": `{"type":"object","properties":{"meta":{"type":"object"}}}`,
+		"nested object with empty properties": `{"type":"object","properties":{"meta":{"type":"object",` +
+			`"properties":{}}}}`,
+		"free-form object in array items": `{"type":"object","properties":{"rows":{"type":"array",` +
+			`"items":{"type":"object"}}}}`,
 	}
 	for name, schema := range nonStrict {
 		t.Run("non-strict: "+name, func(t *testing.T) {
@@ -190,9 +205,20 @@ func TestBuildTooling_StrictCompatibilityIsDecidedBySchema(t *testing.T) {
 				`"n":{"type":"integer","minimum":0},"l":{"type":"array","items":{"type":"string"},"minItems":1}},` +
 				`"additionalProperties":false,"required":["e","l","n"]}`,
 		},
-		"bare object": {
+		// A root object with no properties is a no-argument tool, not a map.
+		"no-argument tool, bare root": {
 			`{"type":"object"}`,
 			`{"type":"object","properties":{},"additionalProperties":false,"required":[]}`,
+		},
+		"no-argument tool, empty root properties": {
+			`{"type":"object","properties":{}}`,
+			`{"type":"object","properties":{},"additionalProperties":false,"required":[]}`,
+		},
+		// A nested object that declares its properties is closed, not free-form.
+		"nested object with properties": {
+			`{"type":"object","properties":{"o":{"type":"object","properties":{"k":{"type":"string"}}}}}`,
+			`{"type":"object","properties":{"o":{"type":"object","properties":{"k":{"type":"string"}},` +
+				`"additionalProperties":false,"required":["k"]}},"additionalProperties":false,"required":["o"]}`,
 		},
 	}
 	for name, tc := range strict {

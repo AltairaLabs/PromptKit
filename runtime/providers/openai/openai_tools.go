@@ -138,9 +138,11 @@ func strictResponseSchema(rf *providers.ResponseFormat) json.RawMessage {
 //
 // Traversal is schemaadapt.Walk rather than a private recursion. The private
 // one descended through "properties" and a map-valued "items" and nothing
-// else, so an object under $defs, under an anyOf branch, or under a
-// tuple-form items was left non-compliant and the API rejected the request —
-// the same nested-node miss #2055 reported on the Anthropic side.
+// else, so an object under $defs or under an anyOf branch was left
+// non-compliant and the API rejected the request — the same nested-node miss
+// #2055 reported on the Anthropic side. Walk does not descend into a
+// tuple-form (array-valued) items; strict mode refuses that form outright, so
+// strictCompatible sends such a tool non-strict and it never reaches here.
 func ensureStrictSchema(schema json.RawMessage) json.RawMessage {
 	return schemaadapt.Rewrite(schema, applyStrictToObject)
 }
@@ -159,8 +161,11 @@ func ensureStrictSchema(schema json.RawMessage) json.RawMessage {
 // not know (title, default, examples, x-* extensions, nullable): an allowlist
 // would cost every tool carrying an annotation its strict mode for nothing.
 var strictUnsupportedKeywords = []string{
-	// Listed unsupported by the docs.
-	"allOf", "not", "dependentRequired", "dependentSchemas", "if", "then", "else",
+	// Listed unsupported by the docs, plus "dependencies", the draft-07
+	// spelling of dependentRequired/dependentSchemas: the API accepts it but
+	// does not enforce it, and Walk does not descend into it.
+	"allOf", "not", "dependentRequired", "dependentSchemas", "dependencies",
+	"if", "then", "else",
 	// Refused by the API under strict mode.
 	"oneOf", "minProperties", "maxProperties", "propertyNames",
 	"unevaluatedProperties", "unevaluatedItems", "uniqueItems",
@@ -178,33 +183,41 @@ var strictSupportedFormats = map[string]bool{
 // strictCompatible reports whether a tool schema can be sent under strict mode
 // without the API refusing it or ensureStrictSchema changing what it accepts.
 //
-// Two things rule it out, on any node:
+// Any of these, on any node, rules it out:
 //   - a keyword strict mode refuses, or a string format it does not support;
+//   - a tuple-form (array-valued) items, which strict mode refuses;
 //   - an object whose additionalProperties is not false — a map-typed object
 //     (schema-valued additionalProperties) or one explicitly open (true).
 //     Strict mode requires additionalProperties: false, so rewriting either
-//     would change the tool's contract; a map would accept no keys at all.
+//     would change the tool's contract; a map would accept no keys at all;
+//   - a nested free-form object: an object below the root that declares no
+//     properties and no additionalProperties, so accepts any keys. Closing it
+//     would leave it accepting none.
 //
-// An object with no additionalProperties keyword at all keeps the standard
-// strict rewrite: that is how most hand-written schemas spell a closed object.
-// A schema that does not decode is left to the strict path, which sends it
-// unchanged for the API to report.
+// An object that declares properties but no additionalProperties keeps the
+// standard strict rewrite: that is how most hand-written schemas spell a
+// closed object. So does a ROOT object with no properties: that is a tool
+// taking no arguments, and closing it is what it means. A schema that does
+// not decode is left to the strict path, which sends it unchanged for the API
+// to report.
 func strictCompatible(schema json.RawMessage) bool {
 	var doc any
 	if len(schema) == 0 || json.Unmarshal(schema, &doc) != nil {
 		return true
 	}
-	ok := true
+	ok, root := true, true
+	// Walk visits parents before children, so the first node is the root.
 	schemaadapt.Walk(doc, func(node map[string]any) {
-		if ok && !strictCompatibleNode(node) {
+		if ok && !strictCompatibleNode(node, root) {
 			ok = false
 		}
+		root = false
 	})
 	return ok
 }
 
 // strictCompatibleNode applies strictCompatible's rules to one schema node.
-func strictCompatibleNode(node map[string]any) bool {
+func strictCompatibleNode(node map[string]any, root bool) bool {
 	for _, k := range strictUnsupportedKeywords {
 		if _, present := node[k]; present {
 			return false
@@ -213,10 +226,25 @@ func strictCompatibleNode(node map[string]any) bool {
 	if f, isString := node["format"].(string); isString && !strictSupportedFormats[f] {
 		return false
 	}
-	if ap, present := node["additionalProperties"]; present && ap != false {
+	if _, tuple := node["items"].([]any); tuple {
 		return false
 	}
-	return true
+	ap, hasAP := node["additionalProperties"]
+	if hasAP {
+		return ap == false
+	}
+	return root || !isFreeFormObject(node)
+}
+
+// isFreeFormObject reports whether node is an object schema that declares no
+// properties (none, or an empty map) and says nothing about additional ones,
+// so JSON Schema lets it hold any keys.
+func isFreeFormObject(node map[string]any) bool {
+	if !schemaadapt.IsObjectNode(node) {
+		return false
+	}
+	props, _ := node["properties"].(map[string]any)
+	return len(props) == 0
 }
 
 // applyStrictToObject applies OpenAI strict mode's two rules to one node.
