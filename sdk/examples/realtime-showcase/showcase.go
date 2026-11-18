@@ -37,6 +37,10 @@ const (
 
 	// outputSampleRate is the reply audio rate of both providers.
 	outputSampleRate = 24000
+
+	// judgeProviderKey is the logical provider the pack's no-bruno-topic
+	// guardrail names in its requires block; judgeProvider binds it.
+	judgeProviderKey = "topic-judge"
 )
 
 // providerSetup is one realtime provider: how to build it and the audio it
@@ -49,6 +53,10 @@ type providerSetup struct {
 	encoding  string
 	metadata  map[string]interface{}
 	build     func(model string) providers.Provider
+	// judgeType and judgeModel are the text model that judges the caller's
+	// words for the no-bruno-topic guardrail, on the same API key.
+	judgeType  string
+	judgeModel string
 }
 
 // setupFor returns the realtime provider named by the -provider flag. The
@@ -58,7 +66,7 @@ func setupFor(name string) (*providerSetup, error) {
 	case "openai":
 		return &providerSetup{
 			name: "OpenAI Realtime", envKey: "OPENAI_API_KEY", model: "gpt-realtime",
-			inputRate: 24000, encoding: "pcm16",
+			inputRate: 24000, encoding: "pcm16", judgeType: "openai", judgeModel: "gpt-4.1-mini",
 			metadata: map[string]interface{}{"voice": "alloy", "modalities": []string{"audio"}},
 			build: func(model string) providers.Provider {
 				return openai.NewProvider("openai-realtime", model, "https://api.openai.com",
@@ -68,7 +76,7 @@ func setupFor(name string) (*providerSetup, error) {
 	case "gemini":
 		return &providerSetup{
 			name: "Gemini Live", envKey: "GEMINI_API_KEY", model: "gemini-3.8-live",
-			inputRate: 16000, encoding: "pcm_linear16",
+			inputRate: 16000, encoding: "pcm_linear16", judgeType: "gemini", judgeModel: "gemini-2.5-flash",
 			metadata: map[string]interface{}{"response_modalities": []string{"AUDIO"}},
 			build: func(model string) providers.Provider {
 				return gemini.NewProvider("gemini-live", model,
@@ -94,6 +102,13 @@ func (p *providerSetup) streamingConfig() *providers.StreamingInputConfig {
 		},
 		Metadata: p.metadata,
 	}
+}
+
+// judgeProvider binds the pack's topic-judge to the provider's text model.
+// The pack names only the logical key; which model judges is the host's
+// choice.
+func (p *providerSetup) judgeProvider() sdk.Option {
+	return sdk.WithNamedProvider(sdk.ProviderSpec{ID: judgeProviderKey, Type: p.judgeType, Model: p.judgeModel})
 }
 
 // flags are the command-line options both modes take.

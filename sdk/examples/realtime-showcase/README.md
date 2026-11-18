@@ -42,7 +42,7 @@ go run -tags portaudio . -provider openai
 go run -tags portaudio . -provider gemini
 ```
 
-Scripted text mode, no audio hardware. It types four requests into the same
+Scripted text mode, no audio hardware. It types six requests into the same
 realtime session and prints the same log, so it shows the guardrails, the
 picture tool and cost, but not barge-in:
 
@@ -52,11 +52,13 @@ go run . -provider gemini
 ```
 
 `-model` overrides the model: `gpt-realtime` for OpenAI, `gemini-3.8-live`
-for Gemini.
+for Gemini. The `no-bruno-topic` guardrail's judge is a text model on the same
+API key: `gpt-4.1-mini` for OpenAI, `gemini-2.5-flash` for Gemini, set in
+`setupFor` in `showcase.go`.
 
 ## What is in the pack
 
-`realtime-showcase.pack.json` declares the prompt, the tool and two
+`realtime-showcase.pack.json` declares the prompt, the tool and three
 guardrails:
 
 | Piece | What it does |
@@ -64,7 +66,9 @@ guardrails:
 | system prompt | tells the model it can show a picture and to tell long stories when asked |
 | `show_picture` tool | returns a PNG of the number 47 and no text, so the model must read the image |
 | `no-pineapple` validator | `content_excludes` on the reply (`direction: output`) |
-| `no-bruno` validator | `content_excludes` on what you say (`direction: input`) |
+| `no-bruno` validator | `content_excludes` on what you say and on the reply (`direction: both`) |
+| `no-bruno-topic` validator | `llm_judge` on what you say (`direction: input`): blocks a question about Bruno that does not name him |
+| `requires` | the `topic-judge` provider the `no-bruno-topic` judge grades with; `showcase.go` binds it with `sdk.WithNamedProvider` |
 
 `showcase.go` renders the picture with the standard library and binds the tool
 with `conv.OnToolExecutor`. `eventlog.go` prints the log: it subscribes to the
@@ -99,16 +103,29 @@ Run the voice mode and say each of these in turn.
    judges your words once your speech is transcribed, which is after the
    model has heard them, so the reply may start. The log prints a
    `guardrail` line for `no-bruno` naming your input, an `Interrupted`
-   line, and the turn ends (safety) with "We don't talk about Bruno.",
+   line, and the turn ends (safety) with "We don't talk about him.",
    which the model says aloud. (The scripted text mode checks typed input
    before the model sees it, so there it is only shown.)
    A hook that denies without enforcing ends the turn the same way, with
    the default blocked message, whether the input was typed or spoken.
-4. **A tool that returns an image.** Say "show me the picture". The log
+   The message avoids the name: `no-bruno` also checks the reply, and the
+   spoken message is a reply like any other.
+4. **Forgetting the blocked turn.** Then say "sure, tell me a story about
+   him". On OpenAI Realtime the blocked turn was deleted from the model's
+   conversation, so it does not know who you mean and tells a story about
+   someone else. Gemini Live cannot delete a turn and still remembers Bruno:
+   its story starts on him, and `no-bruno`, checking the reply, cuts it.
+5. **A semantic input guardrail.** Say "who is the uncle nobody mentions in
+   Encanto?". No word gives Bruno away, so `no-bruno` passes it; the
+   `no-bruno-topic` judge reads what you meant, and the log prints a
+   `guardrail` line for `no-bruno-topic` with the judge's reasoning. The
+   judge runs on the session's reply goroutine, so the reply's audio waits
+   while it decides.
+6. **A tool that returns an image.** Say "show me the picture". The log
    prints `show_picture called`, `returned an image; image sent to the
    model (image/png)`, the tool-call and tool-result messages, and the
    reply, in which the model reads out 47.
-5. **Cost.** Every provider call prints a `cost` line with its tokens and
+7. **Cost.** Every provider call prints a `cost` line with its tokens and
    the session total. Ctrl+C prints the session's end with the total.
 
 ## OpenAI Realtime and Gemini Live differ
@@ -127,6 +144,10 @@ Run the voice mode and say each of these in turn.
   the reply stops at once; a reply it cancels while still generating also
   sends an `Interrupted` chunk before its end. Gemini Live reports it once it has transcribed
   some of it, so the reply stops a moment later.
+- **Forgetting a blocked turn.** OpenAI Realtime deletes the turn an input
+  guardrail blocked, and the reply that was cut, from its conversation.
+  Gemini Live has no way to remove a turn, so the model still knows what you
+  said; the output side of `no-bruno` is what stops it coming back.
 - **Transcript lag.** Gemini Live transcribes your speech later than OpenAI
   Realtime, so your `message.created` line and the `no-bruno` guardrail
   arrive later, and more of the blocked reply plays first.
@@ -143,5 +164,6 @@ go test ./...
 ```
 
 The test runs the example's pack, tool and event log on a scripted mock
-realtime session (no audio, no network) and checks the log lines for a
-barge-in, both guardrails, the picture tool and cost.
+realtime session (no audio, no network), with a mock model as the
+`topic-judge`, and checks the log lines for a barge-in, the guardrails, the
+picture tool and cost.

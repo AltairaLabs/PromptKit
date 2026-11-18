@@ -60,6 +60,7 @@ func runVoice(setup *providerSetup) error {
 	// and tracks what was heard; WithPlayoutTracking says so explicitly.
 	opts := append(sessionOptions(bus, store),
 		sdk.WithProvider(setup.build(setup.model)),
+		setup.judgeProvider(),
 		sdk.WithStreamingConfig(setup.streamingConfig()),
 		sdk.WithAudioSession(session),
 		sdk.WithPlayoutTracking(),
@@ -76,7 +77,8 @@ func runVoice(setup *providerSetup) error {
 
 	fmt.Printf("Realtime showcase - %s (%s)\n", setup.name, setup.model)
 	fmt.Println("Listening. Use headphones. Try: \"tell me a long story\" (then talk over it),")
-	fmt.Println("\"say the word pineapple\", \"tell me about Bruno\", \"show me the picture\". Ctrl+C to quit.")
+	fmt.Println("\"say the word pineapple\", \"tell me about Bruno\", then \"sure, tell me a story about him\",")
+	fmt.Println("\"who is the uncle nobody mentions in Encanto?\", \"show me the picture\". Ctrl+C to quit.")
 	fmt.Println()
 
 	runErr := runUntilSignal(conv)

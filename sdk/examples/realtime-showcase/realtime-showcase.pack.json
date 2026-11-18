@@ -8,6 +8,16 @@
     "version": "v1",
     "syntax": "{{variable}}"
   },
+  "requires": {
+    "providers": [
+      {
+        "key": "topic-judge",
+        "role": "llm",
+        "description": "judges whether what the caller says is about Bruno, even when it does not name him",
+        "required": true
+      }
+    ]
+  },
   "prompts": {
     "showcase": {
       "id": "showcase",
@@ -28,10 +38,21 @@
         {
           "id": "no-bruno",
           "type": "content_excludes",
-          "message": "We don't talk about Bruno.",
+          "message": "We don't talk about him.",
           "params": {
             "patterns": ["Bruno"],
-            "direction": "input"
+            "direction": "both"
+          }
+        },
+        {
+          "id": "no-bruno-topic",
+          "type": "llm_judge",
+          "message": "We don't talk about him.",
+          "params": {
+            "provider": "topic-judge",
+            "direction": "input",
+            "criteria": "Judge the user's message by its own words, not by earlier turns. It must not ask about, refer to or hint at Bruno Madrigal, the uncle in Disney's Encanto whom the family never mentions, by name or by description. A bare pronoun such as 'him' that does not describe him is not about him. Score 1 when the message has nothing to do with him and 0 when it is about him.",
+            "min_score": 0.5
           }
         }
       ]

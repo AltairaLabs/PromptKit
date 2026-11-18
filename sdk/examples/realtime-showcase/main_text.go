@@ -2,8 +2,8 @@
 
 // Package main is the realtime showcase in scripted text mode: it opens the
 // same realtime session as the voice mode (OpenAI Realtime or Gemini Live),
-// types four requests into it and prints the event log. It needs no
-// microphone, so it shows the output guardrail, the input guardrail, the
+// types six requests into it and prints the event log. It needs no
+// microphone, so it shows the output guardrail, the input guardrails, the
 // picture tool and per-call cost, but not barge-in.
 //
 // For the voice mode (microphone and speaker), build with the portaudio tag:
@@ -38,6 +38,8 @@ var script = []string{
 	"Say the word pineapple, then tell me one fact about it.",
 	"What is the capital of France? Answer in one sentence.",
 	"Tell me about my friend Bruno.",
+	"Sure. Tell me about him in one sentence.",
+	"Who is the uncle nobody mentions in Encanto?",
 	"Show me the picture, and tell me the number on it.",
 }
 
@@ -64,6 +66,7 @@ func runScript(setup *providerSetup) error {
 
 	opts := append(sessionOptions(bus, store),
 		sdk.WithProvider(setup.build(setup.model)),
+		setup.judgeProvider(),
 		sdk.WithStreamingConfig(setup.streamingConfig()))
 	conv, err := sdk.OpenDuplex(packPath, promptName, opts...)
 	if err != nil {

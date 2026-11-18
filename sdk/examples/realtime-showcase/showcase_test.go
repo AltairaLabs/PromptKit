@@ -168,11 +168,39 @@ func TestShowcaseEventLog_PendingUsageIsPrintedInArrivalOrder(t *testing.T) {
 	}
 }
 
+// topicJudge is the mock judge bound to the pack's topic-judge: it finds the
+// caller's words clean until offTopic is set.
+type topicJudge struct {
+	mu       sync.Mutex
+	offTopic bool
+}
+
+func (j *topicJudge) set(offTopic bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.offTopic = offTopic
+}
+
+func (j *topicJudge) GetResponse(context.Context, mock.ResponseParams) (string, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.offTopic {
+		return `{"passed": false, "score": 0, "reasoning": "asks about Bruno without naming him"}`, nil
+	}
+	return `{"passed": true, "score": 1, "reasoning": "not about Bruno"}`, nil
+}
+
+func (j *topicJudge) GetTurn(ctx context.Context, params mock.ResponseParams) (*mock.Turn, error) {
+	text, err := j.GetResponse(ctx, params)
+	return &mock.Turn{Type: "text", Content: text}, err
+}
+
 func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 	sess := mock.NewMockStreamSession().WithAutoRespond("The picture shows the number 47.")
 	bus := events.NewEventBus()
 	store := statestore.NewMemoryStore()
 	out := &syncBuffer{}
+	judge := &topicJudge{}
 	elog := newEventLog(out, store, conversationID)
 	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
 	elog.attach(bus)
@@ -181,6 +209,10 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 		sdk.WithProvider(&scriptedProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt-model", false), sess: sess}),
 		sdk.WithStreamingConfig((&providerSetup{inputRate: 24000, encoding: "pcm16"}).streamingConfig()),
 		sdk.WithPlayoutTracking(),
+		// The pack's topic-judge, bound the way judgeProvider binds it, to a
+		// mock model.
+		sdk.WithNamedProvider(sdk.ProviderSpec{ID: judgeProviderKey, Type: "mock", Model: "judge",
+			AdditionalConfig: map[string]any{"repository": mock.ResponseRepository(judge)}}),
 	)
 	conv, err := sdk.OpenDuplex(packPath, promptName, opts...)
 	require.NoError(t, err)
@@ -226,26 +258,40 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 
 	// 3. The input guardrail judges what the caller said.
 	assert.Equal(t, []string{
-		`09:30:00.000  assistant message.created #5 "We don't talk about Bruno."`,
+		`09:30:00.000  assistant message.created #5 "We don't talk about him."`,
 		`09:30:00.000  cost      call 3: $0.0030 (300 in / 50 out tokens); session total $0.0200`,
 		`09:30:00.000  guardrail no-bruno blocked the user's input ` +
 			`(forbidden content found: turn 4 contains "Bruno"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
-		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about Bruno."`,
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about him."`,
 		`09:30:00.000  user      message.created #4 "Tell me about Bruno"`,
 	}, r.step(6, heard("Tell me about Bruno"), said("Bruno is a fine name.", 100), done(0.003, 300, 50)))
 
-	// 4. The picture tool returns an image, which is sent to the model.
+	// 4. The LLM judge blocks a question about Bruno that does not name him.
+	judge.set(true)
+	assert.Equal(t, []string{
+		`09:30:00.000  assistant message.created #7 "We don't talk about him."`,
+		`09:30:00.000  cost      call 4: $0.0030 (300 in / 50 out tokens); session total $0.0230`,
+		`09:30:00.000  guardrail no-bruno-topic blocked the user's input ` +
+			`(asks about Bruno without naming him); the turn ends, the session continues`,
+		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about him."`,
+		`09:30:00.000  user      message.created #6 "who is the uncle nobody mentions in Encanto"`,
+	}, r.step(6, heard("who is the uncle nobody mentions in Encanto"), said("That would be", 100),
+		done(0.003, 300, 50)))
+	judge.set(false)
+
+	// 5. The picture tool returns an image, which is sent to the model.
 	toolUse := types.FinishReasonToolUse
 	assert.Equal(t, []string{
-		`09:30:00.000  assistant message.created #7 "" [calls show_picture]`,
-		`09:30:00.000  assistant message.created #9 "The picture shows the number 47."`,
-		`09:30:00.000  cost      call 4: $0.0020 (200 in / 20 out tokens); session total $0.0220`,
-		`09:30:00.000  cost      call 5: $0.0000 (0 in / 0 out tokens); session total $0.0220`,
-		`09:30:00.000  tool      message.created #8 "" [image]`,
+		`09:30:00.000  assistant message.created #11 "The picture shows the number 47."`,
+		`09:30:00.000  assistant message.created #9 "" [calls show_picture]`,
+		`09:30:00.000  cost      call 5: $0.0020 (200 in / 20 out tokens); session total $0.0250`,
+		`09:30:00.000  cost      call 6: $0.0000 (0 in / 0 out tokens); session total $0.0250`,
+		`09:30:00.000  tool      message.created #10 "" [image]`,
 		`09:30:00.000  tool      show_picture called`,
 		`09:30:00.000  tool      show_picture returned an image; image sent to the model (image/png)`,
-		`09:30:00.000  user      message.created #6 "show me the picture"`,
+		`09:30:00.000  user      message.created #8 "show me the picture"`,
 	}, r.step(8, heard("show me the picture"), &providers.StreamChunk{
 		ToolCalls:    []types.MessageToolCall{{ID: "call-1", Name: "show_picture", Args: []byte(`{}`)}},
 		FinishReason: &toolUse,
@@ -256,7 +302,7 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 	bus.Close()
 	elog.end()
 	assert.Equal(t, []string{
-		`09:30:00.000  session   end: 5 provider calls, total cost $0.0220`,
+		`09:30:00.000  session   end: 6 provider calls, total cost $0.0250`,
 	}, r.step(1))
 }
 
