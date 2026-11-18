@@ -252,6 +252,11 @@ type DuplexProviderStage struct {
 	// change it.
 	pendingVerdicts    []*spokenVerdict
 	inputVerdictInline time.Duration
+	// replyOut is set once anything of the reply streaming now has gone out
+	// (replyBearing), until its turn ends or a barge-in cuts it; replyOutGen
+	// is its generation. Response goroutine only.
+	replyOut    bool
+	replyOutGen int64
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -1479,7 +1484,7 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 	}
 
 	// The turn the session ended in keeps the verdicts on its input.
-	if err := s.awaitVerdicts(ctx); err != nil {
+	if err := s.awaitVerdicts(ctx, output); err != nil {
 		return err
 	}
 	s.switchToOpenCall()
@@ -1663,6 +1668,9 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if turnDone {
 		s.resetTurnAccumulation()
 	}
+	if turnDone || chunk.Interrupted {
+		s.endReplyOut()
+	}
 
 	if err := s.settleTurnInput(ctx, &elem, turnDone, output); err != nil {
 		return err
@@ -1807,7 +1815,7 @@ func (s *DuplexProviderStage) materializeAtReplyStart(
 		s.transcriptionCaptured = true
 		s.transcriptMu.Unlock()
 	}
-	return s.awaitVerdictsFor(ctx, chunk, isOutputTranscription)
+	return s.awaitVerdictsFor(ctx, chunk, isOutputTranscription, output)
 }
 
 // settleTurnInput emits the turn's user turn still buffered at its end
@@ -1822,7 +1830,7 @@ func (s *DuplexProviderStage) settleTurnInput(
 	if !turnDone {
 		return nil
 	}
-	return s.awaitVerdicts(ctx)
+	return s.awaitVerdicts(ctx, output)
 }
 
 // materializeStreamingUserTurn is the continuous-streaming user-turn
@@ -1871,7 +1879,7 @@ func (s *DuplexProviderStage) emitChunkError(
 ) error {
 	logger.Error("DuplexProviderStage: chunk error from session", "error", chunk.Error)
 	// The partial reply keeps the verdicts on its input.
-	if err := s.awaitVerdicts(ctx); err != nil {
+	if err := s.awaitVerdicts(ctx, output); err != nil {
 		return err
 	}
 	// Keep the turn's partial reply ahead of the error, as the unary stage does.
@@ -2022,8 +2030,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	if err := s.emit(ctx, StreamElement{Message: userMsg}, output); err != nil {
 		return err
 	}
-	s.judgeSpokenInput(ctx, s.history.snapshot(), inputID)
-	return nil
+	return s.judgeSpokenInput(ctx, s.history.snapshot(), inputID, nil, output)
 }
 
 // classifyResponseChunk classifies a chunk's transcription (see

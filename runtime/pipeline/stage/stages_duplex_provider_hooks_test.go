@@ -38,14 +38,36 @@ func duplexStageWithHooks(
 }
 
 // feedChunks runs chunks through handleResponseChunk and returns the emitted
-// elements and the first error.
+// elements and the first error. A verdict on the caller's input still out
+// after a chunk is acted on before the next one, as the response loop does
+// with a verdict that comes in first (any guardrail that runs in the process).
 func feedChunks(t *testing.T, s *DuplexProviderStage, chunks ...providers.StreamChunk) ([]StreamElement, error) {
 	t.Helper()
+	return feedChunksWith(t, s, true, chunks...)
+}
+
+// feedChunksLateVerdicts is feedChunks with each verdict on the caller's
+// input acted on only where the stage waits for it: a slow judge's.
+func feedChunksLateVerdicts(t *testing.T, s *DuplexProviderStage, chunks ...providers.StreamChunk) ([]StreamElement, error) {
+	t.Helper()
+	return feedChunksWith(t, s, false, chunks...)
+}
+
+func feedChunksWith(
+	t *testing.T, s *DuplexProviderStage, verdictsFirst bool, chunks ...providers.StreamChunk,
+) ([]StreamElement, error) {
+	t.Helper()
+	ctx := context.Background()
 	out := make(chan StreamElement, 64)
 	var err error
 	for i := range chunks {
-		if err = s.handleResponseChunk(context.Background(), &chunks[i], out); err != nil {
+		if err = s.handleResponseChunk(ctx, &chunks[i], out); err != nil {
 			break
+		}
+		if verdictsFirst {
+			if err = s.awaitVerdicts(ctx, out); err != nil {
+				break
+			}
 		}
 	}
 	close(out)

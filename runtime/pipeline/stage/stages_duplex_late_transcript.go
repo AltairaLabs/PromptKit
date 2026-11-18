@@ -94,22 +94,26 @@ func (s *DuplexProviderStage) emitLateUserTurn(
 		s.history.insert(pos, user)
 	}
 	// It is judged as the input it is, though its reply follows it in the
-	// history. A finished turn's reply completed: a block can only cut what
-	// still plays. A tool turn goes on: a block stops the rest of it. Either
-	// way the user message is marked as the blocked request, so it never goes
-	// back to the model. The reply that answered it was emitted before this
-	// message, so it cannot be marked itself; the user message says the reply
-	// is the one right before it, which leaves the model's context with it (a
-	// TranscriptReorderStage that moves this message ahead of that reply
-	// marks the reply instead). A tool turn's message before it is a tool
-	// result, which is not a reply, and the rest of that turn is replaced by
-	// a canned reply that carries the mark itself. It is judged
-	// before it is emitted, so the marks are on the message the caller and the
-	// transcript get; a block only records state here, it emits nothing.
-	if s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn, inputID) {
-		markBlockedInput(user)
-		user.Meta[blockedReplyBeforeMetaKey] = true
-	}
+	// history, off the response loop (judgeSpokenInput), and emitted once its
+	// verdict is in (applyVerdict). A finished turn's reply completed: a block
+	// can only cut what still plays, unless it was cut already. A tool turn
+	// goes on: a block stops the rest of it. Either way the user message is
+	// marked as the blocked request, so it never goes back to the model. The
+	// reply that answered it was emitted before this message, so it cannot be
+	// marked itself; the user message says the reply is the one right before
+	// it, which leaves the model's context with it (a TranscriptReorderStage
+	// that moves this message ahead of that reply marks the reply instead). A
+	// tool turn's message before it is a tool result, which is not a reply,
+	// and the rest of that turn is replaced by a canned reply that carries the
+	// mark itself.
+	late := &lateVerdict{user: user, replyDone: !toolTurn, cutGen: s.lastReplyGen, alreadyCut: s.endedTurnCut}
+	return s.judgeSpokenInput(ctx, s.history.upTo(pos), inputID, late, output)
+}
+
+// emitLateUser emits a late transcript's user message, marked late.
+func (s *DuplexProviderStage) emitLateUser(
+	ctx context.Context, user *types.Message, output chan<- StreamElement,
+) error {
 	elem := StreamElement{Message: user}
 	elem.Meta.LateTranscript = true
 	return s.emit(ctx, elem, output)
