@@ -121,6 +121,29 @@ func TestContentExcludes_CurrentScopeSeesUserInput(t *testing.T) {
 		"current-message scope must examine the user's message for an input guardrail")
 }
 
+// contains_any judging a message with no text (a tool-call round) as a
+// guardrail is skipped, and passes; as an eval or assertion (transcript
+// scope) it still requires a match somewhere in the conversation.
+func TestContainsAny_CurrentScopeEmptyMessageIsSkipped(t *testing.T) {
+	h := &ContainsAnyHandler{}
+	msgs := []types.Message{
+		{Role: "user", Content: "send it"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "send_message"}}},
+	}
+	params := map[string]any{"patterns": []string{"Sent"}}
+
+	guard, err := h.Eval(context.Background(),
+		&evals.EvalContext{Messages: msgs, ContentScope: evals.ContentScopeCurrent}, params)
+	require.NoError(t, err)
+	assert.True(t, guard.Skipped)
+	assert.Equal(t, 1.0, *guard.Score)
+
+	eval, err := h.Eval(context.Background(), &evals.EvalContext{Messages: msgs}, params)
+	require.NoError(t, err)
+	assert.False(t, eval.Skipped)
+	assert.Equal(t, 0.0, *eval.Score, "transcript scope is unchanged: no message contains the pattern")
+}
+
 // A message under test with no text (a tool-call turn) has nothing to scan:
 // earlier turns, such as a guardrail's message that names what it blocks
 // ("We don't talk about Bruno."), must not block it.

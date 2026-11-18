@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,53 @@ import (
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
+
+// completionRecorder is an output hook that judges only completed turns,
+// recording the text of each it is given.
+type completionRecorder struct {
+	mu   sync.Mutex
+	seen []string
+}
+
+func (*completionRecorder) Name() string { return "completion_recorder" }
+
+func (*completionRecorder) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+
+func (r *completionRecorder) AfterCall(
+	_ context.Context, _ *hooks.ProviderRequest, resp *hooks.ProviderResponse,
+) hooks.Decision {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.seen = append(r.seen, resp.Message.Content)
+	return hooks.Allow
+}
+
+func (r *completionRecorder) judged() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.seen...)
+}
+
+// A guardrail that truncates the model's very first chunk leaves the model's
+// own text, not a guardrail's: the completed turn is still judged by the
+// output guardrails, and the kept text is shown, not spoken.
+func TestDuplexGuardrailCue_TruncatedFirstChunkIsJudgedAndNotSpoken(t *testing.T) {
+	limit, err := guardrails.NewGuardrailHook("length", map[string]any{"max_characters": 10})
+	require.NoError(t, err)
+	judge := &completionRecorder{}
+	s, _, _ := cueWiredStage(t, hooks.NewRegistry(hooks.WithProviderHook(limit), hooks.WithProviderHook(judge)), true)
+
+	elems, err := feedChunks(t, s, transcriptChunk("secret plans are here", pcm(20)), stopChunk())
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"secret pla"}, judge.judged(), "the completed turn is judged")
+	for _, e := range elems {
+		assert.Nil(t, e.Cue, "the model's own text is not spoken as a guardrail message")
+	}
+	assert.Contains(t, cueTrace(elems), "text:secret pla", "the kept text is shown")
+}
 
 // A guardrail's message is spoken by the cue stage, not by the model: the
 // provider stage puts a cue on the element that carries the message's text,

@@ -559,14 +559,16 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		s.accumulatedText.Reset()
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
-		if rest, truncated := strings.CutPrefix(probe.Content, sent); !truncated {
-			s.turnGuard.replaced = true
-			s.showBlockedText(probe.Content, true)
+		// A truncation keeps a prefix of the model's own text: it is shown,
+		// not spoken, and the completed turn is still judged. Anything else
+		// replaced the text with the guardrail's own.
+		replaced := !strings.HasPrefix(sent+text, probe.Content)
+		s.turnGuard.replaced = replaced
+		if rest, kept := strings.CutPrefix(probe.Content, sent); !kept {
+			s.showBlockedText(probe.Content, replaced)
 		} else if rest != "" {
-			// The rest after what was sent; spoken only when nothing was sent,
-			// so it is the whole replacement, not a truncation's tail.
-			s.turnGuard.replaced = sent == ""
-			s.showBlockedText(rest, sent == "")
+			// What follows what was already sent.
+			s.showBlockedText(rest, replaced)
 		}
 	} else {
 		s.blockTurnWith(nil, d)

@@ -33,6 +33,10 @@ func (h *ContainsAnyHandler) Eval(
 		}, nil
 	}
 
+	if nothingToJudge(evalCtx) {
+		return skippedResult(h.Type(), "the message has no text to judge"), nil
+	}
+
 	var matchedPatterns []string
 	for _, target := range contentUnderTest(evalCtx) {
 		for _, p := range patterns {
