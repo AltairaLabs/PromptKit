@@ -36,7 +36,7 @@ type oneResponseServer struct {
 	push       chan map[string]any
 	rejectNext chan string
 	noEventID  bool
-	startOwn   bool // start a response of its own on the first item added
+	startOwn   bool // start a response of its own as the first create arrives
 }
 
 func newOneResponseServer(t *testing.T, configure ...func(*oneResponseServer)) *oneResponseServer {
@@ -96,13 +96,15 @@ func newOneResponseServer(t *testing.T, configure ...func(*oneResponseServer)) *
 				}
 				typ, _ := ev["type"].(string)
 				os.events <- ev
-				if typ == realtimeEventItemCreate && os.startOwn && !startedOwn {
-					startedOwn = true
-					start(nil) // a response of the server's own, as server VAD starts
-					continue
-				}
 				if typ != realtimeEventResponseCreate {
 					continue
+				}
+				if os.startOwn && !startedOwn {
+					// The server starts a response of its own (as server VAD
+					// does) just as the client's create arrives: the client
+					// sent it before it could know, and it is rejected.
+					startedOwn = true
+					start(nil)
 				}
 				select {
 				case code := <-os.rejectNext:
