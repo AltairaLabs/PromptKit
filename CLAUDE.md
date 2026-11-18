@@ -183,8 +183,9 @@ Spec open + generated closed is a generator bug (promptarena#134/#169), not spec
 ## Documentation
 
 `docs/STYLE.md` governs every page under `docs/src/content/docs/` (voice, Diátaxis quadrants,
-Mermaid-only diagrams, no issue links). The `/docs-review` skill applies it and records what each
-page was verified against; `make docs-voice` runs the mechanical subset. When a PR changes code a
+Mermaid-only diagrams, no issue links). The `docs-review` plugin's skill (`/docs-review:docs-review`,
+with PromptKit's notes in `docs/REVIEW.md`) applies it and records what each page was verified
+against; `make docs-voice` runs the mechanical subset (the plugin's `docs-kit` tool, via `uvx`). When a PR changes code a
 page cites, update the page in the same PR (Docs Checks lists them in its job summary).
 
 ## Concurrent Agents and Worktrees

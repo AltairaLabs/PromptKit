@@ -1,0 +1,16 @@
+[review]
+product = "PromptKit"
+notes = "docs/REVIEW.md"
+
+[surface]
+patterns = "scripts/docs-surface.txt"
+ignore = "scripts/docs-coverage-ignore.txt"
+
+[voice]
+enforced = "scripts/docs-voice-enforced.txt"
+exempt = "scripts/docs-voice-exempt.txt"
+
+[commands]
+mermaid = "npm --prefix docs run check:mermaid"
+build = "npm --prefix docs run build"
+check_links = "cd docs && CHECK_LINKS_PORT=4455 npm run check-links"

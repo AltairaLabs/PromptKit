@@ -171,11 +171,11 @@ The site is served at `https://promptkit.altairalabs.ai`. To publish without a r
 
 ### Checks (`docs-checks.yml`)
 
-`docs-checks` runs on every pull request. It tests the docs scripts, runs `scripts/check-docs-voice.sh` (which fails only for directories listed in `scripts/docs-voice-enforced.txt`) and lists in the job summary the pages that cite code the pull request changes. The staleness list is a warning.
+`docs-checks` runs on every pull request. It runs the voice check (`make docs-voice`, which fails only for directories listed in `scripts/docs-voice-enforced.txt`) and lists in the job summary the pages that cite code the pull request changes. The staleness list is a warning. Both checks are the `docs-kit` tool from the `docs-review` plugin, configured by `docs-kit.toml`.
 
 ### Freshness (`docs-freshness.yml`)
 
-`report` runs weekly and creates or updates one open issue labeled `docs-freshness`. The issue lists stale pages and public surface that no page cites. Run `/docs-review --stale` to fix what it lists.
+`report` runs weekly and creates or updates one open issue labeled `docs-freshness`. The issue lists stale pages and public surface that no page cites. Run `/docs-review:docs-review --stale` to fix what it lists.
 
 ## Generated artifacts
 
