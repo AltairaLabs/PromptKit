@@ -324,6 +324,7 @@ func (s *DuplexProviderStage) guardInputText(
 		duration: time.Since(start),
 		user:     s.pendingTypedUser,
 	}
+	markBlockedInput(&blocked.msg)
 	s.dropTurnID(elem)
 	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
 		s.sendToolResponses(ctx, toolResponses)
@@ -720,6 +721,8 @@ func (s *DuplexProviderStage) guardSpokenInput(
 		s.turnGuard.validations = append(s.turnGuard.validations, v)
 	}
 	s.blockTurnWith(req, d)
+	// The reply that replaces the turn is a blocked input turn's canned reply.
+	s.turnGuard.blockedMeta = withBlockedInputMark(s.turnGuard.blockedMeta)
 }
 
 // turnText is the current turn's text: the blocked text of a turn a block

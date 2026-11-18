@@ -2632,8 +2632,11 @@ func (s *ProviderStage) interceptChunk(
 	}
 	if d.Enforced {
 		// Hook enforced (e.g., truncated content) — use the
-		// modified chunk content and stop reading the stream.
+		// modified chunk content and stop reading the stream. The turn is
+		// marked safety, as applyEnforcedResponse marks an enforced unary
+		// one: the provider's own reason describes a reply that was replaced.
 		acc.content = chunk.Content
+		acc.finishReason = types.FinishReasonSafety
 		return true, nil
 	}
 	return false, &providers.ValidationAbortError{
@@ -2932,6 +2935,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	}
 	// Guardrail skipped the provider call: no request, no tokens.
 	blocked := s.blockedMessage(hookReq, d)
+	markBlockedInput(&blocked)
 	s.recordGuardrailFiring(&blocked, d, hooks.DirectionInput, time.Since(hookStart))
 	return blocked, true, nil
 }

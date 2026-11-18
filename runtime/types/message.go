@@ -81,6 +81,12 @@ const (
 // reply stopped: the error text of the stream failure or cancellation.
 const MetaInterruptedCause = "_interrupted_cause"
 
+// MetaBlockedInput is the Message.Meta key, set to true, that marks the canned
+// assistant reply substituted for a user turn an input guardrail or a
+// provider BeforeCall hook blocked. The reply and the blocked user message
+// before it are kept in the transcript but never sent to the model.
+const MetaBlockedInput = "_blocked_input"
+
 // MetaMessageMetadata is the Message.Meta key holding the metadata an
 // application attached to this message (the SDK's WithMessageMetadata): what
 // the user selected, the view they were on, anything that is not chat text.

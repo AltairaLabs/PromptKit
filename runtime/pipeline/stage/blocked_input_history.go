@@ -15,18 +15,44 @@ import (
 // reads a denied user message (see isSubstitutedAssistantTurn).
 //
 // The pair is recognized from what the state store persists, so a resumed
-// conversation leaves it out too: the canned reply is an assistant message
-// with FinishReason safety, no tool calls, and a guardrail validation recorded
-// with direction input (runBeforeCallHooks, recordGuardrailFiring). An output
-// block carries direction output and is kept: its replacement already stands
-// in for the model's reply.
+// conversation leaves it out too. Where a block is made, the canned reply is
+// marked Meta[types.MetaBlockedInput] = true (markBlockedInput), whether or not
+// the hook that blocked it named a validator. A conversation stored before
+// that mark existed is still read by the guardrail's record: FinishReason
+// safety and a validation with direction input. An output block is marked
+// neither way and is kept: its replacement stands in for the model's reply.
+
+// markBlockedInput marks msg as the canned reply of a blocked input turn.
+func markBlockedInput(msg *types.Message) {
+	msg.Meta = withBlockedInputMark(msg.Meta)
+}
+
+// withBlockedInputMark returns a copy of meta with the blocked-input mark set.
+// It copies so a decision's metadata map shared elsewhere is not written.
+func withBlockedInputMark(meta map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(meta)+1)
+	for k, v := range meta {
+		out[k] = v
+	}
+	out[types.MetaBlockedInput] = true
+	return out
+}
 
 // isBlockedInputReply reports whether m is the canned reply substituted for a
-// turn an input guardrail blocked.
+// turn an input guardrail or BeforeCall hook blocked.
 func isBlockedInputReply(m *types.Message) bool {
-	if m.Role != roleAssistant || m.FinishReason != types.FinishReasonSafety || len(m.ToolCalls) > 0 {
+	if m.Role != roleAssistant || len(m.ToolCalls) > 0 {
 		return false
 	}
+	if marked, _ := m.Meta[types.MetaBlockedInput].(bool); marked {
+		return true
+	}
+	return m.FinishReason == types.FinishReasonSafety && hasInputValidation(m)
+}
+
+// hasInputValidation reports whether m records a guardrail firing on the
+// input side: the compatibility read for replies stored before the mark.
+func hasInputValidation(m *types.Message) bool {
 	for i := range m.Validations {
 		if dir, _ := m.Validations[i].Details["direction"].(string); dir == hooks.DirectionInput {
 			return true

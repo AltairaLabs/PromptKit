@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -30,6 +31,15 @@ func guardedReply(content, direction string) types.Message {
 
 func blockedInputReply(content string) types.Message {
 	return guardedReply(content, hooks.DirectionInput)
+}
+
+// markedReply is a canned reply as a block marks it, with no validation (a
+// hook that names no validator).
+func markedReply(content string) types.Message {
+	return types.Message{
+		Role: roleAssistant, Content: content, FinishReason: types.FinishReasonSafety,
+		Meta: map[string]interface{}{types.MetaBlockedInput: true},
+	}
 }
 
 func roleLines(msgs []types.Message) []string {
@@ -54,6 +64,35 @@ func TestExcludeBlockedInputTurns(t *testing.T) {
 				{Role: roleUser, Content: "q2"},
 			},
 			want: []string{"user:q1", "assistant:a1", "user:q2"},
+		},
+		{
+			name: "drops a marked reply that records no validation",
+			msgs: []types.Message{
+				{Role: roleUser, Content: "forbidden"}, markedReply("refused"),
+				{Role: roleUser, Content: "q2"},
+			},
+			want: []string{"user:q2"},
+		},
+		{
+			name: "keeps a reply whose mark is not true",
+			msgs: []types.Message{
+				{Role: roleUser, Content: "q1"},
+				func() types.Message {
+					m := markedReply("a1")
+					m.Meta[types.MetaBlockedInput] = false
+					return m
+				}(),
+			},
+			want: []string{"user:q1", "assistant:a1"},
+		},
+		{
+			name: "keeps a marked message that is not an assistant reply",
+			msgs: []types.Message{func() types.Message {
+				m := markedReply("q1")
+				m.Role = roleUser
+				return m
+			}()},
+			want: []string{"user:q1"},
 		},
 		{
 			name: "keeps an output block's replacement",
@@ -264,4 +303,101 @@ func TestFinalTurn_ReaskLeavesOutBlockedInputTurn(t *testing.T) {
 		assert.Equal(t, "user:go", lines[0], "call %d must start at the clean turn", i+1)
 		assert.NotContains(t, lines, "user:forbidden", "call %d sent the blocked turn", i+1)
 	}
+}
+
+// A unary turn a hook blocked without naming a validator is still marked, so
+// it is left out with no validation to go on.
+func TestProviderStage_BlockedInputIsMarkedWithoutValidation(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}))
+	stage := NewProviderStageWithHooks(providersmock.NewProvider("p", "m", false), nil, nil,
+		&ProviderConfig{MaxTokens: 100}, nil, reg)
+	user := types.Message{Role: roleUser, Content: "forbidden"}
+	out := runTestStage(t, stage, []StreamElement{NewMessageElement(&user)})
+
+	var msgs []types.Message
+	for _, e := range out {
+		if e.Message != nil {
+			msgs = append(msgs, *e.Message)
+		}
+	}
+	require.Equal(t, []string{"user:forbidden", "assistant:Not here."}, roleLines(msgs))
+	assert.Empty(t, msgs[1].Validations)
+	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
+	assert.Empty(t, excludeBlockedInputTurns(msgs), "the pair is left out of model context")
+}
+
+// emittedMessages returns the messages of the emitted elements.
+func emittedMessages(elems []StreamElement) []types.Message {
+	var msgs []types.Message
+	for _, e := range elems {
+		if e.Message != nil {
+			msgs = append(msgs, *e.Message)
+		}
+	}
+	return msgs
+}
+
+// A spoken turn an input hook blocks is replaced by a canned reply marked as a
+// blocked input turn, so a later text turn on the stored conversation leaves
+// both out.
+func TestDuplexHooks_SpokenBlockedInputIsMarked(t *testing.T) {
+	s, _ := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(&wordInputHook{word: "wire"})))
+	elems, err := feedChunks(t, s,
+		providers.StreamChunk{Metadata: map[string]interface{}{
+			"type": "input_transcription", "transcription": "a wire transfer please",
+		}},
+		transcriptChunk("Sure", pcm(10)),
+		stopChunk(),
+	)
+	require.NoError(t, err)
+
+	msgs := emittedMessages(elems)
+	require.Equal(t, []string{"user:a wire transfer please", "assistant:I can't help with transfers."},
+		roleLines(msgs))
+	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
+	assert.Empty(t, excludeBlockedInputTurns(msgs))
+}
+
+// A typed duplex turn an input hook blocks, without naming a validator, is
+// marked; the reply streaming ahead of it is not.
+func TestDuplexHooks_TypedBlockedInputIsMarked(t *testing.T) {
+	reg := hooks.NewRegistry(hooks.WithProviderHook(&enforceBeforeCallHook{replacement: "Not here."}))
+	s, sess, _ := duplexStageWithHooks(t, reg)
+	s.turnIDQueue = []string{"t1"}
+	s.accumulatedText.WriteString("half a reply")
+
+	out := make(chan StreamElement, 16)
+	loopDone := make(chan error, 1)
+	go func() { loopDone <- s.forwardResponseElements(context.Background(), out) }()
+	text := "blocked input"
+	require.False(t, s.handleInputElement(context.Background(), &StreamElement{Text: &text}, out, make(chan error, 1)))
+	sess.respCh <- stopChunk()
+	close(sess.respCh)
+	require.NoError(t, <-loopDone)
+	close(out)
+
+	var elems []StreamElement
+	for e := range out {
+		elems = append(elems, e)
+	}
+	msgs := emittedMessages(elems)
+	require.Equal(t, []string{"assistant:half a reply", "user:blocked input", "assistant:Not here."},
+		roleLines(msgs))
+	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
+	assert.Equal(t, true, msgs[2].Meta[types.MetaBlockedInput])
+	assert.Equal(t, []string{"assistant:half a reply"}, roleLines(excludeBlockedInputTurns(msgs)))
+}
+
+// A duplex reply an output hook denies is replaced, not marked: it stays in
+// model context.
+func TestDuplexHooks_OutputDenyIsNotMarked(t *testing.T) {
+	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(denyReplyHook{})))
+	elems, err := feedChunks(t, s, transcriptChunk("deny-me", pcm(10)), stopChunk())
+	require.NoError(t, err)
+
+	msgs := emittedMessages(elems)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason)
+	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
+	assert.Len(t, excludeBlockedInputTurns(msgs), 1)
 }
