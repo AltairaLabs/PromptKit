@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -97,8 +98,10 @@ type StreamSession struct {
 	toolGenEnding bool
 	carriedUsage  *base.TokenUsage
 	// held is a toolCall's chunk held for its generation's end
-	// (live_tool_turn.go).
-	held heldToolCalls
+	// (live_tool_turn.go). toolResponded is set once a tool response is sent
+	// for the last toolCall (SendToolResponses, any goroutine).
+	held          heldToolCalls
+	toolResponded atomic.Bool
 
 	// turnOpen is set while a model generation is under way; gen numbers the
 	// generations, and every chunk carries the number of the one it belongs

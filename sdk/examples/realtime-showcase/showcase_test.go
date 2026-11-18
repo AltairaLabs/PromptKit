@@ -110,6 +110,41 @@ func done(cost float64, in, out int) *providers.StreamChunk {
 		CostInfo: &types.CostInfo{InputTokens: in, OutputTokens: out, TotalCost: cost}}
 }
 
+// Late usage is labeled with the call its CallID names, not the call that
+// completed last; usage naming no call is the session's.
+func TestShowcaseEventLog_LateUsageNamesItsCall(t *testing.T) {
+	bus := events.NewEventBus()
+	out := &syncBuffer{}
+	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+	elog.attach(bus)
+	em := events.NewEmitter(bus, "run", "sess", conversationID)
+
+	em.ProviderCallCompletedCtx(context.Background(), &events.ProviderCallCompletedData{CallID: "a", Cost: 0.001})
+	em.ProviderCallCompletedCtx(context.Background(), &events.ProviderCallCompletedData{CallID: "b", Cost: 0.002})
+	waitLines(t, out, 2)
+	em.ProviderCallUsageCtx(context.Background(), &events.ProviderCallUsageData{
+		CallID: "a", Cost: 0.004, InputTokens: 40, OutputTokens: 4})
+	waitLines(t, out, 3)
+	em.ProviderCallUsageCtx(context.Background(), &events.ProviderCallUsageData{Cost: 0.008, InputTokens: 80})
+	waitLines(t, out, 4)
+	bus.Close()
+
+	assert.Equal(t, []string{
+		"09:30:00.000  cost      call 1: $0.0010 (0 in / 0 out tokens); session total $0.0010",
+		"09:30:00.000  cost      call 2: $0.0020 (0 in / 0 out tokens); session total $0.0030",
+		"09:30:00.000  cost      late usage for call 1: +$0.0040 (40 in / 4 out tokens); session total $0.0070",
+		"09:30:00.000  cost      late usage for the session: +$0.0080 (80 in / 0 out tokens); session total $0.0150",
+	}, out.lines())
+}
+
+// waitLines waits until out has n lines.
+func waitLines(t *testing.T, out *syncBuffer, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(out.lines()) >= n && out.lines()[0] != "" },
+		2*time.Second, time.Millisecond, "want %d lines", n)
+}
+
 func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 	sess := mock.NewMockStreamSession().WithAutoRespond("The picture shows the number 47.")
 	bus := events.NewEventBus()

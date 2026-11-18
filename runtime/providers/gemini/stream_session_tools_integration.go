@@ -43,6 +43,7 @@ func (s *StreamSession) SendToolResponses(ctx context.Context, responses []provi
 	// socket to send on is read under the lock only once it is ready.
 	msg := s.toolResponseWire(ctx, responses)
 	logToolResponses(ctx, responses)
+	s.toolResponded.Store(true) // before it is sent: the reply can only follow it
 
 	s.mu.Lock()
 	if s.closed {

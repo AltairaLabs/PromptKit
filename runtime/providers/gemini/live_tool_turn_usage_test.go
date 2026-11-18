@@ -346,11 +346,16 @@ func gatedLiveServer(t *testing.T, wait, maxWait time.Duration, script func(conn
 		<-gate
 		script(conn)
 	})
-	session.held.mu.Lock()
-	session.held.wait, session.held.maxWait = wait, maxWait
-	session.held.mu.Unlock()
+	setHoldWaits(session, wait, maxWait)
 	close(gate)
 	return session
+}
+
+// setHoldWaits sets how long session holds a toolCall's chunk.
+func setHoldWaits(session *StreamSession, wait, maxWait time.Duration) {
+	session.held.mu.Lock()
+	defer session.held.mu.Unlock()
+	session.held.wait, session.held.maxWait = wait, maxWait
 }
 
 // A generationComplete after the toolCall says its turnComplete follows: the
@@ -421,4 +426,102 @@ func TestLiveToolCallTurn_HeldToolCallsAreReportedWhenTheSessionEnds(t *testing.
 	assert.Equal(t, types.FinishReasonToolUse, *ends[0].FinishReason)
 	require.Len(t, ends[0].ToolCalls, 1)
 	assert.Equal(t, "call_1", ends[0].ToolCalls[0].ID)
+}
+
+// writeToolCall sends a toolCall for id.
+func writeToolCall(conn *websocket.Conn, id string) {
+	writeServer(conn, &ServerMessage{ToolCall: &ToolCallMsg{FunctionCalls: []FunctionCall{
+		{ID: id, Name: "get_weather"}}}})
+}
+
+// nextChunk returns the next chunk on Response(), failing after 2s.
+func nextChunk(t *testing.T, session *StreamSession) providers.StreamChunk {
+	t.Helper()
+	select {
+	case c := <-session.Response():
+		return c
+	case <-time.After(2 * time.Second):
+		t.Fatal("no chunk")
+		return providers.StreamChunk{}
+	}
+}
+
+// answer sends the tool response for a tool-call chunk.
+func answer(t *testing.T, session *StreamSession, c providers.StreamChunk) {
+	t.Helper()
+	require.NotEmpty(t, c.ToolCalls)
+	require.NoError(t, session.SendToolResponses(context.Background(),
+		[]providers.ToolResponse{{ToolCallID: c.ToolCalls[0].ID, Result: `{"temp":21}`}}))
+}
+
+// Once a held toolCall was not followed by a generationComplete, the session
+// holds no more: the next toolCall is sent at once (the hold here would last a
+// minute). A generationComplete that then comes after a toolCall, before the
+// tool response, still marks its turnComplete as the tool-call generation's:
+// its usage is reported on its own, on that generation, and ends no turn.
+func TestLiveToolCallTurn_NoHoldOnceAToolCallWentWithoutGenerationComplete(t *testing.T) {
+	session := gatedLiveServer(t, 30*time.Millisecond, time.Minute, func(conn *websocket.Conn) {
+		writeToolCall(conn, "call_1") // nothing follows it
+		if !readUntilToolResponse(conn) {
+			return
+		}
+		writeToolCall(conn, "call_2")
+		if !readUntilToolResponse(conn) {
+			return
+		}
+		writeToolCall(conn, "call_3")
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{GenerationComplete: true}})
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true},
+			UsageMetadata: &UsageMetadata{PromptTokenCount: 300, ResponseTokenCount: 3}})
+		_, _, _ = conn.ReadMessage()
+	})
+
+	first := nextChunk(t, session)
+	assert.Equal(t, "call_1", first.ToolCalls[0].ID)
+	setHoldWaits(session, time.Minute, time.Minute) // a hold now would outlast the test
+	answer(t, session, first)
+	second := nextChunk(t, session)
+	require.NotEmpty(t, second.ToolCalls, "sent without a hold")
+	assert.Equal(t, "call_2", second.ToolCalls[0].ID)
+	answer(t, session, second)
+	third := nextChunk(t, session)
+	require.NotEmpty(t, third.ToolCalls)
+	assert.Equal(t, "call_3", third.ToolCalls[0].ID)
+	assert.Nil(t, third.CostInfo, "sent without a hold, before its usage")
+	usage := nextChunk(t, session)
+	assert.Nil(t, usage.FinishReason, "the tool-call generation's turnComplete ends no turn")
+	require.NotNil(t, usage.CostInfo)
+	assert.Equal(t, 300, usage.CostInfo.InputTokens)
+	assert.Equal(t, third.Generation, usage.Generation)
+}
+
+// A session whose tool calls are followed by a generationComplete keeps
+// holding them: a later toolCall with nothing after it is still held, for the
+// whole wait (here a minute: it goes out only when the reply begins).
+func TestLiveToolCallTurn_HoldContinuesWhileToolCallsEndTheirGeneration(t *testing.T) {
+	session := gatedLiveServer(t, time.Minute, time.Minute, func(conn *websocket.Conn) {
+		writeToolCall(conn, "call_1")
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{GenerationComplete: true}})
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{TurnComplete: true},
+			UsageMetadata: &UsageMetadata{PromptTokenCount: 100, ResponseTokenCount: 1}})
+		if !readUntilToolResponse(conn) {
+			return
+		}
+		writeToolCall(conn, "call_2")
+		time.Sleep(100 * time.Millisecond)
+		writeServer(conn, &ServerMessage{ServerContent: &ServerContent{
+			ModelTurn: &ModelTurn{Parts: []Part{{Text: "It is hazy."}}}}})
+		_, _, _ = conn.ReadMessage()
+	})
+
+	first := nextChunk(t, session)
+	require.NotNil(t, first.CostInfo)
+	assert.Equal(t, 100, first.CostInfo.InputTokens)
+	answer(t, session, first)
+	start := time.Now()
+	second := nextChunk(t, session)
+	assert.Equal(t, "call_2", second.ToolCalls[0].ID)
+	assert.GreaterOrEqual(t, time.Since(start), 90*time.Millisecond, "held until the reply began")
+	reply := nextChunk(t, session)
+	assert.Equal(t, "It is hazy.", reply.Content)
 }

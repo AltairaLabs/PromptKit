@@ -208,6 +208,7 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 			logger.Debug("StreamSession: ignoring usage on a toolCall message")
 		}
 		s.toolCallTurn = true
+		s.toolResponded.Store(false)
 		if !s.turnOpen {
 			s.gen++ // the tool calls are a generation of their own
 		}
@@ -217,6 +218,7 @@ func (s *StreamSession) processServerMessage(msg *ServerMessage) error {
 	if consumed, err := s.endHeldToolCallTurn(msg); consumed || err != nil {
 		return err
 	}
+	s.noteUnheldGenerationComplete(msg)
 	if s.carryToolCallUsage(msg) {
 		return nil
 	}

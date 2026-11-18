@@ -37,8 +37,11 @@ type eventLog struct {
 	store  statestore.Store
 	convID string
 	calls  int
-	total  float64
-	wg     sync.WaitGroup
+	// callNums numbers each provider call by its CallID, in the order the
+	// calls completed, so late usage is labeled with the call it belongs to.
+	callNums map[string]int
+	total    float64
+	wg       sync.WaitGroup
 	// cutText is the text Response() carried since the last Interrupted
 	// chunk, and cut whether one arrived this turn.
 	cutText strings.Builder
@@ -83,9 +86,9 @@ func (l *eventLog) onEvent(e *events.Event) {
 	case *events.ToolCallEventData:
 		l.onTool(e.Type, d)
 	case *events.ProviderCallCompletedData:
-		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, false)
+		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, false)
 	case *events.ProviderCallUsageData:
-		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, true)
+		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, true)
 	}
 }
 
@@ -168,17 +171,29 @@ func (l *eventLog) onTool(t events.EventType, d *events.ToolCallEventData) {
 }
 
 // onCost prints what a provider call cost and the session's running total.
-// usage is a cost reported after its call completed (provider.call.usage).
-func (l *eventLog) onCost(cost float64, in, out int, usage bool) {
+// usage is a cost reported after its call completed (provider.call.usage);
+// callID names the call, so late usage is labeled with the call it belongs
+// to, whatever completed since.
+func (l *eventLog) onCost(cost float64, in, out int, callID string, usage bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.total += cost
 	if usage {
-		l.logLockedf("cost", "late usage for call %d: +$%.4f (%d in / %d out tokens); session total $%.4f",
-			l.calls, cost, in, out, l.total)
+		call := "the session" // no CallID, or a call not seen to complete
+		if n, ok := l.callNums[callID]; ok && callID != "" {
+			call = fmt.Sprintf("call %d", n)
+		}
+		l.logLockedf("cost", "late usage for %s: +$%.4f (%d in / %d out tokens); session total $%.4f",
+			call, cost, in, out, l.total)
 		return
 	}
 	l.calls++
+	if callID != "" {
+		if l.callNums == nil {
+			l.callNums = map[string]int{}
+		}
+		l.callNums[callID] = l.calls
+	}
 	l.logLockedf("cost", "call %d: $%.4f (%d in / %d out tokens); session total $%.4f",
 		l.calls, cost, in, out, l.total)
 }

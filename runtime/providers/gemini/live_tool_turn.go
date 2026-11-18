@@ -26,6 +26,13 @@ import (
 // toolTurnEndMaxWait after one), sends the chunk as it is. No tool response
 // can be sent before the chunk is, so a turnComplete read while it is held is
 // the tool-call generation's, never the reply's.
+//
+// The hold adapts to what the session has seen: once a held toolCall was not
+// followed by a generationComplete, the session sends every later toolCall at
+// once, with no hold, and a tool-call generation's usage that still comes
+// after it is reported on its own (a usage-only chunk) as before. A session
+// whose tool calls are followed by a generationComplete keeps holding them,
+// which costs the 0-2ms until the turnComplete.
 const (
 	// toolTurnEndWait is how long a toolCall's chunk is held for a
 	// generationComplete.
@@ -44,20 +51,33 @@ type heldToolCalls struct {
 	chunk  *providers.StreamChunk
 	timer  *time.Timer
 	closed bool
+	// genComplete is set once a generationComplete was read for the chunk
+	// held; unended once a held chunk was sent without one: the session then
+	// holds no more tool calls.
+	genComplete bool
+	unended     bool
 	// waits overrides toolTurnEndWait and toolTurnEndMaxWait (tests).
 	wait, maxWait time.Duration
 }
 
 // holdToolCalls holds chunk, a toolCall's, until its generation's end is
-// known or the wait runs out. Receive goroutine only.
+// known or the wait runs out; it sends it at once when an earlier toolCall
+// of the session was not followed by a generationComplete. Receive goroutine
+// only.
 func (s *StreamSession) holdToolCalls(chunk providers.StreamChunk) error {
-	if err := s.releaseToolCalls(); err != nil { // never two held
+	if err := s.releaseUnended(); err != nil { // never two held
 		return err
 	}
 	s.toolGenEnding = false
 	h := &s.held
 	h.mu.Lock()
+	if h.unended {
+		h.mu.Unlock()
+		chunk.CostInfo = s.takeTurnCost()
+		return s.emitHeld(&chunk)
+	}
 	defer h.mu.Unlock()
+	h.genComplete = false
 	h.chunk = &chunk
 	h.timer = s.releaseAfter(h.chunk, durationOr(h.wait, toolTurnEndWait))
 	return nil
@@ -74,6 +94,7 @@ func (s *StreamSession) releaseAfter(held *providers.StreamChunk, d time.Duratio
 			return
 		}
 		h.chunk = nil
+		h.unended = h.unended || !h.genComplete
 		logger.Debug("StreamSession: tool calls sent without their generation's end")
 		if err := s.emitHeld(held); err != nil {
 			logger.Debug("StreamSession: held tool calls not delivered", "error", err)
@@ -88,6 +109,9 @@ func (s *StreamSession) extendHold() {
 	h := &s.held
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.chunk != nil {
+		h.genComplete = true
+	}
 	if h.chunk != nil && h.timer.Stop() {
 		h.timer = s.releaseAfter(h.chunk, durationOr(h.maxWait, toolTurnEndMaxWait))
 	}
@@ -128,6 +152,19 @@ func (s *StreamSession) releaseToolCalls() error {
 	}
 	held.CostInfo = s.takeTurnCost()
 	return s.emitHeld(held)
+}
+
+// releaseUnended sends the held chunk because a message other than its
+// generation's end came; without a generationComplete before it, the session
+// holds no more tool calls. Receive goroutine only.
+func (s *StreamSession) releaseUnended() error {
+	h := &s.held
+	h.mu.Lock()
+	if h.chunk != nil && !h.genComplete {
+		h.unended = true
+	}
+	h.mu.Unlock()
+	return s.releaseToolCalls()
 }
 
 // closeHold sends the held chunk, if any, as the receive loop ends, without
@@ -187,7 +224,19 @@ func (s *StreamSession) endHeldToolCallTurn(msg *ServerMessage) (bool, error) {
 		s.ClearDrop()
 		return true, s.handleInputTranscription(sc)
 	default:
-		return false, s.releaseToolCalls()
+		return false, s.releaseUnended()
+	}
+}
+
+// noteUnheldGenerationComplete marks the tool-call generation as ending when
+// a generationComplete comes after tool calls the session sent without a
+// hold, before any tool response was sent: a reply's generationComplete
+// cannot come before the tool response it answers. Its turnComplete is then
+// the tool-call generation's (carryToolCallUsage). Receive goroutine only.
+func (s *StreamSession) noteUnheldGenerationComplete(msg *ServerMessage) {
+	sc := msg.ServerContent
+	if s.toolCallTurn && sc != nil && isGenerationCompleteOnly(sc) && !s.toolResponded.Load() {
+		s.toolGenEnding = true
 	}
 }
 
