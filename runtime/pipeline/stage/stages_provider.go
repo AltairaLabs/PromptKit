@@ -2237,17 +2237,21 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 	s.stampToolsOffered(&responseMsg)
 
-	// Run AfterCall hooks
-	if err := s.runAfterCallHooks(ctx, &afterCallParams{
-		messages:     params.messages,
-		systemPrompt: params.systemPrompt,
-		round:        params.round,
-		metadata:     params.metadata,
-		duration:     duration,
-		responseMsg:  &responseMsg,
-		toolCalls:    &toolCalls,
-	}); err != nil {
-		return responseMsg, false, err
+	// Run AfterCall hooks, unless a chunk interceptor replaced the reply with
+	// its own text: that text is not the model's, and a message that names
+	// what it blocks would fail the check a second time.
+	if !got.replaced {
+		if err := s.runAfterCallHooks(ctx, &afterCallParams{
+			messages:     params.messages,
+			systemPrompt: params.systemPrompt,
+			round:        params.round,
+			metadata:     params.metadata,
+			duration:     duration,
+			responseMsg:  &responseMsg,
+			toolCalls:    &toolCalls,
+		}); err != nil {
+			return responseMsg, false, err
+		}
 	}
 
 	logger.Debug("Provider streaming round completed",
@@ -2402,6 +2406,9 @@ type streamedRound struct {
 	reasoning    *types.ReasoningTrace
 	validations  []types.ValidationResult // chunk-interceptor firings
 	finishReason string
+	// replaced is set when a chunk interceptor replaced the reply with its
+	// own text: the reply was judged, and its text is not the model's.
+	replaced bool
 }
 
 // hasOutput reports whether the model produced anything worth keeping.
@@ -2561,6 +2568,9 @@ type streamAccumulator struct {
 	opaqueReasoning    []types.OpaqueReasoning
 	pendingValidations []types.ValidationResult
 	finishReason       string
+	// replaced is set when an enforcing chunk interceptor replaced the reply
+	// with its own text (streamedRound.replaced).
+	replaced bool
 }
 
 // reset discards the accumulated response after a retry restarts the stream.
@@ -2598,7 +2608,7 @@ func (a *streamAccumulator) absorb(chunk *providers.StreamChunk) {
 func (a *streamAccumulator) collected() streamedRound {
 	r := streamedRound{
 		content: a.content, toolCalls: a.toolCalls, costInfo: a.costInfo,
-		validations: a.pendingValidations, finishReason: a.finishReason,
+		validations: a.pendingValidations, finishReason: a.finishReason, replaced: a.replaced,
 	}
 	if a.reasoning.Len() > 0 || len(a.opaqueReasoning) > 0 {
 		r.reasoning = &types.ReasoningTrace{Text: a.reasoning.String(), Opaque: a.opaqueReasoning}
@@ -2639,6 +2649,10 @@ func (s *ProviderStage) interceptChunk(
 		// modified chunk content and stop reading the stream. The turn is
 		// marked safety, as applyEnforcedResponse marks an enforced unary
 		// one: the provider's own reason describes a reply that was replaced.
+		// A replacement (not a prefix of what the model said) is the
+		// guardrail's own text, which the completed-reply checks do not judge
+		// again; a truncation keeps the model's text, which they do.
+		acc.replaced = !strings.HasPrefix(acc.content, chunk.Content)
 		acc.content = chunk.Content
 		acc.finishReason = types.FinishReasonSafety
 		return true, nil
