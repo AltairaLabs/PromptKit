@@ -73,8 +73,10 @@ func newTTSClipSource(svc tts.Service, sessionVoice string, rate int) *ttsClipSo
 			return src
 		}
 	}
-	logger.Warn("CueStage: the TTS service has no voice matching the session's; cues use its default voice",
-		"tts", svc.Name(), "session_voice", sessionVoice, "cue_voice", "default")
+	if sessionVoice != "" {
+		logger.Warn("CueStage: the TTS service has no voice matching the session's; cues use its default voice",
+			"tts", svc.Name(), "session_voice", sessionVoice, "cue_voice", "default")
+	}
 	return src
 }
 

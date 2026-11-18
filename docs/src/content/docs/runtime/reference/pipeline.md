@@ -2181,7 +2181,7 @@ type CueClip struct {
 ```
 
 <a name="CueConfig"></a>
-## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L47-L70>)
+## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L47-L71>)
 
 CueConfig configures a CueStage.
 
@@ -2193,8 +2193,9 @@ type CueConfig struct {
     // default 100ms.
     ChunkDuration time.Duration
     // OnDemandBudget bounds how long reply output waits behind a clip still
-    // rendering; default 1.5s. Past it the cue plays no clip, and what waited
-    // goes on.
+    // rendering; default 1.5s. Past it what waited goes on, after the earcon
+    // when the clip renders from the session's sources (NewCueStageFor), and
+    // with no clip otherwise. The clip itself is kept for the next cue.
     OnDemandBudget time.Duration
     // RenderTimeout bounds one clip's render; default 3s. A render that
     // finishes after OnDemandBudget, or after a cut dropped its cue, still
@@ -2234,7 +2235,7 @@ const (
 ```
 
 <a name="CueStage"></a>
-## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L107-L114>)
+## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L108-L115>)
 
 CueStage plays a pre\-rendered clip for each element carrying a Cue. It goes directly after the provider stage, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as they treat reply audio \(marked Meta.CueAudio\).
 
@@ -2250,7 +2251,7 @@ type CueStage struct {
 ```
 
 <a name="NewCueStage"></a>
-### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L117>)
+### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L118>)
 
 ```go
 func NewCueStage(cfg CueConfig) *CueStage
@@ -2259,16 +2260,16 @@ func NewCueStage(cfg CueConfig) *CueStage
 NewCueStage creates a cue stage named "cue".
 
 <a name="NewCueStageFor"></a>
-### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L138>)
+### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L141>)
 
 ```go
 func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage
 ```
 
-NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the TTS service, then a built\-in earcon \(a short tone\). A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio.
+NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the TTS service, then a built\-in earcon \(a short tone\). A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) plays its configured clips and renders as PCM16 at 24 kHz in the TTS service's default voice.
 
 <a name="CueStage.Process"></a>
-### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L176>)
+### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L179>)
 
 ```go
 func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

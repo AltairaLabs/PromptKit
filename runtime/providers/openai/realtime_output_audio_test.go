@@ -35,6 +35,29 @@ func TestRealtimeSession_OutputAudio(t *testing.T) {
 	}
 }
 
+// Output audio in PCM16 is reported; in another format (g711) it is not,
+// since a cue played next to it could not match it.
+func TestRealtimeSession_OutputAudioFormat(t *testing.T) {
+	cases := []struct {
+		format string
+		want   providers.OutputAudio
+		wantOK bool
+	}{
+		{"pcm16", providers.OutputAudio{Voice: "verse", SampleRate: 24000, Family: "openai-realtime"}, true},
+		{"g711_ulaw", providers.OutputAudio{}, false},
+		{"g711_alaw", providers.OutputAudio{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.format, func(t *testing.T) {
+			s := &RealtimeSession{config: RealtimeSessionConfig{Modalities: []string{modalityAudio},
+				Voice: "verse", OutputAudioFormat: tc.format}}
+			got, ok := s.OutputAudio()
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 // The bookkeeping wrapper CreateStreamSession returns forwards OutputAudio:
 // hidden, a cue would play in no voice at the wrong rate.
 func TestRealtimeSessionBookkeeping_ForwardsOutputAudio(t *testing.T) {

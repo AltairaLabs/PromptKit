@@ -3,7 +3,9 @@ package stage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -19,6 +21,10 @@ import (
 // cueSessionRenders is how many texts a session renders at once at its start.
 const cueSessionRenders = 4
 
+// cueRetryBackoff is how long a text whose better sources failed plays the
+// earcon before those sources are tried again for it.
+const cueRetryBackoff = 30 * time.Second
+
 // cueRenderSource is the Source of the cost event a clip render reports.
 const cueRenderSource = "cue"
 
@@ -26,6 +32,10 @@ const cueRenderSource = "cue"
 // through, keyed by ClipKey: sessions that need the same clip at once render
 // it once.
 var clipFlights singleflight.Group
+
+// clipFlightJoined, when set, runs once a fetch has started or joined its
+// render; tests wait on it to know a session is in a render.
+var clipFlightJoined atomic.Pointer[func()]
 
 // errNoClipSource is a render's error when the session has no clip source.
 var errNoClipSource = errors.New("no clip source")
@@ -61,6 +71,11 @@ type cueBank struct {
 	// inflight are the renders still running, by text: a text cued again
 	// while its render runs waits for that render.
 	inflight map[string]*cueFlight
+	// failed is when the sources ahead of the earcon last failed for a text;
+	// until cueRetryBackoff has passed the text plays the earcon without
+	// trying them. now is the clock it is read by.
+	failed map[string]time.Time
+	now    func() time.Time
 
 	// Configuration (CueConfig) and the session's, set by sessionStarted.
 	cache         ClipCache
@@ -73,13 +88,16 @@ type cueBank struct {
 	emitter       *events.Emitter
 }
 
-// cueFlight is one render of a text. done is closed once clip, ready and err
-// are set.
+// cueFlight is one render of a text. done is closed once clip, ready, keep
+// and err are set.
 type cueFlight struct {
 	done  chan struct{}
 	clip  CueClip
 	ready bool
-	err   error
+	// keep is false for a clip played in place of the text's own (the
+	// earcon after a better source failed): it is not held for the text.
+	keep bool
+	err  error
 }
 
 func newCueBank(cfg *CueConfig) *cueBank {
@@ -87,6 +105,8 @@ func newCueBank(cfg *CueConfig) *cueBank {
 		clips:         make(map[string]CueClip, len(cfg.Clips)),
 		ready:         map[string]CueClip{},
 		inflight:      map[string]*cueFlight{},
+		failed:        map[string]time.Time{},
+		now:           time.Now,
 		cache:         cfg.Cache,
 		tts:           cfg.TTS,
 		texts:         cfg.Texts,
@@ -179,9 +199,12 @@ func (b *cueBank) sessionStarted(ctx context.Context, sess providers.StreamInput
 	emitter *events.Emitter, blockMessages []string,
 ) {
 	var out providers.OutputAudio
-	spoken := false
+	spoken := true
 	if r, ok := sess.(providers.OutputAudioReporter); ok {
 		out, spoken = r.OutputAudio()
+	} else {
+		logger.Warn("CueStage: the session does not report its output audio; cues render as PCM16 at "+
+			"24 kHz in the TTS service's default voice", "session", fmt.Sprintf("%T", sess))
 	}
 	if !spoken {
 		b.mu.Lock()
@@ -281,15 +304,16 @@ func (b *cueBank) render(ctx context.Context, text string,
 		if seam != nil {
 			rctx, cancel := context.WithTimeout(ctx, b.renderTimeout)
 			f.clip, f.err = seam(rctx, text)
+			f.keep = true
 			cancel()
 		} else {
-			f.clip, f.err = b.fromSources(ctx, text)
+			f.clip, f.keep, f.err = b.fromSources(ctx, text)
 			f.ready = true
 		}
 		b.mu.Lock()
 		delete(b.inflight, text)
 		switch {
-		case f.err != nil:
+		case f.err != nil, !f.keep:
 		case f.ready:
 			b.ready[text] = f.clip
 		default:
@@ -297,7 +321,7 @@ func (b *cueBank) render(ctx context.Context, text string,
 		}
 		stored := b.stored
 		b.mu.Unlock()
-		if f.err == nil && stored != nil {
+		if f.err == nil && f.keep && stored != nil {
 			stored(text, f.clip)
 		}
 		close(f.done)
@@ -305,19 +329,35 @@ func (b *cueBank) render(ctx context.Context, text string,
 	return f
 }
 
-// fromSources renders text from the first source that can, in order.
-func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, error) {
+// fromSources renders text from the first source that can, in order, and
+// reports whether the clip is the text's own to keep. A clip from a source
+// after one that failed (the earcon) is played this time only: the failed
+// sources are tried again for the text once cueRetryBackoff has passed.
+func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, bool, error) {
 	b.mu.Lock()
 	sources, format := b.sources, b.format
+	failedAt, failed := b.failed[text]
+	backingOff := failed && b.now().Sub(failedAt) < cueRetryBackoff
 	b.mu.Unlock()
 	var lastErr error
-	for _, src := range sources {
+	fellBack := false
+	for i, src := range sources {
+		if backingOff && i < len(sources)-1 {
+			fellBack = true
+			continue
+		}
 		clip, err := b.fetch(ctx, src, text, format)
 		if err == nil {
-			return clip, nil
+			if fellBack && !backingOff {
+				b.mu.Lock()
+				b.failed[text] = b.now()
+				b.mu.Unlock()
+			}
+			return clip, !fellBack, nil
 		}
 		logger.Debug("CueStage: a clip source failed for a text; trying the next", "source", src.kind(),
 			"error", err)
+		fellBack = true
 		lastErr = err
 	}
 	logger.Warn("CueStage: no clip source rendered the text; the cue is text only", "text", text,
@@ -325,47 +365,83 @@ func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, error)
 	if lastErr == nil {
 		lastErr = errNoClipSource
 	}
-	return CueClip{}, lastErr
+	return CueClip{}, false, lastErr
 }
 
-// fetch is src's clip for text in format: from the cache, else rendered once
-// for the process and put in the cache. A render that bills reports its cost
-// against this bank's session; a cache hit is free.
+// fetch is src's clip for text in format: from this bank's cache, else
+// rendered once for the process and put in the cache. Sessions that need a
+// clip at once share one render (the leader's); each puts the clip in its own
+// cache. A render that bills reports its cost against the leader's session
+// only; a cache hit, and a render joined, are free.
 func (b *cueBank) fetch(ctx context.Context, src clipSource, text string, format ClipFormat) (CueClip, error) {
 	key := ClipKeyFor(src.keyText(text), src.voice(), src.kind(), format)
-	ch := clipFlights.DoChan(string(key[:]), func() (any, error) {
-		// A session that ends does not fail the render for others waiting.
-		fctx := context.WithoutCancel(ctx)
-		if clip, ok, err := b.cache.Get(fctx, key); err != nil {
-			logger.Warn("CueStage: the clip cache failed; rendering instead", "error", err)
-		} else if ok {
-			return clip, nil
-		}
-		rctx, cancel := context.WithTimeout(fctx, b.renderTimeout)
-		defer cancel()
-		start := time.Now()
-		clip, cost, err := src.render(rctx, text, format)
-		if cost != nil {
-			b.reportCost(fctx, cost, clip)
-		}
-		if err != nil {
-			return CueClip{}, err
-		}
-		logger.Debug("CueStage: rendered a clip", "source", src.kind(), "duration", time.Since(start))
-		if err := b.cache.Put(fctx, key, clip); err != nil {
-			logger.Warn("CueStage: the clip cache failed to keep a clip", "error", err)
-		}
+	if clip, ok := b.cached(ctx, key); ok {
 		return clip, nil
+	}
+	led := false
+	ch := clipFlights.DoChan(string(key[:]), func() (any, error) {
+		led = true
+		// A session that ends does not fail the render for others waiting.
+		return b.renderAndKeep(context.WithoutCancel(ctx), src, text, format, key)
 	})
+	if hook := clipFlightJoined.Load(); hook != nil {
+		(*hook)()
+	}
 	select {
 	case res := <-ch:
 		if res.Err != nil {
 			return CueClip{}, res.Err
 		}
-		return res.Val.(CueClip), nil
+		clip := res.Val.(CueClip)
+		if !led {
+			// Joined another session's render: keep it in this cache too.
+			b.keep(context.WithoutCancel(ctx), key, clip)
+		}
+		return clip, nil
 	case <-ctx.Done():
 		return CueClip{}, ctx.Err()
 	}
+}
+
+// cached is the clip under key in the bank's cache. A cache fault is logged
+// and is a miss.
+func (b *cueBank) cached(ctx context.Context, key ClipKey) (CueClip, bool) {
+	clip, ok, err := b.cache.Get(ctx, key)
+	if err != nil {
+		logger.Warn("CueStage: the clip cache failed; rendering instead", "error", err)
+		return CueClip{}, false
+	}
+	return clip, ok
+}
+
+// keep puts clip in the bank's cache under key, logging a cache fault.
+func (b *cueBank) keep(ctx context.Context, key ClipKey, clip CueClip) {
+	if err := b.cache.Put(ctx, key, clip); err != nil {
+		logger.Warn("CueStage: the clip cache failed to keep a clip", "error", err)
+	}
+}
+
+// renderAndKeep is the leader's part of fetch: the cache once more (another
+// leader may have just put the clip), else a render reported and kept.
+func (b *cueBank) renderAndKeep(ctx context.Context, src clipSource, text string, format ClipFormat,
+	key ClipKey,
+) (any, error) {
+	if clip, ok := b.cached(ctx, key); ok {
+		return clip, nil
+	}
+	rctx, cancel := context.WithTimeout(ctx, b.renderTimeout)
+	defer cancel()
+	start := time.Now()
+	clip, cost, err := src.render(rctx, text, format)
+	if cost != nil {
+		b.reportCost(ctx, cost, clip)
+	}
+	if err != nil {
+		return CueClip{}, err
+	}
+	logger.Debug("CueStage: rendered a clip", "source", src.kind(), "duration", time.Since(start))
+	b.keep(ctx, key, clip)
+	return clip, nil
 }
 
 // reportCost emits the cost event of a billed render on the bank's session.

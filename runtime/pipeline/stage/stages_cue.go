@@ -51,8 +51,9 @@ type CueConfig struct {
 	// default 100ms.
 	ChunkDuration time.Duration
 	// OnDemandBudget bounds how long reply output waits behind a clip still
-	// rendering; default 1.5s. Past it the cue plays no clip, and what waited
-	// goes on.
+	// rendering; default 1.5s. Past it what waited goes on, after the earcon
+	// when the clip renders from the session's sources (NewCueStageFor), and
+	// with no clip otherwise. The clip itself is kept for the next cue.
 	OnDemandBudget time.Duration
 	// RenderTimeout bounds one clip's render; default 3s. A render that
 	// finishes after OnDemandBudget, or after a cut dropped its cue, still
@@ -134,7 +135,9 @@ func NewCueStage(cfg CueConfig) *CueStage {
 // the first source that renders them: the TTS service, then a built-in
 // earcon (a short tone). A text not known in advance renders when first
 // cued; past OnDemandBudget the earcon plays in its place. A session whose
-// replies are not spoken gets no cue audio.
+// replies are not spoken gets no cue audio; one that does not report its
+// output audio (providers.OutputAudioReporter) plays its configured clips and
+// renders as PCM16 at 24 kHz in the TTS service's default voice.
 func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage {
 	s := NewCueStage(cfg)
 	duplex.cues = s.bank

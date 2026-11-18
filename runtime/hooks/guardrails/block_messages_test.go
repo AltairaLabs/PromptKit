@@ -31,6 +31,18 @@ func TestRegistry_BlockMessagesFromGuardrails(t *testing.T) {
 		reg.BlockMessages())
 }
 
+// A length check with a limit truncates the reply and speaks no message; one
+// without a limit blocks, and lists its message.
+func TestRegistry_BlockMessagesSkipsTruncatingLengthCheck(t *testing.T) {
+	limited, err := NewGuardrailHook("max_length", map[string]any{"max_characters": 10},
+		WithMessage("Too long."))
+	require.NoError(t, err)
+	banned, err := NewGuardrailHook("banned_words", map[string]any{"words": []any{"bruno"}})
+	require.NoError(t, err)
+	reg := hooks.NewRegistry(hooks.WithProviderHook(limited), hooks.WithProviderHook(banned))
+	assert.Equal(t, []string{prompt.DefaultBlockedMessage}, reg.BlockMessages())
+}
+
 // A registry with no guardrail, or none at all, has no block message.
 func TestRegistry_BlockMessagesNone(t *testing.T) {
 	var nilReg *hooks.Registry

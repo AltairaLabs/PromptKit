@@ -548,8 +548,14 @@ func (a *GuardrailHookAdapter) blockText(replacement string) string {
 
 // BlockMessages implements hooks.BlockMessager: the message this guardrail
 // speaks when it blocks, known in advance (its configured message, else the
-// default). A check's own replacement is decided only when it fires.
+// default). A length check with a limit truncates instead and speaks none.
+// Without a configured message, whether a check supplies its own
+// replacement is known only when it fires, so the default is listed even for
+// a check that always supplies one.
 func (a *GuardrailHookAdapter) BlockMessages() []string {
+	if a.truncates() && extractMaxLen(a.params) > 0 {
+		return nil
+	}
 	return []string{a.blockText("")}
 }
 
