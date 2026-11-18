@@ -126,6 +126,25 @@ func (s *CartesiaService) SynthesizeTTS(ctx context.Context, req base.TTSRequest
 	return newReaderStream(reader, req.Text, s.Pricing(), s.ImplName()), nil
 }
 
+// --- GeminiService ---
+
+// SynthesizeTTS implements base.TTSProvider for GeminiService. Gemini TTS
+// produces PCM only, so that is the default format.
+func (s *GeminiService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) (base.TTSStream, error) {
+	cfg := SynthesisConfig{Voice: req.Voice, Format: FormatPCM16}
+	if req.Format != "" {
+		cfg.Format = AudioFormat{Name: req.Format}
+	}
+	if err := applyRequestedSampleRate(&cfg, req, nil); err != nil {
+		return nil, err
+	}
+	reader, err := s.Synthesize(ctx, req.Text, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return newReaderStream(reader, req.Text, s.Pricing(), s.ImplName()), nil
+}
+
 // applyRequestedSampleRate carries TTSRequest.SampleRate onto the synthesis
 // format. Raw PCM carries no header naming its rate, so a service that honors
 // Format.SampleRate for PCM must be told the rate the caller will play it at;

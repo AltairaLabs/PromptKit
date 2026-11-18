@@ -144,6 +144,7 @@ type StreamSessionConfig struct {
 	Model              string   // Model name (will be prefixed with "models/" automatically)
 	ResponseModalities []string // "TEXT" or "AUDIO" - NOT both! See package doc for details.
 	SystemInstruction  string   // System prompt/instruction for the model
+	Voice              string   // Prebuilt voice AUDIO responses speak with; DefaultLiveVoice when empty
 	InputCostPer1K     float64  // Cost per 1K input tokens (for USD calculation)
 	OutputCostPer1K    float64  // Cost per 1K output tokens (for USD calculation)
 

@@ -27,6 +27,7 @@ const (
 	providerCartesia   = "cartesia"
 	providerElevenLabs = "elevenlabs"
 	providerOpenAI     = "openai"
+	providerGemini     = "gemini"
 
 	// headerContentType is the HTTP Content-Type header name.
 	headerContentType = "Content-Type"
@@ -242,8 +243,6 @@ func (f AudioFormat) String() string {
 
 // makeVoice builds a Voice with the listed metadata. Used by provider
 // SupportedVoices implementations to keep entries on a single line.
-//
-//nolint:unparam // language is always "en" in current voice tables but is part of the schema for non-English voices.
 func makeVoice(id, name, language, gender, description string) Voice {
 	return Voice{ID: id, Name: name, Language: language, Gender: gender, Description: description}
 }

@@ -38,7 +38,7 @@ func validateModalities(modalities []string) error {
 // buildSetupMessage constructs the initial setup message for Gemini Live API
 func buildSetupMessage(config *StreamSessionConfig, modalities []string) map[string]interface{} {
 	modelPath := getModelPath(config.Model)
-	generationConfig := buildGenerationConfig(modalities)
+	generationConfig := buildGenerationConfig(modalities, config.Voice)
 	addSamplingConfig(generationConfig, config.Sampling)
 
 	setupContent := map[string]interface{}{
@@ -95,17 +95,21 @@ func addSamplingConfig(generationConfig map[string]interface{}, s *providers.Str
 	}
 }
 
-// buildGenerationConfig creates the generation configuration
-func buildGenerationConfig(modalities []string) map[string]interface{} {
+// buildGenerationConfig creates the generation configuration. An AUDIO
+// session speaks with voice, or DefaultLiveVoice when voice is empty.
+func buildGenerationConfig(modalities []string, voice string) map[string]interface{} {
 	config := map[string]interface{}{
 		"responseModalities": modalities,
 	}
 
 	if sliceContains(modalities, "AUDIO") {
+		if voice == "" {
+			voice = DefaultLiveVoice
+		}
 		config["speechConfig"] = map[string]interface{}{
 			"voiceConfig": map[string]interface{}{
 				"prebuiltVoiceConfig": map[string]interface{}{
-					"voiceName": liveVoice,
+					"voiceName": voice,
 				},
 			},
 		}

@@ -117,6 +117,8 @@ func main() {
 }
 ```
 
+To pick the voice, set `Metadata: map[string]interface{}{"voice": "Kore"}` on the `StreamingInputConfig`. Gemini Live takes one of Gemini's prebuilt voices (`tts.NewGemini(...).SupportedVoices()` lists them) and speaks Puck when the key is unset; OpenAI Realtime reads the same key. A Gemini Live provider whose `base_url` is on another host than the Gemini API opens its sessions on that host too.
+
 For OpenAI Realtime, use `sdk.WithModel("gpt-realtime")` and a `SampleRate` of 24000. The [`openai-realtime` example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/openai-realtime) shows the full configuration.
 
 ## Step 3: Pass the caller and host context to tool calls

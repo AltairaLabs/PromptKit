@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
@@ -31,10 +32,16 @@ const (
 // Ensure GeminiProvider implements StreamInputSupport
 var _ providers.StreamInputSupport = (*Provider)(nil)
 
-// geminiLiveAPIURL is the WebSocket URL for Gemini Live API
-//
-//nolint:lll // URL cannot be split
-const geminiLiveAPIURL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+// Where Gemini API Live sessions connect: the API's host and the Live route.
+const (
+	geminiAPIHost    = "generativelanguage.googleapis.com"
+	geminiLivePath   = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+	geminiLiveAPIURL = "wss://" + geminiAPIHost + geminiLivePath
+)
+
+// DefaultLiveVoice is the prebuilt voice a Live AUDIO session speaks with
+// when the request's metadata["voice"] names none.
+const DefaultLiveVoice = "Puck"
 
 // CreateStreamSession creates a new bidirectional streaming session with Gemini Live API
 //
@@ -92,7 +99,7 @@ func (p *Provider) CreateStreamSession(
 func (p *Provider) liveDial(config *StreamSessionConfig) (wsURL, apiKey string, err error) {
 	switch p.platform {
 	case "":
-		return geminiLiveAPIURL, p.apiKey, nil
+		return p.geminiLiveURL(), p.apiKey, nil
 	case vertexPlatform:
 		pc := p.platformConfig
 		if pc == nil || pc.Project == "" || pc.Region == "" {
@@ -107,6 +114,22 @@ func (p *Provider) liveDial(config *StreamSessionConfig) (wsURL, apiKey string, 
 	default:
 		return "", "", fmt.Errorf("live sessions are not available on platform %q (supported: vertex)", p.platform)
 	}
+}
+
+// geminiLiveURL returns the Gemini API Live endpoint. A base_url on another
+// host (a gateway fronting the API) carries the Live session too, at the Live
+// route on that host, so the session goes where requests do. The API's own
+// base URL, or none, keeps the public endpoint.
+func (p *Provider) geminiLiveURL() string {
+	u, err := url.Parse(p.baseURL)
+	if err != nil || u.Host == "" || strings.EqualFold(u.Hostname(), geminiAPIHost) {
+		return geminiLiveAPIURL
+	}
+	scheme := "wss"
+	if u.Scheme == "http" || u.Scheme == "ws" {
+		scheme = "ws"
+	}
+	return (&url.URL{Scheme: scheme, Host: u.Host, Path: geminiLivePath}).String()
 }
 
 // vertexLiveModel names model by its Vertex resource. A full resource is kept;
@@ -206,6 +229,11 @@ func (p *Provider) applyMetadataConfig(metadata map[string]interface{}, config *
 
 	p.applyResponseModalities(metadata, config)
 	p.applyVADDisabled(metadata, config)
+	// The key the OpenAI realtime provider reads, so one streaming config
+	// picks the voice on either provider.
+	if voice, ok := metadata["voice"].(string); ok && voice != "" {
+		config.Voice = voice
+	}
 }
 
 // applyResponseModalities extracts response modalities from metadata, overriding

@@ -70,7 +70,7 @@ func TestGetModelPath(t *testing.T) {
 
 func TestBuildGenerationConfig(t *testing.T) {
 	t.Run("TEXT has no speechConfig", func(t *testing.T) {
-		cfg := buildGenerationConfig([]string{"TEXT"})
+		cfg := buildGenerationConfig([]string{"TEXT"}, "")
 		if !reflect.DeepEqual(cfg["responseModalities"], []string{"TEXT"}) {
 			t.Errorf("responseModalities = %v", cfg["responseModalities"])
 		}
@@ -80,7 +80,7 @@ func TestBuildGenerationConfig(t *testing.T) {
 	})
 
 	t.Run("AUDIO adds Puck speechConfig", func(t *testing.T) {
-		cfg := buildGenerationConfig([]string{"AUDIO"})
+		cfg := buildGenerationConfig([]string{"AUDIO"}, "")
 		speech, ok := cfg["speechConfig"].(map[string]interface{})
 		if !ok {
 			t.Fatal("expected speechConfig for AUDIO")

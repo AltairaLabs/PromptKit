@@ -9,7 +9,7 @@
 //   - Service interface for TTS providers
 //   - SynthesisConfig for voice/format configuration
 //   - Voice and AudioFormat types for provider capabilities
-//   - Provider implementations for OpenAI, ElevenLabs and Cartesia
+//   - Provider implementations for OpenAI, ElevenLabs, Cartesia and Gemini
 //
 // # Usage
 //
@@ -48,4 +48,6 @@
 //   - OpenAI TTS (tts-1, tts-1-hd and gpt-4o-mini-tts models)
 //   - ElevenLabs
 //   - Cartesia (REST and WebSocket streaming)
+//   - Gemini (speech generation on the Gemini API or Vertex AI; PCM output,
+//     Gemini Live's prebuilt voices)
 package tts
