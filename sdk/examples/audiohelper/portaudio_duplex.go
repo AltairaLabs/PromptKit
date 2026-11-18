@@ -110,6 +110,10 @@ func (p *portaudioIO) Play(frame []byte) {
 // two-stream mode it drains playCh and restarts the output stream.
 func (p *portaudioIO) Flush() {
 	if p.duplex.Load() {
+		if n := fadeSamples(audio.DuplexRate, p.flushFade); n > 0 {
+			p.jitter.FadeOut(n)
+			return
+		}
 		p.jitter.Clear()
 		return
 	}

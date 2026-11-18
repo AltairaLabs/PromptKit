@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -125,7 +126,10 @@ type portaudioIO struct {
 	outBuf    []int16
 	captureCh chan []byte
 	playCh    chan []byte
-	flushCh   chan struct{}
+	// flushCh carries a flush to playLoop, with the audio it drained from
+	// playCh, so playLoop can fade it out (flushFade).
+	flushCh   chan []byte
+	flushFade time.Duration
 	started   bool
 	closed    bool
 	done      chan struct{}
@@ -203,6 +207,7 @@ func newAudioIO(cfg sessionConfig, duplex bool) (*portaudioIO, error) {
 		lib:          lib,
 		captureRate:  cfg.captureRate,
 		playbackRate: cfg.playbackRate,
+		flushFade:    cfg.flushFade,
 		captureCh:    make(chan []byte, captureChanBuffer),
 		done:         make(chan struct{}),
 	}
@@ -232,6 +237,7 @@ func newDuplexCore(lib *portAudioLib, cfg sessionConfig) *portaudioIO {
 		lib:          lib,
 		captureRate:  cfg.captureRate,
 		playbackRate: cfg.playbackRate,
+		flushFade:    cfg.flushFade,
 		jitter:       audio.NewJitterBuffer(audio.DuplexRate / jitterHeadroomDivisor),
 		captureCh:    make(chan []byte, captureChanBuffer),
 		done:         make(chan struct{}),
@@ -374,55 +380,85 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 			return
 		case <-p.done:
 			return
-		case <-p.flushCh:
-			// Flush: discard the accumulation buffer so no stale audio plays, then
-			// stop+start the output stream to abort PortAudio's internal device buffer.
-			// Snapshot the stream handle + lib under a brief lock and release it BEFORE
-			// the blocking stop/start FFI calls — holding p.mu across them would stall a
-			// concurrent Close() (same pattern Close() uses).
-			buffer = buffer[:0]
-			p.mu.Lock()
-			outStream := p.outStream
-			lib := p.lib
-			p.mu.Unlock()
-			if outStream != 0 {
-				_ = lib.stopStream(outStream)
-				_ = lib.startStream(outStream)
-			}
+		case drained := <-p.flushCh:
+			buffer = p.flush(buffer, drained)
 		case frame, ok := <-p.playCh:
 			if !ok {
 				return
 			}
-			buffer = append(buffer, frame...)
-			for len(buffer) >= blockBytes {
-				for i := 0; i < len(p.outBuf); i++ {
-					p.outBuf[i] = int16(binary.LittleEndian.Uint16(buffer[i*bytesPerSample:]))
-				}
-				p.lib.writeStream(p.outStream, uintptr(unsafe.Pointer(&p.outBuf[0])), uint64(len(p.outBuf)))
-				runtime.KeepAlive(p.outBuf)
-				buffer = buffer[blockBytes:]
+			// A flush requested while this frame waited is older than the frame:
+			// requestFlush drained playCh before queuing it. Take it first, so the
+			// frame plays after the fade instead of before it.
+			select {
+			case drained := <-p.flushCh:
+				buffer = p.flush(buffer, drained)
+			default:
 			}
+			buffer = append(buffer, frame...)
+			whole := len(buffer) / blockBytes * blockBytes
+			p.writeBlocks(buffer[:whole])
+			buffer = buffer[whole:]
 		}
+	}
+}
+
+// flush ends what is playing and returns the emptied accumulation buffer.
+// With a fade it plays the head of what was queued (buffer, then drained),
+// ramped down to silence, and drops the rest; the device's own buffer plays
+// out before it, so the reply ends softly instead of mid-waveform. Without
+// one it drops everything and restarts the output stream to abort PortAudio's
+// internal device buffer.
+func (p *portaudioIO) flush(buffer, drained []byte) []byte {
+	if n := fadeSamples(p.playbackRate, p.flushFade); n > 0 {
+		p.writeBlocks(flushTail(buffer, drained, n, len(p.outBuf)))
+		return buffer[:0]
+	}
+	// Snapshot the stream handle + lib under a brief lock and release it BEFORE
+	// the blocking stop/start FFI calls — holding p.mu across them would stall a
+	// concurrent Close() (same pattern Close() uses).
+	p.mu.Lock()
+	outStream := p.outStream
+	lib := p.lib
+	p.mu.Unlock()
+	if outStream != 0 {
+		_ = lib.stopStream(outStream)
+		_ = lib.startStream(outStream)
+	}
+	return buffer[:0]
+}
+
+// writeBlocks writes pcm, a whole number of outBuf-sized blocks, to the
+// output stream.
+func (p *portaudioIO) writeBlocks(pcm []byte) {
+	blockBytes := len(p.outBuf) * bytesPerSample
+	for ; len(pcm) >= blockBytes; pcm = pcm[blockBytes:] {
+		for i := 0; i < len(p.outBuf); i++ {
+			p.outBuf[i] = int16(binary.LittleEndian.Uint16(pcm[i*bytesPerSample:]))
+		}
+		p.lib.writeStream(p.outStream, uintptr(unsafe.Pointer(&p.outBuf[0])), uint64(len(p.outBuf)))
+		runtime.KeepAlive(p.outBuf)
 	}
 }
 
 // CaptureChunks returns the channel of captured mic PCM16 frames.
 func (p *portaudioIO) CaptureChunks() <-chan []byte { return p.captureCh }
 
-// requestFlush drains queued play frames and signals playLoop to abort its
-// in-flight accumulation and restart the output stream. Non-blocking.
+// requestFlush drains queued play frames and hands them to playLoop with the
+// flush, which fades their head out (or, with no fade, aborts its in-flight
+// accumulation and restarts the output stream). Non-blocking.
 func (p *portaudioIO) requestFlush() {
+	var drained []byte
 	for {
 		select {
-		case <-p.playCh:
+		case frame := <-p.playCh:
+			drained = append(drained, frame...)
 		default:
-			goto signal
+			select {
+			case p.flushCh <- drained:
+			default:
+			}
+			return
 		}
-	}
-signal:
-	select {
-	case p.flushCh <- struct{}{}:
-	default:
 	}
 }
 
