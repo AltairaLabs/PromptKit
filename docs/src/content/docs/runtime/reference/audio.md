@@ -583,7 +583,7 @@ func (j *JitterBuffer) Clear()
 Clear drops all buffered samples. The next Pull will return silence.
 
 <a name="JitterBuffer.Drops"></a>
-### func \(\*JitterBuffer\) [Drops](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L149>)
+### func \(\*JitterBuffer\) [Drops](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L156>)
 
 ```go
 func (j *JitterBuffer) Drops() int64
@@ -592,16 +592,16 @@ func (j *JitterBuffer) Drops() int64
 Drops returns the cumulative number of samples that have been dropped due to buffer overflow.
 
 <a name="JitterBuffer.FadeOut"></a>
-### func \(\*JitterBuffer\) [FadeOut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L126>)
+### func \(\*JitterBuffer\) [FadeOut](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L127>)
 
 ```go
 func (j *JitterBuffer) FadeOut(n int)
 ```
 
-FadeOut ends playback with a short ramp instead of a hard cut: it keeps the next n buffered samples \(all of them when fewer are buffered\), scales them linearly from full level down toward silence, and drops the rest. Clearing the buffer outright stops the speaker mid\-waveform, which is heard as an abrupt cut and often a click.
+FadeOut ends playback with a short ramp instead of a hard cut: it keeps the next n buffered samples \(all of them when fewer are buffered\), scales them linearly from full level down toward silence, and drops the rest. n \<= 0 drops everything, as Clear does. Clearing the buffer outright stops the speaker mid\-waveform, which is heard as an abrupt cut and often a click.
 
 <a name="JitterBuffer.Len"></a>
-### func \(\*JitterBuffer\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L140>)
+### func \(\*JitterBuffer\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L147>)
 
 ```go
 func (j *JitterBuffer) Len() int
@@ -628,7 +628,7 @@ func (j *JitterBuffer) Push(samples []int16)
 Push appends samples to the buffer. If appending would exceed capacity, the oldest samples are discarded first and the drop counter incremented.
 
 <a name="JitterBuffer.UnderrunSamples"></a>
-### func \(\*JitterBuffer\) [UnderrunSamples](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L167>)
+### func \(\*JitterBuffer\) [UnderrunSamples](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L174>)
 
 ```go
 func (j *JitterBuffer) UnderrunSamples() int64
@@ -637,7 +637,7 @@ func (j *JitterBuffer) UnderrunSamples() int64
 UnderrunSamples returns the cumulative number of silence samples substituted across all underrunning Pull calls.
 
 <a name="JitterBuffer.Underruns"></a>
-### func \(\*JitterBuffer\) [Underruns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L158>)
+### func \(\*JitterBuffer\) [Underruns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/jitterbuffer.go#L165>)
 
 ```go
 func (j *JitterBuffer) Underruns() int64

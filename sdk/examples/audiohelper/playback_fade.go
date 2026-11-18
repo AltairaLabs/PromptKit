@@ -1,6 +1,19 @@
 package audiohelper
 
-import "github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+import (
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+)
+
+// fadeSamples is how many samples a fade of d lasts at rate Hz. Zero means
+// the fade is too short to hear, and a flush cuts instead.
+func fadeSamples(rate int, d time.Duration) int {
+	if d <= 0 || rate <= 0 {
+		return 0
+	}
+	return int(int64(rate) * int64(d) / int64(time.Second))
+}
 
 // flushTail is what the two-stream play loop plays on a flush that fades:
 // the head of the audio still queued (its accumulation, then what the flush

@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/binary"
 	"log/slog"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
@@ -111,8 +110,8 @@ func (p *portaudioIO) Play(frame []byte) {
 // two-stream mode it drains playCh and restarts the output stream.
 func (p *portaudioIO) Flush() {
 	if p.duplex.Load() {
-		if p.flushFade > 0 {
-			p.jitter.FadeOut(audio.DuplexRate * int(p.flushFade/time.Millisecond) / msPerSecond)
+		if n := fadeSamples(audio.DuplexRate, p.flushFade); n > 0 {
+			p.jitter.FadeOut(n)
 			return
 		}
 		p.jitter.Clear()

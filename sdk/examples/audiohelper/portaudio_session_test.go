@@ -332,7 +332,7 @@ func TestPortaudioSource_CloseIsIdempotent(t *testing.T) {
 func TestPortaudioSink_WriteEnqueuesFrame(t *testing.T) {
 	io := &portaudioIO{
 		playCh:  make(chan []byte, 4),
-		flushCh:      make(chan []byte, 1),
+		flushCh: make(chan []byte, 1),
 		done:    make(chan struct{}),
 	}
 	sink := &portaudioSink{io: io}
@@ -355,7 +355,7 @@ func TestPortaudioSink_WriteEnqueuesFrame(t *testing.T) {
 func TestPortaudioSink_FlushSignalsPlayLoop(t *testing.T) {
 	io := &portaudioIO{
 		playCh:  make(chan []byte, 4),
-		flushCh:      make(chan []byte, 1),
+		flushCh: make(chan []byte, 1),
 		done:    make(chan struct{}),
 	}
 	sink := &portaudioSink{io: io}

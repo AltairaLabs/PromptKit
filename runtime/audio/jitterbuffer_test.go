@@ -315,3 +315,22 @@ func TestJitterBuffer_FadeOutShortBuffer(t *testing.T) {
 		}
 	}
 }
+
+// FadeOut with no ramp length drops everything, as Clear does, and leaves the
+// buffer usable.
+func TestJitterBuffer_FadeOutNonPositiveClears(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		j := NewJitterBuffer(4)
+		j.Push([]int16{1, 2, 3})
+
+		j.FadeOut(n)
+
+		if got := j.Len(); got != 0 {
+			t.Fatalf("FadeOut(%d): Len = %d, want 0", n, got)
+		}
+		j.Push([]int16{7, 8})
+		if got := j.Pull(2); got[0] != 7 || got[1] != 8 {
+			t.Fatalf("FadeOut(%d): next Pull = %v, want [7 8]", n, got)
+		}
+	}
+}

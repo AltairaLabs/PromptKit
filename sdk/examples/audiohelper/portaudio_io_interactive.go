@@ -381,33 +381,18 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 		case <-p.done:
 			return
 		case drained := <-p.flushCh:
-			if p.flushFade > 0 {
-				// Fade: play the head of what was queued, ramped down to silence,
-				// and drop the rest. The device's own buffer plays out before it,
-				// so the reply ends softly instead of mid-waveform.
-				n := p.playbackRate * int(p.flushFade/time.Millisecond) / msPerSecond
-				tail := flushTail(buffer, drained, n, len(p.outBuf))
-				buffer = buffer[:0]
-				p.writeBlocks(tail)
-				continue
-			}
-			// Hard cut: discard the accumulation buffer so no stale audio plays, then
-			// stop+start the output stream to abort PortAudio's internal device buffer.
-			// Snapshot the stream handle + lib under a brief lock and release it BEFORE
-			// the blocking stop/start FFI calls — holding p.mu across them would stall a
-			// concurrent Close() (same pattern Close() uses).
-			buffer = buffer[:0]
-			p.mu.Lock()
-			outStream := p.outStream
-			lib := p.lib
-			p.mu.Unlock()
-			if outStream != 0 {
-				_ = lib.stopStream(outStream)
-				_ = lib.startStream(outStream)
-			}
+			buffer = p.flush(buffer, drained)
 		case frame, ok := <-p.playCh:
 			if !ok {
 				return
+			}
+			// A flush requested while this frame waited is older than the frame:
+			// requestFlush drained playCh before queuing it. Take it first, so the
+			// frame plays after the fade instead of before it.
+			select {
+			case drained := <-p.flushCh:
+				buffer = p.flush(buffer, drained)
+			default:
 			}
 			buffer = append(buffer, frame...)
 			whole := len(buffer) / blockBytes * blockBytes
@@ -415,6 +400,31 @@ func (p *portaudioIO) playLoop(ctx context.Context) {
 			buffer = buffer[whole:]
 		}
 	}
+}
+
+// flush ends what is playing and returns the emptied accumulation buffer.
+// With a fade it plays the head of what was queued (buffer, then drained),
+// ramped down to silence, and drops the rest; the device's own buffer plays
+// out before it, so the reply ends softly instead of mid-waveform. Without
+// one it drops everything and restarts the output stream to abort PortAudio's
+// internal device buffer.
+func (p *portaudioIO) flush(buffer, drained []byte) []byte {
+	if n := fadeSamples(p.playbackRate, p.flushFade); n > 0 {
+		p.writeBlocks(flushTail(buffer, drained, n, len(p.outBuf)))
+		return buffer[:0]
+	}
+	// Snapshot the stream handle + lib under a brief lock and release it BEFORE
+	// the blocking stop/start FFI calls — holding p.mu across them would stall a
+	// concurrent Close() (same pattern Close() uses).
+	p.mu.Lock()
+	outStream := p.outStream
+	lib := p.lib
+	p.mu.Unlock()
+	if outStream != 0 {
+		_ = lib.stopStream(outStream)
+		_ = lib.startStream(outStream)
+	}
+	return buffer[:0]
 }
 
 // writeBlocks writes pcm, a whole number of outBuf-sized blocks, to the
