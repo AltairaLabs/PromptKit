@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image/png"
 	"regexp"
 	"sort"
@@ -108,6 +109,63 @@ func done(cost float64, in, out int) *providers.StreamChunk {
 	stop := types.FinishReasonStop
 	return &providers.StreamChunk{FinishReason: &stop,
 		CostInfo: &types.CostInfo{InputTokens: in, OutputTokens: out, TotalCost: cost}}
+}
+
+// Late usage is labeled with the call its CallID names, not the call that
+// completed last. Usage that arrives before its call's provider.call.completed
+// (the bus delivers each event type on its own goroutine) is printed after
+// the call's line; usage naming no call is the session's.
+func TestShowcaseEventLog_LateUsageNamesItsCall(t *testing.T) {
+	out := &syncBuffer{}
+	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+	completed := func(id string, cost float64) {
+		elog.onEvent(&events.Event{Data: &events.ProviderCallCompletedData{CallID: id, Cost: cost}})
+	}
+	usage := func(id string, cost float64, in int) {
+		elog.onEvent(&events.Event{Data: &events.ProviderCallUsageData{CallID: id, Cost: cost, InputTokens: in}})
+	}
+
+	completed("a", 0.001)
+	completed("b", 0.002)
+	usage("a", 0.004, 40)
+	usage("c", 0.008, 80) // before call c's completion
+	completed("c", 0.016)
+	usage("", 0.032, 320)
+	elog.end()
+
+	assert.Equal(t, []string{
+		"09:30:00.000  cost      call 1: $0.0010 (0 in / 0 out tokens); session total $0.0010",
+		"09:30:00.000  cost      call 2: $0.0020 (0 in / 0 out tokens); session total $0.0030",
+		"09:30:00.000  cost      late usage for call 1: +$0.0040 (40 in / 0 out tokens); session total $0.0070",
+		"09:30:00.000  cost      call 3: $0.0160 (0 in / 0 out tokens); session total $0.0230",
+		"09:30:00.000  cost      late usage for call 3: +$0.0080 (80 in / 0 out tokens); session total $0.0310",
+		"09:30:00.000  cost      late usage for the session: +$0.0320 (320 in / 0 out tokens); session total $0.0630",
+		"09:30:00.000  session   end: 3 provider calls, total cost $0.0630",
+	}, out.lines())
+}
+
+// Usage for calls never seen to complete is printed at the session's end in
+// the order it arrived, every run.
+func TestShowcaseEventLog_PendingUsageIsPrintedInArrivalOrder(t *testing.T) {
+	ids := []string{"k", "c", "x", "a", "q", "b", "z", "m"}
+	var want []string
+	for i := range ids {
+		want = append(want, fmt.Sprintf(
+			"09:30:00.000  cost      late usage for the session: +$0.0010 (%d in / 0 out tokens); session total $%.4f",
+			i+1, float64(i+1)*0.001))
+	}
+	want = append(want, "09:30:00.000  session   end: 0 provider calls, total cost $0.0080")
+	for range 20 { // map order would differ between runs
+		out := &syncBuffer{}
+		elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+		elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+		for i, id := range ids {
+			elog.onEvent(&events.Event{Data: &events.ProviderCallUsageData{CallID: id, Cost: 0.001, InputTokens: i + 1}})
+		}
+		elog.end()
+		require.Equal(t, want, out.lines())
+	}
 }
 
 func TestShowcaseEventLog_ScriptedSession(t *testing.T) {

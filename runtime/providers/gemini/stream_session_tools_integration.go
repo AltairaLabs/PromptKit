@@ -52,6 +52,7 @@ func (s *StreamSession) SendToolResponses(ctx context.Context, responses []provi
 	ws := s.ws // the current socket: a reconnect replaces it
 	s.mu.Unlock()
 
+	s.noteToolResponse(responses) // before it goes out (live_tool_turn.go)
 	return ws.Send(msg)
 }
 
