@@ -20,9 +20,18 @@ import (
 )
 
 // liveSetupAt runs a Live API stand-in, opens a session through a provider
-// whose base_url points at it, and returns the path the session dialed and
+// whose live_url points at it, and returns the path the session dialed and
 // the setup message it sent.
 func liveSetupAt(t *testing.T, metadata map[string]interface{}) (path string, setup map[string]any) {
+	t.Helper()
+	path, setup, _ = liveSessionAt(t, metadata)
+	return path, setup
+}
+
+// liveSessionAt is liveSetupAt that also returns the open session.
+func liveSessionAt(
+	t *testing.T, metadata map[string]interface{},
+) (path string, setup map[string]any, session providers.StreamInputSession) {
 	t.Helper()
 	type dial struct {
 		path  string
@@ -61,17 +70,38 @@ func liveSetupAt(t *testing.T, metadata map[string]interface{}) (path string, se
 	p := built.(*ToolProvider)
 	req := liveAudioRequest()
 	req.Metadata = metadata
-	session, err := p.CreateStreamSession(context.Background(), req)
+	session, err = p.CreateStreamSession(context.Background(), req)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.Close() })
 
 	select {
 	case d := <-got:
-		return d.path, d.setup
+		return d.path, d.setup, session
 	case <-time.After(5 * time.Second):
 		t.Fatal("the Live stand-in never received a setup message")
 	}
-	return "", nil
+	return "", nil, nil
+}
+
+// The voice a Live session's OutputAudio reports is the voice its setup
+// message asked for: metadata["voice"], or the default when unset.
+func TestLive_OutputAudioReportsTheConfiguredVoice(t *testing.T) {
+	audio := []string{"AUDIO"}
+	for _, tc := range []struct {
+		metadata map[string]interface{}
+		want     string
+	}{
+		{map[string]interface{}{"response_modalities": audio, "voice": "Kore"}, "Kore"},
+		{map[string]interface{}{"response_modalities": audio}, "Puck"},
+	} {
+		_, setup, session := liveSessionAt(t, tc.metadata)
+		reporter, ok := session.(providers.OutputAudioReporter)
+		require.True(t, ok, "a Live session reports its output audio")
+		got, ok := reporter.OutputAudio()
+		require.True(t, ok)
+		assert.Equal(t, providers.OutputAudio{Voice: tc.want, SampleRate: 24000, Family: "gemini-live"}, got)
+		assert.Equal(t, voiceNameOf(t, setup), got.Voice, "the reported voice is the one the session asked for")
+	}
 }
 
 // voiceNameOf returns setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName.
