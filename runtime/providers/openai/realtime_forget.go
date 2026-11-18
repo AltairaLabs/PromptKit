@@ -39,9 +39,8 @@ type turnLedger struct {
 	// user is the caller's latest audio item (input_audio_buffer.committed):
 	// the input a response created now answers. A typed turn clears it.
 	user string
-	// genUser is the caller's item each response answers, by generation; a
-	// response the session asked for itself (the spoken guardrail message)
-	// answers none. genItems are the items each completed response output,
+	// genUser is the caller's item each response answers, by generation.
+	// genItems are the items each completed response output,
 	// and genCalls whether it made tool calls. Kept for the responses the
 	// session remembers (maxRespGens).
 	genUser  map[int64]string
@@ -70,8 +69,7 @@ type turnLedger struct {
 // at once too; one in progress, or not created yet, when its response.done
 // arrives. When the reply completed with tool calls, the reply to their
 // results is the one deleted, and the tool round is left: the conversation
-// keeps each call with its result. The spoken guardrail message (Announce)
-// is never deleted. An item is deleted once; a delete the server rejects
+// keeps each call with its result. An item is deleted once; a delete the server rejects
 // because the item is gone is not a session error, and any other rejection
 // is. A delete that could not be sent is reported and may be retried.
 func (s *RealtimeSession) ForgetTurn(_ context.Context, inputID string) error {
@@ -140,16 +138,6 @@ func (s *RealtimeSession) noteResponseStarted(gen, evicted int64) {
 		delete(l.genCalls, evicted)
 	}
 	l.genUser[gen] = l.user
-}
-
-// noteAnnouncementStarted records that the response just created, when it is
-// the spoken guardrail message (its request tag names an Announce, see
-// realtime_response_queue.go), answers no caller input, so it is never
-// deleted with one. Called with recvMu held, after responseCreated.
-func (s *RealtimeSession) noteAnnouncementStarted() {
-	if s.isAnnouncement(s.gen) {
-		delete(s.turns.genUser, s.gen)
-	}
 }
 
 // noteResponseDone records the items the response numbered gen output, and

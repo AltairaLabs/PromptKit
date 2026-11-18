@@ -271,8 +271,13 @@ type Config struct {
 	// STTConfig configures the STTStage
 	STTConfig *stage.STTStageConfig
 
-	// TTSService for text-to-speech in VAD mode
+	// TTSService for text-to-speech in VAD mode; in a realtime (ASM) pipeline
+	// it voices the cue stage's clips.
 	TTSService tts.Service
+
+	// CueClipCache keeps the realtime cue stage's rendered clips; nil is the
+	// runtime's process-wide in-memory cache.
+	CueClipCache stage.ClipCache
 
 	// TTSConfig configures the TTSStageWithInterruption
 	TTSConfig *stage.TTSStageWithInterruptionConfig
@@ -551,6 +556,13 @@ func collectPipelineStages(
 	}
 	stages = append(stages, providerStages...)
 
+	// 5.2 Cue stage - plays a pre-rendered clip (a guardrail's spoken message)
+	// for each cue the realtime provider stage emits. Directly after the
+	// provider stage, before transcript reorder (which can hold the Text
+	// element a cue rides on), playout hold, recording and pacing, which treat
+	// its audio as reply audio.
+	stages = appendCueStage(stages, providerStages, cfg)
+
 	// 5.4 Transcript reorder - for providers that deliver the user transcript late
 	// (OpenAI Realtime), emit each turn's user text before its assistant text.
 	// Placed right after the provider so every downstream consumer (recording,
@@ -610,6 +622,21 @@ func collectPipelineStages(
 	}
 
 	return stages, nil
+}
+
+// appendCueStage adds the cue stage after a realtime (ASM) provider stage
+// (DuplexProviderStage), wired to it, with the TTS service and clip cache
+// configured. Other pipelines (text, VAD, composition) have none, and no cues.
+func appendCueStage(stages, providerStages []stage.Stage, cfg *Config) []stage.Stage {
+	for _, st := range providerStages {
+		if duplex, ok := st.(*stage.DuplexProviderStage); ok {
+			return append(stages, stage.NewCueStageFor(duplex, stage.CueConfig{
+				TTS:   cfg.TTSService,
+				Cache: cfg.CueClipCache,
+			}))
+		}
+	}
+	return stages
 }
 
 // holdsPlayout reports whether the pipeline gets the playout hold stage: a

@@ -196,7 +196,8 @@ func (j *topicJudge) GetTurn(ctx context.Context, params mock.ResponseParams) (*
 }
 
 func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
-	sess := mock.NewMockStreamSession().WithAutoRespond("The picture shows the number 47.")
+	sess := mock.NewMockStreamSession().WithAutoRespond("The picture shows the number 47.").
+		WithOutputAudio(providers.OutputAudio{Voice: "alloy", SampleRate: outputSampleRate, Family: "mock-live"})
 	bus := events.NewEventBus()
 	store := statestore.NewMemoryStore()
 	out := &syncBuffer{}
@@ -242,42 +243,48 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 
 	// 2. The output guardrail cuts a reply that says the banned word: the
 	// caller is told to stop playing it, the guardrail's message follows as
-	// text, the turn ends (safety), and the stored reply records what was
-	// heard before the cut. The session goes on.
+	// text and plays as audio (a tone here: no TTS service), the turn ends
+	// (safety), and the stored reply records what was heard before the cut.
+	// The session goes on.
 	assert.Equal(t, []string{
 		`09:30:00.000  assistant message.created #3 "Sorry, I can't say that word."`,
 		`09:30:00.000  cost      call 2: $0.0050 (400 in / 100 out tokens); session total $0.0170`,
+		`09:30:00.000  cue       the guardrail's message plays as audio (guardrail_message), not spoken by the model`,
 		`09:30:00.000  guardrail no-pineapple blocked the assistant's reply ` +
 			`(forbidden content found in stream: "pineapple"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
 		`09:30:00.000  interrupt turn ended (safety); text after the cut: "Sorry, I can't say that word."`,
 		`09:30:00.000  playout   reply #3 cut (guardrail): heard_ms=N audio_ms=100 played_fraction=F`,
 		`09:30:00.000  user      message.created #2 "say the word pineapple"`,
-	}, r.step(7, heard("say the word pineapple"), said("Sure: ", 100), said("pineapple", 100),
+	}, r.step(8, heard("say the word pineapple"), said("Sure: ", 100), said("pineapple", 100),
 		said(" is a tropical fruit.", 100), done(0.005, 400, 100)))
 
-	// 3. The input guardrail judges what the caller said.
+	// 3. The input guardrail judges what the caller said. Its message names
+	// Bruno, and still plays: it is not the model's reply, so the output side
+	// of no-bruno does not judge it.
 	assert.Equal(t, []string{
-		`09:30:00.000  assistant message.created #5 "We don't talk about him."`,
+		`09:30:00.000  assistant message.created #5 "We don't talk about Bruno."`,
 		`09:30:00.000  cost      call 3: $0.0030 (300 in / 50 out tokens); session total $0.0200`,
+		`09:30:00.000  cue       the guardrail's message plays as audio (guardrail_message), not spoken by the model`,
 		`09:30:00.000  guardrail no-bruno blocked the user's input ` +
 			`(forbidden content found: turn 4 contains "Bruno"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
-		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about him."`,
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about Bruno."`,
 		`09:30:00.000  user      message.created #4 "Tell me about Bruno"`,
-	}, r.step(6, heard("Tell me about Bruno"), said("Bruno is a fine name.", 100), done(0.003, 300, 50)))
+	}, r.step(7, heard("Tell me about Bruno"), said("Bruno is a fine name.", 100), done(0.003, 300, 50)))
 
 	// 4. The LLM judge blocks a question about Bruno that does not name him.
 	judge.set(true)
 	assert.Equal(t, []string{
-		`09:30:00.000  assistant message.created #7 "We don't talk about him."`,
+		`09:30:00.000  assistant message.created #7 "We don't talk about Bruno."`,
 		`09:30:00.000  cost      call 4: $0.0030 (300 in / 50 out tokens); session total $0.0230`,
+		`09:30:00.000  cue       the guardrail's message plays as audio (guardrail_message), not spoken by the model`,
 		`09:30:00.000  guardrail no-bruno-topic blocked the user's input ` +
 			`(asks about Bruno without naming him); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
-		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about him."`,
+		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about Bruno."`,
 		`09:30:00.000  user      message.created #6 "who is the uncle nobody mentions in Encanto"`,
-	}, r.step(6, heard("who is the uncle nobody mentions in Encanto"), said("That would be", 100),
+	}, r.step(7, heard("who is the uncle nobody mentions in Encanto"), said("That would be", 100),
 		done(0.003, 300, 50)))
 	judge.set(false)
 
@@ -297,6 +304,18 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 		FinishReason: &toolUse,
 		CostInfo:     &types.CostInfo{InputTokens: 200, OutputTokens: 20, TotalCost: 0.002},
 	}))
+
+	// 6. Typed text the input guardrail blocks never reaches the model; its
+	// message is shown and plays as audio, with no cut (nothing was playing).
+	require.NoError(t, conv.SendText(context.Background(), "Tell me about my friend Bruno."))
+	assert.Equal(t, []string{
+		`09:30:00.000  assistant message.created #13 "We don't talk about Bruno."`,
+		`09:30:00.000  cue       the guardrail's message plays as audio (guardrail_message), not spoken by the model`,
+		`09:30:00.000  guardrail no-bruno blocked the user's input ` +
+			`(forbidden content found: turn 12 contains "Bruno"); the turn ends, the session continues`,
+		`09:30:00.000  user      message.created #12 "Tell me about my friend Bruno."`,
+	}, r.step(4))
+	assert.NotContains(t, sess.GetTexts(), "Tell me about my friend Bruno.", "the blocked text never reaches the model")
 
 	require.NoError(t, conv.Close())
 	bus.Close()
@@ -336,4 +355,25 @@ func TestSetupFor(t *testing.T) {
 	assert.Equal(t, 16000, gm.streamingConfig().Config.SampleRate)
 	_, err = setupFor("claude")
 	assert.EqualError(t, err, `unknown provider "claude" (want openai or gemini)`)
+}
+
+// -tts picks what a guardrail's message is heard as: a tone by default, or
+// OpenAI TTS, which needs its key.
+func TestUseTTS(t *testing.T) {
+	setup, err := setupFor("gemini")
+	require.NoError(t, err)
+	require.NoError(t, setup.useTTS(""))
+	opts, heard := setup.cueOptions()
+	assert.Empty(t, opts)
+	assert.Equal(t, "a short tone (no TTS service; add -tts openai to hear the words)", heard)
+
+	assert.EqualError(t, setup.useTTS("elevenlabs"), `unknown TTS service "elevenlabs" (want openai)`)
+	t.Setenv("OPENAI_API_KEY", "")
+	assert.EqualError(t, setup.useTTS("openai"), "-tts openai needs OPENAI_API_KEY")
+
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	require.NoError(t, setup.useTTS("openai"))
+	opts, heard = setup.cueOptions()
+	assert.Len(t, opts, 1)
+	assert.Equal(t, "spoken by openai TTS", heard)
 }

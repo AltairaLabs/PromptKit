@@ -342,31 +342,6 @@ func TestRealtimeForget_BargeInTwoCommitsBeforeTheTranscript(t *testing.T) {
 		run.clientEvents())
 }
 
-// A blocked turn that got no reply of its own: the spoken guardrail message,
-// the next response, is the session's own and is never deleted, and the reply
-// to the caller's next turn is not the blocked turn's either.
-func TestRealtimeForget_AnnouncementIsNeverDeleted(t *testing.T) {
-	fs := newForgetServer(t, []forgetStep{
-		{send: []map[string]any{committed("user_1")}, await: realtimeEventResponseCreate},
-		{send: []map[string]any{
-			{"type": "response.created", "response": map[string]any{"id": "R_ann", "status": "in_progress",
-				"metadata": map[string]any{metaKeyRequest: "$TAG"}}},
-			audioDelta("R_ann", "item_ann"), responseDone("R_ann", "completed", assistantItem("item_ann")),
-			committed("user_2"), responseCreated("R2"), responseDone("R2", "completed", assistantItem("item_R2")),
-		}},
-	}, "")
-	run := startForgetRun(t, fs)
-
-	require.NoError(t, run.session.ForgetTurn(run.ctx, "user_1"))
-	spoken, err := run.session.Announce(run.ctx, "We don't talk about him.")
-	require.NoError(t, err)
-	require.True(t, spoken)
-	run.until(finishedResponse("R2"))
-
-	assert.Equal(t, []string{"conversation.item.delete:user_1", realtimeEventResponseCreate},
-		run.clientEvents())
-}
-
 // The server rejecting a delete because the item is already gone is not a
 // session error: the next reply streams with no error chunk.
 func TestRealtimeForget_ItemNotFoundIsNotAnError(t *testing.T) {

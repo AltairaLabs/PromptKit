@@ -160,8 +160,6 @@ func (b *cueBank) canRender() bool {
 // voices reports whether a cue with text will be spoken: a clip for it is
 // ready or rendering, or a source can render it. With the earcon as the last
 // source this is true for every spoken session.
-//
-//nolint:unused // the provider stage asks it once guardrail messages are cues
 func (b *cueBank) voices(text string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

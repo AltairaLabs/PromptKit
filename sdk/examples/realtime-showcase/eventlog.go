@@ -52,6 +52,8 @@ type eventLog struct {
 	// chunk, and cut whether one arrived this turn.
 	cutText strings.Builder
 	cut     bool
+	// cuePlaying is set while Response() carries a cue's audio.
+	cuePlaying bool
 }
 
 // newEventLog returns a log writing to out. The conversation's messages are
@@ -251,6 +253,13 @@ func (l *eventLog) observe(c providers.StreamChunk) {
 	if l.cut {
 		l.cutText.WriteString(c.Delta)
 	}
+	// Audio marked as a cue's is the guardrail's message, spoken by the
+	// pipeline (a TTS service, or a tone), not by the model.
+	kind, _ := c.Metadata["cue"].(string)
+	if kind != "" && !l.cuePlaying {
+		l.logLockedf("cue", "the guardrail's message plays as audio (%s), not spoken by the model", kind)
+	}
+	l.cuePlaying = kind != ""
 	if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
 		return
 	}

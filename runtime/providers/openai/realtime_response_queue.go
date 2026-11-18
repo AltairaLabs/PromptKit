@@ -24,17 +24,11 @@ import (
 // which request, and which response the server started on its own (server
 // VAD, for the caller's speech):
 //
-//   - The reply an Announce asked for is marked on every chunk
-//     (providers.MetaKeyAnnouncement), so the stage tells it by the mark, not
-//     by its position. An Announce goes to the front of the waiting requests:
-//     the message follows the reply it explains. One the server refuses is
-//     reported to the stage (providers.MetaKeyAnnouncementFailed), not as a
-//     session error.
 //   - While the caller speaks (server VAD that creates responses), nothing
 //     waiting is sent: the server starts the response to their speech, and a
 //     request sent as an interrupted reply ends would talk over them. That
 //     response reads the whole conversation, so the requests that were
-//     waiting before the caller began to speak (an Announce excepted) are
+//     waiting before the caller began to speak are
 //     answered by it and dropped, not sent after it as a second reply: their
 //     input (typed text, tool results) reached the server before the speech
 //     began. A request asked for once the caller began to speak, or sent as
@@ -64,21 +58,17 @@ const createRetryDelay = 100 * time.Millisecond
 // by then, none is coming.
 const speechResponseGrace = 2 * time.Second
 
-// maxAnnounceGens bounds the announcement generations remembered.
-const maxAnnounceGens = 8
-
 // responseRequest is a response.create the session sends, or holds until it
-// can. announce marks the one an Announce asked for; speechSeq is the count
-// of the caller's speech turns when it was asked for.
+// can. speechSeq is the count of the caller's speech turns when it was asked
+// for.
 type responseRequest struct {
 	ev        ResponseCreateEvent
-	announce  bool
 	speechSeq int64
 }
 
 // requestResponse sends a response.create now when nothing is in progress or
-// waiting, and holds it otherwise: in order, or first for an Announce.
-func (s *RealtimeSession) requestResponse(ev ResponseCreateEvent, announce bool) error {
+// waiting, and holds it otherwise, in order.
+func (s *RealtimeSession) requestResponse(ev ResponseCreateEvent) error {
 	// The caller's config is copied, not changed, to carry the tag.
 	config := ResponseConfig{}
 	if ev.Response != nil {
@@ -97,15 +87,10 @@ func (s *RealtimeSession) requestResponse(ev ResponseCreateEvent, announce bool)
 	if s.emitClosed {
 		return errors.New(errSessionClosed)
 	}
-	req := &responseRequest{ev: ev, announce: announce, speechSeq: s.speechSeq}
+	req := &responseRequest{ev: ev, speechSeq: s.speechSeq}
 	if s.responseActive || s.pendingRequest != nil || s.speechTurn || len(s.waitingRequests) > 0 {
-		logger.Debug("OpenAI Realtime: a response is in progress; the next one is requested once it is done",
-			"announce", announce)
-		if announce {
-			s.waitingRequests = append([]*responseRequest{req}, s.waitingRequests...)
-		} else {
-			s.waitingRequests = append(s.waitingRequests, req)
-		}
+		logger.Debug("OpenAI Realtime: a response is in progress; the next one is requested once it is done")
+		s.waitingRequests = append(s.waitingRequests, req)
 		return nil
 	}
 	return s.sendRequestLocked(req)
@@ -125,9 +110,9 @@ func (s *RealtimeSession) sendRequestLocked(req *responseRequest) error {
 }
 
 // sendNextRequestLocked sends the request waiting longest once nothing is in
-// progress. A failed send is reported on Response() as an error, an
-// Announce's too: the request is well-formed, so only a broken connection
-// fails it, and that ends the session. Called with recvMu held.
+// progress. A failed send is reported on Response() as an error: the request
+// is well-formed, so only a broken connection fails it, and that ends the
+// session. Called with recvMu held.
 func (s *RealtimeSession) sendNextRequestLocked() {
 	if s.emitClosed || s.responseActive || s.pendingRequest != nil || s.speechTurn ||
 		len(s.waitingRequests) == 0 {
@@ -141,17 +126,10 @@ func (s *RealtimeSession) sendNextRequestLocked() {
 	}
 }
 
-// announcementFailed is the chunk that tells the stage the reply an Announce
-// asked for is not coming.
-func announcementFailed() providers.StreamChunk {
-	return providers.StreamChunk{Metadata: map[string]interface{}{providers.MetaKeyAnnouncementFailed: true}}
-}
-
 // responseCreated settles the requests on response.created: the response
-// answers the pending request its tag names (an Announce's is marked as the
-// announcement), or, with no tag of this session's, it is one the server
-// started itself, which answers the requests waiting since before the
-// caller's speech began (an Announce excepted). Called with recvMu held,
+// answers the pending request its tag names, or, with no tag of this
+// session's, it is one the server started itself, which answers the requests
+// waiting since before the caller's speech began. Called with recvMu held,
 // after the generation is numbered.
 func (s *RealtimeSession) responseCreated(info *ResponseInfo) {
 	s.speechTurn = false
@@ -159,9 +137,6 @@ func (s *RealtimeSession) responseCreated(info *ResponseInfo) {
 	logger.Debug("OpenAI Realtime: response created", "response_id", info.ID, "request", tag)
 	if p := s.pendingRequest; p != nil && tag != "" && tag == p.ev.EventID {
 		s.pendingRequest = nil
-		if p.announce {
-			s.markAnnouncement(s.gen)
-		}
 		return
 	}
 	if tag != "" {
@@ -169,7 +144,7 @@ func (s *RealtimeSession) responseCreated(info *ResponseInfo) {
 	}
 	kept := s.waitingRequests[:0]
 	for _, req := range s.waitingRequests {
-		if req.announce || req.speechSeq >= s.speechSeq {
+		if req.speechSeq >= s.speechSeq {
 			kept = append(kept, req)
 			continue
 		}
@@ -210,28 +185,6 @@ func (s *RealtimeSession) endSpeechTurn(why string) {
 	s.speechTurn = false
 	s.sendNextRequestLocked()
 }
-
-// markAnnouncement records gen as the reply an Announce asked for.
-func (s *RealtimeSession) markAnnouncement(gen int64) {
-	s.announceGens = append(s.announceGens, gen)
-	if len(s.announceGens) > maxAnnounceGens {
-		s.announceGens = s.announceGens[1:]
-	}
-}
-
-// isAnnouncement reports whether gen is a reply an Announce asked for.
-func (s *RealtimeSession) isAnnouncement(gen int64) bool {
-	for _, g := range s.announceGens {
-		if g == gen {
-			return true
-		}
-	}
-	return false
-}
-
-// TagsAnnouncements implements providers.AnnouncementTagger: the chunks of
-// the reply an Announce asked for carry providers.MetaKeyAnnouncement.
-func (s *RealtimeSession) TagsAnnouncements() bool { return true }
 
 // requestRejected handles a server error that answers the pending request
 // (it names its event_id, or names none while a request is pending), and

@@ -18,10 +18,10 @@ import (
 // take a turn out of its conversation (providers.TurnForgetter) is asked to,
 // for the reply the block cut.
 
-// forgettingSession is an announcingSession that also forgets turns on
+// forgettingSession is an interruptingSession that also forgets turns on
 // request, recording the input each names.
 type forgettingSession struct {
-	*announcingSession
+	*interruptingSession
 	forgot []string
 }
 
@@ -47,14 +47,14 @@ func spoken(text, id string) providers.StreamChunk {
 
 func forgetStage(t *testing.T, reg *hooks.Registry) (*DuplexProviderStage, *forgettingSession) {
 	t.Helper()
-	s, a := announceStage(t, reg)
-	f := &forgettingSession{announcingSession: a}
+	s, a := cutStage(t, reg)
+	f := &forgettingSession{interruptingSession: a}
 	s.session = f
 	return s, f
 }
 
 // A spoken turn blocked while its reply streams is forgotten with that reply,
-// and the blocked message is still spoken.
+// and the blocked message is still shown.
 func TestDuplexForget_SpokenInputBlockedMidReply(t *testing.T) {
 	s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
 
@@ -63,16 +63,12 @@ func TestDuplexForget_SpokenInputBlockedMidReply(t *testing.T) {
 		spoken("a wire transfer please", "item_A"),
 		genChunk(5, transcriptChunk("sending it", pcm(20))),
 		genChunk(5, stopChunk()),
-		genChunk(6, transcriptChunk("I can't help with transfers.", pcm(30))),
-		genChunk(6, stopChunk()),
 	)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"item_A"}, sess.forgotten(), "the blocked input is the one forgotten")
 	assert.Equal(t, []int64{5}, sess.interruptedGens())
-	assert.Equal(t, []string{"I can't help with transfers."}, sess.announcements(),
-		"the blocked message is still spoken")
-	assert.Contains(t, trace(elems), "audio:30", "the spoken message is played")
+	assert.Contains(t, trace(elems), "text:I can't help with transfers.", "the blocked message is still shown")
 }
 
 // A spoken turn blocked before its reply began is forgotten with the reply

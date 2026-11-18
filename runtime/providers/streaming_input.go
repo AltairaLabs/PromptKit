@@ -262,7 +262,7 @@ type ResponseInterrupter interface {
 // that answers that input, whichever reply is streaming when it is called. A
 // reply still in progress, or not created yet, is removed once it ends; a
 // completed one at once. Earlier rounds of a tool turn, and their tool
-// results, stay, and so does the guardrail's spoken message (Announcer).
+// results, stay.
 // Removing an item the provider has already dropped is not an error.
 //
 // OpenAI Realtime deletes the conversation items. A session without it keeps
@@ -276,24 +276,6 @@ type TurnForgetter interface {
 // implements TurnForgetter puts its ID for the caller's input on each of that
 // input's transcription chunks.
 const InputItemIDKey = "item_id"
-
-// Announcer is an optional interface a StreamInputSession implements to have
-// the model speak a given text as its own reply, in its own voice. The
-// pipeline uses it after a guardrail cuts a spoken reply, so the caller hears
-// the blocked message instead of silence. The spoken reply is played but is
-// not recorded as a turn of its own: the blocked turn already carries the
-// text.
-//
-// spoken is false, with no request made, when the session's replies are not
-// spoken (a text-only session): the blocked text it already shows is the
-// whole answer.
-//
-// OpenAI Realtime asks for a response whose instructions are to say the text,
-// adding no user turn. Gemini Live has no such request: it is sent the
-// instruction as a user turn, which stays in its context.
-type Announcer interface {
-	Announce(ctx context.Context, text string) (spoken bool, err error)
-}
 
 // OutputAudioReporter is an optional StreamInputSession interface reporting
 // the session's spoken output, so audio the pipeline plays alongside the
@@ -312,30 +294,6 @@ type OutputAudio struct {
 	// Family is the provider family ("openai-realtime", "gemini-live"), for
 	// telling apart audio that can sound different. It is never a model name.
 	Family string
-}
-
-// MetaKeyAnnouncement is the StreamChunk.Metadata key, set to true, on every
-// chunk of the reply an Announce asked for, by a session that identifies that
-// reply itself (AnnouncementTagger).
-const MetaKeyAnnouncement = "announcement"
-
-// MetaKeyAnnouncementFailed is the StreamChunk.Metadata key, set to true, on
-// a chunk an AnnouncementTagger sends when the reply an Announce asked for is
-// not coming (the request could not be sent, or the provider refused it).
-const MetaKeyAnnouncementFailed = "announcement_failed"
-
-// AnnouncementTagger is an optional interface an Announcer implements when it
-// marks the chunks of the reply Announce asked for (MetaKeyAnnouncement), so
-// the pipeline tells the spoken message by the mark, not by its position: a
-// reply asked for before it (text the caller typed meanwhile) can come first.
-type AnnouncementTagger interface {
-	TagsAnnouncements() bool
-}
-
-// AnnounceInstructions is the instruction a session gives the model to speak
-// text verbatim.
-func AnnounceInstructions(text string) string {
-	return "Say exactly the following, in the same language, and nothing else: " + text
 }
 
 // LateInputTranscriber is an optional interface a StreamInputSupport provider

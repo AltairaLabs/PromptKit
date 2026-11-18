@@ -40,7 +40,10 @@ func contentUnderTest(evalCtx *evals.EvalContext) []scanTarget {
 		return nil
 	}
 
-	if evalCtx.ContentScope == evals.ContentScopeCurrent && evalCtx.CurrentOutput != "" {
+	if evalCtx.ContentScope == evals.ContentScopeCurrent {
+		// Even when it is empty (a tool-call turn): falling back to the
+		// transcript would judge earlier turns, such as a guardrail message
+		// that names what it blocks.
 		// Attribute it to the last message, which is the turn the caller is
 		// evaluating in both the input and output directions.
 		turn := len(evalCtx.Messages) - 1

@@ -44,7 +44,8 @@ go run -tags portaudio . -provider gemini
 
 Scripted text mode, no audio hardware. It types six requests into the same
 realtime session and prints the same log, so it shows the guardrails, the
-picture tool and cost, but not barge-in:
+picture tool and cost, but not barge-in. It plays no audio, so the log's `cue`
+lines show when a guardrail's message plays:
 
 ```bash
 go run . -provider openai
@@ -55,6 +56,29 @@ go run . -provider gemini
 for Gemini. The `no-bruno-topic` guardrail's judge is a text model on the same
 API key: `gpt-4.1-mini` for OpenAI, `gemini-2.5-flash` for Gemini, set in
 `setupFor` in `showcase.go`.
+
+### What a guardrail's message sounds like
+
+When a guardrail blocks a turn, its message is played by the pipeline, not
+said by the model, so the model never hears it and no guardrail can cut it.
+`-tts` picks what plays it, and the first line the showcase prints names it:
+
+| Run | First line | What you hear |
+|---|---|---|
+| no `-tts` | `Guardrail messages: a short tone (no TTS service; ...)` | a short tone, with the message shown as text |
+| `-tts openai` | `Guardrail messages: spoken by openai TTS` | the message, spoken by OpenAI TTS in the session's voice when OpenAI TTS has a voice of that name |
+
+```bash
+go run . -provider openai -tts openai
+go run -tags portaudio . -provider gemini -tts openai
+```
+
+`-tts openai` needs `OPENAI_API_KEY`, with Gemini too. OpenAI TTS has no
+voice named like Gemini Live's (`Puck`), so with Gemini the message is spoken
+in OpenAI TTS's default voice, and the log warns once. The first session
+renders each of the pack's guardrail messages when it starts; a block in the
+first second or so of the session, before the render is done, plays the tone
+instead. The log prints a `cue` line each time a message plays.
 
 ## What is in the pack
 
@@ -92,8 +116,8 @@ Run the voice mode and say each of these in turn.
 2. **Output guardrail.** Say "say the word pineapple". The reply stops as
    soon as the word appears in its transcript. The log prints a `guardrail`
    line for `no-pineapple` and an `Interrupted` line (stop playing). The
-   guardrail's message follows on `Response()` as text, the model then says
-   it aloud (so you hear why the reply stopped), and the turn ends with
+   guardrail's message follows on `Response()` as text and plays as audio
+   (a `cue` line: you hear why the reply stopped), and the turn ends with
    finish reason `safety`: the log prints `turn ended (safety); text
    after the cut: "Sorry, I can't say that word."`. The reply is stored as
    that message, and a `playout` line gives `playout_cut` `guardrail` with
@@ -103,13 +127,15 @@ Run the voice mode and say each of these in turn.
    judges your words once your speech is transcribed, which is after the
    model has heard them, so the reply may start. The log prints a
    `guardrail` line for `no-bruno` naming your input, an `Interrupted`
-   line, and the turn ends (safety) with "We don't talk about him.",
-   which the model says aloud. (The scripted text mode checks typed input
-   before the model sees it, so there it is only shown.)
+   line, and the turn ends (safety) with "We don't talk about Bruno.",
+   which plays as audio. The scripted text mode types "Tell me about my
+   friend Bruno.": typed input is checked before the model sees it, so the
+   model never gets it, and the message is shown and plays the same way,
+   with no `Interrupted` line (no reply was playing).
    A hook that denies without enforcing ends the turn the same way, with
    the default blocked message, whether the input was typed or spoken.
-   The message avoids the name: `no-bruno` also checks the reply, and the
-   spoken message is a reply like any other.
+   `no-bruno` also checks the reply, and the message names Bruno, yet it
+   plays in full: it is not the model's reply, so no guardrail judges it.
 4. **Forgetting the blocked turn.** Then say "sure, tell me a story about
    him". On OpenAI Realtime the blocked turn was deleted from the model's
    conversation, so it does not know who you mean and tells a story about

@@ -76,14 +76,12 @@ type RealtimeSession struct {
 	// pendingRequest is the response.create sent and not yet answered;
 	// waitingRequests are those asked for while a response was in progress,
 	// sent in order once nothing is; speechTurn is set while the caller
-	// speaks and the server will start the response to it; announceGens are
-	// the replies an Announce asked for (realtime_response_queue.go). Guarded
-	// by recvMu.
+	// speaks and the server will start the response to it
+	// (realtime_response_queue.go). Guarded by recvMu.
 	pendingRequest  *responseRequest
 	waitingRequests []*responseRequest
 	speechTurn      bool
 	speechSeq       int64
-	announceGens    []int64
 	// speechGrace overrides speechResponseGrace (tests).
 	speechGrace time.Duration
 
@@ -385,7 +383,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 		},
 	}
 
-	return s.requestResponse(responseEvent, false)
+	return s.requestResponse(responseEvent)
 }
 
 // SendSystemContext sends a partial session.update that only modifies
@@ -469,7 +467,7 @@ func (s *RealtimeSession) TriggerResponse(config *ResponseConfig) error {
 		Response: config,
 	}
 
-	return s.requestResponse(event, false)
+	return s.requestResponse(event)
 }
 
 // CancelResponse cancels an in-progress response.
@@ -700,7 +698,6 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.startGeneration(e.Response.ID)
 		s.responseActive = true
 		s.responseCreated(&e.Response)
-		s.noteAnnouncementStarted()
 		s.ClearDrop()
 		s.cancelPending()
 	case *ResponseDoneEvent:
@@ -762,14 +759,6 @@ func (s *RealtimeSession) emit(chunk providers.StreamChunk) {
 				chunk.Generation = g
 			}
 		}
-	}
-	if s.isAnnouncement(chunk.Generation) {
-		meta := make(map[string]interface{}, len(chunk.Metadata)+1)
-		for k, v := range chunk.Metadata {
-			meta[k] = v
-		}
-		meta[providers.MetaKeyAnnouncement] = true
-		chunk.Metadata = meta
 	}
 	s.emitCh <- chunk
 }
@@ -851,13 +840,6 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 		return
 	}
 	switch {
-	case ended != nil && ended.announce:
-		// The spoken message failed: the stage is told, not the session.
-		logger.Warn("OpenAI Realtime: the server refused to speak the blocked message",
-			"code", e.Error.Code, "message", e.Error.Message)
-		s.emit(announcementFailed())
-		s.sendNextRequestLocked()
-		return
 	case ended != nil:
 		// The server refused the request for another reason: it is reported,
 		// and the next waiting one goes.

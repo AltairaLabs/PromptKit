@@ -38,7 +38,7 @@
         {
           "id": "no-bruno",
           "type": "content_excludes",
-          "message": "We don't talk about him.",
+          "message": "We don't talk about Bruno.",
           "params": {
             "patterns": ["Bruno"],
             "direction": "both"
@@ -47,7 +47,7 @@
         {
           "id": "no-bruno-topic",
           "type": "llm_judge",
-          "message": "We don't talk about him.",
+          "message": "We don't talk about Bruno.",
           "params": {
             "provider": "topic-judge",
             "direction": "input",

@@ -55,14 +55,14 @@ func TestCueVoice_FailedSourceIsRetriedAfterBackoff(t *testing.T) {
 	cue.bank.now = clock.now
 	text := "Retry me."
 
-	assert.Equal(t, earconPCM(24000), playedFor(t, cue, text))
+	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, text))
 	assert.Equal(t, 1, svc.calls(text))
 	_, _, held := cue.bank.get(text)
 	assert.False(t, held, "the earcon is not kept as the text's clip")
 
 	failing.Store(false)
 	clock.advance(cueRetryBackoff - time.Second)
-	assert.Equal(t, earconPCM(24000), playedFor(t, cue, text), "within the backoff")
+	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, text), "within the backoff")
 	assert.Equal(t, 1, svc.calls(text), "the TTS is not asked within the backoff")
 
 	clock.advance(2 * time.Second)

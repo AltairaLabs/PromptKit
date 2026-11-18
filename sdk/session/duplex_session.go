@@ -1185,6 +1185,13 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 		setChunkMetadata(&chunk, "spoken_text", elem.Meta.SpokenText)
 	}
 
+	// Audio a cue stage played for a cue (a guardrail's spoken message), not
+	// the model's: the cue's kind under a stable key, so a caller can tell it
+	// from reply audio.
+	if cue := elem.Meta.CueAudio; cue != nil {
+		setChunkMetadata(&chunk, "cue", string(cue.Kind))
+	}
+
 	// Handle errors
 	if elem.Error != nil {
 		chunk.Error = elem.Error
