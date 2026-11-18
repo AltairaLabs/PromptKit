@@ -414,6 +414,11 @@ func TestDuplexToolOffer_ToolsOfferedIsPerTurn(t *testing.T) {
 
 	h.emit(toolCallTurn(namedCall("c1", "activate")))
 	h.awaitSent(1)
+	// The scripted reply to the tool responses must end the tool turn first:
+	// user input that arrives while that provider call is still open only
+	// marks a new turn due at the next generation, so its sync (the second
+	// update) would wait for a reply this test sends only after it.
+	h.awaitToolTurnEnded()
 	exec.revoke()
 	user := types.Message{Role: roleUser, Content: "next"}
 	h.input <- StreamElement{Message: &user}

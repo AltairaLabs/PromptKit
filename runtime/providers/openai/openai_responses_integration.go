@@ -302,11 +302,23 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 func (p *Provider) addResponsesTools(responsesReq map[string]any, tools any, toolChoice string) {
 	responsesReq["tools"] = p.convertToolsToResponsesFormat(tools)
 	if toolChoice != "" && toolChoice != toolChoiceAuto {
-		responsesReq["tool_choice"] = toolChoice
+		responsesReq["tool_choice"] = responsesToolChoice(toolChoice)
 	}
 	if p.parallelToolCalls != nil {
 		responsesReq["parallel_tool_calls"] = *p.parallelToolCalls
 	}
+}
+
+// responsesToolChoice is the Responses API tool_choice for choice: a mode
+// ("required", "none") as is, any other value as a forced function. The API
+// accepts only the modes as strings; a function name sent as a bare string
+// 400s the request, so a forced tool never worked on this path.
+func responsesToolChoice(choice string) any {
+	switch choice {
+	case toolChoiceRequired, toolChoiceNone:
+		return choice
+	}
+	return map[string]string{keyType: typeFunction, keyName: choice}
 }
 
 // responsesReasoning builds the reasoning object (effort and summary) for a
