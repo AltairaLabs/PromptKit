@@ -73,6 +73,14 @@ type RealtimeSession struct {
 	// barge-in (user spoke over the agent) from a normal turn start. The audio-
 	// drop state lives on the StreamPump (Dropping/Barge/ClearDrop).
 	responseActive bool
+	// createPending is set while a response.create the session sent awaits
+	// its response.created; queuedCreates are the response.create events
+	// asked for while a response was in progress, sent in order once it is
+	// done; sentCreates are the last ones sent, to match a rejection
+	// (realtime_response_queue.go). Guarded by recvMu.
+	createPending bool
+	queuedCreates []ResponseCreateEvent
+	sentCreates   []ResponseCreateEvent
 
 	// playout estimates the delivered audio the caller is still hearing, so
 	// speech after response.done still barges in. now is its clock (time.Now
@@ -357,7 +365,8 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 		return fmt.Errorf("failed to send text: %w", err)
 	}
 
-	// Trigger a response: a new turn, which no pending cancel applies to
+	// Trigger a response: a new turn, which no pending cancel applies to. It
+	// waits for a response in progress to end (requestResponse).
 	s.startClientTurn()
 	responseEvent := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
@@ -366,7 +375,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 		},
 	}
 
-	return s.ws.Send(responseEvent)
+	return s.requestResponse(responseEvent)
 }
 
 // SendSystemContext sends a partial session.update that only modifies
@@ -451,7 +460,7 @@ func (s *RealtimeSession) TriggerResponse(config *ResponseConfig) error {
 		Response: config,
 	}
 
-	return s.ws.Send(event)
+	return s.requestResponse(event)
 }
 
 // CancelResponse cancels an in-progress response.
@@ -681,6 +690,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		logger.Debug("OpenAI Realtime: response started", "response_id", e.Response.ID)
 		s.startGeneration(e.Response.ID)
 		s.responseActive = true
+		s.createPending = false
 		s.ClearDrop()
 		s.cancelPending()
 	case *ResponseDoneEvent:
@@ -799,8 +809,13 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 			"code", e.Error.Code, "message", e.Error.Message)
 		return
 	}
-	if s.cancelRejected(e) {
+	if s.cancelRejected(e) || s.createRejectedAsBusy(e) {
 		return
+	}
+	if s.createRejected(e) {
+		// The server refused a create for another reason: none is pending
+		// now, so a held one goes next.
+		defer s.sendQueuedCreate()
 	}
 	logger.Error("OpenAI Realtime: server error",
 		"type", e.Error.Type,
@@ -992,6 +1007,7 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	}
 
 	s.emit(chunk)
+	s.sendQueuedCreate() // a reply asked for meanwhile can start now
 }
 
 func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudioTranscriptionCompletedEvent) {
