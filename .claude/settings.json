@@ -15,5 +15,17 @@
         ]
       }
     ]
+  },
+  "extraKnownMarketplaces": {
+    "altairalabs": {
+      "source": {
+        "source": "github",
+        "repo": "AltairaLabs/skills",
+        "ref": "docs-review/v1.0.1"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "docs-review@altairalabs": true
   }
 }

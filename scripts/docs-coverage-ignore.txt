@@ -1,5 +1,5 @@
 # Public-surface files that deliberately have no docs page (one path per line).
-# scripts/docs-coverage.sh skips these.
+# docs-coverage (make docs-coverage) skips these. Named by docs-kit.toml.
 
 # pkg/config: provider YAML loader used by promptarena, which owns that config file.
 pkg/config/compat.go

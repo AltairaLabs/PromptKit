@@ -53,7 +53,7 @@ go -C sdk test -race ./...
 | `Reference Drift Check` | `make docs-reference docs-sdk-reference`, then commit the regenerated pages |
 | `check-packspec` | `make packspec-check module-dep-skew-check modules-standalone-check spec-version-check` |
 | `check-promptpack-schema` | `make promptpack-schema-check` |
-| `Docs Checks` | `make docs-voice` and `make docs-scripts-test` |
+| `Docs Checks` | `make docs-voice` (needs [uv](https://docs.astral.sh/uv/)) |
 | `New deprecations need approval` | `bash scripts/check-new-deprecations.sh origin/main`, then remove the added `// Deprecated:` marker or ask a maintainer for the `deprecation-approved` label |
 | Release `validate` | `make api-compat-check VERSION=vX.Y.Z` |
 

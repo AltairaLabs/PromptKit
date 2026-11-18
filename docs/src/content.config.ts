@@ -8,8 +8,8 @@ export const collections = {
     loader: docsLoader(),
     schema: docsSchema({
       extend: z.object({
-        // Code-verification record written by /docs-review and read by
-        // scripts/docs-stale.sh. See docs/STYLE.md "Keeping pages true".
+        // Code-verification record written by the docs-review plugin and read
+        // by docs-kit's docs-stale. See docs/STYLE.md "Keeping pages true".
         verified: z
           .object({
             commit: z.string(),

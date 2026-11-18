@@ -194,5 +194,6 @@ make a documented statement untrue, updating those docs belongs in that issue's
 acceptance criteria. Docs carry no links back to tickets, so the link has to run
 ticket → docs or it does not exist.
 
-`.claude/skills/docs-review/` has the full review procedure.
+The `docs-review` plugin (enabled in `.claude/settings.json`) has the full
+review procedure; `docs/REVIEW.md` holds the PromptKit part of it.
 

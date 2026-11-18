@@ -1,7 +1,8 @@
 name: Docs Checks
 
-# Mechanical checks behind docs/STYLE.md and the /docs-review skill:
-# - the docs scripts' own tests;
+# Mechanical checks behind docs/STYLE.md and the docs-review plugin's skill
+# (see docs/REVIEW.md), run by the docs-kit tool at the tag in DOCS_KIT and
+# configured by docs-kit.toml:
 # - the voice check (fails only in directories listed in
 #   scripts/docs-voice-enforced.txt, warns elsewhere);
 # - pages whose verified facts this PR may have changed: warn-only, written to
@@ -15,6 +16,10 @@ on:
 permissions:
   contents: read
 
+# Bump together with the Makefile, docs-freshness.yml and .claude/settings.json.
+env:
+  DOCS_KIT: git+https://github.com/AltairaLabs/skills@docs-review/v1.0.1#subdirectory=plugins/docs-review/tool
+
 jobs:
   docs-checks:
     name: Docs Checks
@@ -26,21 +31,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Test the docs scripts
-        run: |
-          status=0
-          for t in scripts/check-docs-voice_test.sh scripts/docs-stale_test.sh \
-                   scripts/docs-provenance_test.sh scripts/docs-coverage_test.sh; do
-            echo "::group::$t"
-            bash "$t" || status=1
-            echo "::endgroup::"
-          done
-          exit $status
+      - name: Set up uv (docs-kit)
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Check docs voice
         run: |
           set +e
-          bash scripts/check-docs-voice.sh > "$RUNNER_TEMP/voice.txt"
+          uvx --from "$DOCS_KIT" docs-voice > "$RUNNER_TEMP/voice.txt"
           status=$?
           set -e
           grep '^error ' "$RUNNER_TEMP/voice.txt" || true
@@ -55,12 +52,12 @@ jobs:
       - name: Report stale pages
         if: github.event_name == 'pull_request'
         run: |
-          stale=$(bash scripts/docs-stale.sh --base HEAD^1 | grep -E '^(stale|missing) ' || true)
+          stale=$(uvx --from "$DOCS_KIT" docs-stale --base HEAD^1 | grep -E '^(stale|missing) ' || true)
           {
             echo "## Docs freshness (warn-only)"
             echo
             if [ -n "$stale" ]; then
-              echo "This PR changes code that these pages cite. Update them in this PR, or run \`/docs-review --stale\`:"
+              echo "This PR changes code that these pages cite. Update them in this PR, or run \`/docs-review:docs-review --stale\`:"
               echo
               echo '```'; echo "$stale"; echo '```'
             else

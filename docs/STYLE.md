@@ -1,8 +1,9 @@
 # PromptKit documentation style
 
 This guide governs every page under `docs/src/content/docs/`. It is for people
-and agents writing or reviewing those pages. The `/docs-review` skill applies
-it, and `scripts/check-docs-voice.sh` checks the parts a script can check.
+and agents writing or reviewing those pages. The `docs-review` plugin's skill
+applies it (with the notes in `docs/REVIEW.md`), and `make docs-voice` checks
+the parts a script can check.
 
 ## Reader
 
@@ -34,8 +35,9 @@ These apply to every page, whatever its quadrant.
 
 ## Banned patterns
 
-Rules marked *(checked)* are enforced by `scripts/check-docs-voice.sh` from
-`scripts/docs-voice-banned.txt`. The rest are enforced in review.
+Rules marked *(checked)* are enforced by `make docs-voice` (docs-kit's
+`docs-voice`, from its bundled banned-pattern list). The rest are enforced in
+review.
 
 ### Status words *(checked: `status`)*
 
@@ -211,33 +213,33 @@ quadrant, and the source page links to it.
 
 ## Exemplars
 
-None yet. The pages of the first `/docs-review` batch become the exemplars,
+None yet. The pages of the first `docs-review` batch become the exemplars,
 one per quadrant; list them here when it merges.
 
 ## Keeping pages true
 
-A page reviewed by `/docs-review` carries a `verified` record in its
+A page reviewed by `docs-review` carries a `verified` record in its
 frontmatter: the commit its claims were checked against, and the source
 files they were checked against. A sidecar in `docs/provenance/` maps each
-claim to its evidence. `scripts/docs-provenance.py` writes both; do not edit
+claim to its evidence. docs-kit's `docs-provenance` writes both; do not edit
 them by hand.
 
-- `scripts/docs-stale.sh` lists pages whose facts may have changed since
+- `make docs-stale` lists pages whose facts may have changed since
   their verified commit: a change touched a line one of their claims cites,
   or added lines to a public-surface file the page owns.
-- `scripts/docs-coverage.sh` lists public-surface files (the globs in
+- `make docs-coverage` lists public-surface files (the globs in
   `scripts/docs-surface.txt`) that no page cites.
   `scripts/docs-coverage-ignore.txt` holds the deliberate exceptions.
 
 Both run warn-only on every PR (in the Docs Checks job summary) and weekly
 (the `docs-freshness` issue). When a PR changes a file a page cites, update
-the page in the same PR. `/docs-review --stale` fixes what the weekly issue
+the page in the same PR. `/docs-review:docs-review --stale` fixes what the weekly issue
 lists, re-checking only the claims whose sources changed.
 
 ## What is checked mechanically
 
-- `scripts/docs-voice-banned.txt` is the source of truth for the checked
-  rules above. `scripts/check-docs-voice.sh` applies it, together with the
+- docs-kit's bundled banned-pattern list is the source of truth for the
+  checked rules above. `make docs-voice` applies it, together with the
   em-dash, ASCII-diagram and unterminated-fence rules. Findings fail in
   directories listed in `scripts/docs-voice-enforced.txt` and warn
   elsewhere. `scripts/docs-voice-exempt.txt` drops a rule for a page whose
