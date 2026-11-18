@@ -247,11 +247,40 @@ func (s *TranscriptReorderStage) handleUserTurn(
 func (s *TranscriptReorderStage) takeTranscript(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
 ) error {
+	s.moveBlockedReplyMark(&elem)
 	if err := s.send(ctx, output, elem); err != nil {
 		return err
 	}
 	s.userEmitted = true
 	return s.releaseHeld(ctx, output)
+}
+
+// moveBlockedReplyMark handles a late transcript an input guardrail blocked
+// after its reply completed. DuplexProviderStage marks it as answered by the
+// reply right before it; this stage places it ahead of that reply instead, so
+// the held replies are marked as the blocked turn's (on copies: the duplex
+// stage emitted them) and the transcript loses its reply-before flag.
+func (s *TranscriptReorderStage) moveBlockedReplyMark(elem *StreamElement) {
+	user := elem.Message
+	if user == nil {
+		return
+	}
+	if before, _ := user.Meta[blockedReplyBeforeMetaKey].(bool); !before {
+		return
+	}
+	moved := *user
+	moved.Meta = mergeMeta(user.Meta, nil)
+	delete(moved.Meta, blockedReplyBeforeMetaKey)
+	elem.Message = &moved
+	for i := range s.buffered {
+		held := s.buffered[i].Message
+		if held == nil || held.Role != roleAssistant || len(held.ToolCalls) > 0 {
+			continue
+		}
+		marked := *held
+		markBlockedInput(&marked)
+		s.buffered[i].Message = &marked
+	}
 }
 
 // handleTurnEnd forwards the turn-end when the user turn was already shown, or

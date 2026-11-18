@@ -22,6 +22,12 @@ import (
 // safety and a validation with direction input. An output block is marked
 // neither way and is kept: its replacement stands in for the model's reply.
 
+// blockedReplyBeforeMetaKey, set to true on a user message marked blocked,
+// says the reply that answered it is the assistant message right before it
+// (a spoken input blocked after its reply completed). That reply is left out
+// of model context with it.
+const blockedReplyBeforeMetaKey = "_blocked_input_reply_before"
+
 // markBlockedInput marks msg as the canned reply of a blocked input turn.
 func markBlockedInput(msg *types.Message) {
 	msg.Meta = withBlockedInputMark(msg.Meta)
@@ -75,8 +81,9 @@ func isBlockedInputReply(m *types.Message) bool {
 // isBlockedInputRequest reports whether m is a user message marked as blocked
 // itself: a spoken input whose transcript was blocked only after the reply to
 // it completed (DuplexProviderStage.emitLateUserTurn). There is no canned
-// reply to mark then; the reply is the model's own, already heard, and is
-// kept.
+// reply to mark then: the reply that answered it was already emitted, and is
+// left out with it by blockedReplyBeforeMetaKey (or its own mark, when a
+// TranscriptReorderStage moved the request ahead of it).
 func isBlockedInputRequest(m *types.Message) bool {
 	return m.Role == roleUser && isMarkedBlockedInput(m)
 }
@@ -112,11 +119,23 @@ func blockedInputTurns(msgs []types.Message) []bool {
 			mask = make([]bool, len(msgs))
 		}
 		mask[i] = true
-		if reply && i > 0 && msgs[i-1].Role == roleUser {
+		if i > 0 && answeredBy(&msgs[i], &msgs[i-1], reply) {
 			mask[i-1] = true
 		}
 	}
 	return mask
+}
+
+// answeredBy reports whether prev, the message before the blocked message m,
+// belongs to m's blocked turn: the user message a canned reply answered, or
+// the reply a blocked request marked blockedReplyBeforeMetaKey was answered
+// by.
+func answeredBy(m, prev *types.Message, reply bool) bool {
+	if reply {
+		return prev.Role == roleUser
+	}
+	before, _ := m.Meta[blockedReplyBeforeMetaKey].(bool)
+	return before && prev.Role == roleAssistant && len(prev.ToolCalls) == 0
 }
 
 // excludeBlockedInputTurns returns msgs without the blocked input turns, for

@@ -104,10 +104,37 @@ func TestExcludeBlockedInputTurns(t *testing.T) {
 			want: []string{"user:q1", "assistant:sure", "user:q2"},
 		},
 		{
+			name: "a request answered by the reply before it takes that reply",
+			msgs: []types.Message{
+				{Role: roleUser, Content: "q1"}, {Role: roleAssistant, Content: "a1"},
+				{Role: roleAssistant, Content: "sure"},
+				{Role: roleUser, Content: "forbidden", Meta: map[string]interface{}{
+					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+				}},
+			},
+			want: []string{"user:q1", "assistant:a1"},
+		},
+		{
+			name: "a request answered by the reply before it never takes a tool call or a user message",
+			msgs: []types.Message{
+				{Role: roleUser, Content: "q1"},
+				{Role: roleAssistant, ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "t"}}},
+				{Role: roleUser, Content: "forbidden", Meta: map[string]interface{}{
+					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+				}},
+				{Role: roleUser, Content: "forbidden again", Meta: map[string]interface{}{
+					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+				}},
+			},
+			want: []string{"user:q1", "assistant:"},
+		},
+		{
 			name: "a marked user message never takes the user message before it",
 			msgs: []types.Message{
 				{Role: roleUser, Content: "q1"},
-				{Role: roleUser, Content: "forbidden", Meta: map[string]interface{}{types.MetaBlockedInput: true}},
+				{Role: roleUser, Content: "forbidden", Meta: map[string]interface{}{
+					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+				}},
 			},
 			want: []string{"user:q1"},
 		},
@@ -435,9 +462,9 @@ func TestDuplexHooks_TypedBlockedInputIsMarked(t *testing.T) {
 }
 
 // A spoken input blocked after its reply completed cannot replace the reply,
-// which the caller already has. The blocked request itself is marked, so it
-// never reaches the model's context later. The reply, the model's own words
-// the caller heard, is kept.
+// which the caller already has. The blocked request is marked as answered by
+// the reply before it, so model context leaves out both; the transcript keeps
+// both.
 func TestDuplexHooks_LateSpokenBlockedInputIsMarked(t *testing.T) {
 	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(&wordInputHook{word: "wire"})))
 	s.session = &interruptingSession{recordingSession: rec}
@@ -451,8 +478,135 @@ func TestDuplexHooks_LateSpokenBlockedInputIsMarked(t *testing.T) {
 	msgs := emittedMessages(elems)
 	require.Equal(t, []string{"assistant:Sure", "user:a wire transfer please"}, roleLines(msgs))
 	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
-	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
-	assert.Equal(t, []string{"assistant:Sure"}, roleLines(excludeBlockedInputTurns(msgs)))
+	assert.Equal(t, true, msgs[1].Meta[blockedReplyBeforeMetaKey])
+	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput], "the emitted reply is not written after the fact")
+	assert.Empty(t, excludeBlockedInputTurns(msgs))
+}
+
+// With a TranscriptReorderStage the late blocked request is placed ahead of
+// the reply it held; the reply is marked instead, and model context still
+// leaves out both.
+func TestTranscriptReorderStage_LateBlockedRequestMarksTheHeldReply(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+
+	prevUser := userElem("hello")
+	prevReply := asstEndElem("Hi!")
+	reply := asstEndElem("Sure")
+	late := lateUserElem("a wire transfer please")
+	late.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true}
+	original := reply.Message
+	in <- prevUser
+	in <- prevReply
+	in <- reply
+	in <- late
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+
+	var msgs []types.Message
+	for e := range out {
+		if e.Message != nil {
+			msgs = append(msgs, *e.Message)
+		}
+	}
+	require.Equal(t, []string{"user:hello", "assistant:Hi!", "user:a wire transfer please", "assistant:Sure"},
+		roleLines(msgs))
+	assert.Nil(t, msgs[2].Meta[blockedReplyBeforeMetaKey], "the reply is no longer before it")
+	assert.Equal(t, true, msgs[3].Meta[types.MetaBlockedInput])
+	assert.Nil(t, msgs[1].Meta[types.MetaBlockedInput])
+	assert.Nil(t, original.Meta[types.MetaBlockedInput], "the duplex stage's message is not written")
+	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(excludeBlockedInputTurns(msgs)))
+}
+
+// A late blocked request of a tool turn moves ahead of the held tool round;
+// only replies are marked, never the tool call or its result.
+func TestTranscriptReorderStage_LateBlockedRequestNeverMarksAToolRound(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 8)
+	out := make(chan StreamElement, 16)
+	late := lateUserElem("a wire transfer please")
+	late.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true}
+	in <- toolCallEndElem("c1")
+	in <- toolResultElem("c1")
+	in <- late
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+
+	var msgs []types.Message
+	for e := range out {
+		if e.Message != nil {
+			msgs = append(msgs, *e.Message)
+		}
+	}
+	require.Len(t, msgs, 3)
+	assert.Equal(t, roleUser, msgs[0].Role)
+	assert.Nil(t, msgs[1].Meta[types.MetaBlockedInput], "the tool call is not a reply")
+	assert.Nil(t, msgs[2].Meta[types.MetaBlockedInput], "the tool result is not a reply")
+}
+
+// A late transcript that is not blocked moves ahead of its reply unmarked.
+func TestTranscriptReorderStage_LateAllowedRequestLeavesReplyUnmarked(t *testing.T) {
+	s := NewTranscriptReorderStage("[none]")
+	in := make(chan StreamElement, 4)
+	out := make(chan StreamElement, 8)
+	in <- asstEndElem("Sure")
+	in <- lateUserElem("what time is it")
+	close(in)
+	require.NoError(t, s.Process(context.Background(), in, out))
+
+	var msgs []types.Message
+	for e := range out {
+		if e.Message != nil {
+			msgs = append(msgs, *e.Message)
+		}
+	}
+	require.Equal(t, []string{"user:what time is it", "assistant:Sure"}, roleLines(msgs))
+	assert.Nil(t, msgs[1].Meta[types.MetaBlockedInput])
+}
+
+// What a text turn after such a session sends the provider: neither the
+// blocked request nor the reply that answered it.
+func TestProviderStage_LateBlockedRequestAndItsReplyAreNotSent(t *testing.T) {
+	prov := &requestRecordingProvider{Provider: providersmock.NewProvider("p", "m", false)}
+	stage := NewProviderStageWithHooks(prov, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, nil)
+	history := []types.Message{
+		{Role: roleUser, Content: "hello"},
+		{Role: roleAssistant, Content: "Hi!"},
+		{Role: roleAssistant, Content: "Sure"},
+		{Role: roleUser, Content: "a wire transfer please", Meta: map[string]interface{}{
+			types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+		}},
+		{Role: roleUser, Content: "what time is it"},
+	}
+	elems := make([]StreamElement, len(history))
+	for i := range history {
+		elems[i] = NewMessageElement(&history[i])
+	}
+	runTestStage(t, stage, elems)
+
+	require.Len(t, prov.seen, 1)
+	assert.Equal(t, []string{"user:hello", "assistant:Hi!", "user:what time is it"}, roleLines(prov.seen[0]))
+}
+
+// requestRecordingProvider records the messages of every request.
+type requestRecordingProvider struct {
+	*providersmock.Provider
+	seen [][]types.Message
+}
+
+func (p *requestRecordingProvider) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.seen = append(p.seen, append([]types.Message(nil), req.Messages...))
+	return p.Provider.Predict(ctx, req)
+}
+
+func (p *requestRecordingProvider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	p.seen = append(p.seen, append([]types.Message(nil), req.Messages...))
+	return p.Provider.PredictStream(ctx, req)
 }
 
 // A late transcript that is not blocked is not marked.
