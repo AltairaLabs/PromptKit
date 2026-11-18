@@ -221,6 +221,16 @@ func (s *TranscriptReorderStage) handleUserTurn(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
 ) error {
 	switch {
+	case elem.Meta.LateTranscript && !s.holding && isBlockedRequestAnsweredBefore(elem.Message) && !s.userEmitted:
+		// A late transcript an input guardrail blocked, for a finished turn
+		// the hold already resolved: nothing of a later turn has been sent,
+		// so the turn's reply is the last message out. Sending the request
+		// now puts it right after that reply, which is what its mark says
+		// and what leaves both out of model context. Dropped, the reply it
+		// answered would stay in model context. Once a later turn's user
+		// message is out it can no longer be placed, and is dropped below:
+		// the reply was already stored and is not rewritten.
+		return s.send(ctx, output, elem)
 	case elem.Meta.LateTranscript && !s.holding:
 		logger.Debug("TranscriptReorderStage: dropping a late transcript for a turn already resolved")
 		return nil
@@ -262,10 +272,7 @@ func (s *TranscriptReorderStage) takeTranscript(
 // stage emitted them) and the transcript loses its reply-before flag.
 func (s *TranscriptReorderStage) moveBlockedReplyMark(elem *StreamElement) {
 	user := elem.Message
-	if user == nil {
-		return
-	}
-	if before, _ := user.Meta[blockedReplyBeforeMetaKey].(bool); !before {
+	if !isBlockedRequestAnsweredBefore(user) {
 		return
 	}
 	moved := *user
@@ -281,6 +288,13 @@ func (s *TranscriptReorderStage) moveBlockedReplyMark(elem *StreamElement) {
 		markBlockedInput(&marked)
 		s.buffered[i].Message = &marked
 	}
+}
+
+// isBlockedRequestAnsweredBefore reports whether m is a blocked request marked
+// as answered by the reply right before it.
+func isBlockedRequestAnsweredBefore(m *types.Message) bool {
+	before, _ := m.Meta[blockedReplyBeforeMetaKey].(bool)
+	return before
 }
 
 // handleTurnEnd forwards the turn-end when the user turn was already shown, or

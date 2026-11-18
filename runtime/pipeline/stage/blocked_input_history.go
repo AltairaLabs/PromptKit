@@ -134,8 +134,7 @@ func answeredBy(m, prev *types.Message, reply bool) bool {
 	if reply {
 		return prev.Role == roleUser
 	}
-	before, _ := m.Meta[blockedReplyBeforeMetaKey].(bool)
-	return before && prev.Role == roleAssistant && len(prev.ToolCalls) == 0
+	return isBlockedRequestAnsweredBefore(m) && prev.Role == roleAssistant && len(prev.ToolCalls) == 0
 }
 
 // excludeBlockedInputTurns returns msgs without the blocked input turns, for
@@ -167,5 +166,28 @@ func withoutMasked(msgs []types.Message, mask []bool) []types.Message {
 // context from one (a carry-forward summary, a host's own summarizer) passes
 // it through this first. msgs is returned as-is when it holds neither.
 func ExcludeFromModelContext(msgs []types.Message) []types.Message {
-	return excludeBlockedInputTurns(types.ExcludeInterrupted(msgs))
+	return withoutMasked(withoutInterrupted(msgs))
+}
+
+// withoutInterrupted returns msgs without interrupted replies, and the
+// blocked input turns of what is left as a mask aligned with it (nil when
+// there are none).
+//
+// The blocked turns are found on msgs as given, before the interrupted
+// replies are taken out: a blocked request answered by the reply before it
+// may follow a reply a barge-in cut, and with that one gone the reply before
+// it would be the previous turn's answer, which would be dropped instead.
+func withoutInterrupted(msgs []types.Message) ([]types.Message, []bool) {
+	blocked := blockedInputTurns(msgs)
+	kept := types.ExcludeInterrupted(msgs)
+	if blocked == nil || len(kept) == len(msgs) {
+		return kept, blocked
+	}
+	keptBlocked := make([]bool, 0, len(kept))
+	for i := range msgs {
+		if !msgs[i].IsInterrupted() {
+			keptBlocked = append(keptBlocked, blocked[i])
+		}
+	}
+	return kept, keptBlocked
 }

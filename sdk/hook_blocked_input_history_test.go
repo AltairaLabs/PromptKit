@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore/file"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -116,6 +117,54 @@ func TestWorkflowCarryForward_LeavesOutBlockedInputTurn(t *testing.T) {
 		"[Previous state: intake, 2 messages]\n"+
 			"user: "+historyCleanFirst+"\n"+
 			"assistant: "+firstReply+"\n",
+		buildContextSummary("intake", conv))
+}
+
+// cutThenLateBlockedStore seeds a store with a duplex history where a barge-in
+// cut the reply to a spoken input whose late transcript was then blocked.
+func cutThenLateBlockedStore(t *testing.T, convID string) *file.Store {
+	t.Helper()
+	store, err := file.NewStore(file.Options{Root: t.TempDir()})
+	require.NoError(t, err)
+	require.NoError(t, store.Save(context.Background(), &statestore.ConversationState{
+		ID: convID,
+		Messages: []types.Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "Hi!"},
+			{Role: "assistant", Content: "Sure, I'll", FinishReason: types.FinishReasonInterrupted},
+			{Role: "user", Content: "a wire transfer please", Meta: map[string]interface{}{
+				types.MetaBlockedInput: true, "_blocked_input_reply_before": true,
+			}},
+		},
+	}))
+	return store
+}
+
+// After a barge-in cut the reply to a late-blocked spoken input, a resumed
+// text turn sends the previous answer and leaves out the blocked request.
+func TestResume_CutReplyBeforeLateBlockedRequestKeepsThePreviousAnswer(t *testing.T) {
+	const convID = "cut-late-blocked"
+	store := cutThenLateBlockedStore(t, convID)
+	prov := newHistoryRecordingProvider()
+	conv, err := Resume(convID, guardrailTestPack, "chat",
+		WithProvider(prov), WithSkipSchemaValidation(), WithStateStore(store))
+	require.NoError(t, err)
+	defer conv.Close()
+	_, err = conv.Send(context.Background(), "what time is it")
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]string{{"user:hello", "assistant:Hi!", "user:what time is it"}}, prov.requests())
+}
+
+func TestWorkflowCarryForward_CutReplyBeforeLateBlockedRequest(t *testing.T) {
+	const convID = "cut-late-blocked-carry"
+	store := cutThenLateBlockedStore(t, convID)
+	conv, err := Resume(convID, guardrailTestPack, "chat",
+		WithProvider(newHistoryRecordingProvider()), WithSkipSchemaValidation(), WithStateStore(store))
+	require.NoError(t, err)
+	defer conv.Close()
+
+	assert.Equal(t, "[Previous state: intake, 2 messages]\nuser: hello\nassistant: Hi!\n",
 		buildContextSummary("intake", conv))
 }
 

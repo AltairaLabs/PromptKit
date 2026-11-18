@@ -789,7 +789,7 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="ExcludeFromModelContext"></a>
-## func [ExcludeFromModelContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L169>)
+## func [ExcludeFromModelContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L168>)
 
 ```go
 func ExcludeFromModelContext(msgs []types.Message) []types.Message
@@ -5789,7 +5789,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2753>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2757>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

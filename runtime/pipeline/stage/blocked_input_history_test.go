@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -545,6 +546,56 @@ func TestTranscriptReorderStage_LateBlockedRequestNeverMarksAToolRound(t *testin
 	assert.Nil(t, msgs[2].Meta[types.MetaBlockedInput], "the tool result is not a reply")
 }
 
+// blockedLateUserElem is a late transcript an input guardrail blocked after
+// its reply completed, as DuplexProviderStage marks it.
+func blockedLateUserElem(content string) StreamElement {
+	e := lateUserElem(content)
+	e.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true}
+	return e
+}
+
+// reorderMessages drives a reorder stage and returns the messages it emits.
+func reorderMessages(r *reorderRun) []types.Message {
+	close(r.in)
+	var msgs []types.Message
+	for e := range r.out {
+		if e.Message != nil {
+			msgs = append(msgs, *e.Message)
+		}
+	}
+	return msgs
+}
+
+// A blocked late transcript for a turn whose hold already timed out is sent
+// right after that turn's reply, not dropped, so model context leaves out
+// both. An allowed one is still dropped.
+func TestTranscriptReorderStage_BlockedLateTranscriptAfterTimeoutFollowsItsReply(t *testing.T) {
+	r := startReorder(NewTranscriptReorderStageWithTimeout("[none]", 20*time.Millisecond))
+	r.in <- asstEndElem("A1")
+	time.Sleep(80 * time.Millisecond) // the hold times out
+	r.in <- blockedLateUserElem("a wire transfer please")
+	r.in <- txtElem("A2")
+	r.in <- userElem("q2")
+	r.in <- asstEndElem("A2")
+	msgs := reorderMessages(r)
+
+	assert.Equal(t, []string{"user:[none]", "assistant:A1", "user:a wire transfer please", "user:q2", "assistant:A2"},
+		roleLines(msgs), "the transcript keeps the request")
+	assert.Equal(t, []string{"user:[none]", "user:q2", "assistant:A2"}, roleLines(excludeBlockedInputTurns(msgs)))
+}
+
+// Once a later turn's user message is out, a blocked late transcript can no
+// longer be placed right after its reply, and is dropped.
+func TestTranscriptReorderStage_BlockedLateTranscriptAfterNextTurnIsDropped(t *testing.T) {
+	r := startReorder(NewTranscriptReorderStageWithTimeout("[none]", 20*time.Millisecond))
+	r.in <- asstEndElem("A1")
+	time.Sleep(80 * time.Millisecond) // the hold times out
+	r.in <- userElem("q2")
+	r.in <- blockedLateUserElem("a wire transfer please")
+	r.in <- asstEndElem("A2")
+	assert.Equal(t, []string{"user:[none]", "assistant:A1", "user:q2", "assistant:A2"}, roleLines(reorderMessages(r)))
+}
+
 // A late transcript that is not blocked moves ahead of its reply unmarked.
 func TestTranscriptReorderStage_LateAllowedRequestLeavesReplyUnmarked(t *testing.T) {
 	s := NewTranscriptReorderStage("[none]")
@@ -587,6 +638,85 @@ func TestProviderStage_LateBlockedRequestAndItsReplyAreNotSent(t *testing.T) {
 
 	require.Len(t, prov.seen, 1)
 	assert.Equal(t, []string{"user:hello", "assistant:Hi!", "user:what time is it"}, roleLines(prov.seen[0]))
+}
+
+// cutThenLateBlocked is a stored duplex history where a barge-in cut the reply
+// to a spoken input whose late transcript was then blocked: the reply before
+// the blocked request is the cut one, not the answer to the turn before.
+func cutThenLateBlocked(next ...types.Message) []types.Message {
+	return append([]types.Message{
+		{Role: roleUser, Content: "hello"},
+		{Role: roleAssistant, Content: "Hi!"},
+		interruptedReply("Sure, I'll"),
+		{Role: roleUser, Content: "a wire transfer please", Meta: map[string]interface{}{
+			types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+		}},
+	}, next...)
+}
+
+// The blocked turn is found before interrupted replies are taken out: done
+// the other way round, the reply before the blocked request becomes the
+// previous turn's answer, and that is dropped instead.
+func TestExcludeFromModelContext_FindsBlockedTurnsBeforeDroppingInterrupted(t *testing.T) {
+	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(ExcludeFromModelContext(cutThenLateBlocked())))
+}
+
+func TestProviderStage_CutReplyBeforeLateBlockedRequestKeepsThePreviousAnswer(t *testing.T) {
+	for name, streaming := range map[string]bool{"unary": false, "streaming": true} {
+		t.Run(name, func(t *testing.T) {
+			prov := &requestRecordingProvider{Provider: providersmock.NewProvider("p", "m", false)}
+			var p providers.Provider = prov
+			if !streaming {
+				p = &nonStreamingProvider{Provider: prov}
+			}
+			stage := NewProviderStageWithHooks(p, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, nil)
+			history := cutThenLateBlocked(types.Message{Role: roleUser, Content: "what time is it"})
+			elems := make([]StreamElement, len(history))
+			for i := range history {
+				elems[i] = NewMessageElement(&history[i])
+			}
+			runTestStage(t, stage, elems)
+
+			require.Len(t, prov.seen, 1)
+			assert.Equal(t, []string{"user:hello", "assistant:Hi!", "user:what time is it"}, roleLines(prov.seen[0]))
+		})
+	}
+}
+
+func TestMemoryExtractionStage_CutReplyBeforeLateBlockedRequest(t *testing.T) {
+	ext := &recordingExtractor{}
+	s := NewMemoryExtractionStage(ext, memory.NewInMemoryStore(), map[string]string{"user_id": "u"})
+	history := cutThenLateBlocked()
+	elems := make([]StreamElement, len(history))
+	for i := range history {
+		elems[i] = NewMessageElement(&history[i])
+	}
+	runTestStage(t, s, elems)
+	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(ext.got))
+}
+
+func TestFinalTurn_ReaskCutReplyBeforeLateBlockedRequest(t *testing.T) {
+	p := &reaskHistorySpy{schemaSpyProvider: &schemaSpyProvider{toolRounds: 1}}
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.SystemPrompt = "sys"
+	turnState.AllowedTools = []string{"probe"}
+	stage := NewProviderStageWithTurnState(p, reg, nil,
+		&ProviderConfig{MaxTokens: 100, ResponseFormat: jsonSchemaFormat()}, nil, nil, turnState)
+	history := cutThenLateBlocked(types.Message{Role: roleUser, Content: "go"})
+	elems := make([]StreamElement, len(history))
+	for i := range history {
+		elems[i] = NewMessageElement(&history[i])
+	}
+	runTestStage(t, stage, elems)
+
+	require.Len(t, p.seen, 3, "a tool round, the round that ends the loop, and the re-ask")
+	for i, msgs := range p.seen {
+		lines := roleLines(msgs)
+		require.GreaterOrEqual(t, len(lines), 3, "call %d", i+1)
+		assert.Equal(t, []string{"user:hello", "assistant:Hi!", "user:go"}, lines[:3], "call %d", i+1)
+	}
 }
 
 // requestRecordingProvider records the messages of every request.
