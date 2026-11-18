@@ -40,8 +40,7 @@ in STYLE.md: review them for truth and voice, not quadrant.
 
 `runtime/` (providers, pipeline, tools, types, a2a, workflow engine), `sdk/`
 (options in `sdk/options.go`, entry points in `sdk/sdk.go`), `pkg/config/`,
-`server/a2a/`, the schemas in `schemas/v1alpha1/` and
-`runtime/prompt/schema/promptpack.schema.json`. Claims about the
+`server/a2a/` and `runtime/prompt/schema/promptpack.schema.json`. Claims about the
 `promptarena` or `packc` CLIs are verified in
 `github.com/AltairaLabs/promptarena`; mark them `unverified` if that
 repository is not available.
@@ -70,11 +69,21 @@ repository is not available.
 
 ## Checking commands
 
+When checking flags, grep `sdk/examples/*/README.md` as well as the docs
+tree: the published copies of those READMEs exist only after
+`scripts/prepare-examples-docs.sh` runs.
+
 The CLI is `promptarena`. Quickstarts once told readers to run `arena`, which
 no binary provides, so the first command of two quickstarts could not be
 followed. The PromptKit runtime and PromptArena both emit
 `workflow state transition` with identical fields, so raw log counts are
 twice the real number.
+
+## Link check
+
+`commands.check_links` binds port 4455 because a preview server already on
+the default port makes the checker bind elsewhere and fail to start.
+`npx astro preview stop` clears a stale preview daemon.
 
 ## Commits
 
