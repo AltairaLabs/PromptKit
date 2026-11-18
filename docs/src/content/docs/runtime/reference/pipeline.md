@@ -96,10 +96,12 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(c \*Capabilities\) AcceptsContentType\(ct ContentType\) bool](<#Capabilities.AcceptsContentType>)
   - [func \(c \*Capabilities\) AcceptsElement\(elem \*StreamElement\) bool](<#Capabilities.AcceptsElement>)
 - [type ClipCache](<#ClipCache>)
+  - [func NewDirClipCache\(dir string, opts ...DirClipCacheOption\) \(ClipCache, error\)](<#NewDirClipCache>)
   - [func NewMemoryClipCache\(maxBytes int64\) ClipCache](<#NewMemoryClipCache>)
 - [type ClipFormat](<#ClipFormat>)
 - [type ClipKey](<#ClipKey>)
   - [func ClipKeyFor\(text, voice, sourceKind string, format ClipFormat\) ClipKey](<#ClipKeyFor>)
+- [type ClipMeta](<#ClipMeta>)
 - [type CompactResult](<#CompactResult>)
 - [type CompactionContext](<#CompactionContext>)
 - [type CompactionRule](<#CompactionRule>)
@@ -156,6 +158,8 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type DebugStage](<#DebugStage>)
   - [func NewDebugStage\(stageName string\) \*DebugStage](<#NewDebugStage>)
   - [func \(s \*DebugStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DebugStage.Process>)
+- [type DirClipCacheOption](<#DirClipCacheOption>)
+  - [func DirCacheReadOnly\(\) DirClipCacheOption](<#DirCacheReadOnly>)
 - [type DropStrategy](<#DropStrategy>)
   - [func \(s DropStrategy\) String\(\) string](<#DropStrategy.String>)
 - [type DuplexProviderStage](<#DuplexProviderStage>)
@@ -1467,6 +1471,25 @@ type ClipCache interface {
 }
 ```
 
+<a name="NewDirClipCache"></a>
+### func [NewDirClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L49>)
+
+```go
+func NewDirClipCache(dir string, opts ...DirClipCacheOption) (ClipCache, error)
+```
+
+NewDirClipCache is a ClipCache over dir. Each clip is two files named by the key's hex: \<key\>.pcm \(raw PCM16LE\) and \<key\>.json, a sidecar naming the text, voice, source and format, so the directory can be read and checked into a repo:
+
+```
+{"text": "...", "voice": "alloy", "source": "tts:openai",
+ "encoding": "pcm16", "sample_rate": 24000, "channels": 1, "duration_ms": 1830,
+ "sha256": "..."}
+```
+
+Writes are atomic \(temp file and rename, .pcm first, .json last\), so a .pcm without a .json, what a write cut short leaves, is a miss. Many writers, in one process or several, can share a directory. Get is a miss for a sidecar that is not the key's own \(its text, voice, source or format does not make the key\) and for a .pcm the sidecar does not vouch for \(another length, or another digest\). Put keeps only a clip Get would return, so it errors on one whose Meta does not make its key.
+
+A writable cache creates dir and sweeps temp files a crashed writer left more than an hour ago; a DirCacheReadOnly one needs dir to exist and changes nothing in it.
+
 <a name="NewMemoryClipCache"></a>
 ### func [NewMemoryClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L93>)
 
@@ -1506,6 +1529,19 @@ func ClipKeyFor(text, voice, sourceKind string, format ClipFormat) ClipKey
 ```
 
 ClipKeyFor is the key of the clip that says text in voice from the source kind sourceKind \("tts:\<service name\>", "session:\<family\>" or "earcon"\), in format. It is SHA\-256 over the text \(trimmed and in Unicode NFC, otherwise exact: punctuation changes how it is said\), the voice, the source kind and the format. No model name goes into it: a model change behind the same source and voice keeps the key, so a host that wants fresh clips after one clears its cache.
+
+<a name="ClipMeta"></a>
+## type [ClipMeta](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L51-L55>)
+
+ClipMeta is what a clip says and who said it: the inputs of its ClipKey.
+
+```go
+type ClipMeta struct {
+    Text   string // the text the key was made from
+    Voice  string
+    Source string // the source kind: "tts:<service>", "session:<family>", "earcon"
+}
+```
 
 <a name="CompactResult"></a>
 ## type [CompactResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L19-L29>)
@@ -2175,7 +2211,7 @@ type Cue struct {
 ```
 
 <a name="CueClip"></a>
-## type [CueClip](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L37-L44>)
+## type [CueClip](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L37-L48>)
 
 CueClip is a cue's pre\-rendered media.
 
@@ -2187,11 +2223,15 @@ type CueClip struct {
     // Video is reserved: no source renders it yet. A video stage goes after
     // the CueStage and lip-syncs cue audio as it does reply audio.
     Video *VideoData
+    // Meta says where the clip came from. A cache that keeps clips where a
+    // person can read them (the directory cache's sidecar) records it; it is
+    // not part of what plays.
+    Meta ClipMeta
 }
 ```
 
 <a name="CueConfig"></a>
-## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L47-L71>)
+## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L58-L82>)
 
 CueConfig configures a CueStage.
 
@@ -2245,7 +2285,7 @@ const (
 ```
 
 <a name="CueStage"></a>
-## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L108-L115>)
+## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L119-L126>)
 
 CueStage plays a pre\-rendered clip for each element carrying a Cue. It goes directly after the provider stage, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as they treat reply audio \(marked Meta.CueAudio\).
 
@@ -2261,7 +2301,7 @@ type CueStage struct {
 ```
 
 <a name="NewCueStage"></a>
-### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L118>)
+### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L129>)
 
 ```go
 func NewCueStage(cfg CueConfig) *CueStage
@@ -2270,7 +2310,7 @@ func NewCueStage(cfg CueConfig) *CueStage
 NewCueStage creates a cue stage named "cue".
 
 <a name="NewCueStageFor"></a>
-### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L141>)
+### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L152>)
 
 ```go
 func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage
@@ -2279,7 +2319,7 @@ func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage
 NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the TTS service, then a built\-in earcon \(a short tone\). A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) plays its configured clips and renders as PCM16 at 24 kHz in the TTS service's default voice.
 
 <a name="CueStage.Process"></a>
-### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L179>)
+### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L190>)
 
 ```go
 func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2316,6 +2356,24 @@ func (s *DebugStage) Process(ctx context.Context, input <-chan StreamElement, ou
 ```
 
 Process logs each element as it passes through \(passthrough transform\).
+
+<a name="DirClipCacheOption"></a>
+## type [DirClipCacheOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L22>)
+
+DirClipCacheOption configures NewDirClipCache.
+
+```go
+type DirClipCacheOption func(*dirClipCache)
+```
+
+<a name="DirCacheReadOnly"></a>
+### func [DirCacheReadOnly](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L27>)
+
+```go
+func DirCacheReadOnly() DirClipCacheOption
+```
+
+DirCacheReadOnly makes Put of a directory clip cache a no\-op that returns nil, so a test or an arena run never writes. A clip the directory lacks is a miss.
 
 <a name="DropStrategy"></a>
 ## type [DropStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L24>)

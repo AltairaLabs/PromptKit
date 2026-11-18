@@ -1,0 +1,10 @@
+{
+  "text": "Prewarmed.",
+  "voice": "alloy",
+  "source": "tts:fake",
+  "encoding": "pcm16",
+  "sample_rate": 24000,
+  "channels": 1,
+  "duration_ms": 100,
+  "sha256": "772ff8a58f485eb32cfd26bfcb63d2c51961500ccaea4676eb0602744908c56c"
+}

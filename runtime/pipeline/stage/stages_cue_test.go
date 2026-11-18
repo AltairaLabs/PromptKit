@@ -151,8 +151,11 @@ func cueAudioOf(elems []StreamElement) []byte {
 // audio elements of ChunkDuration each (the last shorter), marked as the
 // cue's audio, in the reply audio's format, with the last stretch faded out.
 func TestCueStage_PlaysTheClipAfterItsElement(t *testing.T) {
-	pcm := cueRamp(6000) // 250 ms at 24 kHz
-	cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: cueClip(pcm, cueTestRate)}})
+	pcm := fixtureBruno.pcm() // 250 ms at 24 kHz, read from the checked-in clip
+	clip, ok, err := cueFixtureCache(t).Get(context.Background(), fixtureBruno.key())
+	require.NoError(t, err)
+	require.True(t, ok)
+	cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: clip}})
 	c := startChain(t, cue, outputPacer(newFakeClock()))
 	c.in <- guardrailCueElem(brunoText)
 	got := c.finish(t)
