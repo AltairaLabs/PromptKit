@@ -338,3 +338,38 @@ func TestCueOutOfBand_NeedsTheSessionFamily(t *testing.T) {
 	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Zero(t, sess.calls(brunoText))
 }
+
+// A session whose render is cut while its flight is still running gives up
+// at once; the flight runs on and keeps the clip in the cache for next time.
+func TestCueOutOfBand_CancelledLeaderFlightKeepsTheClip(t *testing.T) {
+	joined := make(chan struct{}, 4)
+	hook := func() { joined <- struct{}{} }
+	clipFlightJoined.Store(&hook)
+	t.Cleanup(func() { clipFlightJoined.Store(nil) })
+
+	pcm := cueRamp(4800)
+	sess := newOOBSpeaker("alloy", pcm)
+	sess.gate = make(chan struct{})
+	cache := NewMemoryClipCache(1 << 20)
+	bank := cueStageForSession(t, CueConfig{Cache: cache}, sess).bank
+	text := "Cut while the flight runs."
+
+	ctx, cancel := context.WithCancel(context.Background())
+	f := bank.render(ctx, text, nil)
+	<-joined
+	cancel()
+	<-f.done
+	require.ErrorIs(t, f.err, context.Canceled)
+	assert.False(t, f.keep)
+
+	close(sess.gate)
+	key := ClipKeyFor(text, "alloy", "session:test-live", pcm24k)
+	require.Eventually(t, func() bool {
+		_, ok, err := cache.Get(context.Background(), key)
+		return err == nil && ok
+	}, 5*time.Second, time.Millisecond, "the flight keeps the clip")
+	got, _, err := cache.Get(context.Background(), key)
+	require.NoError(t, err)
+	assert.Equal(t, cueFaded(pcm, 24000), got.Audio.Samples)
+	assert.Equal(t, 1, sess.calls(text))
+}

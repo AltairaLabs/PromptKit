@@ -2,8 +2,10 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,17 +92,25 @@ func TestPrewarmCueClips_DirCacheServesAConversationWithoutTTS(t *testing.T) {
 	assert.Equal(t, 1, speech.calls(brunoMessage))
 }
 
-// defaultCacheTTS is cueTTS under its own name.
-type defaultCacheTTS struct{ *cueTTS }
+// defaultCacheTTS is cueTTS under a name of its own.
+type defaultCacheTTS struct {
+	*cueTTS
+	name string
+}
 
-func (defaultCacheTTS) Name() string { return "cue-prewarm-default" }
+func (s defaultCacheTTS) Name() string { return s.name }
+
+// defaultCacheRuns numbers the runs of a test that uses the process-wide
+// default cache, which outlives a run (-count=N).
+var defaultCacheRuns atomic.Int64
 
 // Without a cache option the clips go to the process-wide default cache that
 // conversations use by default.
 func TestPrewarmCueClips_DefaultCache(t *testing.T) {
-	// A service name no other test renders with, so the shared default
-	// cache holds nothing of it yet.
-	speech := defaultCacheTTS{newCueTTS(cueRate / 4)}
+	// A service name no other test or earlier run renders with, so the
+	// shared default cache holds nothing of it yet.
+	speech := defaultCacheTTS{newCueTTS(cueRate / 4),
+		fmt.Sprintf("cue-prewarm-default-%d", defaultCacheRuns.Add(1))}
 	packPath := writeBrunoPack(t)
 	require.NoError(t, PrewarmCueClips(context.Background(), packPath, speech, "alloy", WithSkipSchemaValidation()))
 

@@ -287,6 +287,14 @@ type DuplexProviderStage struct {
 	// chunkHandled, when set, runs once each response chunk has been handled:
 	// tests wait on it for the stage to have handled what they emitted.
 	chunkHandled func()
+	// stopOpenTurnHold ends the idle hold of the provider turn in progress
+	// (see trackOpenTurn); nil when no turn is open. Response loop only.
+	stopOpenTurnHold func()
+	// openTurnMaxHold bounds that hold; zero means maxOpenTurnIdleHold.
+	// idleHoldTicker starts its heartbeat ticker; nil means a real one.
+	// Tests set both.
+	openTurnMaxHold time.Duration
+	idleHoldTicker  func(time.Duration) (<-chan time.Time, func())
 }
 
 // inputGrace is how long Process waits for the input goroutine to exit once
@@ -1280,6 +1288,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 	}
 
 	var wait responseWaitState
+	defer s.endOpenTurnHold()
 
 	for {
 		// Blocked turns waiting between assistant turns go first, ahead of
@@ -1354,6 +1363,7 @@ func (s *DuplexProviderStage) processResponseChunk(
 	// Outbound audio/text is activity: reset the pipeline idle timer so a
 	// long reply is not cut off by the 30s idle timeout mid-stream.
 	ResetIdleFromContext(ctx)
+	s.trackOpenTurn(ctx, chunk)
 
 	if err := s.handleResponseChunk(ctx, chunk, output); err != nil {
 		return err
@@ -1366,6 +1376,46 @@ func (s *DuplexProviderStage) processResponseChunk(
 		s.chunkHandled()
 	}
 	return nil
+}
+
+// maxOpenTurnIdleHold bounds how long an open provider turn holds the idle
+// timer after its last chunk. It is far longer than any reply's playback (a
+// Gemini Live turn completes about its audio length after it starts), and
+// short enough that a provider which never completes a turn still has its
+// session ended by the idle timer.
+const maxOpenTurnIdleHold = 5 * time.Minute
+
+// trackOpenTurn holds the pipeline idle timer open while a provider turn is in
+// progress: from the turn's first output to its turn completion. A provider
+// can stream a reply faster than real time and complete the turn only when the
+// reply would have finished playing (Gemini Live), leaving a long silent wait
+// that is the provider's, not an idle session (#2773). The hold reuses the
+// tool-execution heartbeat and is bounded by openTurnMaxHold.
+func (s *DuplexProviderStage) trackOpenTurn(ctx context.Context, chunk *providers.StreamChunk) {
+	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+		s.endOpenTurnHold()
+		return
+	}
+	if s.stopOpenTurnHold != nil || chunk.Interrupted || isInputTranscriptionChunk(chunk) {
+		return
+	}
+	maxHold := s.openTurnMaxHold
+	if maxHold <= 0 {
+		maxHold = maxOpenTurnIdleHold
+	}
+	newTicker := s.idleHoldTicker
+	if newTicker == nil {
+		newTicker = realIdleTicker
+	}
+	s.stopOpenTurnHold = keepIdleAliveUpTo(ctx, maxHold, newTicker)
+}
+
+// endOpenTurnHold stops the open turn's idle hold, if there is one.
+func (s *DuplexProviderStage) endOpenTurnHold() {
+	if s.stopOpenTurnHold != nil {
+		s.stopOpenTurnHold()
+		s.stopOpenTurnHold = nil
+	}
 }
 
 // emitPartialOnCancel emits any accumulated content as a partial response
