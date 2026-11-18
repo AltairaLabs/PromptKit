@@ -2015,10 +2015,11 @@ func (s *ProviderStage) executeRound(
 		return blocked, false, err
 	}
 
-	// Build provider request
+	// Build provider request. A turn an input guardrail blocked reaches the
+	// hooks above but never the model (see excludeBlockedInputTurns).
 	req := providers.PredictionRequest{
 		System:         systemPrompt,
-		Messages:       withRenderedMessageMetadata(messages, messageMetadataTemplate(prov)),
+		Messages:       withRenderedMessageMetadata(excludeBlockedInputTurns(messages), messageMetadataTemplate(prov)),
 		Seed:           s.config.Seed,
 		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
@@ -2145,10 +2146,11 @@ func (s *ProviderStage) executeStreamingRound(
 		return blocked, false, err
 	}
 
-	// Build provider request
+	// Build provider request. A turn an input guardrail blocked reaches the
+	// hooks above but never the model (see excludeBlockedInputTurns).
 	req := providers.PredictionRequest{
 		System:         params.systemPrompt,
-		Messages:       withRenderedMessageMetadata(params.messages, messageMetadataTemplate(prov)),
+		Messages:       withRenderedMessageMetadata(excludeBlockedInputTurns(params.messages), messageMetadataTemplate(prov)),
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
 		ResponseFormat: s.roundResponseFormat(params.providerTools),

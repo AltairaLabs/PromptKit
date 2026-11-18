@@ -1243,8 +1243,10 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	}
 	kept = messages[splitIdx:]
 
-	// Summarize older messages
-	toSummarize := messages[:splitIdx]
+	// Summarize older messages. The summary is model context, so a blocked
+	// input turn stays out of it (the split lands on a user turn, so it never
+	// separates one from its canned reply).
+	toSummarize := excludeBlockedInputTurns(messages[:splitIdx])
 	summaryContent, err := s.policy.Summarizer.Summarize(ctx, toSummarize)
 	if err != nil {
 		// Fall back to truncation on summarization failure

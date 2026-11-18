@@ -191,7 +191,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		return
 	}
 	last := len(tl.messages) - 1
-	prior := types.ExcludeInterrupted(tl.messages[:last])
+	prior := excludeFromModelContext(tl.messages[:last])
 
 	req := providers.PredictionRequest{
 		System:         tl.acc.systemPrompt,

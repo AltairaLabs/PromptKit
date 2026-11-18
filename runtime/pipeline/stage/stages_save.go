@@ -334,10 +334,12 @@ func (s *IncrementalSaveStage) indexNewMessages(
 		}
 	}
 
+	blocked := blockedInputTurns(messages)
 	for i := range messages {
-		// An interrupted reply is a fragment the model never finished; indexing
-		// it would let retrieval put it back into model context.
-		if messages[i].IsInterrupted() {
+		// An interrupted reply is a fragment the model never finished, and a
+		// blocked input turn is one the model may not see; indexing either
+		// would let retrieval put it back into model context.
+		if messages[i].IsInterrupted() || (len(blocked) > i && blocked[i]) {
 			continue
 		}
 		if err := s.config.MessageIndex.Index(ctx, convID, baseIndex+i, messages[i]); err != nil {
@@ -416,9 +418,16 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 	// tail covers messages [lastSummarizedTurn, count). Slice off the
 	// SummarizeBatchSize prefix to get the oldest unsummarized batch.
 	// The summary replaces these turns in model context, so it must not carry
-	// interrupted fragments the model is otherwise never shown. The turn range
-	// still covers them.
-	batch := types.ExcludeInterrupted(tail[:endTurn-lastSummarizedTurn])
+	// interrupted fragments or blocked input turns the model is otherwise never
+	// shown. The turn range still covers them. Blocked turns are found on the
+	// whole tail, so a batch that ends between a blocked user message and its
+	// canned reply still leaves the user message out.
+	batchLen := endTurn - lastSummarizedTurn
+	var blockedInBatch []bool
+	if mask := blockedInputTurns(tail); mask != nil {
+		blockedInBatch = mask[:batchLen]
+	}
+	batch := types.ExcludeInterrupted(withoutMasked(tail[:batchLen], blockedInBatch))
 	content, err := s.config.Summarizer.Summarize(ctx, batch)
 	if err != nil {
 		logger.Error("Auto-summarize: summarization failed",
