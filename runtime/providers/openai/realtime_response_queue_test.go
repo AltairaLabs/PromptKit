@@ -395,7 +395,9 @@ func TestRealtimeInterrupt_WhileARequestWaits(t *testing.T) {
 
 // A request the server rejects as busy because it had just started a
 // response of its own (server VAD, as the create went out) is not a session
-// error, and is not sent again after it: that response answers it.
+// error. It is sent again after that response: its input (here the typed
+// text; tool results the same) may have reached the server after that
+// response began, and so not be in it.
 func TestRealtimeSendText_RejectedAsBusyByTheServersOwnResponse(t *testing.T) {
 	os := newOneResponseServer(t, func(s *oneResponseServer) { s.startOwn = true })
 	session := openOneResponseSession(t, os)
@@ -403,9 +405,108 @@ func TestRealtimeSendText_RejectedAsBusyByTheServersOwnResponse(t *testing.T) {
 	require.NoError(t, session.SendText(context.Background(), franceQuestion))
 	os.awaitType(t, realtimeEventItemCreate)
 	os.awaitType(t, realtimeEventResponseCreate) // rejected: R1 is the server's
-	os.end <- "completed"
 	os.quiet(t)
-	assert.Equal(t, []string{"R1"}, endsOf(responseChunks(t, session, 1)))
+	os.end <- "completed"
+	os.awaitType(t, realtimeEventResponseCreate) // sent again after R1
+	os.end <- "completed"
+	assert.Equal(t, []string{"R1", "R2"}, endsOf(responseChunks(t, session, 2)))
+}
+
+// vadConfig has server VAD start the response to the caller's speech.
+func vadConfig(c *RealtimeSessionConfig) {
+	c.TurnDetection = &TurnDetectionConfig{Type: "server_vad", CreateResponse: true}
+}
+
+// speechHeldRequest opens a server-VAD session, has the caller start
+// speaking, and asks for a response, which is held for the server's.
+func speechHeldRequest(t *testing.T, grace time.Duration) (*oneResponseServer, *RealtimeSession) {
+	t.Helper()
+	os := newOneResponseServer(t)
+	session := openOneResponseSession(t, os, vadConfig)
+	session.recvMu.Lock()
+	session.speechGrace = grace
+	session.recvMu.Unlock()
+	os.push <- map[string]any{"type": "input_audio_buffer.speech_started", "item_id": "speech_1"}
+	require.Eventually(t, func() bool {
+		session.recvMu.Lock()
+		defer session.recvMu.Unlock()
+		return session.speechTurn
+	}, 2*time.Second, time.Millisecond)
+	require.NoError(t, session.TriggerResponse(&ResponseConfig{Instructions: "held"}))
+	os.quiet(t)
+	return os, session
+}
+
+// Speech that gets no response does not hold the requests waiting for good:
+// the hold ends when the input audio is cleared, on a server error while no
+// request is pending (the server's response failed), and a grace after
+// speech_stopped with no response.created.
+func TestRealtimeSpeech_WithNoResponseReleasesTheWaitingRequests(t *testing.T) {
+	t.Run("input audio cleared", func(t *testing.T) {
+		os, _ := speechHeldRequest(t, time.Minute)
+		os.push <- map[string]any{"type": "input_audio_buffer.cleared"}
+		assert.Equal(t, "held", instructions(os.awaitType(t, realtimeEventResponseCreate)))
+	})
+	t.Run("server error", func(t *testing.T) {
+		os, session := speechHeldRequest(t, time.Minute)
+		os.push <- map[string]any{"type": "error", "error": map[string]any{"type": "server_error", "message": "boom"}}
+		assert.Equal(t, "held", instructions(os.awaitType(t, realtimeEventResponseCreate)))
+		select {
+		case c := <-session.Response():
+			require.Error(t, c.Error, "the server's error is still reported")
+			assert.Contains(t, c.Error.Error(), "boom")
+		case <-time.After(2 * time.Second):
+			t.Fatal("the server's error was not reported")
+		}
+	})
+	t.Run("grace after speech stopped", func(t *testing.T) {
+		os, _ := speechHeldRequest(t, 300*time.Millisecond)
+		os.push <- map[string]any{"type": "input_audio_buffer.speech_stopped", "item_id": "speech_1"}
+		os.quiet(t) // within the grace
+		assert.Equal(t, "held", instructions(os.awaitType(t, realtimeEventResponseCreate)))
+	})
+}
+
+// A request asked for once the caller began to speak is not answered by the
+// server's response to that speech (its input may have reached the server
+// after it began): it is sent after it.
+func TestRealtimeSpeech_RequestAskedDuringTheSpeechIsSentAfterTheServersResponse(t *testing.T) {
+	os, session := speechHeldRequest(t, time.Minute)
+	os.push <- map[string]any{"type": "response.created", "response": map[string]any{"id": "R9", "status": "in_progress"}}
+	os.push <- map[string]any{"type": "response.done", "response": map[string]any{"id": "R9", "status": "completed"}}
+	assert.Equal(t, "held", instructions(os.awaitType(t, realtimeEventResponseCreate)))
+	os.end <- "completed"
+	assert.Equal(t, []string{"R9", "R1"}, endsOf(responseChunks(t, session, 2)))
+}
+
+// A spoken message the server refuses is reported to the stage (an
+// announcement-failed chunk), not as a session error, and the next request
+// waiting goes.
+func TestRealtimeAnnounce_RefusedIsReportedToTheStage(t *testing.T) {
+	os := newOneResponseServer(t)
+	session := openOneResponseSession(t, os)
+
+	require.NoError(t, session.TriggerResponse(nil))
+	os.awaitType(t, realtimeEventResponseCreate)
+	_, err := session.Announce(context.Background(), "Sorry, I can't say that word.")
+	require.NoError(t, err)
+	require.NoError(t, session.TriggerResponse(&ResponseConfig{Instructions: "after"}))
+	os.rejectNext <- "invalid_value"
+	os.end <- "cancelled"
+	assert.Contains(t, instructions(os.awaitType(t, realtimeEventResponseCreate)), "Sorry")
+	assert.Equal(t, "after", instructions(os.awaitType(t, realtimeEventResponseCreate)), "the next request goes")
+
+	var failed bool
+	deadline := time.After(2 * time.Second)
+	for !failed {
+		select {
+		case c := <-session.Response():
+			require.NoError(t, c.Error, "not a session error")
+			failed, _ = c.Metadata[providers.MetaKeyAnnouncementFailed].(bool)
+		case <-deadline:
+			t.Fatal("the stage was not told the message is not coming")
+		}
+	}
 }
 
 // A request rejected as busy while no response is in progress on the

@@ -273,6 +273,11 @@ type Announcer interface {
 // reply itself (AnnouncementTagger).
 const MetaKeyAnnouncement = "announcement"
 
+// MetaKeyAnnouncementFailed is the StreamChunk.Metadata key, set to true, on
+// a chunk an AnnouncementTagger sends when the reply an Announce asked for is
+// not coming (the request could not be sent, or the provider refused it).
+const MetaKeyAnnouncementFailed = "announcement_failed"
+
 // AnnouncementTagger is an optional interface an Announcer implements when it
 // marks the chunks of the reply Announce asked for (MetaKeyAnnouncement), so
 // the pipeline tells the spoken message by the mark, not by its position: a

@@ -82,7 +82,10 @@ type RealtimeSession struct {
 	pendingRequest  *responseRequest
 	waitingRequests []*responseRequest
 	speechTurn      bool
+	speechSeq       int64
 	announceGens    []int64
+	// speechGrace overrides speechResponseGrace (tests).
+	speechGrace time.Duration
 
 	// playout estimates the delivered audio the caller is still hearing, so
 	// speech after response.done still barges in. now is its clock (time.Now
@@ -701,6 +704,9 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.truncates.done(e.ItemID)
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
+		s.speechStopped()
+	case *InputAudioBufferClearedEvent:
+		s.endSpeechTurn("the input audio was cleared")
 	case *ConversationItemInputAudioTranscriptionCompletedEvent:
 		s.handleInputTranscription(e)
 	case *RateLimitsUpdatedEvent:
@@ -780,6 +786,7 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 		// The server starts the response to this speech; nothing waiting is
 		// sent meanwhile (realtime_response_queue.go).
 		s.speechTurn = true
+		s.speechSeq++
 	}
 	playing := s.playoutEstimate().Playing()
 	if !s.responseActive && !playing {
@@ -829,10 +836,22 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 	if handled {
 		return
 	}
-	if ended {
+	switch {
+	case ended != nil && ended.announce:
+		// The spoken message failed: the stage is told, not the session.
+		logger.Warn("OpenAI Realtime: the server refused to speak the blocked message",
+			"code", e.Error.Code, "message", e.Error.Message)
+		s.emit(announcementFailed())
+		s.sendNextRequestLocked()
+		return
+	case ended != nil:
 		// The server refused the request for another reason: it is reported,
 		// and the next waiting one goes.
 		defer s.sendNextRequestLocked()
+	case s.speechTurn:
+		// Most likely the server's own response to the caller's speech
+		// failed: no response is coming for it.
+		defer s.endSpeechTurn("a server error during the caller's speech")
 	}
 	logger.Error("OpenAI Realtime: server error",
 		"type", e.Error.Type,

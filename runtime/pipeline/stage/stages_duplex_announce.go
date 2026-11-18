@@ -100,6 +100,29 @@ func (s *DuplexProviderStage) takeAnnouncementChunk(chunk *providers.StreamChunk
 	return chunk.Generation == a.gen
 }
 
+// announcementFailed handles the session's word that the spoken message is
+// not coming (providers.MetaKeyAnnouncementFailed): replies are turns again,
+// and a blocked reply that never completed has its turn ended, as the
+// message's end would have. Reports whether chunk was that word.
+func (s *DuplexProviderStage) announcementFailed(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- StreamElement,
+) (bool, error) {
+	if failed, _ := chunk.Metadata[providers.MetaKeyAnnouncementFailed].(bool); !failed {
+		return false, nil
+	}
+	logger.Warn("DuplexProviderStage: the provider did not speak the blocked message")
+	owes := s.announce.state == announceActive && s.announce.owesTurnEnd
+	s.announce = duplexAnnouncement{}
+	if !owes {
+		return true, nil
+	}
+	s.endAnnouncementTurn()
+	fr := types.FinishReasonSafety
+	elem := StreamElement{EndOfTurn: true}
+	elem.Meta.FinishReason = &fr
+	return true, sendStreamElement(ctx, elem, output)
+}
+
 // guardReplyChunk runs the streaming output guardrails on a reply chunk, and
 // then, for the spoken message, drops what it adds beyond its audio
 // (stripAnnouncementChunk).

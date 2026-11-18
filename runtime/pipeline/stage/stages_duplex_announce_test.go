@@ -280,6 +280,42 @@ func TestDuplexAnnounce_MarkedMessageAfterAReplyAskedForEarlier(t *testing.T) {
 	assert.Equal(t, int64(2), s.assistantTurns.Load())
 }
 
+// taggingUnstoppable is an unstoppableAnnouncer that marks its message's
+// chunks.
+type taggingUnstoppable struct{ *unstoppableAnnouncer }
+
+func (taggingUnstoppable) TagsAnnouncements() bool { return true }
+
+// When the session says the spoken message is not coming, replies are turns
+// again: the blocked turn the provider abandoned has its turn ended, and a
+// later block is spoken again.
+func TestDuplexAnnounce_FailedMessageEndsTheOwedTurn(t *testing.T) {
+	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
+	sess := taggingUnstoppable{&unstoppableAnnouncer{recordingSession: rec}}
+	s.session = sess
+	failed := providers.StreamChunk{Metadata: map[string]interface{}{providers.MetaKeyAnnouncementFailed: true}}
+
+	elems, err := feedChunks(t, s,
+		gen1(transcriptChunk("forbidden ", pcm(20)), 1),
+		gen1(providers.StreamChunk{Interrupted: true}, 1), // the provider abandons the blocked reply
+		failed,
+		gen1(transcriptChunk("all fine", pcm(12)), 2), gen1(stopChunk(), 2),
+		gen1(transcriptChunk("forbidden again", pcm(12)), 3),
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{types.FinishReasonSafety}, turnEnds(elems), "the abandoned blocked turn ends")
+	var replies []string
+	for _, e := range elems {
+		if m := e.Message; m != nil && m.Role == roleAssistant {
+			replies = append(replies, m.Content+"|"+m.FinishReason)
+		}
+	}
+	assert.Equal(t, []string{"I can't say that.|safety", "all fine|stop"}, replies)
+	assert.Equal(t, []string{"I can't say that.", "I can't say that."}, sess.announcements(),
+		"the next block is spoken again")
+}
+
 // gen numbers a chunk as part of the provider's reply g.
 func gen1(c providers.StreamChunk, g int64) providers.StreamChunk {
 	c.Generation = g
