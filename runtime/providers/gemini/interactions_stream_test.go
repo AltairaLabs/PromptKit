@@ -259,9 +259,8 @@ func TestFirstNonEmpty(t *testing.T) {
 	assert.Empty(t, firstNonEmpty("", ""))
 }
 
-// TestPredictStreamWithTools_RoutesToInteractions proves the streaming routing
-// is reachable from the public entry point. The pipeline streams by default, so
-// a decision nothing acts on would leave real traffic unconstrained.
+// TestPredictStreamWithTools_RoutesToInteractions proves a configured
+// Interactions API is reachable from the public streaming entry point.
 func TestPredictStreamWithTools_RoutesToInteractions(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -276,18 +275,18 @@ func TestPredictStreamWithTools_RoutesToInteractions(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "test-key")
 	tp := NewToolProvider("g-stream", "gemini-3.7-flash", srv.URL,
 		providers.ProviderDefaults{MaxTokens: 512}, false)
+	tp.apiMode = APIModeInteractions
 	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
 		Name: "probe", Description: "p", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	require.NoError(t, err)
 
 	ch, err := tp.PredictStreamWithTools(context.Background(), providers.PredictionRequest{
-		Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
-		ResponseFormat: schemaFormat(),
+		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
 	}, tools, "auto")
 	require.NoError(t, err)
 	for range ch { //nolint:revive // draining
 	}
 
 	assert.Contains(t, gotPath, "/interactions",
-		"a streaming schema+tools turn must reach the Interactions endpoint")
+		"api_mode interactions must reach the Interactions endpoint when streaming")
 }

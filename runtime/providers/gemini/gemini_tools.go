@@ -172,11 +172,20 @@ func (p *ToolProvider) predictWithToolsOnce(
 	p.currentTools = tools
 	p.currentRequest = &req
 
-	// A response schema alongside tools only works on the Interactions API:
-	// generateContent applies the schema to every turn, so it either rejects
-	// the request (2.5) or leaves the model unable to finish (3.x). Route there
-	// rather than silently dropping the caller's schema (#1851).
-	if p.resolveAPIMode(req.ResponseFormat, tools != nil) == APIModeInteractions {
+	if tools != nil && wantsSchema(req.ResponseFormat) {
+		return p.predictSchemaAfterTools(ctx, req, tools, toolChoice)
+	}
+	return p.predictRound(ctx, req, tools, toolChoice)
+}
+
+// predictRound sends one request to the configured API.
+func (p *ToolProvider) predictRound(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools providers.ProviderTools,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	if p.resolveAPIMode() == APIModeInteractions {
 		return p.predictWithInteractions(ctx, req, tools)
 	}
 
@@ -634,11 +643,10 @@ func (p *ToolProvider) buildToolRequest(
 	// (round one returns a normal tool call) and only shows up as a turn that
 	// burns rounds until the loop breaker fires.
 	//
-	// This is NOT a Gemini limitation. Google's Interactions API applies the
-	// schema only to the turn that produces a final answer, so a tool loop
-	// there returns conforming JSON — verified live. Supporting it means a
-	// second request path with different request, response and continuation
-	// shapes; tracked in #1851.
+	// The Interactions API does no better (#2771). The predict paths therefore
+	// never pass both: predictSchemaAfterTools sends the tool round without the
+	// schema and asks for the answer again under it with no tools. This case
+	// is the guard for a caller that builds the request directly.
 	//
 	// Rounds WITHOUT tools carry the schema normally, which is the case a final
 	// answer-only round hits.
@@ -897,9 +905,20 @@ func (p *ToolProvider) predictStreamWithToolsOnce(
 	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	// Same routing as the non-streaming path: a response schema alongside
-	// tools only works on the Interactions API (#1851).
-	if p.resolveAPIMode(req.ResponseFormat, tools != nil) == APIModeInteractions {
+	if tools != nil && wantsSchema(req.ResponseFormat) {
+		return p.streamSchemaAfterTools(ctx, req, tools, toolChoice)
+	}
+	return p.streamRound(ctx, req, tools, toolChoice)
+}
+
+// streamRound opens one streaming request to the configured API.
+func (p *ToolProvider) streamRound(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	tools any,
+	toolChoice string,
+) (<-chan providers.StreamChunk, error) {
+	if p.resolveAPIMode() == APIModeInteractions {
 		return p.predictStreamWithInteractions(ctx, req, tools)
 	}
 
