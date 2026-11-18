@@ -262,6 +262,8 @@ type DuplexProviderStage struct {
 	// pendingNotes are the guardrail blocks the model is still to be told of
 	// (stages_duplex_block_note.go). Response goroutine only.
 	pendingNotes []blockNote
+	// notedGens are the reply generations whose turn's note has gone.
+	notedGens []int64
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -1744,6 +1746,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if err := s.reportCanceledReply(ctx, &elem, turnDone, output); err != nil {
 		return err
 	}
+	// A blocked turn's note goes once the turn is over.
+	s.sendBlockNotes(ctx)
 
 	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
 		elem.Meta.ToolCallsRunning = true // the stage answers them (queueToolRound)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 )
 
@@ -120,29 +121,58 @@ func TestDuplexBlockNote_CompletedTurnBlockTellsTheModel(t *testing.T) {
 	assert.True(t, strings.HasPrefix(sess.noted()[0], "Your previous reply was withheld"), sess.noted()[0])
 }
 
-// A spoken turn an input guardrail blocked gets the input note, after its
-// turn is forgotten.
+// A spoken turn an input guardrail blocked gets the input note, once its
+// turn has ended; the turn is forgotten.
 func TestDuplexBlockNote_InputBlockTellsTheModel(t *testing.T) {
 	s, sess, noted := noteStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
 
 	elems, err := feedChunks(t, s,
 		genChunk(1, transcriptChunk("Sure", pcm(10))),
-		spoken("a wire transfer", "item_A"),
-		genChunk(1, stopChunk()))
+		spoken("a wire transfer", "item_A"))
+	require.NoError(t, err)
+	assert.Empty(t, sess.noted(), "no note while the blocked reply is still being generated")
+
+	more, err := feedChunks(t, s, genChunk(1, stopChunk()))
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{fmt.Sprintf(blockedInputNote, "banned_words")}, sess.noted())
+	assert.Equal(t, []string{fmt.Sprintf(blockedInputRemovedNote, "banned_words")}, sess.noted())
 	assert.Equal(t, []string{"item_A"}, sess.forgotten())
-	noTextOf(t, elems, sess.noted())
+	noTextOf(t, append(elems, more...), sess.noted())
 	ev := noted()
 	require.Len(t, ev, 1)
 	assert.Equal(t, hooks.DirectionInput, ev[0].Direction)
 }
 
-// A turn both an output and an input guardrail blocked gets both notes, in
-// the order the blocks came; an allowed turn gets none.
-func TestDuplexBlockNote_EachBlockOnceAndNoneWhenAllowed(t *testing.T) {
-	s, sess, _ := noteStage(t, hooks.NewRegistry(
+// A session that cannot forget a turn (Gemini Live) still has the message:
+// its note does not say it was removed.
+func TestDuplexBlockNote_KeptInputIsNotSaidRemoved(t *testing.T) {
+	s, f := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+	n := &keptNotingSession{interruptingSession: f.interruptingSession}
+	s.session = n
+
+	_, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("Sure", pcm(10))), spoken("a wire transfer", "item_A"), genChunk(1, stopChunk()))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{fmt.Sprintf(blockedInputKeptNote, "banned_words")}, n.notes)
+	assert.NotContains(t, n.notes[0], "removed")
+}
+
+// keptNotingSession takes context notes but cannot forget a turn.
+type keptNotingSession struct {
+	*interruptingSession
+	notes []string
+}
+
+func (s *keptNotingSession) AddContextNote(_ context.Context, text string) error {
+	s.notes = append(s.notes, text)
+	return nil
+}
+
+// A turn both an output and an input guardrail blocked before it ended gets
+// one note saying both; an allowed turn gets none.
+func TestDuplexBlockNote_OneCombinedNotePerTurn(t *testing.T) {
+	s, sess, noted := noteStage(t, hooks.NewRegistry(
 		hooks.WithProviderHook(bannedWordsHook(t, "pineapple")),
 		hooks.WithProviderHook(inputBannedWords(t, "wire"))))
 
@@ -153,9 +183,45 @@ func TestDuplexBlockNote_EachBlockOnceAndNoneWhenAllowed(t *testing.T) {
 		genChunk(2, stopChunk()))
 	require.NoError(t, err)
 
+	assert.Equal(t, []string{fmt.Sprintf(blockedTurnRemovedNote, "banned_words, banned_words")}, sess.noted())
+	ev := noted()
+	require.Len(t, ev, 1)
+	assert.Equal(t, "both", ev[0].Direction)
+}
+
+// A reply an output guardrail truncated that the completed-turn check then
+// blocks too gets one note.
+func TestDuplexBlockNote_TruncatedThenBlockedTurnGetsOneNote(t *testing.T) {
+	limit, err := guardrails.NewGuardrailHook("length", map[string]any{"max_characters": 10})
+	require.NoError(t, err)
+	s, sess, _ := noteStage(t, hooks.NewRegistry(hooks.WithProviderHook(limit),
+		hooks.WithProviderHook(&enforceAfterCallHook{replacement: "I can't say that."})))
+
+	_, err = feedChunks(t, s, genChunk(1, transcriptChunk("secret plans are here", pcm(10))), genChunk(1, stopChunk()))
+	require.NoError(t, err)
+
+	require.Len(t, sess.noted(), 1, "%v", sess.noted())
+}
+
+// A late transcript blocked after its turn's note went adds none; one
+// blocked when its turn was not noted is noted at once, before the next
+// reply.
+func TestDuplexBlockNote_LateInputBlock(t *testing.T) {
+	s, sess, _ := noteStage(t, hooks.NewRegistry(
+		hooks.WithProviderHook(bannedWordsHook(t, "pineapple")),
+		hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+
+	elems, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("pineapple", pcm(10))), genChunk(1, stopChunk()),
+		spoken("say pineapple, wire it", "item_A"), // late, for the noted turn
+		genChunk(2, transcriptChunk("Sure", pcm(10))), genChunk(2, stopChunk()),
+		spoken("a wire transfer", "item_B")) // late, for an allowed turn
+	require.NoError(t, err)
+
 	assert.Equal(t, []string{
-		fmt.Sprintf(blockedReplyNote, "banned_words"), fmt.Sprintf(blockedInputNote, "banned_words"),
+		fmt.Sprintf(blockedReplyNote, "banned_words"), fmt.Sprintf(blockedInputRemovedNote, "banned_words"),
 	}, sess.noted())
+	assert.Equal(t, "user:a wire transfer", trace(elems)[len(trace(elems))-2], "%v", trace(elems))
 }
 
 // stripBase is d without its base event data, for comparison.
