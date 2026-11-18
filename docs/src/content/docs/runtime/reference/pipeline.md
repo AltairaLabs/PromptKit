@@ -6338,7 +6338,7 @@ On a production underwriting pack the same model that scores 5.8 here reached to
 
 The fix is to constrain only the turn that produces the final answer, which is what Anthropic's stronger models already do server\-side. Doing it in the stage rather than per provider means no per\-model support table: the rule is mechanical and every provider gets it, including ones added later.
 
-Gemini cannot carry a schema on a round with tools on either of its APIs \(\#2771\), so its provider applies the same rule itself: under every\_round it sends each tool round without the schema and asks a round that answers again under it, which costs two calls per answering round, as final\_turn does.
+Gemini cannot carry a schema on a round with tools on either of its APIs, so its provider applies the same rule itself: under every\_round it sends each tool round without the schema and asks a round that answers again under it, which costs two calls per answering round, as final\_turn does.
 
 ```go
 type StructuredOutputMode string

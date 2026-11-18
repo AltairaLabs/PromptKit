@@ -32,8 +32,8 @@ import (
 // stage rather than per provider means no per-model support table: the rule is
 // mechanical and every provider gets it, including ones added later.
 //
-// Gemini cannot carry a schema on a round with tools on either of its APIs
-// (#2771), so its provider applies the same rule itself: under every_round it
+// Gemini cannot carry a schema on a round with tools on either of its APIs,
+// so its provider applies the same rule itself: under every_round it
 // sends each tool round without the schema and asks a round that answers again
 // under it, which costs two calls per answering round, as final_turn does.
 type StructuredOutputMode string
