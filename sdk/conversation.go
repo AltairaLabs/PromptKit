@@ -128,7 +128,12 @@ type Conversation struct {
 	// ctxHandlers for the same name. OnToolExecutor fills it for a
 	// tools.CallExecutor.
 	callHandlers map[string]toolCallHandler
-	handlersMu   sync.RWMutex
+	// asyncCallHandlers run a call through an executor's entry point that may
+	// suspend it; OnToolExecutor fills it for a tools.AsyncCallExecutor or
+	// tools.AsyncToolExecutor. A later registration for the name removes it
+	// with the call handler.
+	asyncCallHandlers map[string]toolAsyncCallHandler
+	handlersMu        sync.RWMutex
 
 	// Client tool handlers (mode: "client")
 	clientHandlers   map[string]ClientToolHandler
@@ -1558,6 +1563,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	handlers := copyHandlerMap(c.handlers)
 	ctxHandlers := copyHandlerMap(c.ctxHandlers)
 	callHandlers := copyHandlerMap(c.callHandlers)
+	asyncCallHandlers := copyHandlerMap(c.asyncCallHandlers)
 	c.handlersMu.RUnlock()
 
 	c.asyncHandlersMu.RLock()
@@ -1600,22 +1606,23 @@ func (c *Conversation) Fork() (*Conversation, error) {
 		promptRegistry: c.promptRegistry,
 		toolRegistry:   forkRegistry,
 		// A fork gets its own holder: workflow state is not shared across forks.
-		workflowResolver: &workflowResolverHolder{},
-		config:           c.config,
-		provider:         c.provider, // the prompt's RFC 0017 provider, not the agent
-		mode:             c.mode,
-		handlers:         handlers,
-		ctxHandlers:      ctxHandlers,
-		callHandlers:     callHandlers,
-		clientHandlers:   clientHandlers,
-		asyncHandlers:    asyncHandlers,
-		approvalExecs:    approvalExecs,
-		pendingStore:     forkPendingStore,
-		ownsPendingStore: forkOwnsPending,
-		resolvedStore:    sdktools.NewResolvedStore(),
-		mcpRegistry:      c.mcpRegistry, // Share MCP registry
-		mcpTools:         c.mcpTools,
-		hookRegistry:     c.hookRegistry, // Share hook registry
+		workflowResolver:  &workflowResolverHolder{},
+		config:            c.config,
+		provider:          c.provider, // the prompt's RFC 0017 provider, not the agent
+		mode:              c.mode,
+		handlers:          handlers,
+		ctxHandlers:       ctxHandlers,
+		callHandlers:      callHandlers,
+		asyncCallHandlers: asyncCallHandlers,
+		clientHandlers:    clientHandlers,
+		asyncHandlers:     asyncHandlers,
+		approvalExecs:     approvalExecs,
+		pendingStore:      forkPendingStore,
+		ownsPendingStore:  forkOwnsPending,
+		resolvedStore:     sdktools.NewResolvedStore(),
+		mcpRegistry:       c.mcpRegistry, // Share MCP registry
+		mcpTools:          c.mcpTools,
+		hookRegistry:      c.hookRegistry, // Share hook registry
 		// Capabilities are shared -- their executors hold no conversation
 		// state -- but the fork must carry them, or nothing registers an
 		// executor into forkRegistry and its skill and memory tools resolve to

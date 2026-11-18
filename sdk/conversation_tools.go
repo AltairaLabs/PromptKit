@@ -60,6 +60,7 @@ func (c *Conversation) OnToolCtx(name string, handler ToolHandlerCtx) {
 	}
 	c.ctxHandlers[name] = handler
 	delete(c.callHandlers, name)
+	delete(c.asyncCallHandlers, name)
 }
 
 // OnTools registers multiple tool handlers at once.
@@ -98,6 +99,7 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 	}
 	c.ctxHandlers[name] = config.HandlerCtx()
 	delete(c.callHandlers, name)
+	delete(c.asyncCallHandlers, name)
 }
 
 // OnToolExecutor registers a custom executor for tools.
@@ -115,6 +117,14 @@ func (c *Conversation) OnToolHTTP(name string, config *sdktools.HTTPToolConfig) 
 // [tools.MultimodalExecutor] is given each call through ExecuteMultimodal.
 // Either way, the content parts it returns (images, audio) go to the model
 // with its result.
+//
+// Where the conversation can suspend a call, an executor that implements
+// [tools.AsyncCallExecutor] is given it through ExecuteCallAsync, and one
+// that implements [tools.AsyncToolExecutor] through ExecuteAsync, as the
+// tool registry gives a call to an executor registered on it. The content
+// parts of a completed result go to the model, and a [tools.ToolStatusPending]
+// result suspends the call: the Response reports it in ClientTools, and the
+// host answers it with [Conversation.SendToolResult] and [Conversation.Resume].
 func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 	c.handlersMu.Lock()
 	defer c.handlersMu.Unlock()
@@ -122,6 +132,7 @@ func (c *Conversation) OnToolExecutor(name string, executor tools.Executor) {
 		c.ctxHandlers = make(map[string]ToolHandlerCtx)
 	}
 	delete(c.callHandlers, name)
+	c.registerExecutorAsyncLocked(name, executor)
 	if run := executorCallFunc(executor); run != nil {
 		if c.callHandlers == nil {
 			c.callHandlers = make(map[string]toolCallHandler)
@@ -179,6 +190,47 @@ func executorCallFunc(executor tools.Executor) func(
 	return nil
 }
 
+// registerExecutorAsyncLocked stores executor's async entry point as name's
+// async call handler, or removes name's when executor has none. The caller
+// holds handlersMu.
+func (c *Conversation) registerExecutorAsyncLocked(name string, executor tools.Executor) {
+	run := executorAsyncFunc(executor)
+	if run == nil {
+		delete(c.asyncCallHandlers, name)
+		return
+	}
+	if c.asyncCallHandlers == nil {
+		c.asyncCallHandlers = make(map[string]toolAsyncCallHandler)
+	}
+	c.asyncCallHandlers[name] = func(ctx context.Context, call tools.ToolCall) (*tools.ToolExecutionResult, error) {
+		desc, err := c.packToolDescriptor(name)
+		if err != nil {
+			return nil, err
+		}
+		return run(ctx, desc, call)
+	}
+}
+
+// executorAsyncFunc returns the executor's entry point that may suspend a
+// call, as the tool registry calls it: ExecuteCallAsync for a
+// tools.AsyncCallExecutor, otherwise ExecuteAsync for a
+// tools.AsyncToolExecutor. It returns nil for a synchronous executor.
+func executorAsyncFunc(executor tools.Executor) func(
+	context.Context, *tools.ToolDescriptor, tools.ToolCall,
+) (*tools.ToolExecutionResult, error) {
+	if callExec, ok := executor.(tools.AsyncCallExecutor); ok {
+		return callExec.ExecuteCallAsync
+	}
+	if asyncExec, ok := executor.(tools.AsyncToolExecutor); ok {
+		return func(
+			ctx context.Context, desc *tools.ToolDescriptor, call tools.ToolCall,
+		) (*tools.ToolExecutionResult, error) {
+			return asyncExec.ExecuteAsync(ctx, desc, call.Args)
+		}
+	}
+	return nil
+}
+
 // ToolCall is one call of a tool, as a handler registered with
 // [Conversation.OnToolCall] or [Conversation.OnToolAsyncCall] receives it.
 type ToolCall struct {
@@ -220,6 +272,7 @@ func (c *Conversation) registerCallHandlerLocked(
 	if c.callHandlers == nil {
 		c.callHandlers = make(map[string]toolCallHandler)
 	}
+	delete(c.asyncCallHandlers, name)
 	c.callHandlers[name] = func(
 		ctx context.Context, call tools.ToolCall,
 	) (json.RawMessage, []types.ContentPart, error) {

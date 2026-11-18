@@ -46,14 +46,24 @@ func (e *localExecutor) Defer(tool *tools.ToolDescriptor, call tools.ToolCall) (
 // tools.CallExecutor.
 type toolCallHandler func(ctx context.Context, call tools.ToolCall) (json.RawMessage, []types.ContentPart, error)
 
+// toolAsyncCallHandler runs a whole tool call through an entry point that may
+// suspend it. OnToolExecutor stores one for an executor that implements
+// tools.AsyncCallExecutor or tools.AsyncToolExecutor.
+type toolAsyncCallHandler func(ctx context.Context, call tools.ToolCall) (*tools.ToolExecutionResult, error)
+
 // ExecuteCallAsync is ExecuteAsync for the whole call: a client-bound tool goes
-// to the client executor, which may defer it (ToolStatusPending), and every
-// other tool runs through ExecuteCall.
+// to the client executor, which may defer it (ToolStatusPending), a tool with
+// an async call handler (an OnToolExecutor executor's async entry point) runs
+// on it, which may suspend it too, and every other tool runs through
+// ExecuteCall.
 func (e *localExecutor) ExecuteCallAsync(
 	ctx context.Context, descriptor *tools.ToolDescriptor, call tools.ToolCall,
 ) (*tools.ToolExecutionResult, error) {
 	if e.clientBound(descriptor.Name) {
 		return e.client.ExecuteCallAsync(ctx, asClientTool(descriptor), call)
+	}
+	if handler, ok := e.liveAsyncCallHandler(descriptor.Name); ok {
+		return handler(ctx, call)
 	}
 	result, parts, err := e.ExecuteCall(ctx, descriptor, call)
 	if err != nil {
@@ -80,6 +90,8 @@ func (e *localExecutor) ExecuteCall(
 
 // ExecuteAsync routes a client-bound tool to the client executor, which may
 // defer it (ToolStatusPending), and runs every other tool through Execute.
+// The tool registry calls ExecuteCallAsync instead, since this executor
+// implements tools.AsyncCallExecutor.
 func (e *localExecutor) ExecuteAsync(
 	ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage,
 ) (*tools.ToolExecutionResult, error) {
@@ -117,6 +129,13 @@ func (a *localHandlersAccessor) getCallHandler(name string) (toolCallHandler, bo
 	return h, ok
 }
 
+func (a *localHandlersAccessor) getAsyncCallHandler(name string) (toolAsyncCallHandler, bool) {
+	a.conv.handlersMu.RLock()
+	defer a.conv.handlersMu.RUnlock()
+	h, ok := a.conv.asyncCallHandlers[name]
+	return h, ok
+}
+
 func (a *localHandlersAccessor) getHandler(name string) (ToolHandler, bool) {
 	a.conv.handlersMu.RLock()
 	defer a.conv.handlersMu.RUnlock()
@@ -150,6 +169,16 @@ func (e *localExecutor) liveCallHandler(name string) (toolCallHandler, bool) {
 		return nil, false
 	}
 	return e.live.getCallHandler(name)
+}
+
+// liveAsyncCallHandler reads the conversation's current async call handler, if
+// the executor was built with an accessor. Like a call handler it has no
+// build-time snapshot.
+func (e *localExecutor) liveAsyncCallHandler(name string) (toolAsyncCallHandler, bool) {
+	if e.live == nil {
+		return nil, false
+	}
+	return e.live.getAsyncCallHandler(name)
 }
 
 // liveHandler reads the conversation's current plain handler, if the executor

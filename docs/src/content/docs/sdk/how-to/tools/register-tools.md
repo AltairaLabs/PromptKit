@@ -138,7 +138,7 @@ Register a runtime `tools.Executor` directly with `OnToolExecutor`:
 conv.OnToolExecutor("custom_tool", &MyCustomExecutor{})
 ```
 
-An executor that implements `tools.CallExecutor` is given each call through `ExecuteCall`; otherwise one that implements `tools.MultimodalExecutor` is given it through `ExecuteMultimodal`. The content parts either returns, such as an image, go to the model with the result.
+An executor that implements `tools.CallExecutor` is given each call through `ExecuteCall`; otherwise one that implements `tools.MultimodalExecutor` is given it through `ExecuteMultimodal`. The content parts either returns, such as an image, go to the model with the result. An executor that implements `tools.AsyncCallExecutor` or `tools.AsyncToolExecutor` is given each call through `ExecuteCallAsync` or `ExecuteAsync`: the content parts of its result go to the model, and a `tools.ToolStatusPending` result holds the call (see [When someone other than the client approves](#when-someone-other-than-the-client-approves)).
 
 `OnToolExecutor` needs a conversation. Constructors that open conversations internally, such as `sdk.A2AOpener` (one per context ID), never return one. Pass the executor as an option instead:
 
@@ -259,7 +259,7 @@ While a call waits, close the conversation with `conv.Close()` and resume it wit
 
 When the approver is not the client, such as a reviewer, a policy service or another person, and the decision can take days and arrive at another instance, the host owns the approval. PromptKit holds the call and resumes the turn. The host does everything in between: it records the referral, collects decisions, runs the tool as the right identity, keeps the audit trail and handles expiry.
 
-The host holds a call from the executor that runs the tool. An executor in the conversation's tool registry that implements `tools.AsyncToolExecutor` can return `tools.ToolStatusPending` from `ExecuteAsync` instead of a result. The pipeline then suspends the turn without running the tool. The executor receives the tool-execution context, which carries what the caller put on the `Send` context, so it can decide by who is calling. The held call appears in `resp.ClientTools()`, not in the pending store.
+The host holds a call from the executor that runs the tool. An executor registered with `OnToolExecutor` or `sdk.WithToolExecutor`, or in the conversation's tool registry, that implements `tools.AsyncToolExecutor` can return `tools.ToolStatusPending` from `ExecuteAsync` instead of a result. The pipeline then suspends the turn without running the tool. The executor receives the tool-execution context, which carries what the caller put on the `Send` context, so it can decide by who is calling. The held call appears in `resp.ClientTools()`, not in the pending store.
 
 The process that answers can be a different one from the process that held the call. Close the conversation once the turn suspends. When every decision is in, reopen it with `sdk.Resume` on the same state store, with the same executor registered. Give each held call its answer, then resume:
 
