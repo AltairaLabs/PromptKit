@@ -58,6 +58,30 @@ type oobServer struct {
 	oobStatus string
 	// rejectOOB, when set, rejects each out-of-band create with this code.
 	rejectOOB string
+	// rejectUpdate rejects the session.update, and no session.updated follows.
+	rejectUpdate bool
+	// delayCreated, when set, holds each out-of-band response.created until
+	// it is closed.
+	delayCreated chan struct{}
+	// rejectAfterCreated sends an error naming the out-of-band create after
+	// its response.created; the response then goes on to its end.
+	rejectAfterCreated bool
+
+	// cancels are the out-of-band responses running, by ID: a response.cancel
+	// naming one ends it as cancelled.
+	mu      sync.Mutex
+	cancels map[string]chan struct{}
+}
+
+// oobCancel is the cancel channel of the out-of-band response id, if running.
+func (s *oobServer) oobCancel(id string) (chan struct{}, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.cancels[id]
+	if ok {
+		delete(s.cancels, id)
+	}
+	return c, ok
 }
 
 func newOOBServer(t *testing.T, configure ...func(*oobServer)) *oobServer {
@@ -80,10 +104,18 @@ func newOOBServer(t *testing.T, configure ...func(*oobServer)) *oobServer {
 			_ = conn.WriteJSON(v)
 		}
 		write(map[string]any{"type": "session.created", "session": map[string]any{"id": "s", "model": "gpt-realtime"}})
-		if _, _, err := conn.ReadMessage(); err != nil { // session.update
+		update := readClientEvent(conn)
+		if update == nil {
 			return
 		}
+		if s.rejectUpdate {
+			write(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error",
+				"code": "invalid_value", "message": "bad voice", "event_id": update["event_id"]}})
+		}
 		go func() {
+			if s.rejectUpdate {
+				return
+			}
 			if s.updated != nil {
 				select {
 				case <-s.updated:
@@ -112,6 +144,18 @@ func newOOBServer(t *testing.T, configure ...func(*oobServer)) *oobServer {
 					return
 				}
 				s.events <- ev
+				if ev["type"] == realtimeEventResponseCancel {
+					id, _ := ev["response_id"].(string)
+					if c, ok := s.oobCancel(id); ok {
+						close(c)
+					} else if id == active && active != "" {
+						s.end <- "cancelled"
+					} else {
+						write(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error",
+							"code": "response_cancel_not_active", "message": "none", "event_id": ev["event_id"]}})
+					}
+					continue
+				}
 				if ev["type"] != realtimeEventResponseCreate {
 					continue
 				}
@@ -123,7 +167,15 @@ func newOOBServer(t *testing.T, configure ...func(*oobServer)) *oobServer {
 						continue
 					}
 					oob++
-					go s.outOfBand(r.Context(), write, fmt.Sprintf("OOB%d", oob), resp["metadata"])
+					id := fmt.Sprintf("OOB%d", oob)
+					cancel := make(chan struct{})
+					s.mu.Lock()
+					if s.cancels == nil {
+						s.cancels = map[string]chan struct{}{}
+					}
+					s.cancels[id] = cancel
+					s.mu.Unlock()
+					go s.outOfBand(r.Context(), write, id, resp["metadata"], ev["event_id"], cancel)
 					continue
 				}
 				if active != "" {
@@ -167,7 +219,10 @@ func (s *oobServer) reply(write func(map[string]any), id string, meta any) {
 }
 
 // outOfBand runs one out-of-band response.
-func (s *oobServer) outOfBand(ctx context.Context, write func(map[string]any), id string, meta any) {
+func (s *oobServer) outOfBand(ctx context.Context, write func(map[string]any), id string, meta, createID any,
+	cancel chan struct{},
+) {
+	defer s.oobCancel(id)
 	said := brunoLine
 	select {
 	case said = <-s.said:
@@ -183,8 +238,19 @@ func (s *oobServer) outOfBand(ctx context.Context, write func(map[string]any), i
 		}
 		return ev
 	}
+	if s.delayCreated != nil {
+		select {
+		case <-s.delayCreated:
+		case <-ctx.Done():
+			return
+		}
+	}
 	write(map[string]any{"type": "response.created", "response": map[string]any{"id": id,
 		"status": "in_progress", "conversation_id": nil, "metadata": meta}})
+	if s.rejectAfterCreated {
+		write(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error",
+			"code": "invalid_value", "message": "late", "event_id": createID}})
+	}
 	write(map[string]any{"type": "response.output_item.added", "response_id": id, "output_index": 0,
 		"item": map[string]any{"id": "item_" + id, "type": "message", "role": "assistant", "status": "in_progress"}})
 	half := len(oobAudio) / 2
@@ -193,6 +259,10 @@ func (s *oobServer) outOfBand(ctx context.Context, write func(map[string]any), i
 	if s.hold != nil {
 		select {
 		case <-s.hold:
+		case <-cancel:
+			write(map[string]any{"type": "response.done", "response": map[string]any{"id": id, "status": "cancelled",
+				"conversation_id": nil, "metadata": meta, "output": []any{}, "usage": oobUsage()}})
+			return
 		case <-ctx.Done():
 			return
 		}

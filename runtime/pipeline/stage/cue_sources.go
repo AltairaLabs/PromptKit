@@ -265,14 +265,16 @@ func sameSpeech(said, text string) bool {
 	return normalizeSpeech(said) == normalizeSpeech(text)
 }
 
-// normalizeSpeech is s case-folded, with its punctuation and symbols dropped
-// and its whitespace collapsed to single spaces.
+// normalizeSpeech is s case-folded, with apostrophes dropped ("don't" is
+// "dont"), other punctuation and symbols read as spaces ("well-known" is
+// "well known", "that—let's" is "that lets"), and whitespace collapsed to
+// single spaces.
 func normalizeSpeech(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		switch {
-		case unicode.IsPunct(r), unicode.IsSymbol(r):
-		case unicode.IsSpace(r):
+		case r == '\'' || r == '’' || r == 'ʼ':
+		case unicode.IsPunct(r), unicode.IsSymbol(r), unicode.IsSpace(r):
 			b.WriteRune(' ')
 		default:
 			b.WriteRune(r)

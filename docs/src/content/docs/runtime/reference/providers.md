@@ -624,6 +624,12 @@ var (
 )
 ```
 
+<a name="ErrOutOfBandSessionClosed"></a>ErrOutOfBandSessionClosed is the error \(errors.Is\) of a render that failed because its session closed: the text is not at fault, and another session may render it.
+
+```go
+var ErrOutOfBandSessionClosed = errors.New("the session closed before it finished speaking")
+```
+
 <a name="ErrPayloadTooLarge"></a>ErrPayloadTooLarge is returned when a request payload exceeds the provider's configured maximum size \(see BaseProvider.SetMaxPayloadSize\).
 
 ```go
@@ -3044,13 +3050,15 @@ func (NDJSONFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error)
 PeekFirstFrame reads until the first \`\\n\` and returns the line \(including the newline\) plus any bufio lookahead. Blank lines are skipped so leading whitespace or keepalive newlines from certain producers don't count as a "frame".
 
 <a name="OutOfBandSpeaker"></a>
-## type [OutOfBandSpeaker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/out_of_band.go#L22-L24>)
+## type [OutOfBandSpeaker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/out_of_band.go#L27-L29>)
 
 OutOfBandSpeaker is an optional StreamInputSession interface for a session that can speak text in its own voice outside the conversation: the model's context never holds it, and it is not a reply on Response\(\). The pipeline renders a cue's clip with it \(a guardrail's message\), so the clip sounds exactly like the session.
 
 The model renders the speech, so it can say more than it was asked to: Transcript is what it said, for the caller to check against text. The render is billed: Cost is what it cost, also when the transcript does not match.
 
 OpenAI Realtime implements it with a response outside the conversation \(response.conversation "none"\). Gemini Live has no equivalent.
+
+When ctx ends first, the render is canceled and SpeakOutOfBand returns ctx's error; it may wait briefly past ctx for the canceled response's end, so that what it cost is still returned.
 
 ```go
 type OutOfBandSpeaker interface {
@@ -3059,7 +3067,7 @@ type OutOfBandSpeaker interface {
 ```
 
 <a name="OutOfBandSpeech"></a>
-## type [OutOfBandSpeech](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/out_of_band.go#L27-L35>)
+## type [OutOfBandSpeech](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/out_of_band.go#L37-L45>)
 
 OutOfBandSpeech is what an OutOfBandSpeaker rendered.
 

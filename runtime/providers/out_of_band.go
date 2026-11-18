@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -19,9 +20,18 @@ import (
 //
 // OpenAI Realtime implements it with a response outside the conversation
 // (response.conversation "none"). Gemini Live has no equivalent.
+//
+// When ctx ends first, the render is canceled and SpeakOutOfBand returns
+// ctx's error; it may wait briefly past ctx for the canceled response's end,
+// so that what it cost is still returned.
 type OutOfBandSpeaker interface {
 	SpeakOutOfBand(ctx context.Context, text string) (OutOfBandSpeech, error)
 }
+
+// ErrOutOfBandSessionClosed is the error (errors.Is) of a render that failed
+// because its session closed: the text is not at fault, and another session
+// may render it.
+var ErrOutOfBandSessionClosed = errors.New("the session closed before it finished speaking")
 
 // OutOfBandSpeech is what an OutOfBandSpeaker rendered.
 type OutOfBandSpeech struct {

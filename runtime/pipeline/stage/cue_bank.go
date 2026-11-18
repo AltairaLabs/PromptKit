@@ -374,12 +374,28 @@ func (b *cueBank) fromSources(ctx context.Context, text string) (CueClip, bool, 
 // clip at once share one render (the leader's); each puts the clip in its own
 // cache. A render that bills reports its cost against the leader's session
 // only; a cache hit, and a render joined, are free.
+//
+// A render joined from a session that closed mid-render
+// (providers.ErrOutOfBandSessionClosed) failed for that session, not for the
+// text: it is rendered once more, on this session.
 func (b *cueBank) fetch(ctx context.Context, src clipSource, text string, format ClipFormat) (CueClip, error) {
+	clip, led, err := b.fetchOnce(ctx, src, text, format)
+	if err != nil && !led && errors.Is(err, providers.ErrOutOfBandSessionClosed) {
+		logger.Debug("CueStage: the session rendering a clip closed; rendering it on this one")
+		clip, _, err = b.fetchOnce(ctx, src, text, format)
+	}
+	return clip, err
+}
+
+// fetchOnce is fetch's one try. led reports whether this session ran the
+// render.
+func (b *cueBank) fetchOnce(ctx context.Context, src clipSource, text string, format ClipFormat) (
+	clip CueClip, led bool, err error,
+) {
 	key := ClipKeyFor(src.keyText(text), src.voice(), src.kind(), format)
 	if clip, ok := b.cached(ctx, key); ok {
-		return clip, nil
+		return clip, false, nil
 	}
-	led := false
 	ch := clipFlights.DoChan(string(key[:]), func() (any, error) {
 		led = true
 		// A session that ends does not fail the render for others waiting.
@@ -391,16 +407,16 @@ func (b *cueBank) fetch(ctx context.Context, src clipSource, text string, format
 	select {
 	case res := <-ch:
 		if res.Err != nil {
-			return CueClip{}, res.Err
+			return CueClip{}, led, res.Err
 		}
 		clip := res.Val.(CueClip)
 		if !led {
 			// Joined another session's render: keep it in this cache too.
 			b.keep(context.WithoutCancel(ctx), key, clip)
 		}
-		return clip, nil
+		return clip, led, nil
 	case <-ctx.Done():
-		return CueClip{}, ctx.Err()
+		return CueClip{}, true, ctx.Err()
 	}
 }
 

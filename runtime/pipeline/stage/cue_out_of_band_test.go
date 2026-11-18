@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ type oobSpeaker struct {
 	err  error
 	// delay is how long each call takes.
 	delay time.Duration
+	// gate, when set, holds each call until it is closed.
+	gate chan struct{}
 
 	mu    sync.Mutex
 	said  []string
@@ -51,8 +54,13 @@ func (s *oobSpeaker) SpeakOutOfBand(ctx context.Context, text string) (providers
 		}
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.texts = append(s.texts, text)
+	s.mu.Unlock()
+	if s.gate != nil {
+		<-s.gate
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	said := text
 	if len(s.said) > 0 {
 		said, s.said = s.said[0], s.said[1:]
@@ -154,6 +162,39 @@ func TestCueOutOfBand_EachTryGetsTheRenderTimeout(t *testing.T) {
 	assert.Equal(t, 2, sess.calls(brunoText))
 }
 
+// The transcript check sets aside case, punctuation and spacing: dashes,
+// slashes and the like separate words, apostrophes do not.
+func TestCueOutOfBand_SameSpeech(t *testing.T) {
+	cases := []struct {
+		said, text string
+		want       bool
+	}{
+		{"We don't talk about Bruno.", "we dont talk about bruno", true},
+		{"We don’t talk about Bruno!", "We don't talk about Bruno.", true},
+		{"well known", "well-known", true},
+		{"That, let's go.", "That—let's go", true},
+		{"either or", "either/or", true},
+		{"  spaced\tout  ", "spaced out", true},
+		{"Understood. We don't talk about Bruno.", "We don't talk about Bruno.", false},
+		{"wellknown", "well-known", false},
+		{"that lets", "that—let's", true},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, sameSpeech(tc.said, tc.text), "%q vs %q", tc.said, tc.text)
+	}
+}
+
+// A message with a dash matches its transcript on the first try.
+func TestCueOutOfBand_DashedMessageMatchesFirstTime(t *testing.T) {
+	text := "Sorry—that's off-topic."
+	sess := newOOBSpeaker("alloy", cueRamp(4800))
+	sess.said = []string{"Sorry, that's off topic."}
+	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
+
+	assert.Equal(t, cueFaded(cueRamp(4800), 24000), playedFor(t, cue, text))
+	assert.Equal(t, 1, sess.calls(text))
+}
+
 // A render that fails falls to the next source with no second try.
 func TestCueOutOfBand_ErrorFallsThrough(t *testing.T) {
 	sess := newOOBSpeaker("alloy", cueRamp(4800))
@@ -190,6 +231,55 @@ func TestCueOutOfBand_TwoSessionsRenderOnce(t *testing.T) {
 		assert.Equal(t, 1, first.calls(text)+second.calls(text), "one request for %q", text)
 	}
 	assert.Zero(t, second.calls(brunoText))
+}
+
+// A session that joined another's render renders on its own session when
+// the other's closed mid-render, instead of falling to the next source; a
+// failure of the text itself is not rendered again.
+func TestCueOutOfBand_LeaderClosingLetsAJoinerRenderItself(t *testing.T) {
+	cases := []struct {
+		name       string
+		leaderErr  error
+		wantJoiner int
+	}{
+		{"leader closed", fmt.Errorf("render: %w", providers.ErrOutOfBandSessionClosed), 1},
+		{"render failed", errors.New("the out-of-band response ended failed"), 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			joined := make(chan struct{}, 4)
+			hook := func() { joined <- struct{}{} }
+			clipFlightJoined.Store(&hook)
+			t.Cleanup(func() { clipFlightJoined.Store(nil) })
+
+			leader := newOOBSpeaker("alloy", cueRamp(4800))
+			leader.gate = make(chan struct{})
+			leader.err = tc.leaderErr
+			ownPCM := cueRamp(2400)
+			joiner := newOOBSpeaker("alloy", ownPCM)
+			bank1 := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, leader).bank
+			bank2 := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, joiner).bank
+			text := "Joined, then on my own. " + tc.name
+
+			f1 := bank1.render(context.Background(), text, nil)
+			<-joined
+			f2 := bank2.render(context.Background(), text, nil)
+			<-joined
+			close(leader.gate)
+			<-f1.done
+			<-f2.done
+
+			require.NoError(t, f2.err)
+			assert.Equal(t, tc.wantJoiner, joiner.calls(text))
+			if tc.wantJoiner == 1 {
+				assert.Equal(t, cueFaded(ownPCM, 24000), f2.clip.Audio.Samples, "its own render")
+				assert.True(t, f2.keep)
+			} else {
+				assert.Equal(t, earconPCM(24000), f2.clip.Audio.Samples)
+			}
+			assert.Equal(t, earconPCM(24000), f1.clip.Audio.Samples, "the closed session plays the earcon")
+		})
+	}
 }
 
 // A session in another voice does not share the first one's clips.
