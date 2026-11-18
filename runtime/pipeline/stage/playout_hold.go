@@ -48,11 +48,16 @@ const playoutHoldPoll = 250 * time.Millisecond
 
 // holdClock is the stage's time source; tests replace it.
 type holdClock struct {
-	now   func() time.Time
-	after func(time.Duration) <-chan time.Time
+	now func() time.Time
+	// until delivers on the channel once the clock reaches deadline (at once
+	// if it already has). It takes a time, not a duration, so time that moves
+	// between the stage reading the clock and arming the wait is not lost.
+	until func(deadline time.Time) <-chan time.Time
 }
 
-var realHoldClock = holdClock{now: time.Now, after: time.After}
+var realHoldClock = holdClock{now: time.Now, until: func(deadline time.Time) <-chan time.Time {
+	return time.After(time.Until(deadline))
+}}
 
 // PlayoutHoldStage keeps a realtime reply out of the transcript until the
 // caller has heard it. A realtime model sends a reply's audio faster than it
@@ -137,7 +142,8 @@ func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamEleme
 		}
 		var wake <-chan time.Time
 		if len(h.held) > 0 {
-			wake = h.clock.after(min(h.playout.End().Sub(h.clock.now()), playoutHoldPoll))
+			now := h.clock.now()
+			wake = h.clock.until(minTime(h.playout.End(), now.Add(playoutHoldPoll)))
 		}
 		select {
 		case elem, ok := <-input:
@@ -155,6 +161,13 @@ func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamEleme
 			return ctx.Err()
 		}
 	}
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }
 
 // handle tracks one element's audio, holds its Message when it must wait, and

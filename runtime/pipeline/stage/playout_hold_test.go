@@ -34,15 +34,15 @@ func (f *fakeHoldClock) now() time.Time {
 	return f.t
 }
 
-func (f *fakeHoldClock) after(d time.Duration) <-chan time.Time {
+func (f *fakeHoldClock) until(deadline time.Time) <-chan time.Time {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	c := make(chan time.Time, 1)
-	if d <= 0 {
+	if !deadline.After(f.t) {
 		c <- f.t
 		return c
 	}
-	f.waiters = append(f.waiters, fakeHoldWait{at: f.t.Add(d), c: c})
+	f.waiters = append(f.waiters, fakeHoldWait{at: deadline, c: c})
 	return c
 }
 
@@ -93,7 +93,7 @@ func startHold(t *testing.T) *holdRun {
 	t.Helper()
 	fc := &fakeHoldClock{t: holdT0}
 	s := NewPlayoutHoldStage()
-	s.clock = holdClock{now: fc.now, after: fc.after}
+	s.clock = holdClock{now: fc.now, until: fc.until}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	r := &holdRun{clock: fc, in: make(chan StreamElement, 16), out: make(chan StreamElement, 64),
@@ -335,7 +335,7 @@ func (c *eosCounter) Process(ctx context.Context, input <-chan StreamElement, ou
 func TestPlayoutHold_OneTurnEndPerReply(t *testing.T) {
 	fc := &fakeHoldClock{t: holdT0}
 	hold := NewPlayoutHoldStage()
-	hold.clock = holdClock{now: fc.now, after: fc.after}
+	hold.clock = holdClock{now: fc.now, until: fc.until}
 	rec := NewRecordingStage(&fakeEventStore{}, RecordingStageConfig{Position: RecordingPositionOutput})
 	counter := &eosCounter{BaseStage: NewBaseStage("eos-counter", StageTypeTransform)}
 	p, err := NewPipelineBuilder().Chain(hold, rec, counter, NewPassthroughStage("sink")).Build()
@@ -416,6 +416,31 @@ func TestPlayoutHold_InterruptReleasesHeldReplyAsBargeIn(t *testing.T) {
 	require.True(t, rel.Meta.PlayoutRelease)
 	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 250, AudioMs: 1000, Fraction: 0.25},
 		playoutOf(rel.Message))
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
+// Time can move between the stage reading the clock and arming its wait (the
+// wait is armed after the end of the audio is worked out). The wait must not
+// be lost: a release due by then comes out at once.
+func TestPlayoutHold_TimeMovingWhileArmingTheWaitStillReleases(t *testing.T) {
+	fc := &fakeHoldClock{t: holdT0}
+	var once sync.Once
+	s := NewPlayoutHoldStage()
+	s.clock = holdClock{now: fc.now, until: func(deadline time.Time) <-chan time.Time {
+		once.Do(func() { fc.advance(time.Second) }) // the audio ends while the wait is armed
+		return fc.until(deadline)
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	r := &holdRun{clock: fc, in: make(chan StreamElement, 16), out: make(chan StreamElement, 64),
+		cancel: cancel, done: make(chan error, 1)}
+	go func() { r.done <- s.Process(ctx, r.in, r.out) }()
+
+	r.pass(t, replyAudio(150*time.Millisecond), replyEnd("All done."))
+	rel := r.next(t)
+	assert.True(t, rel.Meta.PlayoutRelease)
+	assert.Equal(t, "All done.", rel.Message.Content)
 	close(r.in)
 	require.NoError(t, <-r.done)
 }

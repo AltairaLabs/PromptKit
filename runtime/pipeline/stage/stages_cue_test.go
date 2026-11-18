@@ -369,7 +369,7 @@ func TestCueStage_PendingClipKeepsReplyPlayout(t *testing.T) {
 	cue.render = pendingRender(cueClip(cueRamp(12000), cueTestRate), release) // 500 ms
 	fc := &fakeHoldClock{t: holdT0}
 	hold := NewPlayoutHoldStage()
-	hold.clock = holdClock{now: fc.now, after: fc.after}
+	hold.clock = holdClock{now: fc.now, until: fc.until}
 	c := startChain(t, cue, hold)
 
 	c.in <- guardrailCueElem(brunoText)
