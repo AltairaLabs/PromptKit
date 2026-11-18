@@ -165,7 +165,7 @@ func (s *RealtimeSession) requestOutOfBand(text string) (*oobRender, error) {
 	r := &oobRender{tag: id, done: make(chan struct{})}
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	if s.emitClosed {
+	if s.emitClosed || s.ctx.Err() != nil {
 		return nil, providers.ErrOutOfBandSessionClosed
 	}
 	if s.oob.byTag == nil {

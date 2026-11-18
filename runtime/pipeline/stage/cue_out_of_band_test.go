@@ -201,7 +201,7 @@ func TestCueOutOfBand_ErrorFallsThrough(t *testing.T) {
 	sess.err = errors.New("the out-of-band response ended cancelled")
 	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
 
-	assert.Equal(t, earconPCM(24000), playedFor(t, cue, brunoText))
+	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Equal(t, 1, sess.calls(brunoText))
 }
 
@@ -210,7 +210,7 @@ func TestCueOutOfBand_SilentRenderFallsThrough(t *testing.T) {
 	sess := newOOBSpeaker("alloy", nil)
 	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
 
-	assert.Equal(t, earconPCM(24000), playedFor(t, cue, brunoText))
+	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Equal(t, 1, sess.calls(brunoText))
 }
 
@@ -275,9 +275,9 @@ func TestCueOutOfBand_LeaderClosingLetsAJoinerRenderItself(t *testing.T) {
 				assert.Equal(t, cueFaded(ownPCM, 24000), f2.clip.Audio.Samples, "its own render")
 				assert.True(t, f2.keep)
 			} else {
-				assert.Equal(t, earconPCM(24000), f2.clip.Audio.Samples)
+				assert.Equal(t, EarconPCM(24000), f2.clip.Audio.Samples)
 			}
-			assert.Equal(t, earconPCM(24000), f1.clip.Audio.Samples, "the closed session plays the earcon")
+			assert.Equal(t, EarconPCM(24000), f1.clip.Audio.Samples, "the closed session plays the earcon")
 		})
 	}
 }
@@ -335,6 +335,6 @@ func TestCueOutOfBand_NeedsTheSessionFamily(t *testing.T) {
 	sess.MockStreamSession = providersmock.NewMockStreamSession().WithOutputAudio(
 		providers.OutputAudio{Voice: "alloy", SampleRate: 24000})
 	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
-	assert.Equal(t, earconPCM(24000), playedFor(t, cue, brunoText))
+	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Zero(t, sess.calls(brunoText))
 }

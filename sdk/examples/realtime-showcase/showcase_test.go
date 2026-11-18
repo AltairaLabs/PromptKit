@@ -383,3 +383,20 @@ func TestUseTTS(t *testing.T) {
 	assert.Len(t, opts, 1)
 	assert.Equal(t, "spoken by openai TTS", heard)
 }
+
+// On OpenAI Realtime the session speaks a guardrail's message itself, in its
+// own voice, out of band: -tts is only the fallback.
+func TestCueOptions_OpenAISpeaksInItsOwnVoice(t *testing.T) {
+	setup, err := setupFor("openai")
+	require.NoError(t, err)
+	require.NoError(t, setup.useTTS(""))
+	opts, heard := setup.cueOptions()
+	assert.Empty(t, opts)
+	assert.Equal(t, "spoken by the session in its own voice (out of band)", heard)
+
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	require.NoError(t, setup.useTTS("openai"))
+	opts, heard = setup.cueOptions()
+	assert.Len(t, opts, 1, "the TTS service stays configured as the fallback")
+	assert.Equal(t, "spoken by the session in its own voice (out of band; openai TTS if it cannot)", heard)
+}

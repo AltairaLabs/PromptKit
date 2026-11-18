@@ -23,7 +23,7 @@ const brunoLine = "We don't talk about Bruno."
 // out-of-band response and for a normal reply, told apart by their bytes.
 var (
 	oobAudio   = bytes.Repeat([]byte{0x00, 0x40}, 2400)
-	replyAudio = bytes.Repeat([]byte{0x11, 0x02}, 240)
+	replyAudio = bytes.Repeat([]byte{0x11, 0x02}, 24000) // 1 s: still playing when the caller interrupts
 )
 
 // oobUsage is the usage the scripted server reports for an out-of-band response.

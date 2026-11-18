@@ -2747,10 +2747,12 @@ func WithVariables(vars map[string]string) Option {
 // streaming input, such as OpenAI Realtime or Gemini Live) it voices cues: a
 // guardrail's message, when a guardrail cuts a spoken reply or blocks typed
 // input, is spoken from this service, in the session's voice when the service
-// has a voice of that name, instead of by the model. Only a service that
-// renders PCM is used. Without one the caller hears a short tone (an earcon)
-// and sees the text. [WithTTSProvider] and a `role: tts` provider file set the
-// same service.
+// has a voice of that name, instead of by the model. A session that speaks
+// the message itself outside the conversation (OpenAI Realtime) comes first;
+// the service is then used only for a message the session could not say.
+// Only a service that renders PCM is used. Without one the caller hears a
+// short tone (an earcon) and sees the text. [WithTTSProvider] and a
+// `role: tts` provider file set the same service.
 func WithTTS(service tts.Service) Option {
 	return func(c *config) error {
 		c.ttsService = service

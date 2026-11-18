@@ -151,7 +151,7 @@ func TestSpeakOutOfBand_InterruptingTheReplyLeavesTheRender(t *testing.T) {
 	srv.awaitType(t, realtimeEventResponseCreate)
 	res := speak(session, brunoLine)
 	srv.awaitType(t, realtimeEventResponseCreate)
-	waitGeneration(t, session, 1)
+	awaitReplyAudio(t, session)
 
 	require.NoError(t, session.InterruptResponse(context.Background(), 0))
 	assert.Equal(t, "R1", responseIDOf(srv.awaitType(t, realtimeEventResponseCancel)))
@@ -173,7 +173,7 @@ func TestSpeakOutOfBand_BargeInLeavesTheRender(t *testing.T) {
 	srv.awaitType(t, realtimeEventResponseCreate)
 	res := speak(session, brunoLine)
 	srv.awaitType(t, realtimeEventResponseCreate)
-	waitGeneration(t, session, 1)
+	awaitReplyAudio(t, session)
 
 	srv.push <- map[string]any{"type": "input_audio_buffer.speech_started", "item_id": "user_2"}
 	assert.Equal(t, "item_R1", srv.awaitType(t, realtimeEventItemTruncate)["item_id"])
@@ -202,6 +202,23 @@ func TestCancelResponse_NamesTheReplyNeverARender(t *testing.T) {
 	assert.Equal(t, "R1", responseIDOf(srv.awaitType(t, realtimeEventResponseCancel)))
 	close(srv.hold)
 	require.NoError(t, awaitSpeech(t, res).err)
+}
+
+// awaitReplyAudio reads Response() until the reply's audio arrives: it is
+// then in the playout estimate, so an interruption cuts it.
+func awaitReplyAudio(t *testing.T, session *RealtimeSession) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case c := <-session.Response():
+			if c.MediaData != nil {
+				return
+			}
+		case <-deadline:
+			t.Fatal("no reply audio")
+		}
+	}
 }
 
 // waitGeneration waits for the session to have numbered gen responses.

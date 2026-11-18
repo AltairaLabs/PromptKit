@@ -61,6 +61,10 @@ type providerSetup struct {
 	judgeModel string
 	// tts speaks a guardrail's message (-tts); nil plays a short tone.
 	tts tts.Service
+	// speaksOutOfBand is set for a provider whose session speaks a
+	// guardrail's message itself (providers.OutOfBandSpeaker): it comes
+	// before tts.
+	speaksOutOfBand bool
 }
 
 // setupFor returns the realtime provider named by the -provider flag. The
@@ -76,6 +80,7 @@ func setupFor(name string) (*providerSetup, error) {
 				return openai.NewProvider("openai-realtime", model, "https://api.openai.com",
 					providers.ProviderDefaults{}, false)
 			},
+			speaksOutOfBand: true,
 		}, nil
 	case "gemini":
 		return &providerSetup{
@@ -174,8 +179,18 @@ func (p *providerSetup) useTTS(name string) error {
 // cueOptions are the options that voice a guardrail's message, and what the
 // caller hears it as. With a TTS service the message is spoken from it, in
 // the session's voice when the service has a voice of that name; without one
-// the caller hears a short tone and sees the text.
+// the caller hears a short tone and sees the text. OpenAI Realtime speaks the
+// message itself, in its own voice, outside the conversation: a TTS service
+// is then used only for a message the session could not say.
 func (p *providerSetup) cueOptions() (opts []sdk.Option, heard string) {
+	if p.speaksOutOfBand {
+		heard = "spoken by the session in its own voice (out of band)"
+		if p.tts != nil {
+			opts = []sdk.Option{sdk.WithTTS(p.tts)}
+			heard = "spoken by the session in its own voice (out of band; " + p.tts.Name() + " TTS if it cannot)"
+		}
+		return opts, heard
+	}
 	if p.tts == nil {
 		return nil, "a short tone (no TTS service; add -tts openai to hear the words)"
 	}
