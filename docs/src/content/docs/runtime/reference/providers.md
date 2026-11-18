@@ -249,6 +249,8 @@ The package provides:
 - [type NDJSONFrameDetector](<#NDJSONFrameDetector>)
   - [func \(NDJSONFrameDetector\) Name\(\) string](<#NDJSONFrameDetector.Name>)
   - [func \(NDJSONFrameDetector\) PeekFirstFrame\(r io.Reader\) \(\[\]byte, error\)](<#NDJSONFrameDetector.PeekFirstFrame>)
+- [type OutOfBandSpeaker](<#OutOfBandSpeaker>)
+- [type OutOfBandSpeech](<#OutOfBandSpeech>)
 - [type OutputAudio](<#OutputAudio>)
 - [type OutputAudioReporter](<#OutputAudioReporter>)
 - [type PlatformConfig](<#PlatformConfig>)
@@ -3040,6 +3042,38 @@ func (NDJSONFrameDetector) PeekFirstFrame(r io.Reader) ([]byte, error)
 ```
 
 PeekFirstFrame reads until the first \`\\n\` and returns the line \(including the newline\) plus any bufio lookahead. Blank lines are skipped so leading whitespace or keepalive newlines from certain producers don't count as a "frame".
+
+<a name="OutOfBandSpeaker"></a>
+## type [OutOfBandSpeaker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/out_of_band.go#L22-L24>)
+
+OutOfBandSpeaker is an optional StreamInputSession interface for a session that can speak text in its own voice outside the conversation: the model's context never holds it, and it is not a reply on Response\(\). The pipeline renders a cue's clip with it \(a guardrail's message\), so the clip sounds exactly like the session.
+
+The model renders the speech, so it can say more than it was asked to: Transcript is what it said, for the caller to check against text. The render is billed: Cost is what it cost, also when the transcript does not match.
+
+OpenAI Realtime implements it with a response outside the conversation \(response.conversation "none"\). Gemini Live has no equivalent.
+
+```go
+type OutOfBandSpeaker interface {
+    SpeakOutOfBand(ctx context.Context, text string) (OutOfBandSpeech, error)
+}
+```
+
+<a name="OutOfBandSpeech"></a>
+## type [OutOfBandSpeech](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/out_of_band.go#L27-L35>)
+
+OutOfBandSpeech is what an OutOfBandSpeaker rendered.
+
+```go
+type OutOfBandSpeech struct {
+    // Audio is PCM16 mono at SampleRate.
+    Audio      []byte
+    SampleRate int
+    // Transcript is what the model said.
+    Transcript string
+    // Cost is what the render cost, nil when it is not known.
+    Cost *types.CostInfo
+}
+```
 
 <a name="OutputAudio"></a>
 ## type [OutputAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming_input.go#L289-L297>)

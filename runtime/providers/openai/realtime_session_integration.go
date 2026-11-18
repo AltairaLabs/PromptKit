@@ -152,6 +152,14 @@ type RealtimeSession struct {
 	// turns is what the session knows of each turn's items, to forget one a
 	// guardrail blocked (realtime_forget.go). Guarded by recvMu.
 	turns turnLedger
+
+	// ready is closed on the first session.updated: the server has applied
+	// the session's configuration (voice), so an out-of-band response speaks
+	// in it. oob is the out-of-band responses in progress
+	// (realtime_out_of_band.go), guarded by recvMu.
+	ready     chan struct{}
+	readyOnce sync.Once
+	oob       outOfBand
 }
 
 // realtimeSessionOpts carries internal/test-only construction overrides for a
@@ -212,6 +220,7 @@ func newRealtimeSession(
 		emitCh:     emitCh,
 		StreamPump: providers.NewStreamPump(sessionCtx, emitCh, responseChannelSize),
 		errCh:      make(chan error, 1),
+		ready:      make(chan struct{}),
 		config:     *config,
 		now:        opts.now,
 		newLoader:  opts.mediaLoader,
@@ -668,6 +677,9 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		logger.Warn("OpenAI Realtime: failed to parse event", "error", err)
 		return
 	}
+	if s.routeOutOfBand(event) {
+		return
+	}
 
 	switch e := event.(type) {
 	case *ErrorEvent:
@@ -861,6 +873,7 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 
 func (s *RealtimeSession) handleSessionUpdated(e *SessionUpdatedEvent) {
 	s.sessionInfo = &e.Session
+	s.markReady()
 	logger.Debug("OpenAI Realtime: session updated", "modalities", e.Session.Modalities)
 }
 

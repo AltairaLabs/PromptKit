@@ -2241,7 +2241,7 @@ type CueClip struct {
 ```
 
 <a name="CueConfig"></a>
-## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L58-L82>)
+## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L58-L84>)
 
 CueConfig configures a CueStage.
 
@@ -2257,7 +2257,9 @@ type CueConfig struct {
     // when the clip renders from the session's sources (NewCueStageFor), and
     // with no clip otherwise. The clip itself is kept for the next cue.
     OnDemandBudget time.Duration
-    // RenderTimeout bounds one clip's render; default 3s. A render that
+    // RenderTimeout bounds one clip's render; default 3s. The session's own
+    // audio gets it for each of its tries (it is asked again when it says
+    // other than the text). A render that
     // finishes after OnDemandBudget, or after a cut dropped its cue, still
     // keeps its clip for the next cue with that text.
     RenderTimeout time.Duration
@@ -2295,7 +2297,7 @@ const (
 ```
 
 <a name="CueStage"></a>
-## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L119-L126>)
+## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L121-L128>)
 
 CueStage plays a pre\-rendered clip for each element carrying a Cue. It goes directly after the provider stage, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as they treat reply audio \(marked Meta.CueAudio\).
 
@@ -2311,7 +2313,7 @@ type CueStage struct {
 ```
 
 <a name="NewCueStage"></a>
-### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L129>)
+### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L131>)
 
 ```go
 func NewCueStage(cfg CueConfig) *CueStage
@@ -2320,16 +2322,16 @@ func NewCueStage(cfg CueConfig) *CueStage
 NewCueStage creates a cue stage named "cue".
 
 <a name="NewCueStageFor"></a>
-### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L152>)
+### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L162>)
 
 ```go
 func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage
 ```
 
-NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the TTS service, then a built\-in earcon \(a short tone\). A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) plays its configured clips and renders as PCM16 at 24 kHz in the TTS service's default voice.
+NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the session's own out\-of\-band audio \(providers.OutOfBandSpeaker, OpenAI Realtime\), in its exact voice and outside the conversation; then the TTS service; then a built\-in earcon \(a short tone\). The session's audio is checked against the text by its transcript \(case, punctuation and spacing aside\) and asked for once more on a miss before the text falls to the next source. Its clips are cached under the session's provider family and voice, so only the first session of a family and voice renders them; a clip put in the cache for the TTS service \(a pre\-warmed one\) is not played on such a session, since its own audio comes first. A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) plays its configured clips and renders as PCM16 at 24 kHz in the TTS service's default voice.
 
 <a name="CueStage.Process"></a>
-### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L190>)
+### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L200>)
 
 ```go
 func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

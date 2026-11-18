@@ -7,10 +7,13 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // clipSource renders the clip for a text in one voice.
@@ -26,11 +29,40 @@ type clipSource interface {
 	render(ctx context.Context, text string, format ClipFormat) (CueClip, *clipRenderCost, error)
 }
 
-// clipRenderCost is what a billed render did, for its cost event.
+// clipRenderCost is what a billed render did, for its cost event: a TTS
+// service's synthesis (svc, priced by the service), or a session's
+// out-of-band render (provider, with the cost it reported).
 type clipRenderCost struct {
 	svc      tts.Service
+	provider string
+	cost     *types.CostInfo
 	text     string
 	duration time.Duration
+}
+
+// add adds c to the out-of-band cost.
+func (r *clipRenderCost) add(c *types.CostInfo) {
+	if c == nil {
+		return
+	}
+	if r.cost == nil {
+		r.cost = &types.CostInfo{}
+	}
+	r.cost.TotalCost += c.TotalCost
+	for unit, q := range c.Quantities {
+		if r.cost.Quantities == nil {
+			r.cost.Quantities = map[string]float64{}
+		}
+		r.cost.Quantities[unit] += q
+	}
+}
+
+// billed is r when it carries a cost, else nil.
+func (r *clipRenderCost) billed() *clipRenderCost {
+	if r.cost == nil {
+		return nil
+	}
+	return r
 }
 
 // earconSource renders the earcon, the same for every text. It never fails.
@@ -149,4 +181,102 @@ func describeSources(sources []clipSource) string {
 		}
 	}
 	return strings.Join(names, ",")
+}
+
+// sessionClipSource renders with the session's own out-of-band audio
+// (providers.OutOfBandSpeaker): the exact session voice, outside the
+// conversation. Its clips are keyed by the session's family and voice, never
+// a model, so later sessions of that family and voice play them from the
+// cache with no request.
+type sessionClipSource struct {
+	speaker   providers.OutOfBandSpeaker
+	family    string
+	voiceName string
+}
+
+// outOfBandTries is how many times the session is asked to say a text before
+// the text falls to the next source: the model sometimes says more than it
+// was asked to ("Understood. ...").
+const outOfBandTries = 2
+
+// newSessionClipSource is the out-of-band source of sess, or nil when it has
+// none, or reports no family to key its clips by.
+func newSessionClipSource(sess providers.StreamInputSession, out providers.OutputAudio) *sessionClipSource {
+	speaker, ok := sess.(providers.OutOfBandSpeaker)
+	if !ok {
+		return nil
+	}
+	if out.Family == "" {
+		logger.Info("CueStage: the session reports no provider family; its out-of-band audio is not used for cues")
+		return nil
+	}
+	return &sessionClipSource{speaker: speaker, family: out.Family, voiceName: out.Voice}
+}
+
+// tries is how many renders one clip can take: each gets RenderTimeout.
+func (s *sessionClipSource) tries() int { return outOfBandTries }
+
+// renderTries is how many renders src can take for one clip.
+func renderTries(src clipSource) int {
+	if r, ok := src.(interface{ tries() int }); ok {
+		return r.tries()
+	}
+	return 1
+}
+
+func (s *sessionClipSource) kind() string               { return "session:" + s.family }
+func (s *sessionClipSource) voice() string              { return s.voiceName }
+func (s *sessionClipSource) keyText(text string) string { return text }
+
+// render has the session say text and checks what it said: a transcript
+// other than the text is rendered once more, then fails the text. Every
+// try's cost is reported.
+func (s *sessionClipSource) render(ctx context.Context, text string, format ClipFormat) (
+	CueClip, *clipRenderCost, error,
+) {
+	start := time.Now()
+	cost := &clipRenderCost{provider: s.family, text: text}
+	var lastErr error
+	for try := 0; try < outOfBandTries; try++ {
+		speech, err := s.speaker.SpeakOutOfBand(ctx, text)
+		cost.add(speech.Cost)
+		cost.duration = time.Since(start)
+		if err != nil {
+			return CueClip{}, cost.billed(), err
+		}
+		if !sameSpeech(speech.Transcript, text) {
+			logger.Debug("CueStage: the session said other than the text", "said", speech.Transcript, "try", try+1)
+			lastErr = fmt.Errorf("the session said %q", speech.Transcript)
+			continue
+		}
+		ready := prepareCueAudio(&AudioData{Samples: speech.Audio, SampleRate: speech.SampleRate, Channels: 1,
+			Format: AudioFormatPCM16}, format.SampleRate)
+		if len(ready) == 0 {
+			return CueClip{}, cost.billed(), errors.New("the session returned no audible audio")
+		}
+		return readyClip(ready, format.SampleRate), cost.billed(), nil
+	}
+	return CueClip{}, cost.billed(), lastErr
+}
+
+// sameSpeech reports whether said is text, case, punctuation and spacing
+// aside.
+func sameSpeech(said, text string) bool {
+	return normalizeSpeech(said) == normalizeSpeech(text)
+}
+
+// normalizeSpeech is s case-folded, with its punctuation and symbols dropped
+// and its whitespace collapsed to single spaces.
+func normalizeSpeech(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case unicode.IsPunct(r), unicode.IsSymbol(r):
+		case unicode.IsSpace(r):
+			b.WriteRune(' ')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
 }

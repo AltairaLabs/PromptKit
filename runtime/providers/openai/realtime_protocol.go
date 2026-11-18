@@ -137,6 +137,11 @@ type ResponseConfig struct {
 	// Metadata is echoed on the response (response.created); the session tags
 	// each request with it (realtime_response_queue.go).
 	Metadata map[string]string `json:"metadata,omitempty"`
+	// Conversation "none" asks for a response outside the conversation: its
+	// output joins no conversation (realtime_out_of_band.go).
+	Conversation string `json:"conversation,omitempty"`
+	// OutputModalities is the GA output_modalities of this response alone.
+	OutputModalities []string `json:"output_modalities,omitempty"`
 }
 
 // ResponseCancelEvent cancels an in-progress response.

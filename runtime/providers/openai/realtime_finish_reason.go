@@ -5,6 +5,7 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/types"
 // Realtime response status values, and the status_details reason for a reply
 // blocked by the content filter.
 const (
+	realtimeStatusCompleted     = "completed"
 	realtimeStatusCanceled      = "cancelled" //nolint:misspell // the documented wire value
 	realtimeReasonContentFilter = "content_filter"
 )
@@ -17,7 +18,7 @@ const (
 // Unknown values pass through verbatim so a new status is never swallowed.
 func realtimeFinishReason(r *ResponseInfo) string {
 	switch r.Status {
-	case "completed":
+	case realtimeStatusCompleted:
 		return types.FinishReasonStop
 	case realtimeStatusCanceled:
 		return types.FinishReasonInterrupted

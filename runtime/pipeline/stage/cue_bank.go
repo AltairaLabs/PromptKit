@@ -216,8 +216,11 @@ func (b *cueBank) sessionStarted(ctx context.Context, sess providers.StreamInput
 	}
 	format := ClipFormat{Encoding: AudioFormatPCM16, SampleRate: out.SampleRate, Channels: 1}
 	// The session's own out-of-band audio, in its exact voice, goes first
-	// once a provider offers one (providers.OutOfBandSpeaker).
+	// (providers.OutOfBandSpeaker); a TTS service serves sessions without it.
 	var sources []clipSource
+	if src := newSessionClipSource(sess, out); src != nil {
+		sources = append(sources, src)
+	}
 	if src := newTTSClipSource(b.tts, out.Voice, out.SampleRate); src != nil {
 		sources = append(sources, src)
 	}
@@ -427,7 +430,7 @@ func (b *cueBank) renderAndKeep(ctx context.Context, src clipSource, text string
 	if clip, ok := b.cached(ctx, key); ok {
 		return clip, nil
 	}
-	rctx, cancel := context.WithTimeout(ctx, b.renderTimeout)
+	rctx, cancel := context.WithTimeout(ctx, b.renderTimeout*time.Duration(renderTries(src)))
 	defer cancel()
 	start := time.Now()
 	clip, cost, err := src.render(rctx, text, format)
@@ -453,7 +456,7 @@ func (b *cueBank) reportCost(ctx context.Context, c *clipRenderCost, clip CueCli
 	}
 	data := &events.TTSCallCompletedData{
 		CapabilityCallData: events.CapabilityCallData{
-			Provider:   c.svc.Name(),
+			Provider:   c.provider,
 			Capability: string(base.ProviderTypeTTS),
 			Source:     cueRenderSource,
 			Duration:   c.duration,
@@ -463,7 +466,12 @@ func (b *cueBank) reportCost(ctx context.Context, c *clipRenderCost, clip CueCli
 	if clip.Audio != nil {
 		data.AudioSeconds = clip.Audio.Duration.Seconds()
 	}
-	if cost := tts.ComputeTTSCost(c.svc, c.text, c.duration); cost != nil {
+	cost := c.cost
+	if c.svc != nil {
+		data.Provider = c.svc.Name()
+		cost = tts.ComputeTTSCost(c.svc, c.text, c.duration)
+	}
+	if cost != nil {
 		data.Cost = cost.TotalCost
 		data.Quantities = cost.Quantities
 	}
