@@ -18,6 +18,8 @@ verified:
     - runtime/tts/cartesia_register.go
     - runtime/tts/elevenlabs_register.go
     - runtime/tts/factory.go
+    - runtime/tts/gemini.go
+    - runtime/tts/gemini_register.go
     - runtime/tts/openai.go
     - runtime/tts/openai_register.go
     - sdk/options.go
@@ -75,9 +77,36 @@ spec:
 | `tts` | `openai` | OpenAI TTS |
 | `tts` | `elevenlabs` | ElevenLabs |
 | `tts` | `cartesia` | Cartesia |
+| `tts` | `gemini` | Gemini speech generation |
 | `stt` | `openai` | OpenAI Whisper |
 
 Cartesia reads `additional_config.ws_url` as its websocket streaming endpoint.
+
+A `gemini` entry reads its key from `GEMINI_API_KEY` or `GOOGLE_API_KEY` when it has no `credential` block. Without `model` it uses `tts.DefaultGeminiTTSModel`. It returns PCM and speaks Gemini Live's prebuilt voices:
+
+```yaml
+    - id: cue-voice
+      role: tts
+      type: gemini
+      model: gemini-3.8-flash-tts
+```
+
+### Host Gemini TTS on Vertex AI
+
+A `gemini` entry with a `vertex` platform calls the Google publisher model in that project and location:
+
+```yaml
+    - id: cue-voice
+      role: tts
+      type: gemini
+      model: gemini-3.8-flash-tts
+      platform:
+        type: vertex
+        project: my-project
+        region: us-central1
+```
+
+`platform.project` and `platform.region` are required. The GCP credential chain authenticates each request, and no API key is sent. Requests go to `<region host>/v1/projects/<project>/locations/<region>/publishers/google/models/<model>:generateContent`. `base_url` replaces everything before `/<model>`.
 
 ### Host OpenAI TTS or STT on Azure
 
@@ -99,7 +128,7 @@ spec:
 
 `model` is the deployment name, and `platform.endpoint` is required. Requests go to `<endpoint>/openai/deployments/<model>`, under `/audio/speech` for `tts` and `/audio/transcriptions` for `stt`. The Azure credential chain authenticates each request, and no API key is sent; a `credential` block has no effect on a platform-hosted entry. `additional_config.api_version` sets the `api-version` query parameter and defaults to `2024-12-01-preview`. `base_url` overrides the deployment URL.
 
-Only `openai` declares a platform. For `elevenlabs` and `cartesia`, the platform is ignored with a warning and the provider calls its own API with its own key.
+Only `openai` (azure) and `gemini` (vertex) declare a platform. For `elevenlabs` and `cartesia`, the platform is ignored with a warning and the provider calls its own API with its own key.
 
 ### 3. Open the conversation
 

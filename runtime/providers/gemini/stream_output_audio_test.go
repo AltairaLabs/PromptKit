@@ -36,7 +36,7 @@ func TestStreamSession_OutputAudio(t *testing.T) {
 
 // The voice OutputAudio reports is the one the setup message asks for.
 func TestStreamSession_OutputAudioVoiceIsTheSetupVoice(t *testing.T) {
-	cfg := buildGenerationConfig([]string{"AUDIO"})
+	cfg := buildGenerationConfig([]string{"AUDIO"}, "")
 	speech := cfg["speechConfig"].(map[string]interface{})
 	voice := speech["voiceConfig"].(map[string]interface{})["prebuiltVoiceConfig"].(map[string]interface{})
 	got, _ := (&StreamSession{config: StreamSessionConfig{ResponseModalities: []string{"AUDIO"}}}).OutputAudio()

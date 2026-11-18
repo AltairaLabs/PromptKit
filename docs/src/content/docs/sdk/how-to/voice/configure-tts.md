@@ -1,6 +1,6 @@
 ---
 title: Configure text-to-speech
-description: Pick a TTS service (OpenAI, ElevenLabs or Cartesia), set the voice and format, stream synthesis, handle errors and cache audio.
+description: Pick a TTS service (OpenAI, ElevenLabs, Cartesia or Gemini), set the voice and format, stream synthesis, handle errors and cache audio.
 sidebar:
   order: 3
 verified:
@@ -11,6 +11,7 @@ verified:
     - runtime/tts/cartesia_interactive.go
     - runtime/tts/elevenlabs.go
     - runtime/tts/errors.go
+    - runtime/tts/gemini.go
     - runtime/tts/http_helpers.go
     - runtime/tts/openai.go
     - runtime/tts/service.go
@@ -19,7 +20,7 @@ Set up a text-to-speech service for a voice session or for your own synthesis ca
 
 ## Prerequisites
 
-- An API key for the TTS service: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` or `CARTESIA_API_KEY`.
+- An API key for the TTS service: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY` or `GEMINI_API_KEY`.
 - The `github.com/AltairaLabs/PromptKit/runtime/v2/tts` package.
 
 To declare the service in configuration instead of code, see [Declarative TTS and STT providers](/sdk/how-to/providers/declarative-tts-stt-providers/).
@@ -32,9 +33,12 @@ Every constructor takes the API key and returns a `tts.Service`, whose methods a
 openaiTTS := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
 elevenLabsTTS := tts.NewElevenLabs(os.Getenv("ELEVENLABS_API_KEY"))
 cartesiaTTS := tts.NewCartesia(os.Getenv("CARTESIA_API_KEY"))
+geminiTTS := tts.NewGemini(os.Getenv("GEMINI_API_KEY"))
 ```
 
 No constructor makes a network call.
+
+On Vertex AI, `tts.NewGeminiOnVertex(cred, project, location)` builds the Gemini service with a GCP credential in place of the API key.
 
 ## Step 2: Set the voice, format and model
 
@@ -51,9 +55,10 @@ config := tts.SynthesisConfig{
 ```
 
 - Voice IDs differ per service. `SupportedVoices()` lists them.
-- Each service supports a subset of the formats `FormatMP3`, `FormatOpus`, `FormatAAC`, `FormatFLAC`, `FormatPCM16` and `FormatWAV`. `SupportedFormats()` lists them with their sample rates. OpenAI supports all six, ElevenLabs MP3 and PCM, and Cartesia PCM, MP3 and WAV.
-- `SynthesisConfig.Pitch` has no effect on the built-in services. The OpenAI, ElevenLabs and Cartesia speech APIs take no pitch parameter.
+- Each service supports a subset of the formats `FormatMP3`, `FormatOpus`, `FormatAAC`, `FormatFLAC`, `FormatPCM16` and `FormatWAV`. `SupportedFormats()` lists them with their sample rates. OpenAI supports all six, ElevenLabs MP3 and PCM, Cartesia PCM, MP3 and WAV, and Gemini PCM only.
+- `SynthesisConfig.Pitch` has no effect on the built-in services. The OpenAI, ElevenLabs, Cartesia and Gemini speech APIs take no pitch parameter.
 - The OpenAI models are `tts.ModelTTS1` (the default), `tts.ModelTTS1HD` and `tts.ModelGPT4oMiniTTS`.
+- The Gemini model defaults to `tts.DefaultGeminiTTSModel`; set another with `base.WithModel` or `SynthesisConfig.Model`. Its voices are Gemini's prebuilt voices, the same names a Gemini Live session takes in its streaming metadata `voice`, so a clip can match the session's voice. With no voice it speaks `tts.GeminiDefaultVoice` (Puck), Gemini Live's default. Its audio is PCM at `Format.SampleRate`, or at 24 kHz when that is 0. An unknown voice fails with `tts.ErrInvalidVoice` and an unknown model with `tts.ErrInvalidModel`.
 
 For a VAD voice session, set the voice and speed on `sdk.VADModeConfig` instead. See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
 

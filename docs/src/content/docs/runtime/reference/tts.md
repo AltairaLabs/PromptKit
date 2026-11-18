@@ -22,7 +22,7 @@ The package provides:
 - Service interface for TTS providers
 - SynthesisConfig for voice/format configuration
 - Voice and AudioFormat types for provider capabilities
-- Provider implementations for OpenAI, ElevenLabs and Cartesia
+- Provider implementations for OpenAI, ElevenLabs, Cartesia and Gemini
 
 ### Usage
 
@@ -66,6 +66,7 @@ The package includes implementations for:
 - OpenAI TTS \(tts\-1, tts\-1\-hd and gpt\-4o\-mini\-tts models\)
 - ElevenLabs
 - Cartesia \(REST and WebSocket streaming\)
+- Gemini \(speech generation on the Gemini API or Vertex AI; PCM output, Gemini Live's prebuilt voices\)
 
 ## Index
 
@@ -119,6 +120,16 @@ The package includes implementations for:
   - [func \(s \*ElevenLabsService\) Type\(\) base.ProviderType](<#ElevenLabsService.Type>)
   - [func \(s \*ElevenLabsService\) Validate\(\) error](<#ElevenLabsService.Validate>)
 - [type Factory](<#Factory>)
+- [type GeminiOption](<#GeminiOption>)
+- [type GeminiService](<#GeminiService>)
+  - [func NewGemini\(apiKey string, opts ...GeminiOption\) \*GeminiService](<#NewGemini>)
+  - [func NewGeminiOnVertex\(cred credentials.Credential, project, location string, opts ...GeminiOption\) \*GeminiService](<#NewGeminiOnVertex>)
+  - [func \(s \*GeminiService\) ImplName\(\) string](<#GeminiService.ImplName>)
+  - [func \(s \*GeminiService\) ModelName\(\) string](<#GeminiService.ModelName>)
+  - [func \(s \*GeminiService\) SupportedFormats\(\) \[\]AudioFormat](<#GeminiService.SupportedFormats>)
+  - [func \(s \*GeminiService\) SupportedVoices\(\) \[\]Voice](<#GeminiService.SupportedVoices>)
+  - [func \(s \*GeminiService\) Synthesize\(ctx context.Context, text string, config SynthesisConfig\) \(io.ReadCloser, error\)](<#GeminiService.Synthesize>)
+  - [func \(s \*GeminiService\) SynthesizeTTS\(ctx context.Context, req base.TTSRequest\) \(base.TTSStream, error\)](<#GeminiService.SynthesizeTTS>)
 - [type OpenAIOption](<#OpenAIOption>)
 - [type OpenAIService](<#OpenAIService>)
   - [func NewOpenAI\(apiKey string, opts ...OpenAIOption\) \*OpenAIService](<#NewOpenAI>)
@@ -172,6 +183,23 @@ const (
     // Markup tags are passed through verbatim in the request body for
     // any model whose ID starts with "eleven_v3".
     ElevenLabsModelV3 = "eleven_v3"
+)
+```
+
+<a name="DefaultGeminiTTSModel"></a>
+
+```go
+const (
+
+    // DefaultGeminiTTSModel is the Gemini TTS model a service uses when its
+    // configuration names none (a provider spec's model, base.WithModel, or
+    // SynthesisConfig.Model).
+    DefaultGeminiTTSModel = "gemini-3.8-flash-tts"
+
+    // GeminiDefaultVoice is the prebuilt voice spoken when SynthesisConfig.Voice
+    // is empty: Gemini Live's default voice, so a cue and an unconfigured Live
+    // session sound alike.
+    GeminiDefaultVoice = "Puck"
 )
 ```
 
@@ -238,6 +266,9 @@ var (
 
     // ErrInvalidFormat is returned when the requested format is not supported.
     ErrInvalidFormat = errors.New("invalid or unsupported audio format")
+
+    // ErrInvalidModel is returned when the requested model is not available.
+    ErrInvalidModel = errors.New("invalid or unsupported model")
 
     // ErrEmptyText is returned when attempting to synthesize empty text.
     ErrEmptyText = errors.New("text cannot be empty")
@@ -426,7 +457,7 @@ func WithCartesiaWSURL(url string) func(*CartesiaService)
 WithCartesiaWSURL sets a custom WebSocket URL.
 
 <a name="AudioFormat"></a>
-## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L164-L179>)
+## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L165-L180>)
 
 AudioFormat describes an audio output format.
 
@@ -450,7 +481,7 @@ type AudioFormat struct {
 ```
 
 <a name="AudioFormat.String"></a>
-### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L239>)
+### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L240>)
 
 ```go
 func (f AudioFormat) String() string
@@ -780,6 +811,100 @@ Factory builds a Service from a spec. Per\-provider packages register one of the
 type Factory = base.Factory[Service]
 ```
 
+<a name="GeminiOption"></a>
+## type [GeminiOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L64>)
+
+GeminiOption configures the Gemini TTS service. It is base.HTTPServiceOption, so base.WithBaseURL, base.WithClient and base.WithModel apply.
+
+```go
+type GeminiOption = base.HTTPServiceOption
+```
+
+<a name="GeminiService"></a>
+## type [GeminiService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L53-L60>)
+
+GeminiService implements TTS with Gemini's speech generation: a generateContent call with AUDIO output, on the Gemini API \(API key\) or on Vertex AI \(platform credential\). It returns 16\-bit mono PCM.
+
+```go
+type GeminiService struct {
+    *base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
+    *base.HTTPServiceFields // APIKey, BaseURL, Model, Client
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewGemini"></a>
+### func [NewGemini](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L68>)
+
+```go
+func NewGemini(apiKey string, opts ...GeminiOption) *GeminiService
+```
+
+NewGemini creates a Gemini TTS service on the Gemini API, authenticated with apiKey \(sent in the x\-goog\-api\-key header\).
+
+<a name="NewGeminiOnVertex"></a>
+### func [NewGeminiOnVertex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L84-L86>)
+
+```go
+func NewGeminiOnVertex(cred credentials.Credential, project, location string, opts ...GeminiOption) *GeminiService
+```
+
+NewGeminiOnVertex creates a Gemini TTS service on Vertex AI in a project and location. Every request carries cred \(a GCP OAuth token\) and no API key. base.WithBaseURL replaces the location's Google publisher models URL. A client passed with base.WithClient keeps its own transport, wrapped so the credential is still applied to every request.
+
+<a name="GeminiService.ImplName"></a>
+### func \(\*GeminiService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L97>)
+
+```go
+func (s *GeminiService) ImplName() string
+```
+
+ImplName returns the implementation name for cost tracking.
+
+<a name="GeminiService.ModelName"></a>
+### func \(\*GeminiService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L100>)
+
+```go
+func (s *GeminiService) ModelName() string
+```
+
+ModelName returns the configured model name for cost tracking.
+
+<a name="GeminiService.SupportedFormats"></a>
+### func \(\*GeminiService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L380>)
+
+```go
+func (s *GeminiService) SupportedFormats() []AudioFormat
+```
+
+SupportedFormats returns the one format Gemini TTS produces: 24 kHz 16\-bit mono PCM \(Synthesize resamples it to Format.SampleRate on request\).
+
+<a name="GeminiService.SupportedVoices"></a>
+### func \(\*GeminiService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L370>)
+
+```go
+func (s *GeminiService) SupportedVoices() []Voice
+```
+
+SupportedVoices returns Gemini's prebuilt voices. The ID is the name a request \(and a Gemini Live session's metadata\["voice"\]\) uses.
+
+<a name="GeminiService.Synthesize"></a>
+### func \(\*GeminiService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L149>)
+
+```go
+func (s *GeminiService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
+```
+
+Synthesize converts text to 16\-bit mono PCM. The reply's audio \(a WAV or raw PCM, depending on the model\) is unwrapped to its samples and returned at config.Format.SampleRate, or at 24 kHz when that is unset.
+
+<a name="GeminiService.SynthesizeTTS"></a>
+### func \(\*GeminiService\) [SynthesizeTTS](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/base_provider.go#L133>)
+
+```go
+func (s *GeminiService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) (base.TTSStream, error)
+```
+
+SynthesizeTTS implements base.TTSProvider for GeminiService. Gemini TTS produces PCM only, so that is the default format.
+
 <a name="OpenAIOption"></a>
 ## type [OpenAIOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L102>)
 
@@ -928,7 +1053,7 @@ func (s *OpenAIService) Validate() error
 Validate performs synchronous config validation \(no\-op for TTS services\).
 
 <a name="PersonaRubricProvider"></a>
-## type [PersonaRubricProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L98-L100>)
+## type [PersonaRubricProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L99-L101>)
 
 PersonaRubricProvider is an optional extension interface that TTS adapters implement to advertise the bracket\-tag rubric an upstream persona / script should splice into its system prompt. Implementations return the empty string when the configured model cannot consume characterization markup. Callers must treat the empty string as "do not inject any rubric", so that persona tokens are not spent on tags that would be silently dropped.
 
@@ -977,7 +1102,7 @@ func DefaultRetryConfig() RetryConfig
 DefaultRetryConfig returns sensible defaults for TTS retry.
 
 <a name="Service"></a>
-## type [Service](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L49-L63>)
+## type [Service](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L50-L64>)
 
 Service converts text to speech audio. This interface abstracts different TTS providers \(OpenAI, ElevenLabs, etc.\) enabling voice AI applications to use any provider interchangeably.
 
@@ -1009,7 +1134,7 @@ func CreateFromSpec(spec ProviderSpec) (Service, error)
 CreateFromSpec returns a Service implementation for the given spec.
 
 <a name="SpokenTextReporter"></a>
-## type [SpokenTextReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L72-L76>)
+## type [SpokenTextReporter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L73-L77>)
 
 SpokenTextReporter is an optional Service extension: given the input text and config, it returns the exact text that will be submitted to the synthesis engine after PromptKit's bracket\-tag markup is lowered. The result is provider\- and model\-specific \(e.g. OpenAI gpt\-4o\-mini\-tts moves tags to \`instructions\`, so the spoken text is the stripped remainder; ElevenLabs v3 keeps inline tags\). The lowering is pure, so this reports the value without synthesizing. Returns "" when unknown, letting consumers fall back to the LLM text.
 
@@ -1022,7 +1147,7 @@ type SpokenTextReporter interface {
 ```
 
 <a name="StreamingService"></a>
-## type [StreamingService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L80-L87>)
+## type [StreamingService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L81-L88>)
 
 StreamingService extends Service with streaming synthesis capabilities. Streaming TTS provides lower latency by returning audio chunks as they're generated.
 
@@ -1038,7 +1163,7 @@ type StreamingService interface {
 ```
 
 <a name="SynthesisConfig"></a>
-## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L103-L130>)
+## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L104-L131>)
 
 SynthesisConfig configures text\-to\-speech synthesis.
 
@@ -1074,7 +1199,7 @@ type SynthesisConfig struct {
 ```
 
 <a name="DefaultSynthesisConfig"></a>
-### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L133>)
+### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L134>)
 
 ```go
 func DefaultSynthesisConfig() SynthesisConfig
@@ -1104,7 +1229,7 @@ voice=alloy format=mp3 speed=1.0 pitch=0
 </details>
 
 <a name="SynthesisError"></a>
-## type [SynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L30-L45>)
+## type [SynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L33-L48>)
 
 SynthesisError provides detailed error information from TTS providers.
 
@@ -1128,7 +1253,7 @@ type SynthesisError struct {
 ```
 
 <a name="NewSynthesisError"></a>
-### func [NewSynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L61>)
+### func [NewSynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L64>)
 
 ```go
 func NewSynthesisError(provider, code, message string, cause error, retryable bool) *SynthesisError
@@ -1137,7 +1262,7 @@ func NewSynthesisError(provider, code, message string, cause error, retryable bo
 NewSynthesisError creates a new SynthesisError.
 
 <a name="SynthesisError.Error"></a>
-### func \(\*SynthesisError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L48>)
+### func \(\*SynthesisError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L51>)
 
 ```go
 func (e *SynthesisError) Error() string
@@ -1146,7 +1271,7 @@ func (e *SynthesisError) Error() string
 Error implements the error interface.
 
 <a name="SynthesisError.Unwrap"></a>
-### func \(\*SynthesisError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L56>)
+### func \(\*SynthesisError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L59>)
 
 ```go
 func (e *SynthesisError) Unwrap() error
@@ -1155,7 +1280,7 @@ func (e *SynthesisError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="Voice"></a>
-## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L143-L161>)
+## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L144-L162>)
 
 Voice describes a TTS voice available from a provider.
 

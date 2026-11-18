@@ -987,6 +987,9 @@ func init() {
 				applyAPIModeConfig(tp.Provider, spec)
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
+				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -1000,6 +1003,9 @@ func init() {
 				applyAPIModeConfig(tp.Provider, spec)
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
+				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				return tp, nil
 			},
 		),
