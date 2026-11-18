@@ -295,6 +295,25 @@ type Announcer interface {
 	Announce(ctx context.Context, text string) (spoken bool, err error)
 }
 
+// OutputAudioReporter is an optional StreamInputSession interface reporting
+// the session's spoken output, so audio the pipeline plays alongside the
+// session's replies (a cue's clip) matches their voice and format. ok is false
+// for a session whose replies are not spoken.
+type OutputAudioReporter interface {
+	OutputAudio() (audio OutputAudio, ok bool)
+}
+
+// OutputAudio describes a session's spoken output.
+type OutputAudio struct {
+	// Voice is the session's voice name, as the provider names it.
+	Voice string
+	// SampleRate is the rate of the session's PCM16 mono output audio.
+	SampleRate int
+	// Family is the provider family ("openai-realtime", "gemini-live"), for
+	// telling apart audio that can sound different. It is never a model name.
+	Family string
+}
+
 // MetaKeyAnnouncement is the StreamChunk.Metadata key, set to true, on every
 // chunk of the reply an Announce asked for, by a session that identifies that
 // reply itself (AnnouncementTagger).

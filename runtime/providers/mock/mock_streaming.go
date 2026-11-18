@@ -145,6 +145,10 @@ type MockStreamSession struct {
 
 	// interrupts counts InterruptResponse calls (mock_stream_interrupt.go).
 	interrupts []int64
+
+	// outputAudio is what OutputAudio reports; nil reports no spoken output
+	// (mock_stream_output_audio.go).
+	outputAudio *providers.OutputAudio
 }
 
 // NewMockStreamSession creates a new mock stream session.
@@ -774,6 +778,10 @@ type StreamingProvider struct {
 	// sessions). Lets tests drive the duplex stage with specific StreamChunks —
 	// e.g. reasoning chunks — instead of plain auto-respond text.
 	responseChunks []providers.StreamChunk
+
+	// outputAudio is what new sessions report as their spoken output (nil:
+	// none). See mock_stream_output_audio.go.
+	outputAudio *providers.OutputAudio
 }
 
 // NewStreamingProvider creates a mock provider with duplex streaming support.
@@ -904,6 +912,9 @@ func (p *StreamingProvider) CreateStreamSession(
 	}
 	if len(p.responseChunks) > 0 {
 		session.WithResponseChunks(p.responseChunks)
+	}
+	if p.outputAudio != nil {
+		session.WithOutputAudio(*p.outputAudio)
 	}
 
 	p.mu.Lock()

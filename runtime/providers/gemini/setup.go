@@ -105,7 +105,7 @@ func buildGenerationConfig(modalities []string) map[string]interface{} {
 		config["speechConfig"] = map[string]interface{}{
 			"voiceConfig": map[string]interface{}{
 				"prebuiltVoiceConfig": map[string]interface{}{
-					"voiceName": "Puck",
+					"voiceName": liveVoice,
 				},
 			},
 		}

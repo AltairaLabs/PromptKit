@@ -92,6 +92,38 @@ func (r *Registry) IsEmpty() bool {
 	return len(r.providerHooks) == 0 && len(r.toolHooks) == 0 && len(r.sessionHooks) == 0
 }
 
+// BlockMessager is an optional ProviderHook interface for a hook that knows,
+// before it fires, the messages it replaces a blocked turn with. A voice
+// pipeline renders them as speech at session start, so the caller hears one
+// without waiting.
+type BlockMessager interface {
+	BlockMessages() []string
+}
+
+// BlockMessages collects the messages of the provider hooks that implement
+// BlockMessager, each once, in registration order. Messages a hook decides
+// only when it fires are not among them.
+func (r *Registry) BlockMessages() []string {
+	if r == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, h := range r.providerHooks {
+		bm, ok := h.(BlockMessager)
+		if !ok {
+			continue
+		}
+		for _, msg := range bm.BlockMessages() {
+			if msg != "" && !seen[msg] {
+				seen[msg] = true
+				out = append(out, msg)
+			}
+		}
+	}
+	return out
+}
+
 // HasProviderHooks reports whether any provider hook is registered.
 func (r *Registry) HasProviderHooks() bool {
 	return r != nil && len(r.providerHooks) > 0

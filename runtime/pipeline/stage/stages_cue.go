@@ -3,11 +3,11 @@ package stage
 import (
 	"context"
 	"encoding/binary"
-	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
 // CueKind says what a cue is for.
@@ -51,13 +51,23 @@ type CueConfig struct {
 	// default 100ms.
 	ChunkDuration time.Duration
 	// OnDemandBudget bounds how long reply output waits behind a clip still
-	// rendering; default 1.5s. Past it the cue plays no clip, and what waited
-	// goes on.
+	// rendering; default 1.5s. Past it what waited goes on, after the earcon
+	// when the clip renders from the session's sources (NewCueStageFor), and
+	// with no clip otherwise. The clip itself is kept for the next cue.
 	OnDemandBudget time.Duration
 	// RenderTimeout bounds one clip's render; default 3s. A render that
 	// finishes after OnDemandBudget, or after a cut dropped its cue, still
 	// keeps its clip for the next cue with that text.
 	RenderTimeout time.Duration
+	// Cache holds rendered clips across sessions; nil is the process-wide
+	// in-memory cache of DefaultClipCacheBytes.
+	Cache ClipCache
+	// TTS renders clips in the session's voice when the session has no audio
+	// of its own to offer. Only a service that renders PCM is used.
+	TTS tts.Service
+	// Texts are rendered as soon as the session starts, with the messages of
+	// the provider stage's guardrails, so their cues play without waiting.
+	Texts []string
 }
 
 const (
@@ -115,50 +125,30 @@ func NewCueStage(cfg CueConfig) *CueStage {
 	if cfg.RenderTimeout <= 0 {
 		cfg.RenderTimeout = defaultCueRenderTimeout
 	}
-	bank := &cueBank{clips: make(map[string]CueClip, len(cfg.Clips))}
-	for text, clip := range cfg.Clips {
-		bank.clips[text] = clip
-	}
-	return &CueStage{BaseStage: NewBaseStage("cue", StageTypeTransform), cfg: cfg, bank: bank}
+	return &CueStage{BaseStage: NewBaseStage("cue", StageTypeTransform), cfg: cfg, bank: newCueBank(&cfg)}
 }
 
-// cueBank holds the clips by text: the configured ones and those rendered.
-// Renders finish on their own goroutines, so it is safe for concurrent use.
-type cueBank struct {
-	mu    sync.Mutex
-	clips map[string]CueClip
-	// stored is called with each clip a render produced, once it is held,
-	// whether or not it was played.
-	stored func(text string, clip CueClip)
-}
-
-func (b *cueBank) get(text string) (CueClip, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	clip, ok := b.clips[text]
-	return clip, ok
-}
-
-func (b *cueBank) put(text string, clip CueClip) {
-	b.mu.Lock()
-	b.clips[text] = clip
-	stored := b.stored
-	b.mu.Unlock()
-	if stored != nil {
-		stored(text, clip)
-	}
+// NewCueStageFor creates a cue stage that renders its clips for duplex's
+// session, and wires duplex to it: when duplex creates its session the stage
+// learns the session's voice and output rate and starts rendering the
+// configured texts and the messages of duplex's guardrails. Clips come from
+// the first source that renders them: the TTS service, then a built-in
+// earcon (a short tone). A text not known in advance renders when first
+// cued; past OnDemandBudget the earcon plays in its place. A session whose
+// replies are not spoken gets no cue audio; one that does not report its
+// output audio (providers.OutputAudioReporter) plays its configured clips and
+// renders as PCM16 at 24 kHz in the TTS service's default voice.
+func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage {
+	s := NewCueStage(cfg)
+	duplex.cues = s.bank
+	return s
 }
 
 // cueRender is the playback of a clip still rendering for cue.
 type cueRender struct {
 	cue    Cue
-	result chan cueRenderResult
+	flight *cueFlight
 	budget *time.Timer
-}
-
-type cueRenderResult struct {
-	clip CueClip
-	err  error
 }
 
 // cueQueued is an element waiting behind a rendering clip. sent marks one
@@ -200,10 +190,10 @@ func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, outp
 // step handles the next input element or the end of the clip rendering,
 // whichever comes first. It reports whether the run is over.
 func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, error) {
-	var result <-chan cueRenderResult
+	var result <-chan struct{}
 	var budget <-chan time.Time
 	if r.pending != nil {
-		result, budget = r.pending.result, r.pending.budget.C
+		result, budget = r.pending.flight.done, r.pending.budget.C
 	}
 	select {
 	case elem, ok := <-input:
@@ -211,8 +201,8 @@ func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, er
 			return true, r.finish(ctx)
 		}
 		return false, r.handle(ctx, elem)
-	case res := <-result:
-		return false, r.resolve(ctx, res)
+	case <-result:
+		return false, r.resolve(ctx)
 	case <-budget:
 		return false, r.overBudget(ctx)
 	case <-ctx.Done():
@@ -226,8 +216,8 @@ func (r *cueRun) finish(ctx context.Context) error {
 	for r.pending != nil {
 		var err error
 		select {
-		case res := <-r.pending.result:
-			err = r.resolve(ctx, res)
+		case <-r.pending.flight.done:
+			err = r.resolve(ctx)
 		case <-r.pending.budget.C:
 			err = r.overBudget(ctx)
 		case <-ctx.Done():
@@ -317,63 +307,69 @@ func (r *cueRun) noteRate(elem *StreamElement) {
 	}
 }
 
-// outputRate is the rate clips play at.
+// outputRate is the rate clips play at: the first reply audio's, else the
+// session's output rate, else 24 kHz.
 func (r *cueRun) outputRate() int {
 	if r.rate > 0 {
 		return r.rate
 	}
+	if rate := r.s.bank.outputRate(); rate > 0 {
+		return rate
+	}
 	return defaultCueSampleRate
 }
 
-// play plays cue's clip when it is ready, starts rendering it when it can be
-// rendered, and otherwise plays nothing.
+// play plays cue's clip when it is ready, starts rendering it (or waits for
+// its render still running) when it can be rendered, and otherwise plays
+// nothing. A session whose replies are not spoken gets no clip.
 func (r *cueRun) play(ctx context.Context, cue Cue) error {
-	if clip, ok := r.s.bank.get(cue.Text); ok {
-		return r.emit(ctx, cue, clip)
+	bank := r.s.bank
+	if bank.silent() {
+		return nil
 	}
-	if r.s.render == nil {
+	if clip, isReady, ok := bank.get(cue.Text); ok {
+		return r.emit(ctx, cue, clip, isReady)
+	}
+	if r.s.render == nil && !bank.canRender() {
 		logger.Debug("CueStage: no clip for the cue", "kind", cue.Kind)
 		return nil
 	}
-	p := &cueRender{cue: cue, result: make(chan cueRenderResult, 1), budget: time.NewTimer(r.s.cfg.OnDemandBudget)}
-	render, bank, timeout := r.s.render, r.s.bank, r.s.cfg.RenderTimeout
-	go func() {
-		// The render outlives its playback: a cut or the budget only stops
-		// the clip from playing now.
-		rctx, cancel := context.WithTimeout(ctx, timeout)
-		clip, err := render(rctx, cue.Text)
-		cancel()
-		if err == nil {
-			bank.put(cue.Text, clip)
-		}
-		p.result <- cueRenderResult{clip: clip, err: err}
-	}()
-	r.pending = p
+	r.pending = &cueRender{cue: cue, flight: bank.render(ctx, cue.Text, r.s.render),
+		budget: time.NewTimer(r.s.cfg.OnDemandBudget)}
 	return nil
 }
 
 // resolve plays a finished render's clip, then what waited behind it.
-func (r *cueRun) resolve(ctx context.Context, res cueRenderResult) error {
+func (r *cueRun) resolve(ctx context.Context) error {
 	p := r.pending
 	r.discard()
-	if res.err != nil {
-		logger.Warn("CueStage: the cue's clip did not render", "kind", p.cue.Kind, "error", res.err)
-	} else if err := r.emit(ctx, p.cue, res.clip); err != nil {
+	if err := p.flight.err; err != nil {
+		logger.Warn("CueStage: the cue's clip did not render", "kind", p.cue.Kind, "error", err)
+	} else if err := r.emit(ctx, p.cue, p.flight.clip, p.flight.ready); err != nil {
 		return err
 	}
 	return r.drain(ctx)
 }
 
-// overBudget gives up playing a clip that is not ready within OnDemandBudget.
+// overBudget gives up waiting for a clip that is not ready within
+// OnDemandBudget. When the session's clips come from the sources, the earcon
+// plays at once in its place (not for a preemptible cue, which gives way).
 func (r *cueRun) overBudget(ctx context.Context) error {
 	select {
-	case res := <-r.pending.result: // it finished as the budget ran out
-		return r.resolve(ctx, res)
+	case <-r.pending.flight.done: // it finished as the budget ran out
+		return r.resolve(ctx)
 	default:
 	}
-	logger.Warn("CueStage: the cue's clip was not ready in time", "kind", r.pending.cue.Kind,
+	cue := r.pending.cue
+	logger.Warn("CueStage: the cue's clip was not ready in time", "kind", cue.Kind,
 		"budget", r.s.cfg.OnDemandBudget)
 	r.discard()
+	if !cue.Preemptible && r.s.bank.canRender() {
+		rate := r.outputRate()
+		if err := r.emitPCM(ctx, cue, earconPCM(rate), rate); err != nil {
+			return err
+		}
+	}
 	return r.drain(ctx)
 }
 
@@ -393,9 +389,12 @@ func (r *cueRun) drain(ctx context.Context) error {
 		q := r.queue[0]
 		r.queue = r.queue[1:]
 		var err error
-		if q.sent {
+		switch {
+		case q.sent && q.elem.Cue.Preemptible && r.replyAudioQueued():
+			// A preemptible cue gives way to the reply audio waiting behind it.
+		case q.sent:
 			err = r.play(ctx, *q.elem.Cue)
-		} else {
+		default:
 			err = r.forward(ctx, q.elem)
 		}
 		if err != nil {
@@ -405,15 +404,36 @@ func (r *cueRun) drain(ctx context.Context) error {
 	return nil
 }
 
-// emit plays clip for cue as audio elements of ChunkDuration each.
-func (r *cueRun) emit(ctx context.Context, cue Cue, clip CueClip) error {
+// replyAudioQueued reports whether reply audio waits in the queue.
+func (r *cueRun) replyAudioQueued() bool {
+	for i := range r.queue {
+		if e := &r.queue[i].elem; !r.queue[i].sent && hasAudio(e) && e.Meta.CueAudio == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// emit plays clip for cue as audio elements of ChunkDuration each. A ready
+// clip at the output rate plays as it is; any other is prepared first.
+func (r *cueRun) emit(ctx context.Context, cue Cue, clip CueClip, isReady bool) error {
 	rate := r.outputRate()
 	key := cuePreparedKey{text: cue.Text, rate: rate}
 	pcm, ok := r.prepared[key]
 	if !ok {
-		pcm = prepareCueAudio(clip.Audio, rate)
+		if isReady && clip.Audio != nil && clip.Audio.SampleRate == rate {
+			// The bytes are shared with the cache: play a copy.
+			pcm = append([]byte(nil), clip.Audio.Samples...)
+		} else {
+			pcm = prepareCueAudio(clip.Audio, rate)
+		}
 		r.prepared[key] = pcm
 	}
+	return r.emitPCM(ctx, cue, pcm, rate)
+}
+
+// emitPCM plays pcm, ready to play at rate, for cue.
+func (r *cueRun) emitPCM(ctx context.Context, cue Cue, pcm []byte, rate int) error {
 	chunk := bytesPerSamplePCM16 * int(int64(rate)*int64(r.s.cfg.ChunkDuration)/int64(time.Second))
 	if chunk < bytesPerSamplePCM16 {
 		chunk = bytesPerSamplePCM16
