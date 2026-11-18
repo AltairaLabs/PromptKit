@@ -20,14 +20,20 @@ const (
 )
 
 // PredictStream runs predictStreamOnce, retrying without any sampling
-// parameter the API rejects for this model.
+// parameter the API rejects for this model, and with the other thinking type
+// if the model rejects the one sent.
 func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-			return p.predictStreamOnce(ctx, r)
-		})
+	var ch <-chan providers.StreamChunk
+	err := p.withThinkingFallback(func() (err error) {
+		ch, err = providers.RetryCall(&p.BaseProvider, req,
+			func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+				return p.predictStreamOnce(ctx, r)
+			})
+		return err
+	})
+	return ch, err
 }
 
 // predictStreamOnce performs a streaming prediction request to Claude.

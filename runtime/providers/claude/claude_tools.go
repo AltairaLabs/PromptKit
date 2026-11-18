@@ -177,14 +177,21 @@ func (p *ToolProvider) useStrictTools() bool {
 }
 
 // PredictWithTools runs predictWithToolsOnce, retrying without any sampling
-// parameter the API rejects for this model.
+// parameter the API rejects for this model, and with the other thinking type
+// if the model rejects the one sent.
 func (p *ToolProvider) PredictWithTools(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	return providers.RetryToolCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
-			return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
-		})
+	var resp providers.PredictionResponse
+	var calls []types.MessageToolCall
+	err := p.withThinkingFallback(func() (err error) {
+		resp, calls, err = providers.RetryToolCall(&p.BaseProvider, req,
+			func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
+				return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+			})
+		return err
+	})
+	return resp, calls, err
 }
 
 // predictWithToolsOnce performs a predict request with tool support
@@ -865,14 +872,20 @@ func (p *ToolProvider) makeRequest(ctx context.Context, request *claudeRequest) 
 }
 
 // PredictStreamWithTools runs predictStreamWithToolsOnce, retrying without
-// any sampling parameter the API rejects for this model.
+// any sampling parameter the API rejects for this model, and with the other
+// thinking type if the model rejects the one sent.
 func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-			return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
-		})
+	var ch <-chan providers.StreamChunk
+	err := p.withThinkingFallback(func() (err error) {
+		ch, err = providers.RetryCall(&p.BaseProvider, req,
+			func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+				return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+			})
+		return err
+	})
+	return ch, err
 }
 
 // predictStreamWithToolsOnce performs a streaming predict request with tool support.
@@ -1027,6 +1040,33 @@ func (p *ToolProvider) buildDirectStreamingRequestFn(
 	}
 }
 
+// thinkingModeBudget and thinkingModeAdaptive are the values of
+// additional_config.thinking_mode.
+const (
+	thinkingModeBudget   = "budget"
+	thinkingModeAdaptive = "adaptive"
+)
+
+// applyThinkingModeConfig reads additional_config.thinking_mode, the thinking
+// wire type the model takes: "adaptive", or "budget" (enabled + budget_tokens).
+// Omitted, the type is guessed from the model name and corrected from the API.
+func applyThinkingModeConfig(p *Provider, spec providers.ProviderSpec) error {
+	v, ok := spec.AdditionalConfig["thinking_mode"]
+	if !ok {
+		return nil
+	}
+	switch v {
+	case thinkingModeBudget:
+		p.thinkingMode = thinkingTypeEnabled
+	case thinkingModeAdaptive:
+		p.thinkingMode = thinkingTypeAdaptive
+	default:
+		return fmt.Errorf("claude: additional_config.thinking_mode must be %q or %q, got %q",
+			thinkingModeAdaptive, thinkingModeBudget, fmt.Sprint(v))
+	}
+	return nil
+}
+
 // applyThinkingConfig enables Claude extended thinking from additional_config:
 //   - thinking_budget (int): reasoning-token budget (>= 1024). Sets the request's
 //     thinking block; omit to leave thinking off.
@@ -1066,6 +1106,19 @@ func applyStrictToolsConfig(tp *ToolProvider, spec providers.ProviderSpec) {
 	tp.strictTools = &v
 }
 
+// applySpecConfig applies the provider spec's settings to a newly built tp.
+func applySpecConfig(tp *ToolProvider, spec providers.ProviderSpec) (providers.Provider, error) {
+	tp.SetUnsupportedParams(spec.UnsupportedParams)
+	tp.setCapabilities(spec.Capabilities)
+	if err := applyThinkingModeConfig(tp.Provider, spec); err != nil {
+		return nil, err
+	}
+	applyThinkingConfig(tp.Provider, spec)
+	applyStrictToolsConfig(tp, spec)
+	applyContextWindowConfig(tp.Provider, spec)
+	return tp, nil
+}
+
 //nolint:gochecknoinits // Factory registration requires init
 func init() {
 	factory := providers.CredentialFactory(
@@ -1075,23 +1128,13 @@ func init() {
 				spec.IncludeRawOutput, spec.Credential,
 				spec.Platform, spec.PlatformConfig,
 			)
-			tp.SetUnsupportedParams(spec.UnsupportedParams)
-			tp.setCapabilities(spec.Capabilities)
-			applyThinkingConfig(tp.Provider, spec)
-			applyStrictToolsConfig(tp, spec)
-			applyContextWindowConfig(tp.Provider, spec)
-			return tp, nil
+			return applySpecConfig(tp, spec)
 		},
 		func(spec providers.ProviderSpec) (providers.Provider, error) {
 			tp := NewToolProvider(
 				spec.ID, spec.Model, spec.BaseURL, spec.Defaults, spec.IncludeRawOutput,
 			)
-			tp.SetUnsupportedParams(spec.UnsupportedParams)
-			tp.setCapabilities(spec.Capabilities)
-			applyThinkingConfig(tp.Provider, spec)
-			applyStrictToolsConfig(tp, spec)
-			applyContextWindowConfig(tp.Provider, spec)
-			return tp, nil
+			return applySpecConfig(tp, spec)
 		},
 	)
 	providers.RegisterProviderFactory("claude", func(spec providers.ProviderSpec) (providers.Provider, error) {
