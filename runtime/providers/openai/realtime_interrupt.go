@@ -95,14 +95,6 @@ func (s *RealtimeSession) cancelPending() {
 	}
 }
 
-// startClientTurn records that the client started a turn (response.create):
-// a cancel pending from the last turn does not apply to it.
-func (s *RealtimeSession) startClientTurn() {
-	s.recvMu.Lock()
-	defer s.recvMu.Unlock()
-	s.cancelGen = 0
-}
-
 // cancelRejected reports whether a server error rejects a response.cancel
 // this session sent, logging it: the response it named had already ended.
 func (s *RealtimeSession) cancelRejected(e *ErrorEvent) bool {
@@ -122,9 +114,12 @@ func (s *RealtimeSession) Announce(_ context.Context, text string) (bool, error)
 	if outputModalities(s.config.Modalities)[0] != modalityAudio {
 		return false, nil
 	}
-	err := s.TriggerResponse(&ResponseConfig{
-		Instructions: providers.AnnounceInstructions(text),
-		ToolChoice:   "none",
-	})
+	err := s.requestResponse(ResponseCreateEvent{
+		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventResponseCreate},
+		Response: &ResponseConfig{
+			Instructions: providers.AnnounceInstructions(text),
+			ToolChoice:   "none",
+		},
+	}, true)
 	return err == nil, err
 }

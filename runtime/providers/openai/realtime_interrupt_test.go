@@ -159,7 +159,7 @@ func runInterrupt(t *testing.T, seconds int, after time.Duration, done, rejectCa
 		t.Fatal("the server never saw the commit")
 	}
 	for _, ev := range run.clients {
-		delete(ev, "event_id")
+		stripIDs(ev)
 	}
 	return run
 }
@@ -319,7 +319,7 @@ func runPendingCancel(t *testing.T, newTurn string) interruptRun {
 		t.Fatal("the server never saw the commit")
 	}
 	for _, ev := range run.clients {
-		delete(ev, "event_id")
+		stripIDs(ev)
 	}
 	return run
 }

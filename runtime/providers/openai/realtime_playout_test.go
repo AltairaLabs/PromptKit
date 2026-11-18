@@ -204,7 +204,7 @@ func truncateEvents(clients []map[string]any) []map[string]any {
 	var out []map[string]any
 	for _, ev := range clients {
 		if ev["type"] == "conversation.item.truncate" {
-			delete(ev, "event_id")
+			stripIDs(ev)
 			out = append(out, ev)
 		}
 	}

@@ -268,6 +268,19 @@ type Announcer interface {
 	Announce(ctx context.Context, text string) (spoken bool, err error)
 }
 
+// MetaKeyAnnouncement is the StreamChunk.Metadata key, set to true, on every
+// chunk of the reply an Announce asked for, by a session that identifies that
+// reply itself (AnnouncementTagger).
+const MetaKeyAnnouncement = "announcement"
+
+// AnnouncementTagger is an optional interface an Announcer implements when it
+// marks the chunks of the reply Announce asked for (MetaKeyAnnouncement), so
+// the pipeline tells the spoken message by the mark, not by its position: a
+// reply asked for before it (text the caller typed meanwhile) can come first.
+type AnnouncementTagger interface {
+	TagsAnnouncements() bool
+}
+
 // AnnounceInstructions is the instruction a session gives the model to speak
 // text verbatim.
 func AnnounceInstructions(text string) string {

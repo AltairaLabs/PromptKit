@@ -76,11 +76,20 @@ func (s *DuplexProviderStage) askAnnouncement(ctx context.Context) {
 }
 
 // takeAnnouncementChunk reports whether chunk is part of the spoken blocked
-// message: a reply chunk of the first generation after the blocked reply's.
+// message: a chunk the session marked as the message's (AnnouncementTagger),
+// or, from a session that marks none, a reply chunk of the first generation
+// after the blocked reply's.
 func (s *DuplexProviderStage) takeAnnouncementChunk(chunk *providers.StreamChunk) bool {
 	a := &s.announce
 	if !s.chunkIsReply || a.state != announceActive {
 		return false
+	}
+	if tagger, ok := s.session.(providers.AnnouncementTagger); ok && tagger.TagsAnnouncements() {
+		marked, _ := chunk.Metadata[providers.MetaKeyAnnouncement].(bool)
+		if marked && a.gen == 0 {
+			a.gen = chunk.Generation
+		}
+		return marked
 	}
 	if chunk.Generation == 0 {
 		return true

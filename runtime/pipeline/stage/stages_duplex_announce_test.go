@@ -237,6 +237,49 @@ func TestDuplexAnnounce_TruncationIsNotSpoken(t *testing.T) {
 	assert.Empty(t, sess.announcements())
 }
 
+// taggingAnnouncer is an announcingSession that marks the chunks of the
+// reply Announce asked for (providers.AnnouncementTagger), as OpenAI Realtime.
+type taggingAnnouncer struct{ *announcingSession }
+
+func (taggingAnnouncer) TagsAnnouncements() bool { return true }
+
+// announced marks c as part of the reply an Announce asked for.
+func announced(c providers.StreamChunk) providers.StreamChunk {
+	meta := map[string]interface{}{providers.MetaKeyAnnouncement: true}
+	for k, v := range c.Metadata {
+		meta[k] = v
+	}
+	c.Metadata = meta
+	return c
+}
+
+// A session that marks the spoken message's reply is matched by the mark, not
+// by position: text the caller typed while the blocked reply played was asked
+// for first, so its reply comes before the message. That reply is a turn as
+// usual, with its text; the marked message is played and is not a turn.
+func TestDuplexAnnounce_MarkedMessageAfterAReplyAskedForEarlier(t *testing.T) {
+	s, sess := announceStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
+	s.session = taggingAnnouncer{sess}
+
+	elems, err := feedChunks(t, s,
+		gen1(transcriptChunk("forbidden", pcm(20)), 1), gen1(stopChunk(), 1),
+		gen1(transcriptChunk("Paris is the capital.", pcm(12)), 2), gen1(stopChunk(), 2),
+		gen1(announced(transcriptChunk("I can't say that.", pcm(40))), 3), gen1(announced(stopChunk()), 3),
+	)
+	require.NoError(t, err)
+
+	var replies []string
+	for _, e := range elems {
+		if m := e.Message; m != nil && m.Role == roleAssistant {
+			replies = append(replies, m.Content+"|"+m.FinishReason)
+		}
+	}
+	assert.Equal(t, []string{"I can't say that.|safety", "Paris is the capital.|stop"}, replies,
+		"the reply asked for first is a turn; the marked message is not")
+	assert.Contains(t, trace(elems), "audio:40", "the marked message is played")
+	assert.Equal(t, int64(2), s.assistantTurns.Load())
+}
+
 // gen numbers a chunk as part of the provider's reply g.
 func gen1(c providers.StreamChunk, g int64) providers.StreamChunk {
 	c.Generation = g
