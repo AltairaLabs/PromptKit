@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -49,14 +50,20 @@ type CueConfig struct {
 	// ChunkDuration is the length of the audio elements a clip is played as;
 	// default 100ms.
 	ChunkDuration time.Duration
-	// RenderTimeout bounds how long reply audio waits behind a clip still
-	// rendering; default 3s.
+	// OnDemandBudget bounds how long reply output waits behind a clip still
+	// rendering; default 1.5s. Past it the cue plays no clip, and what waited
+	// goes on.
+	OnDemandBudget time.Duration
+	// RenderTimeout bounds one clip's render; default 3s. A render that
+	// finishes after OnDemandBudget, or after a cut dropped its cue, still
+	// keeps its clip for the next cue with that text.
 	RenderTimeout time.Duration
 }
 
 const (
-	defaultCueChunkDuration = 100 * time.Millisecond
-	defaultCueRenderTimeout = 3 * time.Second
+	defaultCueChunkDuration  = 100 * time.Millisecond
+	defaultCueOnDemandBudget = 1500 * time.Millisecond
+	defaultCueRenderTimeout  = 3 * time.Second
 	// defaultCueSampleRate is the output rate before any reply audio is seen,
 	// the default DuplexProviderStage gives reply audio.
 	defaultCueSampleRate = 24000
@@ -81,15 +88,19 @@ const (
 // time it plays at that rate. A cue with no clip plays nothing: the element's
 // text is already out.
 //
-// While a clip is still rendering, the stage holds reply audio behind it:
-// elements carrying audio wait, everything else goes on. The clip plays when
-// it is ready, then the audio that waited. A clip not ready within
-// RenderTimeout plays nothing, and a cut (barge-in) while it renders drops
-// the cue: in both cases the audio that waited goes on at once.
+// While a clip is still rendering, the stage holds reply output behind it:
+// elements go on until the first one carrying audio, which waits, and every
+// element after it waits too, so a reply's end never overtakes its audio.
+// The clip plays when it is ready, then what waited. A clip not ready within
+// OnDemandBudget plays nothing, a cut (barge-in) while it renders drops the
+// cue, and reply audio drops a preemptible cue: in each case what waited goes
+// on at once, and the render goes on to keep its clip for next time.
 type CueStage struct {
 	BaseStage
-	cfg CueConfig
-	// render renders a clip for a text not in cfg.Clips; nil means none can be.
+	cfg  CueConfig
+	bank *cueBank
+	// render renders a clip for a text the bank does not hold; nil means none
+	// can be.
 	render func(ctx context.Context, text string) (CueClip, error)
 }
 
@@ -98,18 +109,51 @@ func NewCueStage(cfg CueConfig) *CueStage {
 	if cfg.ChunkDuration <= 0 {
 		cfg.ChunkDuration = defaultCueChunkDuration
 	}
+	if cfg.OnDemandBudget <= 0 {
+		cfg.OnDemandBudget = defaultCueOnDemandBudget
+	}
 	if cfg.RenderTimeout <= 0 {
 		cfg.RenderTimeout = defaultCueRenderTimeout
 	}
-	return &CueStage{BaseStage: NewBaseStage("cue", StageTypeTransform), cfg: cfg}
+	bank := &cueBank{clips: make(map[string]CueClip, len(cfg.Clips))}
+	for text, clip := range cfg.Clips {
+		bank.clips[text] = clip
+	}
+	return &CueStage{BaseStage: NewBaseStage("cue", StageTypeTransform), cfg: cfg, bank: bank}
 }
 
-// cueRender is a clip being rendered for cue.
+// cueBank holds the clips by text: the configured ones and those rendered.
+// Renders finish on their own goroutines, so it is safe for concurrent use.
+type cueBank struct {
+	mu    sync.Mutex
+	clips map[string]CueClip
+	// stored is called with each clip a render produced, once it is held,
+	// whether or not it was played.
+	stored func(text string, clip CueClip)
+}
+
+func (b *cueBank) get(text string) (CueClip, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	clip, ok := b.clips[text]
+	return clip, ok
+}
+
+func (b *cueBank) put(text string, clip CueClip) {
+	b.mu.Lock()
+	b.clips[text] = clip
+	stored := b.stored
+	b.mu.Unlock()
+	if stored != nil {
+		stored(text, clip)
+	}
+}
+
+// cueRender is the playback of a clip still rendering for cue.
 type cueRender struct {
 	cue    Cue
 	result chan cueRenderResult
-	ctx    context.Context
-	cancel context.CancelFunc
+	budget *time.Timer
 }
 
 type cueRenderResult struct {
@@ -117,19 +161,17 @@ type cueRenderResult struct {
 	err  error
 }
 
-// cueQueued is what waits behind a rendering clip: an element, or a cue whose
-// clip plays in its place.
+// cueQueued is an element waiting behind a rendering clip. sent marks one
+// already forwarded whose cue's clip still has to play.
 type cueQueued struct {
 	elem StreamElement
-	cue  *Cue
+	sent bool
 }
 
 // cueRun is one Process run's state.
 type cueRun struct {
 	s      *CueStage
 	output chan<- StreamElement
-	// clips are the clips by text: the configured ones and those rendered.
-	clips map[string]CueClip
 	// prepared are clips ready to play, by text and output rate.
 	prepared map[cuePreparedKey][]byte
 	// rate is the output sample rate: the first reply audio's, 0 until seen.
@@ -146,12 +188,8 @@ type cuePreparedKey struct {
 // Process implements the Stage interface.
 func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
 	defer close(output)
-	r := &cueRun{s: s, output: output, clips: make(map[string]CueClip, len(s.cfg.Clips)),
-		prepared: map[cuePreparedKey][]byte{}}
-	for text, clip := range s.cfg.Clips {
-		r.clips[text] = clip
-	}
-	defer r.dropPending()
+	r := &cueRun{s: s, output: output, prepared: map[cuePreparedKey][]byte{}}
+	defer r.discard()
 	for {
 		if done, err := r.step(ctx, input); done || err != nil {
 			return err
@@ -163,9 +201,9 @@ func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, outp
 // whichever comes first. It reports whether the run is over.
 func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, error) {
 	var result <-chan cueRenderResult
-	var expired <-chan struct{}
+	var budget <-chan time.Time
 	if r.pending != nil {
-		result, expired = r.pending.result, r.pending.ctx.Done()
+		result, budget = r.pending.result, r.pending.budget.C
 	}
 	select {
 	case elem, ok := <-input:
@@ -175,28 +213,28 @@ func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, er
 		return false, r.handle(ctx, elem)
 	case res := <-result:
 		return false, r.resolve(ctx, res)
-	case <-expired:
-		return false, r.expire(ctx)
+	case <-budget:
+		return false, r.overBudget(ctx)
 	case <-ctx.Done():
 		return true, ctx.Err()
 	}
 }
 
-// finish waits for a clip still rendering, at most RenderTimeout, and plays it
+// finish waits for a clip still rendering, within its budget, and plays it
 // and what waited behind it: the input is over, its output is not.
 func (r *cueRun) finish(ctx context.Context) error {
 	for r.pending != nil {
+		var err error
 		select {
 		case res := <-r.pending.result:
-			if err := r.resolve(ctx, res); err != nil {
-				return err
-			}
-		case <-r.pending.ctx.Done():
-			if err := r.expire(ctx); err != nil {
-				return err
-			}
+			err = r.resolve(ctx, res)
+		case <-r.pending.budget.C:
+			err = r.overBudget(ctx)
 		case <-ctx.Done():
 			return ctx.Err()
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -206,18 +244,20 @@ func (r *cueRun) finish(ctx context.Context) error {
 func (r *cueRun) handle(ctx context.Context, elem StreamElement) error {
 	r.noteRate(&elem)
 	if r.pending == nil {
-		if err := sendStreamElement(ctx, elem, r.output); err != nil {
-			return err
-		}
-		if elem.Cue != nil {
-			return r.play(ctx, *elem.Cue)
-		}
-		return nil
+		return r.forward(ctx, elem)
 	}
 	if isCut(&elem) {
 		return r.cutPending(ctx, elem)
 	}
-	if hasAudio(&elem) {
+	if r.pending.cue.Preemptible && hasAudio(&elem) && elem.Meta.CueAudio == nil {
+		// Reply audio does not wait for a preemptible cue.
+		r.discard()
+		if err := r.drain(ctx); err != nil {
+			return err
+		}
+		return r.handle(ctx, elem)
+	}
+	if len(r.queue) > 0 || hasAudio(&elem) {
 		r.queue = append(r.queue, cueQueued{elem: elem})
 		return nil
 	}
@@ -225,21 +265,31 @@ func (r *cueRun) handle(ctx context.Context, elem StreamElement) error {
 		return err
 	}
 	if elem.Cue != nil {
-		c := *elem.Cue
-		r.queue = append(r.queue, cueQueued{cue: &c})
+		r.queue = append(r.queue, cueQueued{elem: elem, sent: true})
+	}
+	return nil
+}
+
+// forward sends elem on and plays its cue's clip.
+func (r *cueRun) forward(ctx context.Context, elem StreamElement) error {
+	if err := sendStreamElement(ctx, elem, r.output); err != nil {
+		return err
+	}
+	if elem.Cue != nil {
+		return r.play(ctx, *elem.Cue)
 	}
 	return nil
 }
 
 // cutPending handles a cut while a clip renders: the clip would have been cut
-// anyway, so it and the cues queued behind it are dropped, and the elements
-// queued behind it go on, in order, ahead of the cut.
+// anyway, so it and the clips of the cues queued behind it are dropped, and
+// the elements queued behind it go on, in order, ahead of the cut.
 func (r *cueRun) cutPending(ctx context.Context, cut StreamElement) error {
-	r.dropPending()
+	r.discard()
 	queued := r.queue
 	r.queue = nil
 	for i := range queued {
-		if queued[i].cue != nil {
+		if queued[i].sent {
 			continue
 		}
 		if err := sendStreamElement(ctx, queued[i].elem, r.output); err != nil {
@@ -278,18 +328,24 @@ func (r *cueRun) outputRate() int {
 // play plays cue's clip when it is ready, starts rendering it when it can be
 // rendered, and otherwise plays nothing.
 func (r *cueRun) play(ctx context.Context, cue Cue) error {
-	if clip, ok := r.clips[cue.Text]; ok {
+	if clip, ok := r.s.bank.get(cue.Text); ok {
 		return r.emit(ctx, cue, clip)
 	}
 	if r.s.render == nil {
 		logger.Debug("CueStage: no clip for the cue", "kind", cue.Kind)
 		return nil
 	}
-	rctx, cancel := context.WithTimeout(ctx, r.s.cfg.RenderTimeout)
-	p := &cueRender{cue: cue, result: make(chan cueRenderResult, 1), ctx: rctx, cancel: cancel}
-	render := r.s.render
+	p := &cueRender{cue: cue, result: make(chan cueRenderResult, 1), budget: time.NewTimer(r.s.cfg.OnDemandBudget)}
+	render, bank, timeout := r.s.render, r.s.bank, r.s.cfg.RenderTimeout
 	go func() {
+		// The render outlives its playback: a cut or the budget only stops
+		// the clip from playing now.
+		rctx, cancel := context.WithTimeout(ctx, timeout)
 		clip, err := render(rctx, cue.Text)
+		cancel()
+		if err == nil {
+			bank.put(cue.Text, clip)
+		}
 		p.result <- cueRenderResult{clip: clip, err: err}
 	}()
 	r.pending = p
@@ -299,36 +355,33 @@ func (r *cueRun) play(ctx context.Context, cue Cue) error {
 // resolve plays a finished render's clip, then what waited behind it.
 func (r *cueRun) resolve(ctx context.Context, res cueRenderResult) error {
 	p := r.pending
-	r.pending = nil
-	p.cancel()
+	r.discard()
 	if res.err != nil {
 		logger.Warn("CueStage: the cue's clip did not render", "kind", p.cue.Kind, "error", res.err)
-	} else {
-		r.clips[p.cue.Text] = res.clip
-		if err := r.emit(ctx, p.cue, res.clip); err != nil {
-			return err
-		}
+	} else if err := r.emit(ctx, p.cue, res.clip); err != nil {
+		return err
 	}
 	return r.drain(ctx)
 }
 
-// expire gives up on a render that took longer than RenderTimeout.
-func (r *cueRun) expire(ctx context.Context) error {
+// overBudget gives up playing a clip that is not ready within OnDemandBudget.
+func (r *cueRun) overBudget(ctx context.Context) error {
 	select {
-	case res := <-r.pending.result: // it finished as it expired
+	case res := <-r.pending.result: // it finished as the budget ran out
 		return r.resolve(ctx, res)
 	default:
 	}
-	logger.Warn("CueStage: the cue's clip did not render in time", "kind", r.pending.cue.Kind,
-		"timeout", r.s.cfg.RenderTimeout)
-	r.dropPending()
+	logger.Warn("CueStage: the cue's clip was not ready in time", "kind", r.pending.cue.Kind,
+		"budget", r.s.cfg.OnDemandBudget)
+	r.discard()
 	return r.drain(ctx)
 }
 
-// dropPending abandons the clip rendering, if any.
-func (r *cueRun) dropPending() {
+// discard gives up the playback of the clip rendering, if any. The render
+// itself goes on.
+func (r *cueRun) discard() {
 	if r.pending != nil {
-		r.pending.cancel()
+		r.pending.budget.Stop()
 		r.pending = nil
 	}
 }
@@ -340,10 +393,10 @@ func (r *cueRun) drain(ctx context.Context) error {
 		q := r.queue[0]
 		r.queue = r.queue[1:]
 		var err error
-		if q.cue != nil {
-			err = r.play(ctx, *q.cue)
+		if q.sent {
+			err = r.play(ctx, *q.elem.Cue)
 		} else {
-			err = sendStreamElement(ctx, q.elem, r.output)
+			err = r.forward(ctx, q.elem)
 		}
 		if err != nil {
 			return err

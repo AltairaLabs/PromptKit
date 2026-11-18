@@ -2079,7 +2079,7 @@ func (c *ContextCompactor) TokenBudget() int
 TokenBudget implements CompactionStrategy.
 
 <a name="Cue"></a>
-## type [Cue](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L24-L33>)
+## type [Cue](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L25-L34>)
 
 Cue asks a CueStage to play the clip for Text.
 
@@ -2097,7 +2097,7 @@ type Cue struct {
 ```
 
 <a name="CueClip"></a>
-## type [CueClip](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L36-L43>)
+## type [CueClip](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L37-L44>)
 
 CueClip is a cue's pre\-rendered media.
 
@@ -2113,7 +2113,7 @@ type CueClip struct {
 ```
 
 <a name="CueConfig"></a>
-## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L46-L55>)
+## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L47-L61>)
 
 CueConfig configures a CueStage.
 
@@ -2124,14 +2124,19 @@ type CueConfig struct {
     // ChunkDuration is the length of the audio elements a clip is played as;
     // default 100ms.
     ChunkDuration time.Duration
-    // RenderTimeout bounds how long reply audio waits behind a clip still
-    // rendering; default 3s.
+    // OnDemandBudget bounds how long reply output waits behind a clip still
+    // rendering; default 1.5s. Past it the cue plays no clip, and what waited
+    // goes on.
+    OnDemandBudget time.Duration
+    // RenderTimeout bounds one clip's render; default 3s. A render that
+    // finishes after OnDemandBudget, or after a cut dropped its cue, still
+    // keeps its clip for the next cue with that text.
     RenderTimeout time.Duration
 }
 ```
 
 <a name="CueKind"></a>
-## type [CueKind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L13>)
+## type [CueKind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L14>)
 
 CueKind says what a cue is for.
 
@@ -2152,13 +2157,13 @@ const (
 ```
 
 <a name="CueStage"></a>
-## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L89-L94>)
+## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L98-L105>)
 
 CueStage plays a pre\-rendered clip for each element carrying a Cue. It goes directly after the provider stage, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as they treat reply audio \(marked Meta.CueAudio\).
 
 Every element goes on unchanged and in order. After an element with a Cue the stage plays the cue's clip, when it has one, as audio elements of ChunkDuration each, PCM16 mono at the reply audio's rate \(the first reply audio seen, else 24 kHz\). A clip is trimmed of leading and trailing silence, resampled to that rate and faded out at its end once, the first time it plays at that rate. A cue with no clip plays nothing: the element's text is already out.
 
-While a clip is still rendering, the stage holds reply audio behind it: elements carrying audio wait, everything else goes on. The clip plays when it is ready, then the audio that waited. A clip not ready within RenderTimeout plays nothing, and a cut \(barge\-in\) while it renders drops the cue: in both cases the audio that waited goes on at once.
+While a clip is still rendering, the stage holds reply output behind it: elements go on until the first one carrying audio, which waits, and every element after it waits too, so a reply's end never overtakes its audio. The clip plays when it is ready, then what waited. A clip not ready within OnDemandBudget plays nothing, a cut \(barge\-in\) while it renders drops the cue, and reply audio drops a preemptible cue: in each case what waited goes on at once, and the render goes on to keep its clip for next time.
 
 ```go
 type CueStage struct {
@@ -2168,7 +2173,7 @@ type CueStage struct {
 ```
 
 <a name="NewCueStage"></a>
-### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L97>)
+### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L108>)
 
 ```go
 func NewCueStage(cfg CueConfig) *CueStage
@@ -2177,7 +2182,7 @@ func NewCueStage(cfg CueConfig) *CueStage
 NewCueStage creates a cue stage named "cue".
 
 <a name="CueStage.Process"></a>
-### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L147>)
+### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L189>)
 
 ```go
 func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4835,7 +4840,7 @@ type ReasoningDelta struct {
 ```
 
 <a name="RecordingPosition"></a>
-## type [RecordingPosition](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L31>)
+## type [RecordingPosition](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L35>)
 
 RecordingPosition indicates where in the pipeline the recording stage is placed.
 
@@ -4855,7 +4860,7 @@ const (
 ```
 
 <a name="RecordingStage"></a>
-## type [RecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L110-L115>)
+## type [RecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L114-L119>)
 
 RecordingStage captures pipeline elements as events for session recording. It observes elements flowing through without modifying them.
 
@@ -4880,7 +4885,7 @@ type RecordingStage struct {
 ```
 
 <a name="NewRecordingStage"></a>
-### func [NewRecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L118>)
+### func [NewRecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L122>)
 
 ```go
 func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *RecordingStage
@@ -4889,7 +4894,7 @@ func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *Re
 NewRecordingStage creates a new recording stage.
 
 <a name="RecordingStage.Process"></a>
-### func \(\*RecordingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L129-L133>)
+### func \(\*RecordingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L133-L137>)
 
 ```go
 func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4898,7 +4903,7 @@ func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElemen
 Process observes elements and records them as events.
 
 <a name="RecordingStage.WithConversationID"></a>
-### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L504>)
+### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L509>)
 
 ```go
 func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingStage
@@ -4907,7 +4912,7 @@ func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingSt
 WithConversationID sets the conversation ID for recorded events.
 
 <a name="RecordingStage.WithSessionID"></a>
-### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L498>)
+### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L503>)
 
 ```go
 func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage
@@ -4916,7 +4921,7 @@ func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage
 WithSessionID sets the session ID for recorded events.
 
 <a name="RecordingStageConfig"></a>
-## type [RecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L47-L70>)
+## type [RecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L51-L74>)
 
 RecordingStageConfig configures the recording stage behavior.
 
@@ -4948,7 +4953,7 @@ type RecordingStageConfig struct {
 ```
 
 <a name="DefaultRecordingStageConfig"></a>
-### func [DefaultRecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L73>)
+### func [DefaultRecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L77>)
 
 ```go
 func DefaultRecordingStageConfig() RecordingStageConfig

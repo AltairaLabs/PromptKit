@@ -177,7 +177,8 @@ func (s *AudioPacingStage) processFlushOnCut(
 // forwardQueued forwards one queued element: a cut at once, audio when it is
 // due, anything else at once. Audio a cut dropped is stripped from its
 // element, which still goes on when it carries anything else (a transcript,
-// the reply's end). A cut or EndOfStream starts a new audio sequence.
+// the reply's end). A cut or EndOfStream starts a new audio sequence, as does
+// a preemptible cue's audio dropped for the reply audio that follows it.
 func (s *AudioPacingStage) forwardQueued(
 	ctx context.Context, q *pacerQueue, item pacedElem, output chan<- StreamElement,
 ) error {
@@ -188,6 +189,10 @@ func (s *AudioPacingStage) forwardQueued(
 			return err
 		}
 		if !played {
+			if item.preemptible() {
+				// The reply audio that preempted it starts its own sequence.
+				s.resetSequence()
+			}
 			elem.Audio = nil
 			if onlyAudio(elem) {
 				return nil

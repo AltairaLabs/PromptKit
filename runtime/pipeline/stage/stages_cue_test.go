@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"testing"
 	"time"
 
@@ -299,9 +300,34 @@ func pendingRender(clip CueClip, release <-chan struct{}) func(context.Context, 
 	}
 }
 
-// While a clip renders, only audio waits behind it: a Message passes at once,
-// and reply audio follows the clip once it is ready.
-func TestCueStage_PendingClipHoldsOnlyAudio(t *testing.T) {
+// replyAudioOf is a reply audio element carrying pcm at the test rate.
+func replyAudioOf(pcm []byte) StreamElement {
+	return StreamElement{Audio: &AudioData{Samples: pcm, SampleRate: cueTestRate, Channels: 1,
+		Format: AudioFormatPCM16}}
+}
+
+// storedTexts records each text the bank stores a rendered clip for.
+func storedTexts(s *CueStage) <-chan string {
+	ch := make(chan string, 8)
+	s.bank.stored = func(text string, _ CueClip) { ch <- text }
+	return ch
+}
+
+func waitStored(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case text := <-ch:
+		return text
+	case <-time.After(3 * time.Second):
+		require.FailNow(t, "the rendered clip was never stored")
+		return ""
+	}
+}
+
+// While a clip renders, reply output waits behind it from the first audio
+// on: an element before that audio passes at once, and the reply's audio and
+// the end that follows it come after the clip, in order.
+func TestCueStage_PendingClipHoldsReplyOutput(t *testing.T) {
 	pcm := cueRamp(6000)
 	release := make(chan struct{})
 	cue := NewCueStage(CueConfig{})
@@ -309,23 +335,58 @@ func TestCueStage_PendingClipHoldsOnlyAudio(t *testing.T) {
 	c := startChain(t, cue, outputPacer(newFakeClock()))
 
 	reply := cueRamp(2400)
+	user := StreamElement{Message: &types.Message{Role: roleUser, Content: "Tell me about Bruno."}}
 	c.in <- guardrailCueElem(brunoText)
-	c.in <- StreamElement{Audio: &AudioData{Samples: reply, SampleRate: cueTestRate, Channels: 1,
-		Format: AudioFormatPCM16}}
+	c.in <- user
+	c.in <- replyAudioOf(reply)
 	c.in <- replyEnd("Hello.")
 
 	assert.Equal(t, brunoText, *c.next(t).Text)
-	end := c.next(t)
-	require.NotNil(t, end.Message, "the Message passes while the clip renders")
-	assert.Equal(t, "Hello.", end.Message.Content)
-	assert.Nil(t, end.Audio)
+	first := c.next(t)
+	require.NotNil(t, first.Message, "an element ahead of the reply's audio passes while the clip renders")
+	assert.Equal(t, "Tell me about Bruno.", first.Message.Content)
 
 	close(release)
 	got := c.finish(t)
-	require.Len(t, got, 4, "three chunks of the clip, then the reply's audio")
+	require.Len(t, got, 5, "three chunks of the clip, then the reply's audio, then its end")
 	assert.Equal(t, cueFaded(pcm, cueTestRate), cueAudioOf(got[:3]))
 	assert.Nil(t, got[3].Meta.CueAudio)
 	assert.Equal(t, reply, got[3].Audio.Samples)
+	require.NotNil(t, got[4].Message)
+	assert.True(t, got[4].EndOfStream)
+	assert.Equal(t, "Hello.", got[4].Message.Content)
+}
+
+// Downstream of a rendering clip, a reply's end still follows its audio, so
+// playout tracking holds the reply and counts its own audio only.
+func TestCueStage_PendingClipKeepsReplyPlayout(t *testing.T) {
+	release := make(chan struct{})
+	cue := NewCueStage(CueConfig{})
+	cue.render = pendingRender(cueClip(cueRamp(12000), cueTestRate), release) // 500 ms
+	fc := &fakeHoldClock{t: holdT0}
+	hold := NewPlayoutHoldStage()
+	hold.clock = holdClock{now: fc.now, after: fc.after}
+	c := startChain(t, cue, hold)
+
+	c.in <- guardrailCueElem(brunoText)
+	c.in <- replyAudio(time.Second)
+	c.in <- replyEnd("A long story.")
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	close(release)
+	var end StreamElement
+	for end.Message == nil {
+		end = c.next(t)
+	}
+	assert.True(t, end.Meta.PlayoutHeld, "the reply's end came after its audio, so its Message is held")
+
+	fc.advance(900 * time.Millisecond) // the clip, then 400 ms of the reply
+	c.in <- bargeInElem()
+	assert.True(t, c.next(t).Meta.Interrupted)
+	rel := c.next(t)
+	require.True(t, rel.Meta.PlayoutRelease)
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 400, AudioMs: 1000, Fraction: 0.4},
+		playoutOf(rel.Message))
+	c.finish(t)
 }
 
 // A clip rendered once is ready for the next cue with the same text.
@@ -345,46 +406,144 @@ func TestCueStage_RenderedClipIsKept(t *testing.T) {
 	assert.Equal(t, 1, renders)
 }
 
-// A cut while the clip renders drops the cue and releases the audio queued
-// behind it, in order, ahead of the cut.
+// A cut while the clip renders drops its playback and releases what is
+// queued behind it, in order, ahead of the cut. The render itself goes on and
+// keeps its clip.
 func TestCueStage_CutWhilePendingDropsTheCue(t *testing.T) {
+	release := make(chan struct{})
 	cue := NewCueStage(CueConfig{})
-	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), make(chan struct{}))
+	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), release)
+	stored := storedTexts(cue)
 	c := startChain(t, cue)
 
 	before, after := cueRamp(100), cueRamp(200)
 	c.in <- guardrailCueElem(brunoText)
-	c.in <- StreamElement{Audio: &AudioData{Samples: before, SampleRate: cueTestRate, Channels: 1}}
+	c.in <- guardrailCueElem("Second.") // its clip queues behind the first's
+	c.in <- replyAudioOf(before)
+	c.in <- replyEnd("Hi.")
 	c.in <- NewInterruptElement()
-	c.in <- StreamElement{Audio: &AudioData{Samples: after, SampleRate: cueTestRate, Channels: 1}}
-	got := c.finish(t)
+	c.in <- replyAudioOf(after)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	assert.Equal(t, "Second.", *c.next(t).Text)
+	assert.Equal(t, before, c.next(t).Audio.Samples)
+	assert.Equal(t, "Hi.", c.next(t).Message.Content)
+	assert.True(t, c.next(t).Interrupt)
+	assert.Equal(t, after, c.next(t).Audio.Samples)
 
-	require.Len(t, got, 4)
-	assert.Equal(t, brunoText, *got[0].Text)
-	assert.Equal(t, before, got[1].Audio.Samples)
-	assert.True(t, got[2].Interrupt)
-	assert.Equal(t, after, got[3].Audio.Samples)
-	assert.Empty(t, cueAudioOf(got), "the cut cue never plays")
+	close(release)
+	assert.Equal(t, brunoText, waitStored(t, stored), "the cut did not cancel the render")
+	assert.Empty(t, cueAudioOf(c.finish(t)), "the cut cue never plays")
 }
 
-// A clip that does not render within RenderTimeout plays nothing, and the
-// audio waiting behind it goes on, even when the render ignores its context.
-func TestCueStage_RenderTimeoutReleasesTheAudio(t *testing.T) {
-	cue := NewCueStage(CueConfig{RenderTimeout: 5 * time.Millisecond})
+// A clip not ready within OnDemandBudget plays nothing, and what waited
+// behind it goes on, even when the render never returns.
+func TestCueStage_HoldBudgetReleasesTheAudio(t *testing.T) {
+	cue := NewCueStage(CueConfig{OnDemandBudget: 5 * time.Millisecond})
 	stuck := make(chan struct{})
 	t.Cleanup(func() { close(stuck) })
 	cue.render = func(context.Context, string) (CueClip, error) {
 		<-stuck
-		return CueClip{}, nil
+		return CueClip{}, errors.New("abandoned")
 	}
 	c := startChain(t, cue)
 
 	reply := cueRamp(100)
 	c.in <- guardrailCueElem(brunoText)
-	c.in <- StreamElement{Audio: &AudioData{Samples: reply, SampleRate: cueTestRate, Channels: 1}}
+	c.in <- replyAudioOf(reply)
 	assert.Equal(t, brunoText, *c.next(t).Text)
 	assert.Equal(t, reply, c.next(t).Audio.Samples)
 	assert.Empty(t, c.finish(t))
+}
+
+// A render past its budget still keeps its clip: the next cue with that text
+// plays it at once, with no second render.
+func TestCueStage_LateRenderIsKeptForNextTime(t *testing.T) {
+	pcm := cueRamp(2400)
+	release := make(chan struct{})
+	renders := 0
+	cue := NewCueStage(CueConfig{OnDemandBudget: 5 * time.Millisecond})
+	cue.render = func(context.Context, string) (CueClip, error) {
+		renders++
+		<-release
+		return cueClip(pcm, cueTestRate), nil
+	}
+	stored := storedTexts(cue)
+	c := startChain(t, cue)
+
+	reply := cueRamp(100)
+	c.in <- guardrailCueElem(brunoText)
+	c.in <- replyAudioOf(reply)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	assert.Equal(t, reply, c.next(t).Audio.Samples, "the budget ran out")
+
+	close(release)
+	assert.Equal(t, brunoText, waitStored(t, stored))
+	c.in <- guardrailCueElem(brunoText)
+	got := c.finish(t)
+	assert.Equal(t, cueFaded(pcm, cueTestRate), cueAudioOf(got))
+	assert.Equal(t, 1, renders)
+}
+
+// RenderTimeout bounds the render itself: a render that has not finished by
+// then is given up, and what waited goes on without the clip.
+func TestCueStage_RenderTimeoutEndsTheRender(t *testing.T) {
+	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute, RenderTimeout: 5 * time.Millisecond})
+	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), make(chan struct{}))
+	c := startChain(t, cue)
+
+	reply := cueRamp(100)
+	c.in <- guardrailCueElem(brunoText)
+	c.in <- replyAudioOf(reply)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	assert.Equal(t, reply, c.next(t).Audio.Samples)
+	assert.Empty(t, c.finish(t))
+}
+
+// Reply audio does not wait for a preemptible cue's clip still rendering: the
+// cue gives way, and its clip does not play when the render finishes.
+func TestCueStage_PendingPreemptibleCueDoesNotHoldReplyAudio(t *testing.T) {
+	release := make(chan struct{})
+	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute})
+	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), release)
+	stored := storedTexts(cue)
+	c := startChain(t, cue)
+
+	reply := cueRamp(100)
+	c.in <- StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	c.in <- replyAudioOf(reply)
+	assert.NotNil(t, c.next(t).Cue)
+	assert.Equal(t, reply, c.next(t).Audio.Samples, "the reply's audio passes at once")
+
+	close(release)
+	assert.Equal(t, "mm-hm", waitStored(t, stored))
+	assert.Empty(t, c.finish(t), "the late clip is not played")
+}
+
+// Input that closes while a clip renders still gets the clip, then what
+// waited behind it.
+func TestCueStage_InputCloseWaitsForRenderingClip(t *testing.T) {
+	pcm := cueRamp(2400)
+	release := make(chan struct{})
+	cue := NewCueStage(CueConfig{})
+	cue.render = pendingRender(cueClip(pcm, cueTestRate), release)
+	c := startChain(t, cue)
+
+	reply := cueRamp(100)
+	c.in <- guardrailCueElem(brunoText)
+	c.in <- replyAudioOf(reply)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	close(c.in)
+	close(release)
+	var got []StreamElement
+	for e := range c.out {
+		got = append(got, e)
+	}
+	for i := 0; i < c.n; i++ {
+		require.NoError(t, <-c.errs)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, cueFaded(pcm, cueTestRate), cueAudioOf(got[:1]))
+	assert.Equal(t, reply, got[1].Audio.Samples)
 }
 
 // stepClock is a pacing clock whose sleeps report that they started and last
@@ -447,13 +606,24 @@ func TestCueStage_PreemptibleCueGivesWayToReplyAudio(t *testing.T) {
 			in <- StreamElement{Audio: &AudioData{Samples: reply, SampleRate: cueTestRate, Channels: 1}}
 			in <- StreamElement{Text: &marker} // the pacer has read the reply audio
 			if tc.wantChunks == 0 {
-				// The preempted chunk stops waiting at once: the next sleep is
-				// already the reply's.
-				select {
-				case <-clock.sleeping:
-				case <-time.After(3 * time.Second):
-					require.FailNow(t, "the preempted chunk kept the reply waiting")
+				// The preempted chunk stops waiting at once, and the reply starts
+				// its own sequence: it goes out with no wait at all.
+				for _, want := range []string{"reply", "marker"} {
+					select {
+					case e := <-out:
+						if want == "reply" {
+							assert.Equal(t, reply, e.Audio.Samples)
+						} else {
+							assert.Equal(t, marker, *e.Text)
+						}
+					case <-time.After(3 * time.Second):
+						require.FailNow(t, "the preempted cue kept the reply waiting")
+					}
 				}
+				close(in)
+				require.NoError(t, <-done)
+				assert.Empty(t, out)
+				return
 			}
 			close(clock.tick)
 			close(in)
@@ -529,16 +699,18 @@ func TestCueStage_RecordingTagsCueAudio(t *testing.T) {
 
 	audioEvents := store.filterByType(events.EventAudioOutput)
 	require.Len(t, audioEvents, 4)
-	var kinds []string
+	var kinds, from []string
 	var clip []byte
 	for i, e := range audioEvents {
 		data := e.Data.(*events.AudioEventData)
 		kinds = append(kinds, data.CueKind)
+		from = append(from, data.GeneratedFrom)
 		if i > 0 {
 			clip = append(clip, data.Payload.InlineData...)
 		}
 	}
 	assert.Equal(t, []string{"", "guardrail_message", "guardrail_message", "guardrail_message"}, kinds)
+	assert.Equal(t, []string{"model", "cue", "cue", "cue"}, from)
 	assert.Equal(t, reply, audioEvents[0].Data.(*events.AudioEventData).Payload.InlineData)
 	assert.Equal(t, cueFaded(pcm, cueTestRate), clip)
 
