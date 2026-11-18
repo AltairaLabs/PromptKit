@@ -17,6 +17,10 @@ const recordingAudioMIMEType = "audio/pcm"
 // Matches the duplex-provider bus emit format ("pcm_linear16").
 const recordingAudioEncoding = "pcm_linear16"
 
+// generatedFromCue is the GeneratedFrom of output audio a CueStage played for
+// a cue: a pre-rendered clip, not model audio.
+const generatedFromCue = "cue"
+
 // recordingAudioBytesPerSample assumes 16-bit PCM audio (2 bytes/sample),
 // matching the duplex-provider's duration computation.
 const recordingAudioBytesPerSample = 2
@@ -378,6 +382,10 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 			Encoding:   recordingAudioEncoding,
 			DurationMs: durationMs,
 		},
+	}
+	if cue := elem.Meta.CueAudio; cue != nil {
+		data.GeneratedFrom = generatedFromCue
+		data.CueKind = string(cue.Kind)
 	}
 
 	rs.appendOrWarn(ctx, &events.Event{

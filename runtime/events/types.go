@@ -738,8 +738,12 @@ type AudioEventData struct {
 	ChunkIndex int `json:"chunk_index"`
 	// IsFinal indicates this is the last chunk in the stream.
 	IsFinal bool `json:"is_final"`
-	// GeneratedFrom indicates what generated this audio (e.g., "tts", "model"). Output only.
+	// GeneratedFrom indicates what generated this audio (e.g., "tts", "model",
+	// or "cue" for a pre-rendered clip a cue stage played). Output only.
 	GeneratedFrom string `json:"generated_from,omitempty"`
+	// CueKind is set on output audio a cue stage played for a cue (for
+	// example "guardrail_message"), with GeneratedFrom "cue".
+	CueKind string `json:"cue_kind,omitempty"`
 }
 
 type (

@@ -350,6 +350,7 @@ func TestReset_ClearsEveryField(t *testing.T) {
 		Source:      "src",
 		Priority:    PriorityCritical,
 		Reasoning:   &ReasoningDelta{Text: "thinking"},
+		Cue:         &Cue{Kind: CueGuardrailMessage, Text: "no"},
 		Meta:        ElementMetadata{FromHistory: true},
 		EndOfStream: true,
 		EndOfTurn:   true,

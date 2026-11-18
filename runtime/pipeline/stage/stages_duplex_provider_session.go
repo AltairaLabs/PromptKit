@@ -768,6 +768,13 @@ func (s *DuplexProviderStage) handleInputElement(
 	if elem.Meta.AllResponsesReceived {
 		return s.handleAllResponsesReceived(elem, done)
 	}
+	if isCueOnly(elem) { // for a CueStage downstream, not the session
+		if err := sendStreamElement(ctx, *elem, output); err != nil {
+			done <- err
+			return true
+		}
+		return false
+	}
 
 	s.userTurnDue = false
 	if err := s.forwardInputMessages(ctx, elem, output); err != nil {
