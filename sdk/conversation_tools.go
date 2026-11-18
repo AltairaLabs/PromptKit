@@ -207,7 +207,11 @@ func (c *Conversation) registerExecutorAsyncLocked(name string, executor tools.E
 		if err != nil {
 			return nil, err
 		}
-		return run(ctx, desc, call)
+		result, err := run(ctx, desc, call)
+		if err == nil && result == nil {
+			return nil, fmt.Errorf("tool %s: executor returned no result", name)
+		}
+		return result, err
 	}
 }
 
@@ -215,6 +219,10 @@ func (c *Conversation) registerExecutorAsyncLocked(name string, executor tools.E
 // call, as the tool registry calls it: ExecuteCallAsync for a
 // tools.AsyncCallExecutor, otherwise ExecuteAsync for a
 // tools.AsyncToolExecutor. It returns nil for a synchronous executor.
+//
+// ExecuteAsync takes no call, so an executor reached through it, even one
+// that is also a tools.CallExecutor, does not see the caller; it can read the
+// call's ID from its context with tools.CallIDFromContext.
 func executorAsyncFunc(executor tools.Executor) func(
 	context.Context, *tools.ToolDescriptor, tools.ToolCall,
 ) (*tools.ToolExecutionResult, error) {
