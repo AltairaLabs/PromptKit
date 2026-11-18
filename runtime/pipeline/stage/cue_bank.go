@@ -440,6 +440,7 @@ func (b *cueBank) renderAndKeep(ctx context.Context, src clipSource, text string
 		return CueClip{}, err
 	}
 	logger.Debug("CueStage: rendered a clip", "source", src.kind(), "duration", time.Since(start))
+	clip.Meta = ClipMeta{Text: src.keyText(text), Voice: src.voice(), Source: src.kind()}
 	b.keep(ctx, key, clip)
 	return clip, nil
 }

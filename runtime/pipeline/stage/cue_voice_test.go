@@ -362,17 +362,39 @@ func TestCueVoice_CacheFaultIsAMiss(t *testing.T) {
 
 // A cache warmed ahead of time is played from with no synthesis at all.
 func TestCueVoice_PrewarmedCacheNeedsNoSynthesis(t *testing.T) {
-	warm := cueRamp(2400)
-	cache := NewMemoryClipCache(1 << 20)
-	text := "Prewarmed."
-	require.NoError(t, cache.Put(context.Background(), ClipKeyFor(text, "alloy", "tts:fake", pcm24k),
-		readyClip(warm, 24000)))
+	f := fixturePrewarmed
 	svc := newFakeTTS(cueRamp(4800))
-	cue := cueStageForSession(t, CueConfig{TTS: svc, Cache: cache, Texts: []string{text}},
+	cue := cueStageForSession(t, CueConfig{TTS: svc, Cache: cueFixtureCache(t), Texts: []string{f.text}},
 		spokenSession("Alloy", 24000))
 
-	assert.Equal(t, warm, playedFor(t, cue, text), "a cached clip plays as it is")
-	assert.Zero(t, svc.calls(text))
+	assert.Equal(t, f.pcm(), playedFor(t, cue, f.text), "a cached clip plays as it is")
+	assert.Zero(t, svc.calls(f.text))
+}
+
+// A clip the bank renders into a directory cache is what a later bank on a
+// read-only copy of that directory plays with no TTS at all.
+func TestCueVoice_DirCacheCarriesARenderToAnotherSession(t *testing.T) {
+	dir := t.TempDir()
+	w, err := NewDirClipCache(dir)
+	require.NoError(t, err)
+	pcm := cueRamp(4800)
+	svc := newFakeTTS(pcm)
+	text := "Rendered into a directory."
+	first := cueStageForSession(t, CueConfig{TTS: svc, Cache: w, Texts: []string{text}}, spokenSession("alloy", 24000))
+	want := playedFor(t, first, text)
+	assert.Equal(t, cueFaded(pcm, 24000), want)
+
+	ro, err := NewDirClipCache(dir, ReadOnly())
+	require.NoError(t, err)
+	got, ok, err := ro.Get(context.Background(), ClipKeyFor(text, "alloy", "tts:fake", pcm24k))
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, ClipMeta{Text: text, Voice: "alloy", Source: "tts:fake"}, got.Meta)
+
+	quiet := newFakeTTS(cueRamp(10))
+	second := cueStageForSession(t, CueConfig{TTS: quiet, Cache: ro, Texts: []string{text}}, spokenSession("alloy", 24000))
+	assert.Equal(t, want, playedFor(t, second, text))
+	assert.Zero(t, quiet.calls(text))
 }
 
 // A text known only when cued renders on demand. Past OnDemandBudget the

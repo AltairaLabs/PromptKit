@@ -41,6 +41,17 @@ type CueClip struct {
 	// Video is reserved: no source renders it yet. A video stage goes after
 	// the CueStage and lip-syncs cue audio as it does reply audio.
 	Video *VideoData
+	// Meta says where the clip came from. A cache that keeps clips where a
+	// person can read them (the directory cache's sidecar) records it; it is
+	// not part of what plays.
+	Meta ClipMeta
+}
+
+// ClipMeta is what a clip says and who said it: the inputs of its ClipKey.
+type ClipMeta struct {
+	Text   string // the text the key was made from
+	Voice  string
+	Source string // the source kind: "tts:<service>", "session:<family>", "earcon"
 }
 
 // CueConfig configures a CueStage.

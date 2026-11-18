@@ -1,0 +1,9 @@
+{
+  "text": "We don't talk about Bruno.",
+  "voice": "alloy",
+  "source": "tts:fake",
+  "encoding": "pcm16",
+  "sample_rate": 24000,
+  "channels": 1,
+  "duration_ms": 250
+}
