@@ -277,6 +277,28 @@ type TurnForgetter interface {
 // input's transcription chunks.
 const InputItemIDKey = "item_id"
 
+// ContextNoter is an optional StreamInputSession interface for a session that
+// can add a note to the model's conversation: an instruction the model reads
+// with the turns that follow, that asks for no reply and that the caller
+// neither hears nor sees. The duplex pipeline adds one when a guardrail blocks
+// a turn, since the guardrail's message is spoken outside the model's
+// conversation and the model would otherwise not know its reply, or the
+// caller's input, was withheld.
+//
+// OpenAI Realtime adds a system message item (conversation.item.create, with
+// no response.create). Gemini Live sends it as context that does not complete
+// the turn (SendSystemContext).
+type ContextNoter interface {
+	AddContextNote(ctx context.Context, text string) error
+}
+
+// ReplyToInputKey is the StreamChunk.Metadata key under which such a session
+// puts, on a reply's chunks, the ID (as under InputItemIDKey) of the caller's
+// input the reply answers, when it knows it. The pipeline uses it to tell a
+// transcript that arrives late for a reply that already ended from the
+// transcript of the next turn, whose reply has not begun.
+const ReplyToInputKey = "reply_to_input"
+
 // OutputAudioReporter is an optional StreamInputSession interface reporting
 // the session's spoken output, so audio the pipeline plays alongside the
 // session's replies (a cue's clip) matches their voice and format. ok is false

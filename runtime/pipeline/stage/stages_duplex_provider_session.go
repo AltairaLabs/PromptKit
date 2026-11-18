@@ -259,6 +259,9 @@ type DuplexProviderStage struct {
 	// is its generation. Response goroutine only.
 	replyOut    bool
 	replyOutGen int64
+	// pendingNotes are the guardrail blocks the model is still to be told of
+	// (stages_duplex_block_note.go). Response goroutine only.
+	pendingNotes []blockNote
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -1790,6 +1793,7 @@ func (s *DuplexProviderStage) bindChunkGeneration(ctx context.Context, chunk *pr
 		return
 	}
 	s.lastReplyGen = max(s.lastReplyGen, chunk.Generation)
+	s.noteReplyInput(chunk)
 	s.bindGeneration(ctx, chunk.Generation)
 	s.switchGeneration(chunk.Generation)
 }

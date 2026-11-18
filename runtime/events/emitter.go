@@ -338,6 +338,14 @@ func (e *Emitter) ToolExcludedCtx(ctx context.Context, toolName, reason string, 
 	})
 }
 
+// ContextNoteAddedCtx emits context.note_added.
+func (e *Emitter) ContextNoteAddedCtx(ctx context.Context, data *ContextNoteData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventContextNoteAdded, data)
+}
+
 // ProviderCallStartedCtx emits provider.call.started from a full payload, with
 // trace context for exemplar correlation. Unlike the positional
 // ProviderCallStarted, it can carry Round and CallID — the fields that tie a

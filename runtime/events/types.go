@@ -66,6 +66,10 @@ const (
 	// EventToolExcluded marks a tool dropped from the model's tool set for the
 	// rest of the tool loop (ToolExcludedData).
 	EventToolExcluded EventType = "tool.excluded"
+	// EventContextNoteAdded marks a note added to a realtime model's
+	// conversation that the caller neither hears nor sees, such as the note
+	// that a guardrail withheld a reply (ContextNoteData).
+	EventContextNoteAdded EventType = "context.note_added"
 
 	// EventValidationStarted marks validation start.
 	EventValidationStarted EventType = "validation.started"
@@ -436,6 +440,25 @@ type ToolExcludedData struct {
 	// Round is the 1-based tool-loop round whose results dropped it. The tool
 	// is not offered from the next round on.
 	Round int
+}
+
+// ContextNoteData is the payload of context.note_added: a note added to a
+// realtime model's conversation, which the model reads with the turns that
+// follow and does not answer. It is not part of the transcript.
+type ContextNoteData struct {
+	baseEventData
+	// Text is the note as the model gets it.
+	Text string
+	// Reason says why it was added, such as "guardrail".
+	Reason string
+	// Direction is the blocked side for a guardrail's note: "input" or
+	// "output".
+	Direction string `json:",omitempty"`
+	// Validator names the guardrail whose block the note reports: its pack
+	// ID, or its type when it has none.
+	Validator string `json:",omitempty"`
+	// TurnIndex is the turn the note follows.
+	TurnIndex int
 }
 
 // --- Validation events (consolidated) ---

@@ -576,6 +576,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		probe.Content = s.chooseBlocked(ctx, &d, hooks.DirectionOutput, probe.Content, s.hookTurnIndex())
 	}
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionOutput, 0, s.hookTurnIndex())
+	s.noteBlock(d, hooks.DirectionOutput)
 	if v, ok := guardrailValidation(d, hooks.DirectionOutput); ok {
 		s.turnGuard.validations = append(s.turnGuard.validations, v)
 	}
@@ -735,6 +736,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 		}
 	}
 	s.forgetBlockedTurn(ctx)
+	s.sendBlockNotes(ctx)
 	text := s.blockedLive
 	if text == nil {
 		return nil
@@ -832,6 +834,7 @@ func (s *DuplexProviderStage) applySpokenInputDecision(
 		return false
 	}
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, dur, req.TurnIndex)
+	s.noteBlock(d, hooks.DirectionInput)
 	s.forgetInputOf(inputID)
 	if late != nil && late.replyDone {
 		// A reply already cut (a guardrail's cut, or a barge-in) is not cut
@@ -961,6 +964,7 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 		resp.Message.Content = s.chooseBlocked(ctx, &d, hooks.DirectionOutput, resp.Message.Content, req.TurnIndex)
 	}
 	recordGuardrailFiring(s.emitter, msg, d, hooks.DirectionOutput, time.Since(start), req.TurnIndex)
+	s.noteBlock(d, hooks.DirectionOutput)
 	// An output block replaces the turn's Meta with its own; a turn an input
 	// block already replaced stays marked as one.
 	blockedInput := isMarkedBlockedInput(msg)

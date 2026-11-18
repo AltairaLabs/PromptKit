@@ -71,6 +71,7 @@ func (l *eventLog) attach(bus events.Bus) {
 	bus.Subscribe(events.EventToolCallFailed, l.onEvent)
 	bus.Subscribe(events.EventProviderCallCompleted, l.onEvent)
 	bus.Subscribe(events.EventProviderCallUsage, l.onEvent)
+	bus.Subscribe(events.EventContextNoteAdded, l.onEvent)
 }
 
 // logf writes one line, stamped with the time.
@@ -97,6 +98,10 @@ func (l *eventLog) onEvent(e *events.Event) {
 		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, false)
 	case *events.ProviderCallUsageData:
 		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, true)
+	case *events.ContextNoteData:
+		// The model is told a guardrail withheld its reply or the caller's
+		// words; the caller never hears or sees the note.
+		l.logf("note", "told the model, not the caller: %q", d.Text)
 	}
 }
 

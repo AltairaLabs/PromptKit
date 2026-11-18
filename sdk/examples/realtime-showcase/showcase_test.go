@@ -111,6 +111,20 @@ func done(cost float64, in, out int) *providers.StreamChunk {
 		CostInfo: &types.CostInfo{InputTokens: in, OutputTokens: out, TotalCost: cost}}
 }
 
+// A note the pipeline adds to the model's conversation after a guardrail
+// block is printed in full, as what the model was told.
+func TestShowcaseEventLog_PrintsTheModelsNote(t *testing.T) {
+	out := &syncBuffer{}
+	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+
+	elog.onEvent(&events.Event{Data: &events.ContextNoteData{Text: "Your previous reply was withheld."}})
+
+	assert.Equal(t, []string{
+		`09:30:00.000  note      told the model, not the caller: "Your previous reply was withheld."`,
+	}, out.lines())
+}
+
 // Late usage is labeled with the call its CallID names, not the call that
 // completed last. Usage that arrives before its call's provider.call.completed
 // (the bus delivers each event type on its own goroutine) is printed after
