@@ -241,6 +241,22 @@ type DuplexProviderStage struct {
 	// one of a reply's (not the caller's transcript). Response goroutine only.
 	lastReplyGen int64
 	chunkIsReply bool
+	// endedTurnCut is set when the last assistant turn that ended was cut (a
+	// guardrail's cut, a barge-in, or ended early): an input guardrail that
+	// blocks its late transcript does not cut it again, which would cut the
+	// guardrail message playing in its place. Response goroutine only.
+	endedTurnCut bool
+	// pendingVerdicts are the input guardrails' verdicts on spoken turns
+	// still out, oldest first (stages_duplex_input_verdict.go); response
+	// goroutine only. inputVerdictInline is defaultInputVerdictInline; tests
+	// change it.
+	pendingVerdicts    []*spokenVerdict
+	inputVerdictInline time.Duration
+	// replyOut is set once anything of the reply streaming now has gone out
+	// (replyBearing), until its turn ends or a barge-in cuts it; replyOutGen
+	// is its generation. Response goroutine only.
+	replyOut    bool
+	replyOutGen int64
 	// blockedTurns carries input turns a guardrail blocked from the input
 	// goroutine to the response loop, which emits them between assistant turns and
 	// only then records them (history, turn count, firing), in emission order.
@@ -309,6 +325,7 @@ func NewDuplexProviderStage(
 		finalWait:              finalResponseTimeout,
 		toolWaitLimit:          finalToolWaitLimit,
 		inputGracePeriod:       inputForwardingGracePeriod,
+		inputVerdictInline:     defaultInputVerdictInline,
 	}
 }
 
@@ -1269,6 +1286,7 @@ func (s *DuplexProviderStage) forwardResponseElements(
 		if err := s.emitWaitingBlockedTurns(ctx, output); err != nil {
 			return err
 		}
+		var err error
 		select {
 		case <-ctx.Done():
 			return s.closeOnContextDone(ctx, output)
@@ -1281,18 +1299,19 @@ func (s *DuplexProviderStage) forwardResponseElements(
 			s.onFinalResponseTimer(&wait)
 
 		case blocked := <-s.pendingBlockedTurns():
-			if err := s.emitBlockedTurn(ctx, blocked, output); err != nil {
-				return err
-			}
+			err = s.emitBlockedTurn(ctx, blocked, output)
+
+		case <-s.nextVerdict():
+			err = s.onVerdict(ctx, output)
 
 		case chunk, ok := <-responseChannel:
 			if !ok {
 				return s.finishOnResponseClosed(ctx, output, wait.weClosedSession)
 			}
-
-			if err := s.processResponseChunk(ctx, &chunk, output); err != nil {
-				return err
-			}
+			err = s.processResponseChunk(ctx, &chunk, output)
+		}
+		if err != nil {
+			return err
 		}
 	}
 }
@@ -1306,6 +1325,7 @@ func (s *DuplexProviderStage) closeOnContextDone(ctx context.Context, output cha
 	// "the 30s idle timer fired" and "something upstream tore us down".
 	logger.Info("Session closure: context canceled",
 		"cause", context.Cause(ctx), "err", ctx.Err())
+	s.pendingVerdicts = nil // ctx ended: their judges have stopped
 	s.emitPartialOnCancel(ctx, output)
 	s.dropBlockedTurns()
 	return ctx.Err()
@@ -1463,6 +1483,10 @@ func (s *DuplexProviderStage) finishOnResponseClosed(
 			"accumulated_media_len", len(s.accumulatedMedia))
 	}
 
+	// The turn the session ended in keeps the verdicts on its input.
+	if err := s.awaitVerdicts(ctx, output); err != nil {
+		return err
+	}
 	s.switchToOpenCall()
 	msg := s.takeInterruptedTurn(cause)
 	s.completeOpenCall(ctx, msg, msg != nil)
@@ -1619,19 +1643,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// once per utterance. Skips the scenario path (a turn_id is pre-queued there)
 	// and no-ops once the buffer is reset, so it can't double-emit with the
 	// fast-path or EndOfStream paths.
-	if isAssistantContentChunk(chunk, isOutputTranscription) && s.hasUncapturedStreamingTranscript() {
-		logger.Debug("DuplexProviderStage: materializing user turn at assistant response start",
-			"transcriptLen", s.transcriptLen())
-		if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
-			return err
-		}
-		// Reset + mark captured so late transcription chunks for this utterance are
-		// ignored (sendAudioElement clears the flag when the next user turn starts).
-		s.transcriptMu.Lock()
-		s.inputTranscription.Reset()
-		s.transcriptItemID = ""
-		s.transcriptionCaptured = true
-		s.transcriptMu.Unlock()
+	if err := s.materializeAtReplyStart(ctx, chunk, isOutputTranscription, output); err != nil {
+		return err
 	}
 
 	// Streaming guardrails check the chunk's assistant text before it is
@@ -1655,8 +1668,11 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if turnDone {
 		s.resetTurnAccumulation()
 	}
+	if turnDone || chunk.Interrupted {
+		s.endReplyOut()
+	}
 
-	if err := s.materializeStreamingUserTurn(ctx, &elem, output); err != nil {
+	if err := s.settleTurnInput(ctx, &elem, turnDone, output); err != nil {
 		return err
 	}
 
@@ -1777,6 +1793,46 @@ func (s *DuplexProviderStage) completeChunkTurn(
 	return round
 }
 
+// materializeAtReplyStart emits the buffered user turn when the chunk is the
+// first assistant content after it (see handleResponseChunk), then waits for
+// the verdicts on the caller's input when the chunk needs them
+// (awaitVerdictsFor): a reply begins, or is cut short, only once the input it
+// answers has been judged.
+func (s *DuplexProviderStage) materializeAtReplyStart(
+	ctx context.Context, chunk *providers.StreamChunk, isOutputTranscription bool, output chan<- StreamElement,
+) error {
+	if isAssistantContentChunk(chunk, isOutputTranscription) && s.hasUncapturedStreamingTranscript() {
+		logger.Debug("DuplexProviderStage: materializing user turn at assistant response start",
+			"transcriptLen", s.transcriptLen())
+		if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
+			return err
+		}
+		// Reset + mark captured so late transcription chunks for this utterance are
+		// ignored (sendAudioElement clears the flag when the next user turn starts).
+		s.transcriptMu.Lock()
+		s.inputTranscription.Reset()
+		s.transcriptItemID = ""
+		s.transcriptionCaptured = true
+		s.transcriptMu.Unlock()
+	}
+	return s.awaitVerdictsFor(ctx, chunk, isOutputTranscription, output)
+}
+
+// settleTurnInput emits the turn's user turn still buffered at its end
+// (materializeStreamingUserTurn) and, when the turn ends, waits for the
+// verdicts on its input, that user turn's included: the turn ends with them.
+func (s *DuplexProviderStage) settleTurnInput(
+	ctx context.Context, elem *StreamElement, turnDone bool, output chan<- StreamElement,
+) error {
+	if err := s.materializeStreamingUserTurn(ctx, elem, output); err != nil {
+		return err
+	}
+	if !turnDone {
+		return nil
+	}
+	return s.awaitVerdicts(ctx, output)
+}
+
 // materializeStreamingUserTurn is the continuous-streaming user-turn
 // materialization (provider-agnostic).
 //
@@ -1822,6 +1878,10 @@ func (s *DuplexProviderStage) emitChunkError(
 	ctx context.Context, chunk *providers.StreamChunk, output chan<- StreamElement,
 ) error {
 	logger.Error("DuplexProviderStage: chunk error from session", "error", chunk.Error)
+	// The partial reply keeps the verdicts on its input.
+	if err := s.awaitVerdicts(ctx, output); err != nil {
+		return err
+	}
 	// Keep the turn's partial reply ahead of the error, as the unary stage does.
 	s.switchToOpenCall()
 	msg := s.takeInterruptedTurn(chunk.Error.Error())
@@ -1970,8 +2030,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	if err := s.emit(ctx, StreamElement{Message: userMsg}, output); err != nil {
 		return err
 	}
-	s.guardSpokenInput(ctx, s.history.snapshot(), false, inputID)
-	return nil
+	return s.judgeSpokenInput(ctx, s.history.snapshot(), inputID, nil, output)
 }
 
 // classifyResponseChunk classifies a chunk's transcription (see
