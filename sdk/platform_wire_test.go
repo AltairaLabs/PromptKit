@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -251,6 +253,9 @@ func TestConv_VertexRequestCarriesTheServiceAccountToken(t *testing.T) {
 	}
 }
 
+// azureMIRuns numbers the runs of the managed-identity test.
+var azureMIRuns atomic.Int64
+
 // WithAzureManagedIdentity authenticates the deployment request with a token
 // from the managed identity endpoint, asked for with the caller's client ID.
 func TestConv_AzureManagedIdentityTokenReachesTheDeployment(t *testing.T) {
@@ -264,15 +269,19 @@ func TestConv_AzureManagedIdentityTokenReachesTheDeployment(t *testing.T) {
 	t.Setenv("IDENTITY_ENDPOINT", msi.URL+"/msi/token")
 	t.Setenv("IDENTITY_HEADER", "header-secret")
 
+	// The identity library caches managed-identity tokens process-wide, by
+	// client ID: a client ID of this run's own makes it ask the endpoint
+	// (-count=N).
+	clientID := fmt.Sprintf("user-assigned-id-%d", azureMIRuns.Add(1))
 	w := newConvWire(t)
-	r := convSendVia(t, w, WithAzure(w.URL, "openai", "gpt-4o", WithAzureManagedIdentity("user-assigned-id")))
+	r := convSendVia(t, w, WithAzure(w.URL, "openai", "gpt-4o", WithAzureManagedIdentity(clientID)))
 	assert.Equal(t, "/openai/deployments/gpt-4o/chat/completions", r.Path)
 	assert.NotEmpty(t, r.Query.Get("api-version"))
 	assert.Equal(t, "Bearer MITOKEN", r.Header.Get("Authorization"))
 
 	reqs := msi.requests()
 	require.NotEmpty(t, reqs)
-	assert.Equal(t, "user-assigned-id", reqs[0].Query.Get("client_id"))
+	assert.Equal(t, clientID, reqs[0].Query.Get("client_id"))
 	assert.Equal(t, "header-secret", reqs[0].Header.Get("X-Identity-Header"))
 	assert.Contains(t, reqs[0].Query.Get("resource"), "cognitiveservices.azure.com")
 }
