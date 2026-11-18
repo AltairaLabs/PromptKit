@@ -98,10 +98,7 @@ func ResetIdleFromContext(ctx context.Context) {
 //
 // Returns a no-op stop when no idle timeout is configured.
 func keepIdleAlive(ctx context.Context) (stop func()) {
-	return keepIdleAliveWith(ctx, func(d time.Duration) (<-chan time.Time, func()) {
-		ticker := time.NewTicker(d)
-		return ticker.C, ticker.Stop
-	})
+	return keepIdleAliveWith(ctx, realIdleTicker)
 }
 
 // keepIdleAliveWith is keepIdleAlive with its heartbeat ticker started by
@@ -110,18 +107,38 @@ func keepIdleAlive(ctx context.Context) (stop func()) {
 func keepIdleAliveWith(
 	ctx context.Context, newTicker func(time.Duration) (<-chan time.Time, func()),
 ) (stop func()) {
+	return keepIdleAliveUpTo(ctx, 0, newTicker)
+}
+
+// realIdleTicker starts a real heartbeat ticker for keepIdleAliveUpTo.
+func realIdleTicker(d time.Duration) (<-chan time.Time, func()) {
+	ticker := time.NewTicker(d)
+	return ticker.C, ticker.Stop
+}
+
+// keepIdleAliveUpTo is keepIdleAliveWith with the hold bounded: the heartbeat
+// stops resetting the idle timer once it has held it for maxHold, so the timer
+// fires at most maxHold plus one idle window after the hold began. maxHold <= 0
+// holds until stop, as keepIdleAlive does.
+func keepIdleAliveUpTo(
+	ctx context.Context, maxHold time.Duration, newTicker func(time.Duration) (<-chan time.Time, func()),
+) (stop func()) {
 	c, ok := ctx.Value(idleResetKey{}).(idleControl)
 	if !ok || c.reset == nil || c.timeout <= 0 {
 		return func() { /* no-op: idle timeout disabled */ }
 	}
 
 	interval := max(c.timeout/2, minIdleHeartbeatInterval)
+	maxTicks := 0 // unbounded
+	if maxHold > 0 {
+		maxTicks = max(int(maxHold/interval), 1)
+	}
 
 	done := make(chan struct{})
 	ticks, stopTicker := newTicker(interval)
 	go func() {
 		defer stopTicker()
-		for {
+		for n := 0; ; {
 			select {
 			case <-done:
 				return
@@ -129,6 +146,9 @@ func keepIdleAliveWith(
 				return
 			case <-ticks:
 				c.reset()
+				if n++; maxTicks > 0 && n >= maxTicks {
+					return
+				}
 			}
 		}
 	}()
