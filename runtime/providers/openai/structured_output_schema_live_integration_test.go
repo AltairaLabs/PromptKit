@@ -343,3 +343,61 @@ func postRawStrictTool(t *testing.T, key, schema string) (int, string) {
 
 	return postRaw(t, req, body)
 }
+
+// TestOpenAI_ToolSchema_StrictIncompatible_Live is #2758: a valid schema strict
+// mode cannot express (minProperties on a string→string map). Sent strict, the
+// API refuses the whole request; the adapter must send that tool non-strict,
+// on both serializers, and the model must still be able to fill the map.
+func TestOpenAI_ToolSchema_StrictIncompatible_Live(t *testing.T) {
+	key := liveOpenAIKey(t)
+
+	t.Run("the API rejects the schema sent strict", func(t *testing.T) {
+		status, body := postRawStrictTool(t, key, dreamProposeSchema)
+		skipIfThrottled(t, status, body)
+		require.Equal(t, http.StatusBadRequest, status,
+			"premise gone: strict mode now accepts minProperties. body=%s", body)
+		assert.Contains(t, body, "minProperties", "body=%s", body)
+	})
+
+	for _, mode := range []string{"completions", "responses"} {
+		t.Run("the adapter sends a tool the API accepts ("+mode+")", func(t *testing.T) {
+			p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+				ID: "openai-strict-incompatible-live", Type: "openai", Model: liveOpenAISchemaModel(),
+				BaseURL:          "https://api.openai.com/v1",
+				Defaults:         providers.ProviderDefaults{MaxTokens: 1024},
+				AdditionalConfig: map[string]any{"api_mode": mode},
+			})
+			require.NoError(t, err)
+			defer func() { _ = p.Close() }()
+			tp, ok := p.(*ToolProvider)
+			require.True(t, ok, "openai spec must build a ToolProvider, got %T", p)
+
+			tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+				Name:        "dream_propose",
+				Description: "Propose prompts, keyed by prompt name",
+				InputSchema: json.RawMessage(dreamProposeSchema),
+			}})
+			require.NoError(t, err)
+
+			resp, calls, err := tp.PredictWithTools(context.Background(),
+				providers.PredictionRequest{
+					Messages: []types.Message{{
+						Role: "user",
+						Content: "Call dream_propose with prompts {\"greeting\": \"Say hello\", " +
+							"\"farewell\": \"Say goodbye\"}.",
+					}},
+					MaxTokens: 1024,
+				}, tools, "required")
+			skipIfThrottledErr(t, err)
+			require.NoError(t, err, "a valid tool schema must not 400 the call (#2758)")
+			require.Len(t, calls, 1, "content=%.80q", resp.Content)
+
+			var args struct {
+				Prompts map[string]string `json:"prompts"`
+			}
+			require.NoError(t, json.Unmarshal(calls[0].Args, &args), "args=%s", calls[0].Args)
+			assert.Equal(t, map[string]string{"greeting": "Say hello", "farewell": "Say goodbye"},
+				args.Prompts, "the map must survive: args=%s", calls[0].Args)
+		})
+	}
+}

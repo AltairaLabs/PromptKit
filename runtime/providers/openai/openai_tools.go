@@ -85,10 +85,13 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 		return nil, nil
 	}
 
-	strict := p.useStrictTools()
+	useStrict := p.useStrictTools()
 	tools := make([]openAITool, len(descriptors))
 	for i, desc := range descriptors {
 		params := types.NormalizeRawMessage(desc.InputSchema)
+		// Strict is decided per tool: a schema strict mode cannot express is
+		// sent non-strict and verbatim, and costs no other tool strict mode.
+		strict := useStrict && strictCompatible(params)
 		if strict {
 			params = ensureStrictSchema(params)
 		}
@@ -140,6 +143,80 @@ func strictResponseSchema(rf *providers.ResponseFormat) json.RawMessage {
 // the same nested-node miss #2055 reported on the Anthropic side.
 func ensureStrictSchema(schema json.RawMessage) json.RawMessage {
 	return schemaadapt.Rewrite(schema, applyStrictToObject)
+}
+
+// strictUnsupportedKeywords are keywords OpenAI strict mode refuses: a schema
+// carrying one anywhere 400s the whole request ("'minProperties' is not
+// permitted"), so the turn fails before the model is called (#2758).
+//
+// Source: "Supported schemas" in
+// https://developers.openai.com/api/docs/guides/structured-outputs#supported-schemas
+// lists allOf, not, dependentRequired, dependentSchemas, if, then and else as
+// unsupported. The rest are keywords the docs omit from the supported list and
+// the API refuses with "is not permitted" when sent strict (probed 2026-11).
+//
+// It is a denylist, not an allowlist, because the API ignores keywords it does
+// not know (title, default, examples, x-* extensions, nullable): an allowlist
+// would cost every tool carrying an annotation its strict mode for nothing.
+var strictUnsupportedKeywords = []string{
+	// Listed unsupported by the docs.
+	"allOf", "not", "dependentRequired", "dependentSchemas", "if", "then", "else",
+	// Refused by the API under strict mode.
+	"oneOf", "minProperties", "maxProperties", "propertyNames",
+	"unevaluatedProperties", "unevaluatedItems", "uniqueItems",
+	"contains", "minContains", "maxContains", "prefixItems", "$dynamicRef",
+}
+
+// strictSupportedFormats are the string formats strict mode accepts, from the
+// same "Supported schemas" section; any other format value 400s the request
+// ("'uri' is not a valid format").
+var strictSupportedFormats = map[string]bool{
+	"date-time": true, "time": true, "date": true, "duration": true, "email": true,
+	"hostname": true, "ipv4": true, "ipv6": true, "uuid": true,
+}
+
+// strictCompatible reports whether a tool schema can be sent under strict mode
+// without the API refusing it or ensureStrictSchema changing what it accepts.
+//
+// Two things rule it out, on any node:
+//   - a keyword strict mode refuses, or a string format it does not support;
+//   - an object whose additionalProperties is not false — a map-typed object
+//     (schema-valued additionalProperties) or one explicitly open (true).
+//     Strict mode requires additionalProperties: false, so rewriting either
+//     would change the tool's contract; a map would accept no keys at all.
+//
+// An object with no additionalProperties keyword at all keeps the standard
+// strict rewrite: that is how most hand-written schemas spell a closed object.
+// A schema that does not decode is left to the strict path, which sends it
+// unchanged for the API to report.
+func strictCompatible(schema json.RawMessage) bool {
+	var doc any
+	if len(schema) == 0 || json.Unmarshal(schema, &doc) != nil {
+		return true
+	}
+	ok := true
+	schemaadapt.Walk(doc, func(node map[string]any) {
+		if ok && !strictCompatibleNode(node) {
+			ok = false
+		}
+	})
+	return ok
+}
+
+// strictCompatibleNode applies strictCompatible's rules to one schema node.
+func strictCompatibleNode(node map[string]any) bool {
+	for _, k := range strictUnsupportedKeywords {
+		if _, present := node[k]; present {
+			return false
+		}
+	}
+	if f, isString := node["format"].(string); isString && !strictSupportedFormats[f] {
+		return false
+	}
+	if ap, present := node["additionalProperties"]; present && ap != false {
+		return false
+	}
+	return true
 }
 
 // applyStrictToObject applies OpenAI strict mode's two rules to one node.
