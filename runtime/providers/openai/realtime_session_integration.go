@@ -700,6 +700,7 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.startGeneration(e.Response.ID)
 		s.responseActive = true
 		s.responseCreated(&e.Response)
+		s.noteAnnouncementStarted()
 		s.ClearDrop()
 		s.cancelPending()
 	case *ResponseDoneEvent:
@@ -709,9 +710,9 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 	case *conversationItemTruncatedEvent:
 		s.truncates.done(e.ItemID)
 	case *conversationItemDeletedEvent:
-		s.turns.deletes.done(e.ItemID)
+		s.itemDeleted(e.ItemID)
 	case *InputAudioBufferCommittedEvent:
-		s.noteUserItem(e.ItemID)
+		s.turns.user = e.ItemID // the input a response created now answers
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
 		s.speechStopped()
@@ -1071,8 +1072,9 @@ func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudio
 		Metadata: map[string]interface{}{
 			keyType:         "input_transcription",
 			"transcription": e.Transcript, // DuplexProviderStage expects this key
-			keyItemID:       e.ItemID,
-			keyContentIndex: e.ContentIndex,
+			// The input it transcribes, which ForgetTurn takes.
+			providers.InputItemIDKey: e.ItemID,
+			keyContentIndex:          e.ContentIndex,
 			// This fires on conversation.item.input_audio_transcription.completed —
 			// a discrete final event carrying the full user transcript. Mark it as
 			// final so DuplexProviderStage materializes the user turn immediately

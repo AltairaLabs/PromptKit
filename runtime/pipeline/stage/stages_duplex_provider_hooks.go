@@ -648,16 +648,21 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	return nil
 }
 
-// forgetTurnOf has the spoken turn an input guardrail blocked forgotten, with
-// the reply numbered gen, by the next cutReply (forgetBlockedTurn).
-func (s *DuplexProviderStage) forgetTurnOf(gen int64) {
+// forgetInputOf has the spoken input an input guardrail blocked forgotten,
+// with the reply to it, by the next cutReply (forgetBlockedTurn). The input is
+// named by the session's own ID for it (providers.InputItemIDKey); an input
+// the session gave no ID is not forgotten.
+func (s *DuplexProviderStage) forgetInputOf(inputID string) {
+	if inputID == "" {
+		return
+	}
 	s.forgetPending = true
-	s.forgetGen = gen
+	s.forgetInput = inputID
 }
 
-// forgetBlockedTurn asks the session to take the blocked spoken turn and its
-// reply out of the model's conversation (providers.TurnForgetter), once per
-// block, after the reply was cut. A session that cannot keeps the turn; one
+// forgetBlockedTurn asks the session to take the blocked spoken input and the
+// reply to it out of the model's conversation (providers.TurnForgetter), once
+// per block, after the reply was cut. A session that cannot keeps the turn; one
 // that fails to is logged.
 func (s *DuplexProviderStage) forgetBlockedTurn(ctx context.Context) {
 	if !s.forgetPending {
@@ -668,7 +673,7 @@ func (s *DuplexProviderStage) forgetBlockedTurn(ctx context.Context) {
 	if !ok {
 		return
 	}
-	if err := f.ForgetTurn(ctx, s.forgetGen); err != nil {
+	if err := f.ForgetTurn(ctx, s.forgetInput); err != nil {
 		logger.Warn("DuplexProviderStage: the provider did not forget the blocked turn", "error", err)
 	}
 }
@@ -688,10 +693,12 @@ func interruptElement(reason string) StreamElement {
 // fact: the model heard the audio before its transcript existed. A block
 // stops the reply to it (blockTurnWith, the firing recorded on the reply), or,
 // with replyDone (the reply already completed and was emitted), only cuts what
-// is still playing. Either way the session is asked to forget the turn and
-// that reply (forgetBlockedTurn), so the model does not remember what was
-// blocked.
-func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []types.Message, replyDone bool) {
+// is still playing. Either way the session is asked to forget the input,
+// named by inputID, the session's ID for it, and the reply to it
+// (forgetBlockedTurn), so the model does not remember what was blocked.
+func (s *DuplexProviderStage) guardSpokenInput(
+	ctx context.Context, messages []types.Message, replyDone bool, inputID string,
+) {
 	if !s.hooksActive() {
 		return
 	}
@@ -704,12 +711,11 @@ func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []t
 		return
 	}
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, time.Since(start), req.TurnIndex)
+	s.forgetInputOf(inputID)
 	if replyDone {
 		s.cutReplyOf(s.lastReplyGen)
-		s.forgetTurnOf(s.lastReplyGen)
 		return
 	}
-	s.forgetTurnOf(s.replyGeneration())
 	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
 		s.turnGuard.validations = append(s.turnGuard.validations, v)
 	}
@@ -755,7 +761,8 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	turn := msg != nil && msg.Role == roleAssistant && s.hooksActive()
 	if tr := elem.Meta.Transcription; turn && tr != nil && tr.Text != "" {
 		s.history.fillUserTranscript(tr.Text)
-		s.guardSpokenInput(ctx, s.history.snapshot(), false)
+		// The scenario path's transcript names no session input to forget.
+		s.guardSpokenInput(ctx, s.history.snapshot(), false, "")
 	}
 	guard := s.turnGuard
 	s.turnGuard = duplexTurnGuard{}

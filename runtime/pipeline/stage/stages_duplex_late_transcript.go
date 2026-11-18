@@ -67,7 +67,8 @@ func (s *DuplexProviderStage) placeFinalTranscript(
 	}
 	switch {
 	case s.late.owed:
-		return true, s.emitLateUserTurn(ctx, text, output)
+		inputID, _ := chunk.Metadata[providers.InputItemIDKey].(string)
+		return true, s.emitLateUserTurn(ctx, text, inputID, output)
 	case s.late.repeats(text):
 		logger.Debug("DuplexProviderStage: dropping a final transcript of a user turn already shown")
 		return true, nil
@@ -78,8 +79,10 @@ func (s *DuplexProviderStage) placeFinalTranscript(
 // emitLateUserTurn emits text as the answered turn's user message, marked
 // late, and puts it in the hooks' history ahead of that turn's reply, then
 // checks it with the input guardrails. It begins no tool turn: the turn it
-// belongs to already has one.
-func (s *DuplexProviderStage) emitLateUserTurn(ctx context.Context, text string, output chan<- StreamElement) error {
+// belongs to already has one. inputID is the session's ID for the input.
+func (s *DuplexProviderStage) emitLateUserTurn(
+	ctx context.Context, text, inputID string, output chan<- StreamElement,
+) error {
 	user := &types.Message{Role: roleUser, Content: text,
 		Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &text}}}
 	toolTurn, pos := s.late.owedToolTurn, s.late.owedHistPos
@@ -98,7 +101,7 @@ func (s *DuplexProviderStage) emitLateUserTurn(ctx context.Context, text string,
 	// It is judged as the input it is, though its reply follows it in the
 	// history. A finished turn's reply completed: a block can only cut what
 	// still plays. A tool turn goes on: a block stops the rest of it.
-	s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn)
+	s.guardSpokenInput(ctx, s.history.upTo(pos), !toolTurn, inputID)
 	return nil
 }
 

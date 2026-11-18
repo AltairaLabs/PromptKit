@@ -38,7 +38,7 @@ var script = []string{
 	"Say the word pineapple, then tell me one fact about it.",
 	"What is the capital of France? Answer in one sentence.",
 	"Tell me about my friend Bruno.",
-	"Sure. Tell me about him in one sentence.",
+	"Sure. Tell me a story about him.",
 	"Who is the uncle nobody mentions in Encanto?",
 	"Show me the picture, and tell me the number on it.",
 }

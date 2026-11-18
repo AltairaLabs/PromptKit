@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
 // The model hears spoken input before its transcript exists, so an input
@@ -18,23 +19,30 @@ import (
 // for the reply the block cut.
 
 // forgettingSession is an announcingSession that also forgets turns on
-// request, recording the generation of each.
+// request, recording the input each names.
 type forgettingSession struct {
 	*announcingSession
-	forgot []int64
+	forgot []string
 }
 
-func (s *forgettingSession) ForgetTurn(_ context.Context, generation int64) error {
+func (s *forgettingSession) ForgetTurn(_ context.Context, inputID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.forgot = append(s.forgot, generation)
+	s.forgot = append(s.forgot, inputID)
 	return nil
 }
 
-func (s *forgettingSession) forgotten() []int64 {
+func (s *forgettingSession) forgotten() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]int64(nil), s.forgot...)
+	return append([]string(nil), s.forgot...)
+}
+
+// spoken is a final transcript of the caller's input the session calls id.
+func spoken(text, id string) providers.StreamChunk {
+	c := finalTranscript(text)
+	c.Metadata[providers.InputItemIDKey] = id
+	return c
 }
 
 func forgetStage(t *testing.T, reg *hooks.Registry) (*DuplexProviderStage, *forgettingSession) {
@@ -52,7 +60,7 @@ func TestDuplexForget_SpokenInputBlockedMidReply(t *testing.T) {
 
 	elems, err := feedChunks(t, s,
 		genChunk(5, transcriptChunk("Sure, ", pcm(10))),
-		finalTranscript("a wire transfer please"),
+		spoken("a wire transfer please", "item_A"),
 		genChunk(5, transcriptChunk("sending it", pcm(20))),
 		genChunk(5, stopChunk()),
 		genChunk(6, transcriptChunk("I can't help with transfers.", pcm(30))),
@@ -60,7 +68,7 @@ func TestDuplexForget_SpokenInputBlockedMidReply(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	assert.Equal(t, []int64{5}, sess.forgotten(), "the blocked turn's reply is the one forgotten")
+	assert.Equal(t, []string{"item_A"}, sess.forgotten(), "the blocked input is the one forgotten")
 	assert.Equal(t, []int64{5}, sess.interruptedGens())
 	assert.Equal(t, []string{"I can't help with transfers."}, sess.announcements(),
 		"the blocked message is still spoken")
@@ -73,12 +81,12 @@ func TestDuplexForget_SpokenInputBlockedBeforeItsReply(t *testing.T) {
 	s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
 
 	_, err := feedChunks(t, s,
-		finalTranscript("hello"), genChunk(1, transcriptChunk("hi", nil)), genChunk(1, stopChunk()),
-		finalTranscript("a wire transfer"),
+		spoken("hello", "item_A"), genChunk(1, transcriptChunk("hi", nil)), genChunk(1, stopChunk()),
+		spoken("a wire transfer", "item_B"),
 		genChunk(2, transcriptChunk("Sure", nil)), genChunk(2, stopChunk()))
 	require.NoError(t, err)
 
-	assert.Equal(t, []int64{2}, sess.forgotten())
+	assert.Equal(t, []string{"item_B"}, sess.forgotten())
 }
 
 // A transcript that arrives after its reply completed (OpenAI Realtime) is
@@ -88,10 +96,40 @@ func TestDuplexForget_LateTranscriptForgetsTheCompletedReply(t *testing.T) {
 
 	_, err := feedChunks(t, s,
 		genChunk(3, transcriptChunk("Sure", pcm(10))), genChunk(3, stopChunk()),
-		finalTranscript("a wire transfer please"))
+		spoken("a wire transfer please", "item_A"))
 	require.NoError(t, err)
 
-	assert.Equal(t, []int64{3}, sess.forgotten())
+	assert.Equal(t, []string{"item_A"}, sess.forgotten())
+}
+
+// A transcript that arrives after the caller's next turn began, with its
+// reply streaming, names its own input: that input is forgotten, not the turn
+// whose reply is streaming now.
+func TestDuplexForget_LateTranscriptAfterTheNextTurnNamesItsOwnInput(t *testing.T) {
+	s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+
+	_, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("Sure", pcm(10))), genChunk(1, stopChunk()),
+		genChunk(2, transcriptChunk("It is noon", pcm(10))),
+		spoken("a wire transfer please", "item_A"),
+		genChunk(2, stopChunk()))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"item_A"}, sess.forgotten())
+}
+
+// A transcript the session gave no input ID names nothing to forget.
+func TestDuplexForget_TranscriptWithoutAnIDForgetsNothing(t *testing.T) {
+	s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+
+	_, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("Sure", pcm(10))),
+		finalTranscript("a wire transfer please"),
+		genChunk(1, stopChunk()))
+	require.NoError(t, err)
+
+	assert.Equal(t, []int64{1}, sess.interruptedGens(), "the reply is still cut")
+	assert.Empty(t, sess.forgotten())
 }
 
 // An allowed turn, and a reply blocked for its own output, forget nothing:
@@ -103,7 +141,7 @@ func TestDuplexForget_OnlyABlockedInputIsForgotten(t *testing.T) {
 	))
 
 	_, err := feedChunks(t, s,
-		finalTranscript("hello"),
+		spoken("hello", "item_A"),
 		genChunk(1, transcriptChunk("this is forbidden", pcm(10))), genChunk(1, stopChunk()))
 	require.NoError(t, err)
 
@@ -122,10 +160,10 @@ func TestDuplexForget_InputBlockAfterOutputCutStillForgets(t *testing.T) {
 
 	_, err := feedChunks(t, s,
 		genChunk(4, transcriptChunk("forbidden", pcm(10))),
-		finalTranscript("a wire transfer"),
+		spoken("a wire transfer", "item_A"),
 		genChunk(4, stopChunk()))
 	require.NoError(t, err)
 
 	assert.Equal(t, []int64{4}, sess.interruptedGens())
-	assert.Equal(t, []int64{4}, sess.forgotten())
+	assert.Equal(t, []string{"item_A"}, sess.forgotten())
 }

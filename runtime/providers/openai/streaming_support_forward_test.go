@@ -16,11 +16,11 @@ type cuttingFakeSession struct {
 	*fakeStreamInputSession
 	interrupted []int64
 	announced   []string
-	forgot      []int64
+	forgot      []string
 }
 
-func (f *cuttingFakeSession) ForgetTurn(_ context.Context, gen int64) error {
-	f.forgot = append(f.forgot, gen)
+func (f *cuttingFakeSession) ForgetTurn(_ context.Context, inputID string) error {
+	f.forgot = append(f.forgot, inputID)
 	return nil
 }
 
@@ -53,10 +53,10 @@ func TestRealtimeSessionBookkeeping_ForwardsCutAnnounceAndForget(t *testing.T) {
 
 	tf, ok := wrapped.(providers.TurnForgetter)
 	require.True(t, ok, "the wrapper hides ForgetTurn")
-	require.NoError(t, tf.ForgetTurn(context.Background(), 9))
+	require.NoError(t, tf.ForgetTurn(context.Background(), "item_9"))
 
 	assert.Equal(t, []int64{7}, inner.interrupted)
-	assert.Equal(t, []int64{9}, inner.forgot)
+	assert.Equal(t, []string{"item_9"}, inner.forgot)
 	assert.Equal(t, []string{"No."}, inner.announced)
 	assert.True(t, spoken)
 }
