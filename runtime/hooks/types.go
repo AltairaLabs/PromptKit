@@ -62,9 +62,12 @@ type ProviderRequest struct {
 	Round        int
 	Metadata     map[string]any
 
-	// TurnIndex is the 0-based turn this call belongs to, counted by the
-	// ProviderStage. Round is not a substitute: it counts tool-loop rounds
-	// within one turn and restarts in each composition sub-pipeline.
+	// TurnIndex is the 0-based turn this call belongs to: 0 for the
+	// conversation's first turn, on the text path (Send, Stream) and the
+	// realtime path alike, counted from the persisted transcript. A text
+	// pipeline built without a state store (sdk.Open always has one) has no
+	// transcript to count, and reports 0 on every turn. Round is not a substitute: it counts tool-loop
+	// rounds within one turn and restarts in each composition sub-pipeline.
 	TurnIndex int
 
 	// Prompt is the pack's definition of the prompt the model is being

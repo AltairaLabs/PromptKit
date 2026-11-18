@@ -116,6 +116,21 @@ changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
+## Unreleased
+
+### Hooks and validation events number text turns from 0
+
+`hooks.ProviderRequest.TurnIndex` and `events.ValidationEventData.TurnIndex` were documented as 0-based and were 0-based in a realtime session, but on the text path (`Send`, `Stream`) the first turn reported 1. The text path now reports 0 for the first turn, 1 for the second, as the realtime path does. Validation events from a func guardrail (`guardrails.InputFunc`, `guardrails.OutputFunc`) reported 0 on every turn, on both paths; they now carry the turn too.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read `TurnIndex` in a `BeforeCall` or `AfterCall` hook, or `TurnIndex` in an exec hook's request | the first text turn is 0, not 1 | drop any `-1` that turned it 0-based |
+| Read `TurnIndex` on `validation.started`, `validation.passed` or `validation.failed` events | the first text turn is 0, not 1; a func guardrail's events carry the turn instead of 0 | expect 0-based values; records stored before the upgrade hold 1-based ones for text turns |
+| Read `EvalContext.TurnIndex` in an eval handler run as a guardrail | the first text turn is 0, not 1 | as above |
+| Join validation events to eval events (`eval.completed`, `eval.failed`) by turn number | the eval event's `TurnIndex` is still 1-based, so the two differ by one for the same turn | join on the message they belong to, not the turn number |
+
+`sdk.BlockedMessage.TurnIndex` was already 0-based on every path. `hooks.SessionEvent.TurnIndex` is still the number of completed turns.
+
 ## v2.21.0
 
 ### Voice runs on Azure, and Gemini Live on Vertex

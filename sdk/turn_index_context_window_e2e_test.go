@@ -84,6 +84,7 @@ func TestE2E_ContextWindowConversationReportsTranscriptTurn(t *testing.T) {
 
 	validation, eval := col.snapshot()
 	assert.Equal(t, []int{4, 5}, eval, "evals must number turns from the transcript, not the window")
-	assert.Equal(t, eval, validation, "guardrails and evals must agree on the turn")
+	assert.Equal(t, []int{3, 4}, validation,
+		"guardrails report the same transcript turns, 0-based (#2797)")
 	assert.Equal(t, 5, conv.turnState.TurnIndex())
 }
