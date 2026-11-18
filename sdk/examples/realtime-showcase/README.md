@@ -67,15 +67,18 @@ said by the model, so the model never hears it and no guardrail can cut it.
 |---|---|---|
 | no `-tts` | `Guardrail messages: a short tone (no TTS service; ...)` | a short tone, with the message shown as text |
 | `-tts openai` | `Guardrail messages: spoken by openai TTS` | the message, spoken by OpenAI TTS in the session's voice when OpenAI TTS has a voice of that name |
+| `-tts gemini` | `Guardrail messages: spoken by gemini TTS` | the message, spoken by Gemini TTS in the session's voice when Gemini TTS has a voice of that name |
 
 ```bash
 go run . -provider openai -tts openai
-go run -tags portaudio . -provider gemini -tts openai
+go run -tags portaudio . -provider gemini -tts gemini
 ```
 
-`-tts openai` needs `OPENAI_API_KEY`, with Gemini too. OpenAI TTS has no
-voice named like Gemini Live's (`Puck`), so with Gemini the message is spoken
-in OpenAI TTS's default voice, and the log warns once. The first session
+Match the TTS service to the provider to hear the session's own voice:
+`-tts openai` (needs `OPENAI_API_KEY`) has OpenAI Realtime's voices, and
+`-tts gemini` (needs `GEMINI_API_KEY`) has Gemini Live's. With the other
+service the message is spoken in that service's default voice, and the log
+warns once. The first session
 renders each of the pack's guardrail messages when it starts; a block in the
 first second or so of the session, before the render is done, plays the tone
 instead. The log prints a `cue` line each time a message plays.

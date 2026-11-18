@@ -128,7 +128,7 @@ func parseFlags() (*providerSetup, error) {
 	var f flags
 	flag.StringVar(&f.provider, "provider", "openai", "realtime provider: openai or gemini")
 	flag.StringVar(&f.model, "model", "", "model (default: gpt-realtime / gemini-3.8-live)")
-	flag.StringVar(&f.tts, "tts", "", "TTS service that speaks guardrail messages: openai (default: none, a tone)")
+	flag.StringVar(&f.tts, "tts", "", "TTS service that speaks guardrail messages: openai or gemini (default: none, a tone)")
 	flag.Parse()
 	setup, err := setupFor(f.provider)
 	if err != nil {
@@ -147,7 +147,7 @@ func parseFlags() (*providerSetup, error) {
 }
 
 // useTTS sets the TTS service that speaks a guardrail's message: "openai"
-// for OpenAI TTS, "" for none.
+// for OpenAI TTS, "gemini" for Gemini TTS, "" for none.
 func (p *providerSetup) useTTS(name string) error {
 	switch name {
 	case "":
@@ -159,8 +159,15 @@ func (p *providerSetup) useTTS(name string) error {
 		}
 		p.tts = tts.NewOpenAI(key)
 		return nil
+	case "gemini":
+		key := os.Getenv("GEMINI_API_KEY")
+		if key == "" {
+			return errors.New("-tts gemini needs GEMINI_API_KEY")
+		}
+		p.tts = tts.NewGemini(key)
+		return nil
 	default:
-		return fmt.Errorf("unknown TTS service %q (want openai)", name)
+		return fmt.Errorf("unknown TTS service %q (want openai or gemini)", name)
 	}
 }
 

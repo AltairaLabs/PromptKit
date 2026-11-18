@@ -367,7 +367,13 @@ func TestUseTTS(t *testing.T) {
 	assert.Empty(t, opts)
 	assert.Equal(t, "a short tone (no TTS service; add -tts openai to hear the words)", heard)
 
-	assert.EqualError(t, setup.useTTS("elevenlabs"), `unknown TTS service "elevenlabs" (want openai)`)
+	assert.EqualError(t, setup.useTTS("elevenlabs"), `unknown TTS service "elevenlabs" (want openai or gemini)`)
+	t.Setenv("GEMINI_API_KEY", "")
+	assert.EqualError(t, setup.useTTS("gemini"), "-tts gemini needs GEMINI_API_KEY")
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	require.NoError(t, setup.useTTS("gemini"))
+	_, heard = setup.cueOptions()
+	assert.Equal(t, "spoken by gemini TTS", heard)
 	t.Setenv("OPENAI_API_KEY", "")
 	assert.EqualError(t, setup.useTTS("openai"), "-tts openai needs OPENAI_API_KEY")
 
