@@ -32,12 +32,10 @@ const (
 // Ensure GeminiProvider implements StreamInputSupport
 var _ providers.StreamInputSupport = (*Provider)(nil)
 
-// Where Gemini API Live sessions connect: the API's host and the Live route.
-const (
-	geminiAPIHost    = "generativelanguage.googleapis.com"
-	geminiLivePath   = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
-	geminiLiveAPIURL = "wss://" + geminiAPIHost + geminiLivePath
-)
+// geminiLiveAPIURL is the WebSocket URL for Gemini Live API
+//
+//nolint:lll // URL cannot be split
+const geminiLiveAPIURL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
 // DefaultLiveVoice is the prebuilt voice a Live AUDIO session speaks with
 // when the request's metadata["voice"] names none.
@@ -116,20 +114,38 @@ func (p *Provider) liveDial(config *StreamSessionConfig) (wsURL, apiKey string, 
 	}
 }
 
-// geminiLiveURL returns the Gemini API Live endpoint. A base_url on another
-// host (a gateway fronting the API) carries the Live session too, at the Live
-// route on that host, so the session goes where requests do. The API's own
-// base URL, or none, keeps the public endpoint.
+// geminiLiveURL returns where Gemini API Live sessions connect: the
+// provider's additional_config.live_url when set, the public endpoint
+// otherwise. base_url does not move Live, so a REST-only proxy in base_url
+// leaves Live on Google.
 func (p *Provider) geminiLiveURL() string {
-	u, err := url.Parse(p.baseURL)
-	if err != nil || u.Host == "" || strings.EqualFold(u.Hostname(), geminiAPIHost) {
-		return geminiLiveAPIURL
+	if p.liveURL != "" {
+		return p.liveURL
 	}
-	scheme := "wss"
-	if u.Scheme == "http" || u.Scheme == "ws" {
-		scheme = "ws"
+	return geminiLiveAPIURL
+}
+
+// applyLiveURLConfig sets the Live endpoint from additional_config.live_url,
+// used verbatim (path and query kept) so a gateway can front Live. It must be
+// a ws:// or wss:// URL; ws:// sends the API key in plaintext and is warned
+// about.
+func applyLiveURLConfig(p *Provider, spec providers.ProviderSpec) error {
+	raw, set := spec.AdditionalConfig["live_url"]
+	if !set {
+		return nil
 	}
-	return (&url.URL{Scheme: scheme, Host: u.Host, Path: geminiLivePath}).String()
+	s, _ := raw.(string)
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || (u.Scheme != "ws" && u.Scheme != "wss") {
+		return fmt.Errorf("gemini provider %q: additional_config.live_url must be a ws:// or wss:// URL, got %v",
+			spec.ID, raw)
+	}
+	if u.Scheme == "ws" {
+		logger.Warn("gemini live_url is not TLS: the API key is sent in plaintext",
+			"provider", spec.ID, "live_url", s)
+	}
+	p.liveURL = s
+	return nil
 }
 
 // vertexLiveModel names model by its Vertex resource. A full resource is kept;

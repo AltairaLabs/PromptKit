@@ -58,6 +58,9 @@ type Provider struct {
 	platform           string
 	platformConfig     *providers.PlatformConfig
 	newStreamSessionFn streamSessionFactory // override for testing; nil means use NewStreamSession
+	// liveURL, from additional_config.live_url, replaces the Gemini API Live
+	// endpoint (a gateway fronting Live). Empty means geminiLiveAPIURL.
+	liveURL string
 	// capabilities holds the declared capability set from the provider config.
 	// When non-nil it is authoritative for multimodal support; nil falls back
 	// to Gemini's built-in defaults (images + audio + video + documents).

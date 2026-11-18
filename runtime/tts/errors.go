@@ -10,6 +10,9 @@ var (
 	// ErrInvalidFormat is returned when the requested format is not supported.
 	ErrInvalidFormat = errors.New("invalid or unsupported audio format")
 
+	// ErrInvalidModel is returned when the requested model is not available.
+	ErrInvalidModel = errors.New("invalid or unsupported model")
+
 	// ErrEmptyText is returned when attempting to synthesize empty text.
 	ErrEmptyText = errors.New("text cannot be empty")
 

@@ -58,7 +58,7 @@ config := tts.SynthesisConfig{
 - Each service supports a subset of the formats `FormatMP3`, `FormatOpus`, `FormatAAC`, `FormatFLAC`, `FormatPCM16` and `FormatWAV`. `SupportedFormats()` lists them with their sample rates. OpenAI supports all six, ElevenLabs MP3 and PCM, Cartesia PCM, MP3 and WAV, and Gemini PCM only.
 - `SynthesisConfig.Pitch` has no effect on the built-in services. The OpenAI, ElevenLabs, Cartesia and Gemini speech APIs take no pitch parameter.
 - The OpenAI models are `tts.ModelTTS1` (the default), `tts.ModelTTS1HD` and `tts.ModelGPT4oMiniTTS`.
-- The Gemini model defaults to `tts.DefaultGeminiTTSModel`; set another with `base.WithModel` or `SynthesisConfig.Model`. Its voices are Gemini's prebuilt voices, the same names a Gemini Live session takes in its streaming metadata `voice`, so a clip can match the session's voice. With no voice it speaks `tts.GeminiDefaultVoice` (Puck), Gemini Live's default. Its audio is 24 kHz PCM, resampled to `Format.SampleRate` when you set one.
+- The Gemini model defaults to `tts.DefaultGeminiTTSModel`; set another with `base.WithModel` or `SynthesisConfig.Model`. Its voices are Gemini's prebuilt voices, the same names a Gemini Live session takes in its streaming metadata `voice`, so a clip can match the session's voice. With no voice it speaks `tts.GeminiDefaultVoice` (Puck), Gemini Live's default. Its audio is PCM at `Format.SampleRate`, or at 24 kHz when that is 0. An unknown voice fails with `tts.ErrInvalidVoice` and an unknown model with `tts.ErrInvalidModel`.
 
 For a VAD voice session, set the voice and speed on `sdk.VADModeConfig` instead. See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
 

@@ -64,8 +64,16 @@ func TestWavMonoPCM16(t *testing.T) {
 		{"empty data chunk then another chunk", riff(chunk("fmt ", mono), chunk("data", nil), chunk("C2PA", []byte("mm"))),
 			[]byte{}, 24000, ""},
 		{"empty data chunk at the very end", riff(chunk("fmt ", mono), chunk("data", nil)), []byte{}, 24000, ""},
-		{"streamed WAV with an unknown data size",
-			riff(chunk("fmt ", mono), riffChunk{id: "data", size: 0xFFFFFFFF, body: testPCM}), testPCM, 24000, ""},
+		{"unknown data size, then a manifest", riff(chunk("fmt ", mono),
+			riffChunk{id: "data", size: 0xFFFFFFFF, body: testPCM}, chunk("C2PA", []byte("manifest"))),
+			nil, 0, `WAV "data" chunk is longer than the audio`},
+		{"unknown data size at the end",
+			riff(chunk("fmt ", mono), riffChunk{id: "data", size: 0xFFFFFFFF, body: testPCM}),
+			nil, 0, `WAV "data" chunk is longer than the audio`},
+		{"truncated data", riff(chunk("fmt ", mono), riffChunk{id: "data", size: 10, body: testPCM}),
+			nil, 0, `WAV "data" chunk is longer than the audio`},
+		{"two data chunks are joined", riff(chunk("fmt ", mono), chunk("data", testPCM[:4]), chunk("C2PA", []byte("m")),
+			chunk("data", testPCM[4:])), testPCM, 24000, ""},
 		{"header only", []byte("RIFF\x00\x00\x00\x00WAVE"), nil, 0, "WAV has no fmt and data chunks"},
 		{"too short", []byte("RIFF\x00\x00\x00\x00WAV"), nil, 0, "audio is not a WAV"},
 		{"not RIFF", append([]byte("ID3\x04"), make([]byte, 20)...), nil, 0, "audio is not a WAV"},
@@ -101,6 +109,56 @@ func TestGeminiAudioPCM_L16RateFallsBackTo24k(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 16000, rate)
 }
+
+// Gemini's audio/L16 is little-endian, unlike RFC 2586's network order: the
+// bytes are returned as they came, with no swap. (Measured on
+// gemini-2.5-flash-preview-tts: read little-endian, adjacent samples differ by
+// 734 on average; byte-swapped, by 15315, which is noise, not speech.)
+func TestGeminiAudioPCM_L16IsLittleEndian(t *testing.T) {
+	le := []byte{0xe6, 0xff, 0x05, 0x00} // -26, 5 little-endian
+	pcm, _, err := geminiAudioPCM("audio/L16;codec=pcm;rate=24000", le)
+	require.NoError(t, err)
+	assert.Equal(t, le, pcm)
+}
+
+// With no sample rate asked for, the audio comes back at 24 kHz, the rate
+// FormatPCM16 and SupportedFormats name, whatever rate the reply was in.
+func TestGeminiService_Synthesize_UnsetRateIs24k(t *testing.T) {
+	src := make([]byte, 3200) // 100 ms at 16 kHz
+	for i := range src {
+		src[i] = byte(i * 3)
+	}
+	srv, _ := geminiTTSServer(t, http.StatusOK, geminiAudioResponse("audio/L16;codec=pcm;rate=16000", src))
+	svc := NewGemini("k", base.WithBaseURL(srv.URL))
+	rc, err := svc.Synthesize(context.Background(), "Hi", SynthesisConfig{})
+	require.NoError(t, err)
+	want, err := audio.ResamplePCM16(src, 16000, 24000)
+	require.NoError(t, err)
+	assert.Equal(t, want, readAllAudio(t, rc))
+}
+
+// A client given to a Vertex service keeps its transport and still sends the
+// platform credential.
+func TestNewGeminiOnVertex_WithClientKeepsTheCredential(t *testing.T) {
+	srv, calls := geminiTTSServer(t, http.StatusOK,
+		geminiAudioResponse("audio/wav", geminiWAV(testPCM, 24000, "")))
+	var viaCustom bool
+	custom := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		viaCustom = true
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	svc := NewGeminiOnVertex(bearerCred("gcp-token"), "p", "us-central1",
+		base.WithClient(custom), base.WithBaseURL(srv.URL))
+	rc, err := svc.Synthesize(context.Background(), "Hi", SynthesisConfig{})
+	require.NoError(t, err)
+	_ = readAllAudio(t, rc)
+	assert.Equal(t, "Bearer gcp-token", (<-calls).auth)
+	assert.True(t, viaCustom, "the caller's transport carries the request")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // SynthesizeTTS honors the request's sample rate: the 24 kHz reply comes
 // back resampled to it.

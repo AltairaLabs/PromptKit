@@ -1,10 +1,13 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -49,7 +53,12 @@ func liveSetupAt(t *testing.T, metadata map[string]interface{}) (path string, se
 	}))
 	t.Cleanup(srv.Close)
 
-	p := NewProvider("gemini-live", "gemini-live-model", srv.URL+"/v1beta", providers.ProviderDefaults{}, false)
+	built, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "gemini-live", Type: "gemini", Model: "gemini-live-model",
+		AdditionalConfig: map[string]any{"live_url": "ws" + strings.TrimPrefix(srv.URL, "http") + "/gw/gemini/live"},
+	})
+	require.NoError(t, err)
+	p := built.(*ToolProvider)
 	req := liveAudioRequest()
 	req.Metadata = metadata
 	session, err := p.CreateStreamSession(context.Background(), req)
@@ -94,26 +103,51 @@ func TestLive_StreamMetadataVoiceSetsTheSetupVoice(t *testing.T) {
 	assert.Equal(t, "Puck", voiceNameOf(t, setup), "an empty voice keeps the default")
 }
 
-// A provider whose base_url points somewhere other than the Gemini API opens
-// its Live sessions there too, at the Live route, so a gateway (or a test
-// stand-in) in front of the API also fronts Live.
-func TestLive_BaseURLHostCarriesTheLiveSession(t *testing.T) {
+// additional_config.live_url sends Live sessions to that URL exactly, path
+// included, so a gateway or a test stand-in can front Live. base_url does not
+// move Live: a REST-only proxy keeps working with Live on Google.
+func TestLive_LiveURLCarriesTheSessionWithItsPath(t *testing.T) {
 	path, _ := liveSetupAt(t, map[string]interface{}{"response_modalities": []string{"AUDIO"}})
-	assert.Equal(t, "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent", path)
+	assert.Equal(t, "/gw/gemini/live", path)
 }
 
-// The Gemini API's own base URL, or none, keeps the public Live endpoint.
-func TestLive_DefaultBaseURLKeepsThePublicLiveEndpoint(t *testing.T) {
-	for _, base := range []string{"", "https://generativelanguage.googleapis.com/v1beta"} {
+func TestLive_BaseURLDoesNotMoveLive(t *testing.T) {
+	for _, base := range []string{"", "https://generativelanguage.googleapis.com/v1beta",
+		"https://gateway.example.com/gemini/v1beta"} {
 		p := NewProvider("g", "m", base, providers.ProviderDefaults{}, false)
-		cfg := StreamSessionConfig{}
-		wsURL, _, err := p.liveDial(&cfg)
+		wsURL, _, err := p.liveDial(&StreamSessionConfig{})
 		require.NoError(t, err)
 		assert.Equal(t, geminiLiveAPIURL, wsURL, "base_url %q", base)
 	}
-	p := NewProvider("g", "m", "https://gateway.example.com/gemini/v1beta", providers.ProviderDefaults{}, false)
-	wsURL, _, err := p.liveDial(&StreamSessionConfig{})
+}
+
+func geminiSpec(live any) providers.ProviderSpec {
+	return providers.ProviderSpec{ID: "g", Type: "gemini", Model: "m",
+		AdditionalConfig: map[string]any{"live_url": live}}
+}
+
+// A live_url must be a WebSocket URL; ws:// is allowed with a warning that the
+// API key travels in plaintext, anything else is refused when the provider is built.
+func TestLive_LiveURLValidation(t *testing.T) {
+	var logs bytes.Buffer
+	logger.SetLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+
+	p, err := providers.CreateProviderFromSpec(geminiSpec("wss://gw.example.com/a/b?x=1"))
 	require.NoError(t, err)
-	assert.Equal(t,
-		"wss://gateway.example.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent", wsURL)
+	wsURL, _, err := p.(*ToolProvider).liveDial(&StreamSessionConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, "wss://gw.example.com/a/b?x=1", wsURL)
+	assert.Empty(t, logs.String())
+
+	_, err = providers.CreateProviderFromSpec(geminiSpec("ws://gw.example.com/live"))
+	require.NoError(t, err)
+	assert.Contains(t, logs.String(), "live_url is not TLS: the API key is sent in plaintext")
+
+	for _, bad := range []any{"http://gw.example.com/live", "https://gw.example.com/live", "gw.example.com/live",
+		"wss://", 42} {
+		_, err := providers.CreateProviderFromSpec(geminiSpec(bad))
+		require.Error(t, err, "%v", bad)
+		assert.Contains(t, err.Error(), "additional_config.live_url must be a ws:// or wss:// URL", "%v", bad)
+	}
 }

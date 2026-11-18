@@ -197,9 +197,15 @@ func TestGeminiService_Synthesize_Errors(t *testing.T) {
 		message   string
 		retryable bool
 	}{
-		{"bad request", http.StatusBadRequest,
-			`{"error":{"code":400,"message":"Voice name nope is not supported.","status":"INVALID_ARGUMENT"}}`,
-			nil, "Voice name nope is not supported.", false},
+		{"unknown voice", http.StatusBadRequest, `{"error":{"code":400,"message":` +
+			`"No matching speaker voice found for name: nope and language: ","status":"INVALID_ARGUMENT"}}`,
+			ErrInvalidVoice, "No matching speaker voice found for name: nope and language: ", false},
+		{"other bad request", http.StatusBadRequest,
+			`{"error":{"code":400,"message":"Invalid JSON payload.","status":"INVALID_ARGUMENT"}}`,
+			errBadRequest, "Invalid JSON payload.", false},
+		{"unknown model", http.StatusNotFound, `{"error":{"code":404,"message":` +
+			`"models/nope is not found for API version v1beta","status":"NOT_FOUND"}}`,
+			ErrInvalidModel, "models/nope is not found for API version v1beta", false},
 		{"rate limited", http.StatusTooManyRequests,
 			`{"error":{"code":429,"message":"Resource exhausted.","status":"RESOURCE_EXHAUSTED"}}`,
 			ErrRateLimited, "Resource exhausted.", true},
@@ -227,6 +233,9 @@ func TestGeminiService_Synthesize_Errors(t *testing.T) {
 			assert.Equal(t, tt.retryable, se.Retryable)
 			if tt.cause != nil {
 				assert.True(t, errors.Is(err, tt.cause), "cause %v, got %v", tt.cause, se.Cause)
+			}
+			if tt.cause != ErrInvalidVoice {
+				assert.False(t, errors.Is(err, ErrInvalidVoice), "only an unknown voice is ErrInvalidVoice")
 			}
 		})
 	}

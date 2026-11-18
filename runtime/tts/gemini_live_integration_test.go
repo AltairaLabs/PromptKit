@@ -62,7 +62,12 @@ func TestGeminiTTSLive_SynthesizesPCMInTheVoiceAsked(t *testing.T) {
 	_, err = svc.Synthesize(ctx, "Hi", tts.SynthesisConfig{Voice: "NotAVoice"})
 	var se *tts.SynthesisError
 	require.True(t, errors.As(err, &se), "an unknown voice is refused: %v", err)
+	assert.ErrorIs(t, err, tts.ErrInvalidVoice)
 	t.Logf("unknown voice: %v", err)
+
+	_, err = svc.Synthesize(ctx, "Hi", tts.SynthesisConfig{Model: "no-such-tts-model"})
+	assert.ErrorIs(t, err, tts.ErrInvalidModel)
+	t.Logf("unknown model: %v", err)
 }
 
 func rms(pcm []byte) float64 {

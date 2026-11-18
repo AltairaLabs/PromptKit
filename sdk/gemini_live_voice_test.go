@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
+	_ "github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
@@ -52,12 +53,16 @@ func geminiLiveSetupRecorder(t *testing.T) (*httptest.Server, <-chan []byte) {
 }
 
 // openGeminiLiveVoice opens a duplex conversation on a Gemini Live provider
-// whose base_url is the stand-in, with the streaming metadata given, sends a
+// whose live_url is the stand-in, with the streaming metadata given, sends a
 // line of text so the session opens, and returns the setup message's voice.
 func openGeminiLiveVoice(t *testing.T, metadata map[string]interface{}) string {
 	t.Helper()
 	srv, setups := geminiLiveSetupRecorder(t)
-	provider := gemini.NewProvider("gemini-live", "live-model", srv.URL+"/v1beta", providers.ProviderDefaults{}, false)
+	provider, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "gemini-live", Type: "gemini", Model: "live-model",
+		AdditionalConfig: map[string]any{"live_url": "ws" + strings.TrimPrefix(srv.URL, "http") + "/live"},
+	})
+	require.NoError(t, err)
 	packPath := filepath.Join(t.TempDir(), "pack.json")
 	require.NoError(t, os.WriteFile(packPath, []byte(textStreamPackJSON), 0o600))
 	conv, err := sdk.OpenDuplex(packPath, "chat",

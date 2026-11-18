@@ -267,6 +267,9 @@ var (
     // ErrInvalidFormat is returned when the requested format is not supported.
     ErrInvalidFormat = errors.New("invalid or unsupported audio format")
 
+    // ErrInvalidModel is returned when the requested model is not available.
+    ErrInvalidModel = errors.New("invalid or unsupported model")
+
     // ErrEmptyText is returned when attempting to synthesize empty text.
     ErrEmptyText = errors.New("text cannot be empty")
 
@@ -809,7 +812,7 @@ type Factory = base.Factory[Service]
 ```
 
 <a name="GeminiOption"></a>
-## type [GeminiOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L63>)
+## type [GeminiOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L64>)
 
 GeminiOption configures the Gemini TTS service. It is base.HTTPServiceOption, so base.WithBaseURL, base.WithClient and base.WithModel apply.
 
@@ -818,7 +821,7 @@ type GeminiOption = base.HTTPServiceOption
 ```
 
 <a name="GeminiService"></a>
-## type [GeminiService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L52-L59>)
+## type [GeminiService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L53-L60>)
 
 GeminiService implements TTS with Gemini's speech generation: a generateContent call with AUDIO output, on the Gemini API \(API key\) or on Vertex AI \(platform credential\). It returns 16\-bit mono PCM.
 
@@ -831,7 +834,7 @@ type GeminiService struct {
 ```
 
 <a name="NewGemini"></a>
-### func [NewGemini](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L67>)
+### func [NewGemini](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L68>)
 
 ```go
 func NewGemini(apiKey string, opts ...GeminiOption) *GeminiService
@@ -840,16 +843,16 @@ func NewGemini(apiKey string, opts ...GeminiOption) *GeminiService
 NewGemini creates a Gemini TTS service on the Gemini API, authenticated with apiKey \(sent in the x\-goog\-api\-key header\).
 
 <a name="NewGeminiOnVertex"></a>
-### func [NewGeminiOnVertex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L81-L83>)
+### func [NewGeminiOnVertex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L84-L86>)
 
 ```go
 func NewGeminiOnVertex(cred credentials.Credential, project, location string, opts ...GeminiOption) *GeminiService
 ```
 
-NewGeminiOnVertex creates a Gemini TTS service on Vertex AI in a project and location. Every request carries cred \(a GCP OAuth token\) and no API key. base.WithBaseURL replaces the location's Google publisher models URL.
+NewGeminiOnVertex creates a Gemini TTS service on Vertex AI in a project and location. Every request carries cred \(a GCP OAuth token\) and no API key. base.WithBaseURL replaces the location's Google publisher models URL. A client passed with base.WithClient keeps its own transport, wrapped so the credential is still applied to every request.
 
 <a name="GeminiService.ImplName"></a>
-### func \(\*GeminiService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L98>)
+### func \(\*GeminiService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L97>)
 
 ```go
 func (s *GeminiService) ImplName() string
@@ -858,7 +861,7 @@ func (s *GeminiService) ImplName() string
 ImplName returns the implementation name for cost tracking.
 
 <a name="GeminiService.ModelName"></a>
-### func \(\*GeminiService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L101>)
+### func \(\*GeminiService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L100>)
 
 ```go
 func (s *GeminiService) ModelName() string
@@ -867,7 +870,7 @@ func (s *GeminiService) ModelName() string
 ModelName returns the configured model name for cost tracking.
 
 <a name="GeminiService.SupportedFormats"></a>
-### func \(\*GeminiService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L359>)
+### func \(\*GeminiService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L380>)
 
 ```go
 func (s *GeminiService) SupportedFormats() []AudioFormat
@@ -876,7 +879,7 @@ func (s *GeminiService) SupportedFormats() []AudioFormat
 SupportedFormats returns the one format Gemini TTS produces: 24 kHz 16\-bit mono PCM \(Synthesize resamples it to Format.SampleRate on request\).
 
 <a name="GeminiService.SupportedVoices"></a>
-### func \(\*GeminiService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L349>)
+### func \(\*GeminiService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L370>)
 
 ```go
 func (s *GeminiService) SupportedVoices() []Voice
@@ -885,13 +888,13 @@ func (s *GeminiService) SupportedVoices() []Voice
 SupportedVoices returns Gemini's prebuilt voices. The ID is the name a request \(and a Gemini Live session's metadata\["voice"\]\) uses.
 
 <a name="GeminiService.Synthesize"></a>
-### func \(\*GeminiService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L150>)
+### func \(\*GeminiService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/gemini.go#L149>)
 
 ```go
 func (s *GeminiService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
 ```
 
-Synthesize converts text to 16\-bit mono PCM. The reply's audio \(a WAV or raw PCM, depending on the model\) is unwrapped to its samples and resampled to config.Format.SampleRate when that is set and differs from the reply's.
+Synthesize converts text to 16\-bit mono PCM. The reply's audio \(a WAV or raw PCM, depending on the model\) is unwrapped to its samples and returned at config.Format.SampleRate, or at 24 kHz when that is unset.
 
 <a name="GeminiService.SynthesizeTTS"></a>
 ### func \(\*GeminiService\) [SynthesizeTTS](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/base_provider.go#L133>)
@@ -1226,7 +1229,7 @@ voice=alloy format=mp3 speed=1.0 pitch=0
 </details>
 
 <a name="SynthesisError"></a>
-## type [SynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L30-L45>)
+## type [SynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L33-L48>)
 
 SynthesisError provides detailed error information from TTS providers.
 
@@ -1250,7 +1253,7 @@ type SynthesisError struct {
 ```
 
 <a name="NewSynthesisError"></a>
-### func [NewSynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L61>)
+### func [NewSynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L64>)
 
 ```go
 func NewSynthesisError(provider, code, message string, cause error, retryable bool) *SynthesisError
@@ -1259,7 +1262,7 @@ func NewSynthesisError(provider, code, message string, cause error, retryable bo
 NewSynthesisError creates a new SynthesisError.
 
 <a name="SynthesisError.Error"></a>
-### func \(\*SynthesisError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L48>)
+### func \(\*SynthesisError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L51>)
 
 ```go
 func (e *SynthesisError) Error() string
@@ -1268,7 +1271,7 @@ func (e *SynthesisError) Error() string
 Error implements the error interface.
 
 <a name="SynthesisError.Unwrap"></a>
-### func \(\*SynthesisError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L56>)
+### func \(\*SynthesisError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L59>)
 
 ```go
 func (e *SynthesisError) Unwrap() error

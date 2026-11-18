@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -77,19 +78,17 @@ func NewGemini(apiKey string, opts ...GeminiOption) *GeminiService {
 
 // NewGeminiOnVertex creates a Gemini TTS service on Vertex AI in a project and
 // location. Every request carries cred (a GCP OAuth token) and no API key.
-// base.WithBaseURL replaces the location's Google publisher models URL.
+// base.WithBaseURL replaces the location's Google publisher models URL. A
+// client passed with base.WithClient keeps its own transport, wrapped so the
+// credential is still applied to every request.
 func NewGeminiOnVertex(
 	cred credentials.Credential, project, location string, opts ...GeminiOption,
 ) *GeminiService {
-	client := &http.Client{
-		Timeout:   defaultGeminiTimeout,
-		Transport: &base.CredentialTransport{Base: http.DefaultTransport, Cred: cred},
-	}
-	vertexOpts := []GeminiOption{
-		base.WithClient(client),
-		base.WithBaseURL(credentials.VertexEmbeddingEndpoint(project, location)),
-	}
+	vertexOpts := []GeminiOption{base.WithBaseURL(credentials.VertexEmbeddingEndpoint(project, location))}
 	svc := NewGemini("", append(vertexOpts, opts...)...)
+	client := *svc.Client
+	client.Transport = &base.CredentialTransport{Base: client.Transport, Cred: cred}
+	svc.Client = &client
 	svc.vertex = true
 	return svc
 }
@@ -145,8 +144,8 @@ type geminiTTSResponse struct {
 }
 
 // Synthesize converts text to 16-bit mono PCM. The reply's audio (a WAV or
-// raw PCM, depending on the model) is unwrapped to its samples and resampled
-// to config.Format.SampleRate when that is set and differs from the reply's.
+// raw PCM, depending on the model) is unwrapped to its samples and returned at
+// config.Format.SampleRate, or at 24 kHz when that is unset.
 func (s *GeminiService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error) {
 	if text == "" {
 		return nil, ErrEmptyText
@@ -192,7 +191,13 @@ func (s *GeminiService) Synthesize(ctx context.Context, text string, config Synt
 	if err != nil {
 		return nil, err
 	}
-	if want := config.Format.SampleRate; want > 0 && want != rate {
+	// Raw PCM names no rate, so the caller gets the rate it asked for, or
+	// 24 kHz (FormatPCM16's rate) when it asked for none.
+	want := config.Format.SampleRate
+	if want <= 0 {
+		want = geminiSampleRate
+	}
+	if want != rate {
 		if pcm, err = audio.ResamplePCM16(pcm, rate, want); err != nil {
 			return nil, NewSynthesisError(providerGemini, "", "resampling the audio", err, false)
 		}
@@ -243,6 +248,10 @@ func geminiAudioPCM(mimeType string, raw []byte) (pcm []byte, rate int, err erro
 		}
 		return samples, wavRate, nil
 	case "audio/l16", FormatPCM16.MIMEType:
+		// Gemini's audio/L16 is little-endian, not RFC 2586's network order,
+		// so it is returned without a byte swap. (On gemini-2.5-flash-preview-tts,
+		// read little-endian, adjacent samples differ by 734 on average;
+		// byte-swapped, by 15315: noise.)
 		rate = geminiSampleRate
 		if r, convErr := strconv.Atoi(params["rate"]); convErr == nil && r > 0 {
 			rate = r
@@ -277,16 +286,20 @@ func wavMonoPCM16(raw []byte) (pcm []byte, rate int, why string) {
 		size := int(binary.LittleEndian.Uint32(raw[i+4:]))
 		start := i + wavChunkHeaderLen
 		end := start + size
-		if end > len(raw) || end < start {
-			end = len(raw) // a streamed WAV's data size can be unknown
+		if end > len(raw) {
+			// An unknown (streamed, 0xFFFFFFFF) or truncated size cannot be
+			// bounded: taking the rest would play any chunk after it (Gemini
+			// appends a C2PA manifest) as audio.
+			return nil, 0, fmt.Sprintf("WAV %q chunk is longer than the audio", id)
 		}
 		switch id {
 		case "fmt ":
 			fmtBody = raw[start:end]
 		case "data":
-			pcm, haveData = raw[start:end], true
+			// Several data chunks are one stream, in order.
+			pcm, haveData = append(pcm, raw[start:end]...), true
 		}
-		i = end + (end-start)%wavChunkAlign
+		i = end + size%wavChunkAlign
 	}
 	if len(fmtBody) < wavFmtMinLen || !haveData {
 		return nil, 0, "WAV has no fmt and data chunks"
@@ -309,13 +322,21 @@ type geminiErrorResponse struct {
 	} `json:"error"`
 }
 
+// errBadRequest is the cause of a 400 that names no voice.
+var errBadRequest = errors.New("bad request")
+
 // handleError turns a non-200 response into a SynthesisError.
 func (s *GeminiService) handleError(resp *http.Response) error {
 	var errResp geminiErrorResponse
 	if err := decodeErrorBody(providerGemini, resp, &errResp); err != nil {
 		return err
 	}
-	retryable, cause := classifyHTTPStatus(resp.StatusCode, nil, nil)
+	// A 404 is the model (models/<name> is not found); a 400 is the voice
+	// when its message says so (No matching speaker voice found ...).
+	retryable, cause := classifyHTTPStatus(resp.StatusCode, ErrInvalidModel, errBadRequest)
+	if resp.StatusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(errResp.Error.Message), "voice") {
+		cause = ErrInvalidVoice
+	}
 	return NewSynthesisError(providerGemini, errResp.Error.Status, errResp.Error.Message, cause, retryable)
 }
 
