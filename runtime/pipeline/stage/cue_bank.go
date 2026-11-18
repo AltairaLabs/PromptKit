@@ -423,8 +423,11 @@ func (b *cueBank) fetchOnce(ctx context.Context, src clipSource, text string, fo
 	if clip, ok := b.cached(ctx, key); ok {
 		return clip, false, nil
 	}
+	// The flight can outlive this call (ctx done), so it reports leading
+	// through an atomic, never through a variable this call also writes.
+	var leading atomic.Bool
 	ch := clipFlights.DoChan(string(key[:]), func() (any, error) {
-		led = true
+		leading.Store(true)
 		// A session that ends does not fail the render for others waiting.
 		return b.renderAndKeep(context.WithoutCancel(ctx), src, text, format, key)
 	})
@@ -433,6 +436,7 @@ func (b *cueBank) fetchOnce(ctx context.Context, src clipSource, text string, fo
 	}
 	select {
 	case res := <-ch:
+		led = leading.Load()
 		if res.Err != nil {
 			return CueClip{}, led, res.Err
 		}
