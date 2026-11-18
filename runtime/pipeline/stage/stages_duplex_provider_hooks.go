@@ -36,6 +36,11 @@ import (
 //     to it: that reply becomes the blocked turn. A session that can is then
 //     asked to take the turn and that reply out of the model's conversation
 //     (providers.TurnForgetter); one that cannot (Gemini Live) remembers it.
+//     A slow check does not hold the reply back (stages_duplex_input_verdict.go).
+//
+// A turn is cut once and its guardrail message shown and spoken once, however
+// many guardrails fire on it: a later block only adds its firing and marks,
+// and has the input forgotten.
 //
 // An enforced turn is marked types.FinishReasonSafety and its tool calls are
 // dropped, so they are not executed. A hook that denies without enforcing
@@ -100,6 +105,9 @@ type duplexTurnGuard struct {
 	// guardrails again. A message that names what it blocks ("We don't talk
 	// about Bruno.") would otherwise block its own turn a second time.
 	replaced bool
+	// spoken is set once a block has shown and spoken a guardrail's message
+	// for the turn: a turn gets one, however many guardrails fire on it.
+	spoken bool
 }
 
 // duplexHistory is the conversation the session has seen, which the hooks'
@@ -564,6 +572,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		// replaced the text with the guardrail's own.
 		replaced := !strings.HasPrefix(sent+text, probe.Content)
 		s.turnGuard.replaced = replaced
+		s.turnGuard.spoken = replaced
 		if rest, kept := strings.CutPrefix(probe.Content, sent); !kept {
 			s.showBlockedText(probe.Content, replaced)
 		} else if rest != "" {
@@ -612,13 +621,26 @@ func (s *DuplexProviderStage) replyGeneration() int64 {
 // as a blocked typed input's is (blockedTurnMessage). The text is kept on the
 // guard, not accumulated: the reply's first chunk may still be to come, and
 // starting its generation clears the accumulation (turnText).
+//
+// A turn whose message a block already showed and spoke keeps it: a turn is
+// cut once and gets one message, however many guardrails fire on it (an
+// output guardrail on the streamed reply, then an input guardrail on the
+// caller's transcript, which on OpenAI Realtime arrives after the reply
+// began). Only the later block's marks are added.
 func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.Decision) {
 	blocked := blockedTurnMessage(req, d)
+	if s.turnGuard.spoken {
+		shown := s.turnText()
+		s.turnGuard.blockedText = &shown
+		s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
+		return
+	}
 	s.turnGuard.blockedText = &blocked.Content
 	// Merged, not replaced: a mark an earlier block on this turn set (a
 	// blocked input's) must survive this one.
 	s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
 	s.turnGuard.replaced = true
+	s.turnGuard.spoken = true
 	s.blockTurn()
 	s.showBlockedText(blocked.Content, true)
 }
@@ -738,13 +760,26 @@ func (s *DuplexProviderStage) guardSpokenInput(
 	req := s.hookRequest(messages)
 	start := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, req)
+	return s.applySpokenInputDecision(req, d, time.Since(start), replyDone, inputID)
+}
+
+// applySpokenInputDecision acts on the input hooks' decision d on a spoken
+// turn (guardSpokenInput), which took dur, and reports whether it blocked the
+// turn. Response goroutine only.
+func (s *DuplexProviderStage) applySpokenInputDecision(
+	req *hooks.ProviderRequest, d hooks.Decision, dur time.Duration, replyDone bool, inputID string,
+) bool {
 	if d.Allow {
 		return false
 	}
-	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, time.Since(start), req.TurnIndex)
+	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, dur, req.TurnIndex)
 	s.forgetInputOf(inputID)
 	if replyDone {
-		s.cutReplyOf(s.lastReplyGen)
+		// A reply already cut (a guardrail's cut, or a barge-in) is not cut
+		// again: what plays now is its guardrail message, or nothing of it.
+		if !s.endedTurnCut {
+			s.cutReplyOf(s.lastReplyGen)
+		}
 		return true
 	}
 	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
@@ -807,10 +842,12 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	if guard.blocked {
 		markBlockedTurn(msg, elem, &guard)
 	}
+	s.endedTurnCut = guard.blocked
 	if !guard.replaced && s.runTurnAfterCallHooks(ctx, msg, elem) {
 		if !guard.blocked {
 			s.cutReplyOf(s.replyGeneration())
 		}
+		s.endedTurnCut = true
 		s.showBlockedText(msg.Content, true)
 	}
 	s.history.add(msg)

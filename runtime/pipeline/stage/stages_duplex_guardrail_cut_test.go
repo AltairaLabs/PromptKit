@@ -407,9 +407,9 @@ func TestDuplexGuardrailCut_ScenarioTranscriptBlockedAtTurnEnd(t *testing.T) {
 	assert.Equal(t, 1, sess.interruptCount())
 }
 
-// A reply already cut for its output is cut once: the caller's transcript
-// blocking it too gives the turn the input block's message, with no second
-// interruption.
+// A reply already cut for its output is cut once and keeps the message it was
+// cut with: the caller's transcript blocking it too shows no second message
+// and gives no second interruption.
 func TestDuplexGuardrailCut_BlockedReplyIsCutOnce(t *testing.T) {
 	s, sess := cutStage(t, hooks.NewRegistry(
 		hooks.WithProviderHook(bannedWordsHook(t, "forbidden")),
@@ -427,8 +427,7 @@ func TestDuplexGuardrailCut_BlockedReplyIsCutOnce(t *testing.T) {
 	assert.Equal(t, []string{
 		"interrupt", "text:I can't say that.",
 		"user:a wire transfer",
-		"text:I can't help with transfers.",
-		"end:I can't help with transfers.|safety",
+		"end:I can't say that.|safety",
 	}, trace(elems))
 	assert.Equal(t, 1, sess.interruptCount())
 }

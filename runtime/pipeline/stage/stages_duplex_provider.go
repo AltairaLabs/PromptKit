@@ -33,6 +33,8 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 	text := s.turnText()
 	guard := s.turnGuard
 	s.turnGuard = duplexTurnGuard{}
+	// Its playback stopped: a later block on it does not cut it again.
+	s.endedTurnCut = true
 	if text == "" && len(s.accumulatedMedia) == 0 &&
 		s.accumulatedReasoning.Len() == 0 && len(s.accumulatedOpaqueReasoning) == 0 {
 		return nil
