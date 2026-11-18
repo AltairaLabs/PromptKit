@@ -1533,8 +1533,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	defer s.syncReplyStreaming()
 	s.chunkGen, s.chunkCost = chunk.Generation, chunk.CostInfo
 	s.chunkIsReply = !isInputTranscriptionChunk(chunk)
-	if chunk.Error != nil {
-		return s.emitChunkError(ctx, chunk, output)
+	if handled, err := s.handleSessionNotice(ctx, chunk, output); handled {
+		return err
 	}
 	if s.staleChunk(chunk) {
 		// A chunk of a call that already completed (a canceled response's
@@ -1670,6 +1670,18 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return err
 	}
 	return s.queueToolRound(ctx, round)
+}
+
+// handleSessionNotice handles a chunk that is the session's word rather than
+// a reply's content: an error, or that the spoken message is not coming.
+// Reports whether chunk was one.
+func (s *DuplexProviderStage) handleSessionNotice(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- StreamElement,
+) (bool, error) {
+	if chunk.Error != nil {
+		return true, s.emitChunkError(ctx, chunk, output)
+	}
+	return s.announcementFailed(ctx, chunk, output)
 }
 
 // reportCanceledReply sends an Interrupt ahead of a turn the provider ended

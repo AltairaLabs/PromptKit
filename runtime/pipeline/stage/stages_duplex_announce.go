@@ -76,11 +76,20 @@ func (s *DuplexProviderStage) askAnnouncement(ctx context.Context) {
 }
 
 // takeAnnouncementChunk reports whether chunk is part of the spoken blocked
-// message: a reply chunk of the first generation after the blocked reply's.
+// message: a chunk the session marked as the message's (AnnouncementTagger),
+// or, from a session that marks none, a reply chunk of the first generation
+// after the blocked reply's.
 func (s *DuplexProviderStage) takeAnnouncementChunk(chunk *providers.StreamChunk) bool {
 	a := &s.announce
 	if !s.chunkIsReply || a.state != announceActive {
 		return false
+	}
+	if tagger, ok := s.session.(providers.AnnouncementTagger); ok && tagger.TagsAnnouncements() {
+		marked, _ := chunk.Metadata[providers.MetaKeyAnnouncement].(bool)
+		if marked && a.gen == 0 {
+			a.gen = chunk.Generation
+		}
+		return marked
 	}
 	if chunk.Generation == 0 {
 		return true
@@ -89,6 +98,29 @@ func (s *DuplexProviderStage) takeAnnouncementChunk(chunk *providers.StreamChunk
 		a.gen = chunk.Generation
 	}
 	return chunk.Generation == a.gen
+}
+
+// announcementFailed handles the session's word that the spoken message is
+// not coming (providers.MetaKeyAnnouncementFailed): replies are turns again,
+// and a blocked reply that never completed has its turn ended, as the
+// message's end would have. Reports whether chunk was that word.
+func (s *DuplexProviderStage) announcementFailed(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- StreamElement,
+) (bool, error) {
+	if failed, _ := chunk.Metadata[providers.MetaKeyAnnouncementFailed].(bool); !failed {
+		return false, nil
+	}
+	logger.Warn("DuplexProviderStage: the provider did not speak the blocked message")
+	owes := s.announce.state == announceActive && s.announce.owesTurnEnd
+	s.announce = duplexAnnouncement{}
+	if !owes {
+		return true, nil
+	}
+	s.endAnnouncementTurn()
+	fr := types.FinishReasonSafety
+	elem := StreamElement{EndOfTurn: true}
+	elem.Meta.FinishReason = &fr
+	return true, sendStreamElement(ctx, elem, output)
 }
 
 // guardReplyChunk runs the streaming output guardrails on a reply chunk, and

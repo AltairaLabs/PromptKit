@@ -58,7 +58,7 @@ func recvEvents(t *testing.T, received <-chan map[string]any, n int) []map[strin
 	out := make([]map[string]any, 0, n)
 	for i := 0; i < n; i++ {
 		ev := recvEvent(t, received)
-		delete(ev, "event_id")
+		stripIDs(ev)
 		out = append(out, ev)
 	}
 	return out

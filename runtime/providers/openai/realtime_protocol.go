@@ -134,6 +134,9 @@ type ResponseConfig struct {
 	ToolChoice        interface{}       `json:"tool_choice,omitempty"`
 	Temperature       float64           `json:"temperature,omitempty"`
 	MaxOutputTokens   interface{}       `json:"max_output_tokens,omitempty"`
+	// Metadata is echoed on the response (response.created); the session tags
+	// each request with it (realtime_response_queue.go).
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // ResponseCancelEvent cancels an in-progress response.
@@ -279,6 +282,8 @@ type ResponseInfo struct {
 	StatusDetails interface{}        `json:"status_details"`
 	Output        []ConversationItem `json:"output"`
 	Usage         *UsageInfo         `json:"usage"`
+	// Metadata is the metadata its response.create carried, if any.
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // UsageInfo contains token usage information.

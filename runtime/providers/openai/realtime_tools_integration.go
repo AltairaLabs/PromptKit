@@ -99,11 +99,11 @@ func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []pro
 		}
 	}
 
-	// The reply to the results is a new turn: no pending cancel applies to it.
-	s.startClientTurn()
-	return s.ws.Send(ResponseCreateEvent{
+	// The reply to the results is a new turn once it is requested: no pending
+	// cancel applies to it.
+	return s.requestResponse(ResponseCreateEvent{
 		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventResponseCreate},
-	})
+	}, false)
 }
 
 // createItem sends a conversation.item.create for item.
