@@ -52,6 +52,8 @@ To share clips across processes, pass the same `stage.ClipCache` to the pre-warm
 
 A clip plays for a session whose voice and output rate match what was pre-warmed. A session with a TTS service plays it when the service is the one that rendered it.
 
+On OpenAI Realtime the session speaks guardrail messages itself, outside the conversation and in its exact voice, and that source comes before the TTS service and the pre-warmed clips. An OpenAI Realtime session plays a pre-warmed clip only for a message its own audio failed to render. Pre-warming pays off on providers without their own out-of-band audio, such as Gemini Live.
+
 ## Step 3 (optional): Fill a directory offline
 
 `stage.NewDirClipCache` keeps clips as files, so you can render them once and ship or check in the directory. Pre-warm into a writable directory:
