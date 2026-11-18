@@ -243,6 +243,8 @@ type config struct {
 	// cueClipCache keeps a realtime session's rendered cue clips; nil is the
 	// process-wide default (WithCueClipCache).
 	cueClipCache stage.ClipCache
+	// blockedMessage chooses a blocked message's text (WithBlockedMessage).
+	blockedMessage func(ctx context.Context, b BlockedMessage) string
 
 	// Audio session configuration for Pipeline middleware
 	turnDetector audio.TurnDetector

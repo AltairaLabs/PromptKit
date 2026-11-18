@@ -111,6 +111,18 @@ func TestVADProviderConfig_CarriesTheCaller(t *testing.T) {
 	assert.Equal(t, types.Caller{}, vadProviderConfig(&Config{}).Caller)
 }
 
+// The host's blocked-message function reaches VAD mode's provider stage, so a
+// blocked spoken turn reads as a blocked typed one.
+func TestVADProviderConfig_CarriesBlockedMessage(t *testing.T) {
+	cfg := &Config{BlockedMessage: func(_ context.Context, b stage.BlockedMessage) string { return "host:" + b.Text }}
+
+	got := vadProviderConfig(cfg)
+
+	require.NotNil(t, got.BlockedMessage)
+	assert.Equal(t, "host:blocked", got.BlockedMessage(context.Background(), stage.BlockedMessage{Text: "blocked"}))
+	assert.Nil(t, vadProviderConfig(&Config{}).BlockedMessage)
+}
+
 // Skill tool grants must reach VAD mode's provider stage.
 //
 // #1957/#1980 made a skill's allowed-tools extend the prompt baseline through

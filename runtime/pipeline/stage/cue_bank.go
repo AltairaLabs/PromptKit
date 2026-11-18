@@ -82,10 +82,12 @@ type cueBank struct {
 	tts           tts.Service
 	texts         []string
 	renderTimeout time.Duration
-	state         cueSessionState
-	format        ClipFormat
-	sources       []clipSource
-	emitter       *events.Emitter
+	// budget is the cue stage's OnDemandBudget.
+	budget  time.Duration
+	state   cueSessionState
+	format  ClipFormat
+	sources []clipSource
+	emitter *events.Emitter
 }
 
 // cueFlight is one render of a text. done is closed once clip, ready, keep
@@ -111,6 +113,7 @@ func newCueBank(cfg *CueConfig) *cueBank {
 		tts:           cfg.TTS,
 		texts:         cfg.Texts,
 		renderTimeout: cfg.RenderTimeout,
+		budget:        cfg.OnDemandBudget,
 		state:         cueSessionUnknown,
 	}
 	if b.cache == nil {

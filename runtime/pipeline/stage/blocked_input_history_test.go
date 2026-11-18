@@ -819,12 +819,14 @@ func TestDuplexHooks_SpokenInputMarkSurvivesALaterOutputBlock(t *testing.T) {
 // replacing it, so an input block's mark is kept.
 func TestDuplexHooks_BlockTurnWithMergesMeta(t *testing.T) {
 	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry())
-	s.blockTurnWith(nil, hooks.DenyWithMetadata("no", map[string]any{"only": "c"}))
+	first := hooks.DenyWithMetadata("no", map[string]any{"only": "c"})
+	s.blockTurnWith(context.Background(), nil, &first, hooks.DirectionOutput)
 	assert.Equal(t, map[string]interface{}{"only": "c"}, s.turnGuard.blockedMeta,
 		"a first block's metadata is taken as is")
 
 	s.turnGuard.blockedMeta = withBlockedInputMark(map[string]interface{}{"first": "a"})
-	s.blockTurnWith(nil, hooks.DenyWithMetadata("no", map[string]any{"second": "b"}))
+	second := hooks.DenyWithMetadata("no", map[string]any{"second": "b"})
+	s.blockTurnWith(context.Background(), nil, &second, hooks.DirectionOutput)
 	assert.Equal(t, map[string]interface{}{
 		types.MetaBlockedInput: true, "first": "a", "second": "b",
 	}, s.turnGuard.blockedMeta)

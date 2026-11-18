@@ -175,6 +175,11 @@ type Config struct {
 	// extraction and save. The zero value means none was set.
 	Caller types.Caller
 
+	// BlockedMessage chooses the text of a blocked message on the text, VAD
+	// and realtime provider stages (sdk.WithBlockedMessage); nil keeps the
+	// guardrail's.
+	BlockedMessage stage.BlockedMessageFunc
+
 	// CallRate is the window the provider stage counts calls in for
 	// ToolPolicy.MaxCallsPerMinute (stage.ProviderConfig.CallRate). Nil gives
 	// the stage its own.
@@ -802,6 +807,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		duplexStage.SetHookRegistry(cfg.HookRegistry)
 		duplexStage.SetPromptDeclarations(cfg.PromptDeclarations)
 		duplexStage.SetCaller(cfg.Caller)
+		duplexStage.SetBlockedMessage(cfg.BlockedMessage)
 		// The session's tool calls run through the same tool runner, under the
 		// same policy, approval gate, rate window and caller, as a text turn's.
 		duplexStage.SetToolExecution(cfg.ToolRegistry, cfg.ToolPolicy, stage.DuplexToolConfig{
@@ -844,6 +850,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ApprovalGate:     cfg.ApprovalGate,
 			CallRate:         cfg.CallRate,
 			Caller:           cfg.Caller,
+			BlockedMessage:   cfg.BlockedMessage,
 			Streaming:        cfg.Ingestion != nil,
 
 			StructuredOutputMode:  cfg.StructuredOutputMode,

@@ -123,6 +123,19 @@ type ProviderStage struct {
 // like data.
 func (s *ProviderStage) currentTurn() int { return s.turnState.TurnIndex() }
 
+// blockedTurnIndex is BlockedMessage.TurnIndex for the turn in progress: the
+// 0-based index of the turn, as DuplexProviderStage reports it. currentTurn is
+// the 1-based number of the turn (0 when no state store established one).
+func (s *ProviderStage) blockedTurnIndex() int { return max(s.currentTurn()-1, 0) }
+
+// chooseBlocked is the text firing d blocks the turn with, in direction:
+// ProviderConfig.BlockedMessage's choice for text, else text.
+func (s *ProviderStage) chooseBlocked(ctx context.Context, d *hooks.Decision, direction, text string) string {
+	return chooseBlockedText(ctx, s.config.BlockedMessage, 0, blockedFiring{
+		d: d, direction: direction, text: text, turn: s.blockedTurnIndex(), caller: s.config.Caller,
+	})
+}
+
 // SetWorkflowStateResolver installs the resolver that applies workflow state
 // changes mid-turn. Pass nil to disable. Must be called before the stage runs.
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver) {
@@ -245,6 +258,10 @@ type ProviderConfig struct {
 	// value means none was set. The stage never reads, persists, logs or emits
 	// it.
 	Caller types.Caller
+
+	// BlockedMessage, when set, chooses the text a guardrail's block replaces
+	// a turn with (BlockedMessageFunc). Nil keeps the guardrail's message.
+	BlockedMessage BlockedMessageFunc
 
 	// PromptDeclarations maps each prompt task to the pack's definition of
 	// that prompt, copies taken when the conversation was built.
@@ -2630,6 +2647,14 @@ func (s *ProviderStage) interceptChunk(
 	if d.Allow {
 		return false, nil
 	}
+	// A replacement (not a prefix of what the model said) is the guardrail's
+	// own text, which the completed-reply checks do not judge again, and the
+	// host may choose it (BlockedMessage) before the firing is recorded; a
+	// truncation keeps the model's text, which they do judge.
+	if d.Enforced && replacedText(acc.content, chunk.Content) {
+		acc.replaced = true
+		chunk.Content = s.chooseBlocked(ctx, &d, hooks.DirectionOutput, chunk.Content)
+	}
 	s.recordGuardrailFiring(nil, d, hooks.DirectionOutput, 0)
 	// Stamp the firing on a sentinel pending-validation slot so
 	// the AfterCall path below can fold it into responseMsg.
@@ -2649,10 +2674,6 @@ func (s *ProviderStage) interceptChunk(
 		// modified chunk content and stop reading the stream. The turn is
 		// marked safety, as applyEnforcedResponse marks an enforced unary
 		// one: the provider's own reason describes a reply that was replaced.
-		// A replacement (not a prefix of what the model said) is the
-		// guardrail's own text, which the completed-reply checks do not judge
-		// again; a truncation keeps the model's text, which they do.
-		acc.replaced = !strings.HasPrefix(acc.content, chunk.Content)
 		acc.content = chunk.Content
 		acc.finishReason = types.FinishReasonSafety
 		return true, nil
@@ -2878,6 +2899,9 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		return nil
 	}
 
+	if d.Enforced && replacedText(p.responseMsg.Content, hookResp.Message.Content) {
+		hookResp.Message.Content = s.chooseBlocked(ctx, &d, hooks.DirectionOutput, hookResp.Message.Content)
+	}
 	s.recordGuardrailFiring(p.responseMsg, d, hooks.DirectionOutput, time.Since(hookStart))
 	if !d.Enforced {
 		return &hooks.HookDeniedError{
@@ -2953,6 +2977,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	}
 	// Guardrail skipped the provider call: no request, no tokens.
 	blocked := s.blockedMessage(hookReq, d)
+	blocked.Content = s.chooseBlocked(ctx, &d, hooks.DirectionInput, blocked.Content)
 	markBlockedInput(&blocked)
 	s.recordGuardrailFiring(&blocked, d, hooks.DirectionInput, time.Since(hookStart))
 	return blocked, true, nil

@@ -85,6 +85,15 @@ func (s *DuplexProviderStage) SetCaller(caller types.Caller) {
 	s.caller = caller
 }
 
+// SetBlockedMessage sets the function that chooses the text a guardrail's
+// block replaces a turn with, as ProviderConfig.BlockedMessage does for
+// ProviderStage, so a blocked turn reads and sounds the same on both paths.
+// The text it returns is shown, stored and spoken by the cue stage. Must be
+// called before the stage runs.
+func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc) {
+	s.blockedMessage = fn
+}
+
 // duplexTurnGuard is the response loop's guardrail state for the current
 // assistant turn.
 type duplexTurnGuard struct {
@@ -334,9 +343,11 @@ func (s *DuplexProviderStage) guardInputText(
 		return false, nil
 	}
 
-	// Enforced or denied, the turn is blocked; the session goes on.
+	// Enforced or denied, the turn is blocked; the session goes on. The text
+	// is chosen first: the choice is recorded on the decision.
+	msg := s.blockedTurnMessage(ctx, req, &d, hooks.DirectionInput)
 	blocked := &duplexBlockedTurn{
-		msg:      blockedTurnMessage(req, d),
+		msg:      msg,
 		decision: d,
 		duration: time.Since(start),
 		user:     s.pendingTypedUser,
@@ -550,10 +561,19 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		return
 	}
 
-	probe := &providers.StreamChunk{Content: s.accumulatedText.String() + text, Delta: text}
+	original := s.accumulatedText.String() + text
+	probe := &providers.StreamChunk{Content: original, Delta: text}
 	d := s.hookRegistry.RunOnChunkRequest(ctx, hooks.ChunkRequest{Chunk: probe, Caller: s.caller})
 	if d.Allow {
 		return
+	}
+	// The blocked text is chosen before the firing is recorded, which records
+	// the choice: a replacement's (not a truncation's), or a deny's message.
+	var denied types.Message
+	if !d.Enforced {
+		denied = s.blockedTurnMessage(ctx, nil, &d, hooks.DirectionOutput)
+	} else if replacedText(original, probe.Content) {
+		probe.Content = s.chooseBlocked(ctx, &d, hooks.DirectionOutput, probe.Content, s.hookTurnIndex())
 	}
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionOutput, 0, s.hookTurnIndex())
 	if v, ok := guardrailValidation(d, hooks.DirectionOutput); ok {
@@ -585,7 +605,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 			s.showBlockedText(rest, replaced)
 		}
 	} else {
-		s.blockTurnWith(nil, d)
+		s.blockTurnWithMessage(denied)
 	}
 	dropAssistantOutput(chunk, isOutputTranscription)
 }
@@ -631,13 +651,20 @@ func (s *DuplexProviderStage) replyGeneration() int64 {
 // cut once and gets one message, however many guardrails fire on it (an
 // output guardrail on the streamed reply, then an input guardrail on the
 // caller's transcript, which on OpenAI Realtime arrives after the reply
-// began). Only the later block's marks are added.
-func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.Decision) {
-	blocked := blockedTurnMessage(req, d)
+// began). Only the later block's marks are added, and the stage's
+// BlockedMessageFunc is not asked again: the first firing's text stands.
+func (s *DuplexProviderStage) blockTurnWith(
+	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
+) {
 	if s.turnGuard.spoken {
-		s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
+		s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blockedTurnMessage(req, *d).Meta)
 		return
 	}
+	s.blockTurnWithMessage(s.blockedTurnMessage(ctx, req, d, direction))
+}
+
+// blockTurnWithMessage is blockTurnWith with the blocked turn's message.
+func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
 	s.turnGuard.blockedText = &blocked.Content
 	// Merged, not replaced: a mark an earlier block on this turn set (a
 	// blocked input's) must survive this one.
@@ -646,6 +673,35 @@ func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.
 	s.turnGuard.spoken = true
 	s.blockTurn()
 	s.showBlockedText(blocked.Content, true)
+}
+
+// blockedTurnMessage is blockedTurnMessage with its text chosen by the
+// stage's BlockedMessageFunc for a firing in direction.
+func (s *DuplexProviderStage) blockedTurnMessage(
+	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
+) types.Message {
+	msg := blockedTurnMessage(req, *d)
+	turn := s.hookTurnIndex()
+	if req != nil {
+		turn = req.TurnIndex
+	}
+	msg.Content = s.chooseBlocked(ctx, d, direction, msg.Content, turn)
+	return msg
+}
+
+// chooseBlocked is the text firing d blocks the turn with: the stage's
+// BlockedMessageFunc's choice for text, given at most the cue stage's
+// on-demand budget so a slow function cannot stall the session, else text.
+func (s *DuplexProviderStage) chooseBlocked(
+	ctx context.Context, d *hooks.Decision, direction, text string, turn int,
+) string {
+	timeout := defaultCueOnDemandBudget
+	if s.cues != nil && s.cues.budget > 0 {
+		timeout = s.cues.budget
+	}
+	return chooseBlockedText(ctx, s.blockedMessage, timeout, blockedFiring{
+		d: d, direction: direction, text: text, turn: turn, caller: s.caller,
+	})
 }
 
 // showBlockedText has a blocked turn's text sent as live output by the next
@@ -757,7 +813,7 @@ func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []t
 	req := s.hookRequest(messages)
 	start := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, req)
-	s.applySpokenInputDecision(req, d, time.Since(start), "", nil)
+	s.applySpokenInputDecision(ctx, req, d, time.Since(start), "", nil)
 }
 
 // applySpokenInputDecision acts on the input hooks' decision d on a spoken
@@ -769,7 +825,8 @@ func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []t
 // session's ID for it, and the reply to it (forgetBlockedTurn), so the model
 // does not remember what was blocked. Response goroutine only.
 func (s *DuplexProviderStage) applySpokenInputDecision(
-	req *hooks.ProviderRequest, d hooks.Decision, dur time.Duration, inputID string, late *lateVerdict,
+	ctx context.Context, req *hooks.ProviderRequest, d hooks.Decision, dur time.Duration, inputID string,
+	late *lateVerdict,
 ) bool {
 	if d.Allow {
 		return false
@@ -784,10 +841,12 @@ func (s *DuplexProviderStage) applySpokenInputDecision(
 		}
 		return true
 	}
+	// The blocked text is chosen before the validation is built, which
+	// records the choice.
+	s.blockTurnWith(ctx, req, &d, hooks.DirectionInput)
 	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
 		s.turnGuard.validations = append(s.turnGuard.validations, v)
 	}
-	s.blockTurnWith(req, d)
 	// The reply that replaces the turn is a blocked input turn's canned reply.
 	s.turnGuard.blockedMeta = withBlockedInputMark(s.turnGuard.blockedMeta)
 	return true
@@ -893,6 +952,14 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 	if d.Allow {
 		return false
 	}
+	// The blocked text is chosen before the firing is recorded, which records
+	// the choice: a replacement's (not a truncation's), or a deny's message.
+	var denied types.Message
+	if !d.Enforced {
+		denied = s.blockedTurnMessage(ctx, req, &d, hooks.DirectionOutput)
+	} else if replacedText(msg.Content, resp.Message.Content) {
+		resp.Message.Content = s.chooseBlocked(ctx, &d, hooks.DirectionOutput, resp.Message.Content, req.TurnIndex)
+	}
 	recordGuardrailFiring(s.emitter, msg, d, hooks.DirectionOutput, time.Since(start), req.TurnIndex)
 	// An output block replaces the turn's Meta with its own; a turn an input
 	// block already replaced stays marked as one.
@@ -901,7 +968,7 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 		var dropped []types.MessageToolCall
 		applyEnforcedResponse(msg, &dropped, resp, d, known)
 	} else {
-		blocked := blockedTurnMessage(req, d)
+		blocked := denied
 		msg.Content = blocked.Content
 		if blocked.Meta != nil {
 			msg.Meta = blocked.Meta
