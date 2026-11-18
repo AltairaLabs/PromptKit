@@ -379,6 +379,9 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 			DurationMs: durationMs,
 		},
 	}
+	if cue := elem.Meta.CueAudio; cue != nil {
+		data.CueKind = string(cue.Kind)
+	}
 
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           eventType,

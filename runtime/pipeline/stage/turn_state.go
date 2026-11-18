@@ -243,6 +243,12 @@ type ElementMetadata struct {
 	// turn-end Message differently from others.
 	PlayoutTurnEnd bool
 
+	// CueAudio marks audio a CueStage played for a cue, not reply audio:
+	// playout accounting keeps it out of the reply's audio, and a flush-on-cut
+	// AudioPacingStage drops a preemptible cue's queued audio when reply audio
+	// arrives.
+	CueAudio *Cue
+
 	// ToolResultMessages carries tool-execution result messages produced
 	// by the streaming tool integration; the duplex provider stage
 	// consumes them as the next-round input.

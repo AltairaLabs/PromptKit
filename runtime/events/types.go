@@ -740,6 +740,9 @@ type AudioEventData struct {
 	IsFinal bool `json:"is_final"`
 	// GeneratedFrom indicates what generated this audio (e.g., "tts", "model"). Output only.
 	GeneratedFrom string `json:"generated_from,omitempty"`
+	// CueKind is set on output audio a cue stage played for a cue (for
+	// example "guardrail_message") rather than audio the model produced.
+	CueKind string `json:"cue_kind,omitempty"`
 }
 
 type (

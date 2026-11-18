@@ -38,6 +38,10 @@ const (
 	PlayoutCutGuardrail = "guardrail"
 )
 
+// playoutCueItem is the playout item cue audio is tracked under: never a
+// reply's key, so no Message is amended for it.
+const playoutCueItem = "cue"
+
 // playoutHoldPoll bounds how long the stage sleeps before rechecking a
 // playout end that moved (more audio arrived).
 const playoutHoldPoll = 250 * time.Millisecond
@@ -158,8 +162,13 @@ func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamEleme
 func (h *playoutHold) handle(ctx context.Context, elem StreamElement, output chan<- StreamElement) {
 	if a := elem.Audio; a != nil && len(a.Samples) > 0 {
 		d := audio.PCM16Duration(len(a.Samples), a.SampleRate, a.Channels)
-		h.playout.Add(strconv.Itoa(h.seq), 0, d)
-		h.audio[h.seq] += d
+		if elem.Meta.CueAudio != nil {
+			// A cue's audio plays out like a reply's, but it is no reply's.
+			h.playout.Add(playoutCueItem, 0, d)
+		} else {
+			h.playout.Add(strconv.Itoa(h.seq), 0, d)
+			h.audio[h.seq] += d
+		}
 	}
 	if h.takeCut(&elem) {
 		h.fwd.forward(ctx, output, elem)

@@ -62,8 +62,9 @@ func (e *StreamElement) Reset() {
 	e.Source = ""
 	e.Priority = PriorityNormal
 
-	// Clear non-content reasoning and typed metadata
+	// Clear non-content reasoning, cue and typed metadata
 	e.Reasoning = nil
+	e.Cue = nil
 	e.Meta = ElementMetadata{}
 
 	// Clear control signals
