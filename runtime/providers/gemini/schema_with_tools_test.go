@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -102,13 +104,17 @@ func schemaToolsRequest() providers.PredictionRequest {
 }
 
 // gcText is a generateContent response whose only part is text.
-func gcText(text string, in, out int) string {
+func gcText(text string, in, out int) string { return gcThinkingText(text, in, out, 0) }
+
+// gcThinkingText is gcText from a model that also spent thoughts tokens.
+func gcThinkingText(text string, in, out, thoughts int) string {
 	b, _ := json.Marshal(map[string]any{
 		"candidates": []any{map[string]any{
 			"content":      map[string]any{"role": "model", "parts": []any{map[string]any{"text": text}}},
 			"finishReason": "STOP",
 		}},
-		"usageMetadata": map[string]int{"promptTokenCount": in, "candidatesTokenCount": out, "totalTokenCount": in + out},
+		"usageMetadata": map[string]int{"promptTokenCount": in, "candidatesTokenCount": out,
+			"thoughtsTokenCount": thoughts, "totalTokenCount": in + out + thoughts},
 	})
 	return string(b)
 }
@@ -129,8 +135,8 @@ func gcCall(in, out int) string {
 
 func TestPredictWithTools_SchemaWithTools_AnswerIsAskedAgainUnderSchema(t *testing.T) {
 	srv := newSchemaToolsServer(t,
-		gcText("It is 21 degrees.", 100, 20),
-		gcText(`{"celsius":21}`, 120, 7))
+		gcThinkingText("It is 21 degrees.", 100, 20, 5),
+		gcThinkingText(`{"celsius":21}`, 120, 7, 3))
 	tp, tools := schemaToolsProvider(t, srv.srv.URL)
 
 	resp, calls, err := tp.PredictWithTools(context.Background(), schemaToolsRequest(), tools, "auto")
@@ -152,6 +158,7 @@ func TestPredictWithTools_SchemaWithTools_AnswerIsAskedAgainUnderSchema(t *testi
 	require.NotNil(t, resp.CostInfo)
 	assert.Equal(t, 220, resp.CostInfo.InputTokens, "both calls' input is billed")
 	assert.Equal(t, 27, resp.CostInfo.OutputTokens, "both calls' output is billed")
+	assert.InDelta(t, 8, resp.CostInfo.Quantities[base.UnitReasoningToken], 0, "both calls' reasoning is billed")
 }
 
 func TestPredictWithTools_SchemaWithTools_ToolCallReturnsWithoutSecondCall(t *testing.T) {
@@ -229,8 +236,8 @@ func collectStream(t *testing.T, ch <-chan providers.StreamChunk) []providers.St
 
 func TestPredictStreamWithTools_SchemaWithTools_OnlyTheSchemaAnswerIsStreamed(t *testing.T) {
 	srv := newSchemaToolsServer(t,
-		"["+gcText("It is 21 degrees.", 100, 20)+"]",
-		"["+gcText(`{"celsius":21}`, 120, 7)+"]")
+		"["+gcThinkingText("It is 21 degrees.", 100, 20, 5)+"]",
+		"["+gcThinkingText(`{"celsius":21}`, 120, 7, 3)+"]")
 	tp, tools := schemaToolsProvider(t, srv.srv.URL)
 
 	ch, err := tp.PredictStreamWithTools(context.Background(), schemaToolsRequest(), tools, "auto")
@@ -249,6 +256,8 @@ func TestPredictStreamWithTools_SchemaWithTools_OnlyTheSchemaAnswerIsStreamed(t 
 	require.NotNil(t, last.CostInfo)
 	assert.Equal(t, 220, last.CostInfo.InputTokens, "both calls' input is billed")
 	assert.Equal(t, 27, last.CostInfo.OutputTokens, "both calls' output is billed")
+	assert.InDelta(t, 8, last.CostInfo.Quantities[base.UnitReasoningToken], 0, "both calls' reasoning is billed")
+	assert.Equal(t, 27, last.TokenCount, "both calls' output tokens are counted")
 	final, ok := last.FinalResult.(*providers.PredictionResponse)
 	require.True(t, ok)
 	require.NotNil(t, final.CostInfo)
@@ -295,6 +304,50 @@ func TestPredictStreamWithTools_SchemaWithTools_SecondCallErrorIsAChunk(t *testi
 	assert.Contains(t, chunks[0].Error.Error(), "unexpected extra call")
 	require.NotNil(t, chunks[0].FinishReason)
 	assert.Equal(t, "error", *chunks[0].FinishReason)
+	require.NotNil(t, chunks[0].CostInfo, "the tool round's cost is not lost")
+	assert.Equal(t, 10, chunks[0].CostInfo.InputTokens)
+	assert.Equal(t, 2, chunks[0].TokenCount)
+}
+
+// An answer stream that fails still reports the tool round's usage.
+func TestPredictStreamWithTools_SchemaWithTools_FailedAnswerKeepsTheToolRoundsCost(t *testing.T) {
+	blocked := `[{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"SAFETY"}]}]`
+	srv := newSchemaToolsServer(t, "["+gcText("It is 21 degrees.", 10, 2)+"]", blocked)
+	tp, tools := schemaToolsProvider(t, srv.srv.URL)
+
+	ch, err := tp.PredictStreamWithTools(context.Background(), schemaToolsRequest(), tools, "auto")
+	require.NoError(t, err)
+	chunks := collectStream(t, ch)
+
+	require.NotEmpty(t, chunks)
+	last := chunks[len(chunks)-1]
+	require.Error(t, last.Error)
+	require.NotNil(t, last.CostInfo)
+	assert.Equal(t, 10, last.CostInfo.InputTokens)
+}
+
+// A context canceled while a held tool round waits to be delivered ends the
+// stream with a canceled chunk that carries the round's cost.
+func TestPredictStreamWithTools_SchemaWithTools_CanceledWhileHeldEndsWithCanceledChunk(t *testing.T) {
+	srv := newSchemaToolsServer(t, "["+gcCall(100, 10)+"]")
+	tp, tools := schemaToolsProvider(t, srv.srv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := tp.PredictStreamWithTools(ctx, schemaToolsRequest(), tools, "auto")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(srv.requests()) == 1 }, 2*time.Second, time.Millisecond)
+	time.Sleep(20 * time.Millisecond) // the held round reaches the hand-off
+	cancel()
+	chunks := collectStream(t, ch)
+
+	require.NotEmpty(t, chunks)
+	last := chunks[len(chunks)-1]
+	require.ErrorIs(t, last.Error, context.Canceled)
+	require.NotNil(t, last.FinishReason)
+	assert.Equal(t, "canceled", *last.FinishReason)
+	require.NotNil(t, last.CostInfo)
+	assert.Equal(t, 100, last.CostInfo.InputTokens)
 }
 
 // A tool round that fails is delivered as it is, not asked again.

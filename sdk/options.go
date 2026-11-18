@@ -3496,7 +3496,10 @@ func WithResponseFormat(format *providers.ResponseFormat) Option {
 //
 // "every_round" restores the older behavior. It is an escape hatch for
 // pinning old behavior without waiting on a release, not a supported
-// alternative: it is the configuration that loses tool calls.
+// alternative: it is the configuration that loses tool calls. A Gemini
+// provider cannot send a schema on a round with tools, so under every_round it
+// behaves like final_turn: it sends each tool round without the schema and
+// asks a round that answers again under it, two calls per answering round.
 //
 // An unrecognized value is ignored with a warning and the default applies.
 //
