@@ -200,6 +200,8 @@ type DuplexProviderStage struct {
 	// caller is who the conversation acts for, for the hooks'
 	// ProviderRequest.Caller and ChunkRequest.Caller (see SetCaller).
 	caller types.Caller
+	// blockedMessage chooses a blocked turn's text (see SetBlockedMessage).
+	blockedMessage BlockedMessageFunc
 	// history is the conversation the hooks see, kept only while hooks run.
 	history duplexHistory
 	// assistantTurns counts the assistant turns completed this session, for the

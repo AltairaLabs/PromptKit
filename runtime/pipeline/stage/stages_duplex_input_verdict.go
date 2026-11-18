@@ -101,10 +101,10 @@ func (s *DuplexProviderStage) judgeSpokenInput(
 // when blocked, ahead of the cut.
 func (s *DuplexProviderStage) applyVerdict(ctx context.Context, v *spokenVerdict, output chan<- StreamElement) error {
 	if v.late == nil {
-		s.applySpokenInputDecision(v.req, v.d, v.dur, v.inputID, nil)
+		s.applySpokenInputDecision(ctx, v.req, v.d, v.dur, v.inputID, nil)
 		return s.cutReply(ctx, output)
 	}
-	if s.applySpokenInputDecision(v.req, v.d, v.dur, v.inputID, v.late) {
+	if s.applySpokenInputDecision(ctx, v.req, v.d, v.dur, v.inputID, v.late) {
 		markBlockedInput(v.late.user)
 		v.late.user.Meta[blockedReplyBeforeMetaKey] = true
 	}

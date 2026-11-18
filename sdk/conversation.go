@@ -785,6 +785,7 @@ func (c *Conversation) buildPipelineConfig(
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalGate:          c.newApprovalGate(),
 		Caller:                c.config.caller,
+		BlockedMessage:        c.blockedMessageFunc(),
 		CallRate:              c.callRateWindow(),
 		SkipContentValidation: c.config.skipContentValidation,
 		ToolPolicy:            c.config.toolPolicy,
