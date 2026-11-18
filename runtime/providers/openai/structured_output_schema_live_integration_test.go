@@ -387,7 +387,7 @@ func TestOpenAI_ToolSchema_StrictIncompatible_Live(t *testing.T) {
 							"\"farewell\": \"Say goodbye\"}.",
 					}},
 					MaxTokens: 1024,
-				}, tools, "required")
+				}, tools, "dream_propose")
 			skipIfThrottledErr(t, err)
 			require.NoError(t, err, "a valid tool schema must not 400 the call (#2758)")
 			require.Len(t, calls, 1, "content=%.80q", resp.Content)

@@ -47,6 +47,15 @@ func strictFallbackReply(w http.ResponseWriter, r *http.Request) {
 // tool turn, and returns the "tools" array of the request body the API got.
 func sentTools(t *testing.T, spec providers.ProviderSpec, descs []*providers.ToolDescriptor) string {
 	t.Helper()
+	return string(sentRequest(t, spec, descs, "auto")["tools"])
+}
+
+// sentRequest sends one tool turn with toolChoice and returns the top-level
+// fields of the request body the API got.
+func sentRequest(
+	t *testing.T, spec providers.ProviderSpec, descs []*providers.ToolDescriptor, toolChoice string,
+) map[string]json.RawMessage {
+	t.Helper()
 	var (
 		mu   sync.Mutex
 		body []byte
@@ -74,16 +83,14 @@ func sentTools(t *testing.T, spec providers.ProviderSpec, descs []*providers.Too
 	require.NoError(t, err)
 	_, _, err = tp.PredictWithTools(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: "user", Content: "hi"}},
-	}, tools, "auto")
+	}, tools, toolChoice)
 	require.NoError(t, err)
 
 	mu.Lock()
 	defer mu.Unlock()
-	var got struct {
-		Tools json.RawMessage `json:"tools"`
-	}
+	var got map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(body, &got), "body=%s", body)
-	return string(got.Tools)
+	return got
 }
 
 func openAISpec(mode string) providers.ProviderSpec {
