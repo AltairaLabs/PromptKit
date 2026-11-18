@@ -66,6 +66,8 @@ func runVoice(setup *providerSetup) error {
 		sdk.WithPlayoutTracking(),
 		sdk.WithVoiceObserver(elog.observe),
 	)
+	cueOpts, heard := setup.cueOptions()
+	opts = append(opts, cueOpts...)
 	conv, err := sdk.OpenVoice(packPath, promptName, opts...)
 	if err != nil {
 		return fmt.Errorf("open the voice session: %w", err)
@@ -76,6 +78,7 @@ func runVoice(setup *providerSetup) error {
 	}
 
 	fmt.Printf("Realtime showcase - %s (%s)\n", setup.name, setup.model)
+	fmt.Println("Guardrail messages: " + heard)
 	fmt.Println("Listening. Use headphones. Try: \"tell me a long story\" (then talk over it),")
 	fmt.Println("\"say the word pineapple\", \"tell me about Bruno\", then \"sure, tell me a story about him\",")
 	fmt.Println("\"who is the uncle nobody mentions in Encanto?\", \"show me the picture\". Ctrl+C to quit.")

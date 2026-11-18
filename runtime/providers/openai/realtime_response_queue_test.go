@@ -17,10 +17,9 @@ import (
 
 // OpenAI Realtime allows one response at a time: a response.create while one
 // is in progress is answered with conversation_already_has_active_response.
-// Captured live (realtime-showcase text mode): a guardrail cut the reply and
-// the session asked for the guardrail's message to be spoken (Announce); the
-// caller typed their next line while that was still being spoken, and the
-// session's response.create for it was rejected, which ended the session.
+// Captured live (realtime-showcase text mode): the caller typed their next
+// line while a response was still being spoken, and the session's
+// response.create for it was rejected, which ended the session.
 
 // oneResponseServer is a Realtime server that enforces one response at a
 // time. A response.create it accepts starts a response (response.created
@@ -221,45 +220,28 @@ func endsOf(chunks []providers.StreamChunk) []string {
 	return ids
 }
 
-// announcementGens returns the generations whose chunks are marked as the
-// reply an Announce asked for.
-func announcementGens(chunks []providers.StreamChunk) map[int64]bool {
-	gens := map[int64]bool{}
-	for _, c := range chunks {
-		if marked, _ := c.Metadata[providers.MetaKeyAnnouncement].(bool); marked {
-			gens[c.Generation] = true
-		}
-	}
-	return gens
-}
-
 const franceQuestion = "What is the capital of France?"
 
-// Text typed while a response is in progress (here the guardrail's spoken
-// message) is added at once; its response.create waits for that response to
-// end, so the server never rejects it, and the reply to the text follows.
-// The announcement's chunks are marked; the text reply's are not.
+// Text typed while a response is in progress is added at once; its
+// response.create waits for that response to end, so the server never
+// rejects it, and the reply to the text follows.
 func TestRealtimeSendText_WhileAResponseIsInProgressWaitsForItsEnd(t *testing.T) {
 	os := newOneResponseServer(t)
 	session := openOneResponseSession(t, os)
 
-	announced, err := session.Announce(context.Background(), "Sorry, I can't say that word.")
-	require.NoError(t, err)
-	require.True(t, announced)
+	require.NoError(t, session.TriggerResponse(&ResponseConfig{Instructions: "Sorry, I can't say that word."}))
 	first := os.awaitType(t, realtimeEventResponseCreate)
 	assert.Contains(t, instructions(first), "Sorry, I can't say that word.")
 
 	require.NoError(t, session.SendText(context.Background(), franceQuestion))
 	os.awaitType(t, realtimeEventItemCreate) // the text is added at once
-	os.quiet(t)                              // no response.create while the message is in progress
+	os.quiet(t)                              // no response.create while the first is in progress
 
-	os.end <- "completed" // the spoken message ends
+	os.end <- "completed" // the first response ends
 	second := os.awaitType(t, realtimeEventResponseCreate)
-	assert.Empty(t, instructions(second), "the text's own request, after the message")
+	assert.Empty(t, instructions(second), "the text's own request, after the first")
 	os.end <- "completed"
-	chunks := responseChunks(t, session, 2)
-	assert.Equal(t, []string{"R1", "R2"}, endsOf(chunks))
-	assert.Equal(t, map[int64]bool{1: true}, announcementGens(chunks), "only the message is marked")
+	assert.Equal(t, []string{"R1", "R2"}, endsOf(responseChunks(t, session, 2)))
 }
 
 // A response.create sent but not yet answered with response.created counts
@@ -268,8 +250,7 @@ func TestRealtimeSendText_AfterAnUnansweredResponseCreateWaits(t *testing.T) {
 	os := newOneResponseServer(t)
 	session := openOneResponseSession(t, os)
 
-	_, err := session.Announce(context.Background(), "Sorry, I can't say that word.")
-	require.NoError(t, err)
+	require.NoError(t, session.TriggerResponse(&ResponseConfig{Instructions: "Sorry, I can't say that word."}))
 	require.NoError(t, session.SendText(context.Background(), franceQuestion))
 	assert.Contains(t, instructions(os.awaitType(t, realtimeEventResponseCreate)), "Sorry")
 	os.awaitType(t, realtimeEventItemCreate)
@@ -286,8 +267,7 @@ func TestRealtimeSendToolResponses_WhileAResponseIsInProgressWaitsForItsEnd(t *t
 	os := newOneResponseServer(t)
 	session := openOneResponseSession(t, os)
 
-	_, err := session.Announce(context.Background(), "One moment.")
-	require.NoError(t, err)
+	require.NoError(t, session.TriggerResponse(&ResponseConfig{Instructions: "One moment."}))
 	os.awaitType(t, realtimeEventResponseCreate)
 	require.NoError(t, session.SendToolResponses(context.Background(),
 		[]providers.ToolResponse{{ToolCallID: "call_1", Result: `{"temp":21}`}}))
@@ -298,30 +278,6 @@ func TestRealtimeSendToolResponses_WhileAResponseIsInProgressWaitsForItsEnd(t *t
 	assert.Empty(t, instructions(os.awaitType(t, realtimeEventResponseCreate)))
 	os.end <- "completed"
 	assert.Len(t, endsOf(responseChunks(t, session, 2)), 2)
-}
-
-// An Announce asked for while typed text waits goes first, so the message
-// follows the reply it explains; the typed text's reply comes after it.
-func TestRealtimeAnnounce_GoesBeforeTheRequestsWaiting(t *testing.T) {
-	os := newOneResponseServer(t)
-	session := openOneResponseSession(t, os)
-
-	require.NoError(t, session.TriggerResponse(nil)) // R1, the reply a guardrail cuts
-	os.awaitType(t, realtimeEventResponseCreate)
-	require.NoError(t, session.SendText(context.Background(), franceQuestion))
-	os.awaitType(t, realtimeEventItemCreate)
-	_, err := session.Announce(context.Background(), "Sorry, I can't say that word.")
-	require.NoError(t, err)
-	os.quiet(t)
-
-	os.end <- "cancelled"
-	assert.Contains(t, instructions(os.awaitType(t, realtimeEventResponseCreate)), "Sorry", "the message first")
-	os.end <- "completed"
-	assert.Empty(t, instructions(os.awaitType(t, realtimeEventResponseCreate)), "then the typed text's reply")
-	os.end <- "completed"
-	chunks := responseChunks(t, session, 3)
-	assert.Equal(t, []string{"R1", "R2", "R3"}, endsOf(chunks))
-	assert.Equal(t, map[int64]bool{2: true}, announcementGens(chunks))
 }
 
 // The caller speaking over a reply (server VAD that starts responses) holds
@@ -479,36 +435,6 @@ func TestRealtimeSpeech_RequestAskedDuringTheSpeechIsSentAfterTheServersResponse
 	assert.Equal(t, "held", instructions(os.awaitType(t, realtimeEventResponseCreate)))
 	os.end <- "completed"
 	assert.Equal(t, []string{"R9", "R1"}, endsOf(responseChunks(t, session, 2)))
-}
-
-// A spoken message the server refuses is reported to the stage (an
-// announcement-failed chunk), not as a session error, and the next request
-// waiting goes.
-func TestRealtimeAnnounce_RefusedIsReportedToTheStage(t *testing.T) {
-	os := newOneResponseServer(t)
-	session := openOneResponseSession(t, os)
-
-	require.NoError(t, session.TriggerResponse(nil))
-	os.awaitType(t, realtimeEventResponseCreate)
-	_, err := session.Announce(context.Background(), "Sorry, I can't say that word.")
-	require.NoError(t, err)
-	require.NoError(t, session.TriggerResponse(&ResponseConfig{Instructions: "after"}))
-	os.rejectNext <- "invalid_value"
-	os.end <- "cancelled"
-	assert.Contains(t, instructions(os.awaitType(t, realtimeEventResponseCreate)), "Sorry")
-	assert.Equal(t, "after", instructions(os.awaitType(t, realtimeEventResponseCreate)), "the next request goes")
-
-	var failed bool
-	deadline := time.After(2 * time.Second)
-	for !failed {
-		select {
-		case c := <-session.Response():
-			require.NoError(t, c.Error, "not a session error")
-			failed, _ = c.Metadata[providers.MetaKeyAnnouncementFailed].(bool)
-		case <-deadline:
-			t.Fatal("the stage was not told the message is not coming")
-		}
-	}
 }
 
 // A request rejected as busy while no response is in progress on the

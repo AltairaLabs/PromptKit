@@ -47,10 +47,13 @@ import (
 // it and to cut its own copy to the audio the caller heard
 // (providers.ResponseInterrupter), and an Interrupt element tells the caller
 // to stop playing what it buffered, as a barge-in does. The blocked turn's
-// text then goes out as live output, as a blocked typed turn's does, and the
-// session is asked to say it (providers.Announcer, queueAnnouncement), so the
-// caller hears why the reply stopped. Whatever the caller heard before the
-// check fired cannot be unsaid.
+// text then goes out as live output, as a blocked typed turn's does, carrying
+// a cue (StreamElement.Cue) that has the CueStage after this stage speak it,
+// so the caller hears why the reply stopped. The model never says it: the
+// message is not model output, the output guardrails never see it, and it
+// never enters the model's conversation. A chain with no CueStage shows the
+// text only. Whatever the caller heard before the check fired cannot be
+// unsaid.
 
 // SetHookRegistry installs the provider hooks (guardrails) the stage runs. A
 // nil registry, the default, runs none. The registry is handed the stage's
@@ -91,6 +94,12 @@ type duplexTurnGuard struct {
 	// the decision's metadata for its Message.
 	blockedText *string
 	blockedMeta map[string]interface{}
+	// replaced is set when a block replaced the turn's text with a guardrail's
+	// own (its message, or an enforcing check's replacement): the text is not
+	// the model's, so the completed turn is not judged by the output
+	// guardrails again. A message that names what it blocks ("We don't talk
+	// about Bruno.") would otherwise block its own turn a second time.
+	replaced bool
 }
 
 // duplexHistory is the conversation the session has seen, which the hooks'
@@ -483,7 +492,10 @@ func (s *DuplexProviderStage) dropTurnID(elem *StreamElement) {
 // firing at this turn index, the blocked assistant turn in the history, one
 // more completed assistant turn), then emits it the way the stage emits any
 // assistant turn: its text as a live text element, then the Message on an
-// EndOfStream element carrying the finish reason.
+// EndOfStream element carrying the finish reason. The text element carries the
+// cue that has the cue stage speak the message in a spoken session
+// (guardrailCue); no reply was playing, so no Interrupt goes ahead of it, and
+// the blocked input never reached the model.
 func (s *DuplexProviderStage) emitBlockedTurn(
 	ctx context.Context, turn *duplexBlockedTurn, output chan<- StreamElement,
 ) error {
@@ -502,7 +514,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 
 	fr := blocked.FinishReason
 	text := blocked.Content
-	textElem := StreamElement{Text: &text, Timestamp: timeNow()}
+	textElem := StreamElement{Text: &text, Timestamp: timeNow(), Cue: s.guardrailCue(text)}
 	textElem.Meta.FinishReason = &fr
 	if err := sendStreamElement(ctx, textElem, output); err != nil {
 		return err
@@ -547,12 +559,16 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		s.accumulatedText.Reset()
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
-		if rest, truncated := strings.CutPrefix(probe.Content, sent); !truncated {
-			s.showBlockedText(probe.Content, true)
+		// A truncation keeps a prefix of the model's own text: it is shown,
+		// not spoken, and the completed turn is still judged. Anything else
+		// replaced the text with the guardrail's own.
+		replaced := !strings.HasPrefix(sent+text, probe.Content)
+		s.turnGuard.replaced = replaced
+		if rest, kept := strings.CutPrefix(probe.Content, sent); !kept {
+			s.showBlockedText(probe.Content, replaced)
 		} else if rest != "" {
-			// The rest after what was sent; spoken only when nothing was sent,
-			// so it is the whole replacement, not a truncation's tail.
-			s.showBlockedText(rest, sent == "")
+			// What follows what was already sent.
+			s.showBlockedText(rest, replaced)
 		}
 	} else {
 		s.blockTurnWith(nil, d)
@@ -602,12 +618,13 @@ func (s *DuplexProviderStage) blockTurnWith(req *hooks.ProviderRequest, d hooks.
 	// Merged, not replaced: a mark an earlier block on this turn set (a
 	// blocked input's) must survive this one.
 	s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
+	s.turnGuard.replaced = true
 	s.blockTurn()
 	s.showBlockedText(blocked.Content, true)
 }
 
 // showBlockedText has a blocked turn's text sent as live output by the next
-// cutReply, and, with speak, spoken (queueAnnouncement): a message that
+// cutReply, and, with speak, spoken (a cue, guardrailCue): a message that
 // replaces the reply is, the rest of a truncated one is not.
 func (s *DuplexProviderStage) showBlockedText(text string, speak bool) {
 	s.blockedLive = &text
@@ -620,7 +637,10 @@ func (s *DuplexProviderStage) showBlockedText(text string, speak bool) {
 // tells the caller to stop playing what it buffered, as a barge-in does. A
 // session that fails to stop the reply is logged: the stage drops the rest of
 // it anyway. Then the blocked turn's text, when it is new, goes out as a text
-// element marked safety, shaped as a blocked typed turn's (emitBlockedTurn).
+// element marked safety, shaped as a blocked typed turn's (emitBlockedTurn),
+// carrying the cue that has the cue stage speak it when the block replaced
+// the reply (guardrailCue). The clip plays after the Interrupt, so a later
+// barge-in cuts it as it cuts a reply.
 func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- StreamElement) error {
 	if s.cutPending {
 		s.cutPending = false
@@ -642,13 +662,20 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	fr := types.FinishReasonSafety
 	elem := StreamElement{Text: text, Timestamp: timeNow()}
 	elem.Meta.FinishReason = &fr
-	if err := sendStreamElement(ctx, elem, output); err != nil {
-		return err
-	}
 	if s.blockedLiveSpoken {
-		s.queueAnnouncement(ctx, *text)
+		elem.Cue = s.guardrailCue(*text)
 	}
-	return nil
+	return sendStreamElement(ctx, elem, output)
+}
+
+// guardrailCue is the cue that has the cue stage after s speak a guardrail's
+// message, or nil when none will: no cue stage follows (NewCueStageFor), or
+// the session's replies are not spoken. Without it the caller has the text.
+func (s *DuplexProviderStage) guardrailCue(text string) *Cue {
+	if s.cues == nil || !s.cues.voices(text) {
+		return nil
+	}
+	return &Cue{Kind: CueGuardrailMessage, Text: text}
 }
 
 // forgetInputOf has the spoken input an input guardrail blocked forgotten,
@@ -776,18 +803,11 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	if !turn {
 		return
 	}
-	if s.chunkAnnounces {
-		// The spoken blocked message: heard, not a turn of its own.
-		elem.Message = nil
-		s.endAnnouncementTurn()
-		return
-	}
-
 	msg.Validations = append(msg.Validations, guard.validations...)
 	if guard.blocked {
 		markBlockedTurn(msg, elem, &guard)
 	}
-	if s.runTurnAfterCallHooks(ctx, msg, elem) {
+	if !guard.replaced && s.runTurnAfterCallHooks(ctx, msg, elem) {
 		if !guard.blocked {
 			s.cutReplyOf(s.replyGeneration())
 		}

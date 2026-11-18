@@ -232,7 +232,7 @@ func TestCueVoice_TTSWithoutPCMIsSkipped(t *testing.T) {
 	cue := cueStageForSession(t, CueConfig{TTS: svc, Cache: NewMemoryClipCache(1 << 20)},
 		spokenSession("alloy", 16000))
 
-	assert.Equal(t, earconPCM(16000), playedFor(t, cue, "No PCM here."))
+	assert.Equal(t, EarconPCM(16000), playedFor(t, cue, "No PCM here."))
 	assert.Zero(t, svc.calls("No PCM here."))
 }
 
@@ -249,7 +249,7 @@ func TestCueVoice_TTSErrorFallsThroughForThatTextOnly(t *testing.T) {
 	cue := cueStageForSession(t, CueConfig{TTS: svc, Cache: NewMemoryClipCache(1 << 20)},
 		spokenSession("alloy", 24000))
 
-	assert.Equal(t, earconPCM(24000), playedFor(t, cue, "Bad text."))
+	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, "Bad text."))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, "Good text."))
 }
 
@@ -422,7 +422,7 @@ func TestCueVoice_OnDemandBudgetPlaysTheEarcon(t *testing.T) {
 		assert.Equal(t, &Cue{Kind: CueGuardrailMessage, Text: text}, e.Meta.CueAudio)
 		earcon = append(earcon, e.Audio.Samples...)
 	}
-	assert.Equal(t, earconPCM(24000), earcon)
+	assert.Equal(t, EarconPCM(24000), earcon)
 	assert.Equal(t, reply, c.next(t).Audio.Samples)
 
 	close(svc.gate)
@@ -537,7 +537,7 @@ func TestCueVoice_EarconAtTheSessionRate(t *testing.T) {
 	for _, e := range got[1:] {
 		assert.Equal(t, 16000, e.Audio.SampleRate)
 	}
-	assert.Equal(t, earconPCM(16000), cueAudioOf(got))
+	assert.Equal(t, EarconPCM(16000), cueAudioOf(got))
 }
 
 // blockMessageHook is a provider hook that blocks with msg.

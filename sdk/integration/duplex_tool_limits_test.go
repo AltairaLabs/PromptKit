@@ -26,6 +26,10 @@ type loopingToolSession struct {
 	*mock.MockStreamSession
 	mu    sync.Mutex
 	calls int
+	// quickGiveUp has the model say "gave up" before SendToolResponses
+	// returns, as a fast provider can: the reply is on Response() while the
+	// pipeline is still delivering the stopped round.
+	quickGiveUp bool
 }
 
 func (s *loopingToolSession) SendText(_ context.Context, text string) error {
@@ -63,6 +67,11 @@ func (s *loopingToolSession) SendToolResponse(ctx context.Context, id, result st
 func (s *loopingToolSession) SendToolResponses(_ context.Context, responses []providers.ToolResponse) error {
 	for _, r := range responses {
 		if strings.Contains(r.Result, "tool calls were stopped") {
+			if s.quickGiveUp {
+				s.say("gave up")
+				time.Sleep(50 * time.Millisecond) // the reply is forwarded before this returns
+				return nil
+			}
 			go s.say("gave up")
 			return nil
 		}
@@ -74,12 +83,13 @@ func (s *loopingToolSession) SendToolResponses(_ context.Context, responses []pr
 // loopingToolProvider creates loopingToolSessions.
 type loopingToolProvider struct {
 	*mock.StreamingProvider
+	quickGiveUp bool
 }
 
 func (p *loopingToolProvider) CreateStreamSession(
 	context.Context, *providers.StreamingInputConfig,
 ) (providers.StreamInputSession, error) {
-	return &loopingToolSession{MockStreamSession: mock.NewMockStreamSession()}, nil
+	return &loopingToolSession{MockStreamSession: mock.NewMockStreamSession(), quickGiveUp: p.quickGiveUp}, nil
 }
 
 // nextChunk returns the next chunk on ch, failing the test after timeout.
@@ -114,30 +124,37 @@ func awaitContent(t *testing.T, ch <-chan providers.StreamChunk, content string)
 // The identical-call breaker stops a realtime tool turn that loops with no
 // host policy at all. That is reported to the caller as an error chunk, and
 // the conversation goes on: Response() stays open and the next input is
-// answered.
+// answered. The report comes before the model's reply to the stopped calls,
+// even when that reply arrives before the stopped round is fully delivered.
 func TestDuplexToolLimits_AStoppedToolTurnLeavesTheConversationOpen(t *testing.T) {
-	provider := &loopingToolProvider{StreamingProvider: mock.NewStreamingProvider("loop", "loop-model", false)}
-	conv, err := sdk.OpenDuplex(writePackFile(t, duplexHITLPackJSON), "chat",
-		sdk.WithProvider(provider), sdk.WithSkipSchemaValidation(),
-		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
-			Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio},
-		}))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
-	conv.OnTool("process_refund", func(map[string]any) (any, error) { return "refunded", nil })
-	responseCh, err := conv.Response()
-	require.NoError(t, err)
-	ctx := context.Background()
+	for _, quick := range []bool{false, true} {
+		t.Run(map[bool]string{false: "reply later", true: "reply at once"}[quick], func(t *testing.T) {
+			provider := &loopingToolProvider{
+				StreamingProvider: mock.NewStreamingProvider("loop", "loop-model", false), quickGiveUp: quick,
+			}
+			conv, err := sdk.OpenDuplex(writePackFile(t, duplexHITLPackJSON), "chat",
+				sdk.WithProvider(provider), sdk.WithSkipSchemaValidation(),
+				sdk.WithStreamingConfig(&providers.StreamingInputConfig{
+					Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+				}))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conv.Close() })
+			conv.OnTool("process_refund", func(map[string]any) (any, error) { return "refunded", nil })
+			responseCh, err := conv.Response()
+			require.NoError(t, err)
+			ctx := context.Background()
 
-	require.NoError(t, conv.SendText(ctx, "loop"))
-	errs := awaitContent(t, responseCh, "gave up")
-	require.Len(t, errs, 1, "the stopped turn is reported once")
-	assert.Equal(t,
-		`provider stage: tool loop persisted after a self-correction nudge: "process_refund" called with identical arguments`,
-		errs[0].Error())
+			require.NoError(t, conv.SendText(ctx, "loop"))
+			errs := awaitContent(t, responseCh, "gave up")
+			require.Len(t, errs, 1, "the stopped turn is reported once, before the reply to it")
+			assert.Equal(t,
+				`provider stage: tool loop persisted after a self-correction nudge: "process_refund" called with identical arguments`,
+				errs[0].Error())
 
-	require.NoError(t, conv.SendText(ctx, "hello"))
-	assert.Empty(t, awaitContent(t, responseCh, "reply: hello"), "the next turn is answered without error")
+			require.NoError(t, conv.SendText(ctx, "hello"))
+			assert.Empty(t, awaitContent(t, responseCh, "reply: hello"), "the next turn is answered without error")
+		})
+	}
 }
 
 // A terminal limit ends the conversation: a provider call that takes the

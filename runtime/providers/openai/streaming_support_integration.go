@@ -211,16 +211,6 @@ func (s *realtimeSessionBookkeeping) InterruptResponse(ctx context.Context, gene
 	return errors.New("realtime session cannot interrupt a response")
 }
 
-// Announce forwards to the underlying session if it implements
-// providers.Announcer — same reason for the explicit forward: hidden, a
-// guardrail's cut would leave the caller in silence.
-func (s *realtimeSessionBookkeeping) Announce(ctx context.Context, text string) (bool, error) {
-	if a, ok := s.StreamInputSession.(providers.Announcer); ok {
-		return a.Announce(ctx, text)
-	}
-	return false, nil
-}
-
 // OutputAudio forwards to the underlying session if it implements
 // providers.OutputAudioReporter — same reason for the explicit forward:
 // hidden, a cue would not play in the session's voice and format.

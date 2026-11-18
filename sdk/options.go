@@ -237,8 +237,12 @@ type config struct {
 	// Initial variables from prompt defaults
 	initialVariables map[string]string
 
-	// TTS configuration for Pipeline middleware
+	// TTS configuration for Pipeline middleware; in a realtime session it
+	// voices cues (WithTTS).
 	ttsService tts.Service
+	// cueClipCache keeps a realtime session's rendered cue clips; nil is the
+	// process-wide default (WithCueClipCache).
+	cueClipCache stage.ClipCache
 
 	// Audio session configuration for Pipeline middleware
 	turnDetector audio.TurnDetector
@@ -2735,12 +2739,37 @@ func WithVariables(vars map[string]string) Option {
 	}
 }
 
-// WithTTS sets the text-to-speech service for VAD mode. It has an effect only
-// together with [WithVADMode], which sets the TTS service from its own argument.
-// Whichever of the two options is applied last decides the service.
+// WithTTS sets the text-to-speech service. In VAD mode ([WithVADMode], which
+// sets the TTS service from its own argument) it speaks every reply; whichever
+// of the two options is applied last decides the service.
+//
+// In a realtime session ([OpenDuplex] or [OpenVoice] on a provider that takes
+// streaming input, such as OpenAI Realtime or Gemini Live) it voices cues: a
+// guardrail's message, when a guardrail cuts a spoken reply or blocks typed
+// input, is spoken from this service, in the session's voice when the service
+// has a voice of that name, instead of by the model. Only a service that
+// renders PCM is used. Without one the caller hears a short tone (an earcon)
+// and sees the text. [WithTTSProvider] and a `role: tts` provider file set the
+// same service.
 func WithTTS(service tts.Service) Option {
 	return func(c *config) error {
 		c.ttsService = service
+		return nil
+	}
+}
+
+// WithCueClipCache sets the cache a realtime session's cue clips (a guardrail's
+// spoken message) are kept in once rendered, so a clip is rendered once and
+// every conversation sharing the cache plays it without rendering it again.
+// Clips are keyed by their content: the text, the voice, the source and the
+// audio format. A host serving one pack from many processes can share clips
+// across them with its own [stage.ClipCache] over a shared store.
+//
+// The default is one process-wide in-memory cache of
+// [stage.DefaultClipCacheBytes], shared by every conversation the SDK opens.
+func WithCueClipCache(cache stage.ClipCache) Option {
+	return func(c *config) error {
+		c.cueClipCache = cache
 		return nil
 	}
 }

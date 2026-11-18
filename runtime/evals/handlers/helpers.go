@@ -35,12 +35,16 @@ type scanTarget struct {
 // Scope is deliberately explicit rather than inferred from CurrentOutput being
 // set: BuildEvalContext always populates that field, so inferring would
 // silently narrow every eval and assertion to the last assistant turn.
+//
+// A guardrail judging a message with no text (a tool-call round) scans only
+// that empty text; it never falls back to the transcript, which would judge
+// earlier turns, such as a guardrail message naming what it blocks.
 func contentUnderTest(evalCtx *evals.EvalContext) []scanTarget {
 	if evalCtx == nil {
 		return nil
 	}
 
-	if evalCtx.ContentScope == evals.ContentScopeCurrent && evalCtx.CurrentOutput != "" {
+	if evalCtx.ContentScope == evals.ContentScopeCurrent {
 		// Attribute it to the last message, which is the turn the caller is
 		// evaluating in both the input and output directions.
 		turn := len(evalCtx.Messages) - 1
@@ -59,6 +63,13 @@ func contentUnderTest(evalCtx *evals.EvalContext) []scanTarget {
 		targets = append(targets, scanTarget{turn: i, content: msg.GetContent()})
 	}
 	return targets
+}
+
+// nothingToJudge reports whether a guardrail (ContentScopeCurrent) is judging
+// a message with no text, such as a round whose reply is only tool calls: a
+// content check has nothing to judge, so it is skipped and passes.
+func nothingToJudge(evalCtx *evals.EvalContext) bool {
+	return evalCtx != nil && evalCtx.ContentScope == evals.ContentScopeCurrent && evalCtx.CurrentOutput == ""
 }
 
 // extractStringSlice safely extracts a string slice from params.

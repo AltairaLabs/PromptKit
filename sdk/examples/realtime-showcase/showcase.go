@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
@@ -23,6 +24,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
@@ -57,6 +59,8 @@ type providerSetup struct {
 	// words for the no-bruno-topic guardrail, on the same API key.
 	judgeType  string
 	judgeModel string
+	// tts speaks a guardrail's message (-tts); nil plays a short tone.
+	tts tts.Service
 }
 
 // setupFor returns the realtime provider named by the -provider flag. The
@@ -115,6 +119,7 @@ func (p *providerSetup) judgeProvider() sdk.Option {
 type flags struct {
 	provider string
 	model    string
+	tts      string
 }
 
 // parseFlags reads the command line and resolves the provider, checking its
@@ -123,6 +128,7 @@ func parseFlags() (*providerSetup, error) {
 	var f flags
 	flag.StringVar(&f.provider, "provider", "openai", "realtime provider: openai or gemini")
 	flag.StringVar(&f.model, "model", "", "model (default: gpt-realtime / gemini-3.8-live)")
+	flag.StringVar(&f.tts, "tts", "", "TTS service that speaks guardrail messages: openai or gemini (default: none, a tone)")
 	flag.Parse()
 	setup, err := setupFor(f.provider)
 	if err != nil {
@@ -134,7 +140,46 @@ func parseFlags() (*providerSetup, error) {
 	if os.Getenv(setup.envKey) == "" {
 		return nil, fmt.Errorf("%s is not set", setup.envKey)
 	}
+	if err := setup.useTTS(f.tts); err != nil {
+		return nil, err
+	}
 	return setup, nil
+}
+
+// useTTS sets the TTS service that speaks a guardrail's message: "openai"
+// for OpenAI TTS, "gemini" for Gemini TTS, "" for none.
+func (p *providerSetup) useTTS(name string) error {
+	switch name {
+	case "":
+		return nil
+	case "openai":
+		key := os.Getenv("OPENAI_API_KEY")
+		if key == "" {
+			return errors.New("-tts openai needs OPENAI_API_KEY")
+		}
+		p.tts = tts.NewOpenAI(key)
+		return nil
+	case "gemini":
+		key := os.Getenv("GEMINI_API_KEY")
+		if key == "" {
+			return errors.New("-tts gemini needs GEMINI_API_KEY")
+		}
+		p.tts = tts.NewGemini(key)
+		return nil
+	default:
+		return fmt.Errorf("unknown TTS service %q (want openai or gemini)", name)
+	}
+}
+
+// cueOptions are the options that voice a guardrail's message, and what the
+// caller hears it as. With a TTS service the message is spoken from it, in
+// the session's voice when the service has a voice of that name; without one
+// the caller hears a short tone and sees the text.
+func (p *providerSetup) cueOptions() (opts []sdk.Option, heard string) {
+	if p.tts == nil {
+		return nil, "a short tone (no TTS service; add -tts openai to hear the words)"
+	}
+	return []sdk.Option{sdk.WithTTS(p.tts)}, "spoken by " + p.tts.Name() + " TTS"
 }
 
 // pictureExecutor runs show_picture: it returns only a PNG, so the model has

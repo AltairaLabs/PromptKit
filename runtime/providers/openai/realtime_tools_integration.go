@@ -103,7 +103,7 @@ func (s *RealtimeSession) SendToolResponses(ctx context.Context, responses []pro
 	// cancel applies to it.
 	return s.requestResponse(ResponseCreateEvent{
 		ClientEvent: ClientEvent{EventID: s.nextEventID(), Type: realtimeEventResponseCreate},
-	}, false)
+	})
 }
 
 // createItem sends a conversation.item.create for item.

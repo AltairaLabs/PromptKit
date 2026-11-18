@@ -1157,9 +1157,9 @@ func droppedPartTypes(responses []providers.ToolResponse) []string {
 
 // deliverToolRound is the input goroutine's part of a finished round: the
 // result messages go downstream (and into the hooks' history), the calls held
-// pending go out on a control element, the responses go to the session
-// (starting the provider call they continue), a limit is reported as an error
-// element, and a terminal limit closes the session. A round that finishes
+// pending go out on a control element, a limit is reported as an error
+// element, the responses go to the session (starting the provider call they
+// continue), and a terminal limit closes the session. A round that finishes
 // once the session is closing still has its result messages recorded (its
 // tools ran and the assistant message that called them was already sent, so
 // the history keeps a result for each call), its held calls and its error
@@ -1176,13 +1176,16 @@ func (s *DuplexProviderStage) deliverToolRound(
 		return err
 	}
 	closing := dt.isClosed()
-	if responses := res.elem.Meta.ToolResponses; len(responses) > 0 { // not sent once closing (sendToolRound)
-		s.sendToolRound(ctx, res, responses)
-	}
+	// The limit is reported before the responses go to the session: they
+	// start the model's reply to the stopped calls, which the session can
+	// stream back at once, and the report must come ahead of it.
 	if res.err != nil {
 		if err := s.emit(ctx, NewErrorElement(res.err), output); err != nil {
 			return err
 		}
+	}
+	if responses := res.elem.Meta.ToolResponses; len(responses) > 0 { // not sent once closing (sendToolRound)
+		s.sendToolRound(ctx, res, responses)
 	}
 	if res.closeSession && !closing {
 		s.closeSessionIfOpen()

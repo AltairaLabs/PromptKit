@@ -377,7 +377,7 @@ func (r *cueRun) overBudget(ctx context.Context) error {
 	r.discard()
 	if !cue.Preemptible && r.s.bank.canRender() {
 		rate := r.outputRate()
-		if err := r.emitPCM(ctx, cue, earconPCM(rate), rate); err != nil {
+		if err := r.emitPCM(ctx, cue, EarconPCM(rate), rate); err != nil {
 			return err
 		}
 	}

@@ -50,6 +50,8 @@ func main() {
 	}
 	fmt.Printf("Realtime showcase - %s (%s), scripted text mode\n", setup.name, setup.model)
 	fmt.Println("For voice (barge-in), run: go run -tags portaudio . -provider ...")
+	_, heard := setup.cueOptions()
+	fmt.Println("Guardrail messages: " + heard)
 	fmt.Println()
 	if err := runScript(setup); err != nil {
 		log.Fatal(err)
@@ -64,10 +66,12 @@ func runScript(setup *providerSetup) error {
 	elog := newEventLog(os.Stdout, store, conversationID)
 	elog.attach(bus)
 
+	cueOpts, _ := setup.cueOptions()
 	opts := append(sessionOptions(bus, store),
 		sdk.WithProvider(setup.build(setup.model)),
 		setup.judgeProvider(),
 		sdk.WithStreamingConfig(setup.streamingConfig()))
+	opts = append(opts, cueOpts...)
 	conv, err := sdk.OpenDuplex(packPath, promptName, opts...)
 	if err != nil {
 		return fmt.Errorf("open the session: %w", err)

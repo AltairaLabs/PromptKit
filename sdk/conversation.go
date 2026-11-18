@@ -984,6 +984,10 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	streamConfig *providers.StreamingInputConfig,
 ) (*stage.StreamPipeline, error) {
 	pipelineCfg := c.buildPipelineConfig(store, conversationID, streamProvider, streamConfig)
+	// A realtime session's cues (a guardrail's spoken message) are voiced by
+	// the TTS service, when one is set, and kept in the clip cache.
+	pipelineCfg.TTSService = c.config.ttsService
+	pipelineCfg.CueClipCache = c.config.cueClipCache
 
 	// Add VAD mode configuration if present (duplex-only)
 	if c.config.vadModeConfig != nil && c.config.sttService != nil && c.config.ttsService != nil {
