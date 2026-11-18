@@ -186,6 +186,11 @@ type DuplexProviderStage struct {
 	// Set via SetSessionObserver.
 	onSession func(providers.StreamInputSession)
 
+	// cues is the clip bank of the CueStage after this stage
+	// (NewCueStageFor), told of the session when it is created; nil when the
+	// chain has none.
+	cues *cueBank
+
 	// hookRegistry holds the provider hooks (guardrails) the stage runs; nil
 	// runs none. Set via SetHookRegistry. See stages_duplex_provider_hooks.go.
 	hookRegistry *hooks.Registry
@@ -525,6 +530,7 @@ func (s *DuplexProviderStage) createSessionLazily(
 		return nil, createErr
 	}
 	logger.Debug("DuplexProviderStage: session created")
+	s.startCues(ctx)
 	// Process registers the session's Close only once this returns. Until
 	// then a panic (in onSession, say) would leak a live provider session, so
 	// close it on the way out, as the inline defer used to.

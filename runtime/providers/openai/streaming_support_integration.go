@@ -221,6 +221,16 @@ func (s *realtimeSessionBookkeeping) Announce(ctx context.Context, text string) 
 	return false, nil
 }
 
+// OutputAudio forwards to the underlying session if it implements
+// providers.OutputAudioReporter — same reason for the explicit forward:
+// hidden, a cue would not play in the session's voice and format.
+func (s *realtimeSessionBookkeeping) OutputAudio() (providers.OutputAudio, bool) {
+	if r, ok := s.StreamInputSession.(providers.OutputAudioReporter); ok {
+		return r.OutputAudio()
+	}
+	return providers.OutputAudio{}, false
+}
+
 // ForgetTurn forwards to the underlying session if it implements
 // providers.TurnForgetter — same reason for the explicit forward: hidden, a
 // spoken turn an input guardrail blocked would stay in the model's context.

@@ -94,6 +94,11 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func TextCapabilities\(\) Capabilities](<#TextCapabilities>)
   - [func \(c \*Capabilities\) AcceptsContentType\(ct ContentType\) bool](<#Capabilities.AcceptsContentType>)
   - [func \(c \*Capabilities\) AcceptsElement\(elem \*StreamElement\) bool](<#Capabilities.AcceptsElement>)
+- [type ClipCache](<#ClipCache>)
+  - [func NewMemoryClipCache\(maxBytes int64\) ClipCache](<#NewMemoryClipCache>)
+- [type ClipFormat](<#ClipFormat>)
+- [type ClipKey](<#ClipKey>)
+  - [func ClipKeyFor\(text, voice, sourceKind string, format ClipFormat\) ClipKey](<#ClipKeyFor>)
 - [type CompactResult](<#CompactResult>)
 - [type CompactionContext](<#CompactionContext>)
 - [type CompactionRule](<#CompactionRule>)
@@ -145,6 +150,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type CueKind](<#CueKind>)
 - [type CueStage](<#CueStage>)
   - [func NewCueStage\(cfg CueConfig\) \*CueStage](<#NewCueStage>)
+  - [func NewCueStageFor\(duplex \*DuplexProviderStage, cfg CueConfig\) \*CueStage](<#NewCueStageFor>)
   - [func \(s \*CueStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#CueStage.Process>)
 - [type DebugStage](<#DebugStage>)
   - [func NewDebugStage\(stageName string\) \*DebugStage](<#NewDebugStage>)
@@ -601,6 +607,12 @@ const (
     DefaultBudgetTokens = 128000 // sensible default for modern models
 
 )
+```
+
+<a name="DefaultClipCacheBytes"></a>DefaultClipCacheBytes is the size of the process\-wide clip cache a cue stage uses when its config names none.
+
+```go
+const DefaultClipCacheBytes = 64 << 20
 ```
 
 <a name="DefaultCompletionTimeout"></a>Default configuration values.
@@ -1429,6 +1441,62 @@ func (c *Capabilities) AcceptsElement(elem *StreamElement) bool
 
 AcceptsElement returns true if this capability accepts the given stream element.
 
+<a name="ClipCache"></a>
+## type [ClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L70-L73>)
+
+ClipCache stores rendered clips by content key, so sessions that need the same clip render it once. Implementations must be safe for concurrent use. Get returns a miss as \(zero, false, nil\); an error is a cache fault, which the cue stage logs and treats as a miss.
+
+The cue stage renders through a single\-flight group within its process, so one process renders a key once at a time. A store shared across processes \(many pods serving the same pack\) does not get that across processes: each process can render a key once before the store holds it. An implementation that wants no duplicate writes should make Put put\-if\-absent \(Redis SET NX, a blob store's create\-if\-absent\).
+
+A cached clip is ready to play: trimmed, faded out and at the format in its key, so a hit needs no processing. Its bytes are shared: no one modifies them.
+
+```go
+type ClipCache interface {
+    Get(ctx context.Context, key ClipKey) (CueClip, bool, error)
+    Put(ctx context.Context, key ClipKey, clip CueClip) error
+}
+```
+
+<a name="NewMemoryClipCache"></a>
+### func [NewMemoryClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L93>)
+
+```go
+func NewMemoryClipCache(maxBytes int64) ClipCache
+```
+
+NewMemoryClipCache is an in\-process ClipCache that keeps at most maxBytes of clip media, evicting the least recently used clips first. A clip larger than maxBytes is not kept.
+
+<a name="ClipFormat"></a>
+## type [ClipFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L15-L19>)
+
+ClipFormat is the PCM format of a rendered clip.
+
+```go
+type ClipFormat struct {
+    Encoding   AudioFormat
+    SampleRate int
+    Channels   int
+}
+```
+
+<a name="ClipKey"></a>
+## type [ClipKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L22>)
+
+ClipKey identifies a rendered clip by what determines its audio.
+
+```go
+type ClipKey [32]byte
+```
+
+<a name="ClipKeyFor"></a>
+### func [ClipKeyFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L31>)
+
+```go
+func ClipKeyFor(text, voice, sourceKind string, format ClipFormat) ClipKey
+```
+
+ClipKeyFor is the key of the clip that says text in voice from the source kind sourceKind \("tts:\<service name\>", "session:\<family\>" or "earcon"\), in format. It is SHA\-256 over the text \(trimmed and in Unicode NFC, otherwise exact: punctuation changes how it is said\), the voice, the source kind and the format. No model name goes into it: a model change behind the same source and voice keeps the key, so a host that wants fresh clips after one clears its cache.
+
 <a name="CompactResult"></a>
 ## type [CompactResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L19-L29>)
 
@@ -2113,7 +2181,7 @@ type CueClip struct {
 ```
 
 <a name="CueConfig"></a>
-## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L47-L61>)
+## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L47-L70>)
 
 CueConfig configures a CueStage.
 
@@ -2132,6 +2200,15 @@ type CueConfig struct {
     // finishes after OnDemandBudget, or after a cut dropped its cue, still
     // keeps its clip for the next cue with that text.
     RenderTimeout time.Duration
+    // Cache holds rendered clips across sessions; nil is the process-wide
+    // in-memory cache of DefaultClipCacheBytes.
+    Cache ClipCache
+    // TTS renders clips in the session's voice when the session has no audio
+    // of its own to offer. Only a service that renders PCM is used.
+    TTS tts.Service
+    // Texts are rendered as soon as the session starts, with the messages of
+    // the provider stage's guardrails, so their cues play without waiting.
+    Texts []string
 }
 ```
 
@@ -2157,7 +2234,7 @@ const (
 ```
 
 <a name="CueStage"></a>
-## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L98-L105>)
+## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L107-L114>)
 
 CueStage plays a pre\-rendered clip for each element carrying a Cue. It goes directly after the provider stage, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as they treat reply audio \(marked Meta.CueAudio\).
 
@@ -2173,7 +2250,7 @@ type CueStage struct {
 ```
 
 <a name="NewCueStage"></a>
-### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L108>)
+### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L117>)
 
 ```go
 func NewCueStage(cfg CueConfig) *CueStage
@@ -2181,8 +2258,17 @@ func NewCueStage(cfg CueConfig) *CueStage
 
 NewCueStage creates a cue stage named "cue".
 
+<a name="NewCueStageFor"></a>
+### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L138>)
+
+```go
+func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage
+```
+
+NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the TTS service, then a built\-in earcon \(a short tone\). A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio.
+
 <a name="CueStage.Process"></a>
-### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L189>)
+### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L176>)
 
 ```go
 func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2253,7 +2339,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L81-L271>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L81-L276>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2275,7 +2361,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L296-L299>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L301-L304>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2284,7 +2370,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L316-L320>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L321-L325>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2293,7 +2379,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L329-L334>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L334-L339>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2302,7 +2388,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L358-L362>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L363-L367>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2344,7 +2430,7 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 SetPromptDeclarations sets the pack declarations of the prompts, keyed by task, so each hook call carries the declaration of the prompt the session runs \(ProviderRequest.Prompt\), as ProviderStage's do through ProviderConfig.PromptDeclarations. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L288>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L293>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))

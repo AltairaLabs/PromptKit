@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -736,4 +737,84 @@ func TestDuplexProviderStage_ForwardsCueOnlyInput(t *testing.T) {
 	defer sess.mu.Unlock()
 	assert.Empty(t, sess.texts)
 	assert.Empty(t, sess.chunks)
+}
+
+// A text cued again while the render a cut abandoned is still running waits
+// for that render instead of starting a second one, and plays its clip.
+func TestCueStage_RecuedTextJoinsItsRunningRender(t *testing.T) {
+	pcm := cueRamp(2400)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	renders := 0
+	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute})
+	cue.render = func(ctx context.Context, _ string) (CueClip, error) {
+		mu.Lock()
+		renders++
+		mu.Unlock()
+		return pendingRender(cueClip(pcm, cueTestRate), release)(ctx, "")
+	}
+	c := startChain(t, cue)
+
+	c.in <- guardrailCueElem(brunoText)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	c.in <- NewInterruptElement() // drops the first cue's playback
+	assert.True(t, c.next(t).Interrupt)
+	c.in <- guardrailCueElem(brunoText)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+
+	close(release)
+	assert.Equal(t, cueFaded(pcm, cueTestRate), cueAudioOf(c.finish(t)), "the second cue plays the clip")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, renders)
+}
+
+// A preemptible cue queued behind a guardrail cue whose clip renders gives
+// way to the reply audio queued after it: the guardrail clip plays, then the
+// reply, and the preemptible cue's clip not at all.
+func TestCueStage_PreemptibleCueBehindPendingGivesWayToReplyAudio(t *testing.T) {
+	guard := cueRamp(2400)
+	release := make(chan struct{})
+	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute,
+		Clips: map[string]CueClip{"mm-hm": cueClip(cueRamp(4800), cueTestRate)}})
+	cue.render = pendingRender(cueClip(guard, cueTestRate), release)
+	c := startChain(t, cue)
+
+	backchannel := StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	reply := cueRamp(100)
+	c.in <- guardrailCueElem(brunoText)
+	c.in <- backchannel
+	c.in <- replyAudioOf(reply)
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	assert.Equal(t, "mm-hm", c.next(t).Cue.Text)
+
+	close(release)
+	got := c.finish(t)
+	require.Len(t, got, 2)
+	assert.Equal(t, &Cue{Kind: CueGuardrailMessage, Text: brunoText}, got[0].Meta.CueAudio)
+	assert.Equal(t, cueFaded(guard, cueTestRate), got[0].Audio.Samples)
+	assert.Nil(t, got[1].Meta.CueAudio)
+	assert.Equal(t, reply, got[1].Audio.Samples)
+}
+
+// With no reply audio waiting, a preemptible cue queued behind a rendering
+// clip still plays.
+func TestCueStage_PreemptibleCueBehindPendingPlaysWithoutReplyAudio(t *testing.T) {
+	guard, hm := cueRamp(2400), cueRamp(2400)
+	release := make(chan struct{})
+	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute,
+		Clips: map[string]CueClip{"mm-hm": cueClip(hm, cueTestRate)}})
+	cue.render = pendingRender(cueClip(guard, cueTestRate), release)
+	c := startChain(t, cue)
+
+	c.in <- guardrailCueElem(brunoText)
+	c.in <- StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	assert.Equal(t, brunoText, *c.next(t).Text)
+	assert.Equal(t, "mm-hm", c.next(t).Cue.Text)
+	close(release)
+	got := c.finish(t)
+	require.Len(t, got, 2)
+	assert.Equal(t, cueFaded(guard, cueTestRate), got[0].Audio.Samples)
+	assert.Equal(t, "mm-hm", got[1].Meta.CueAudio.Text)
+	assert.Equal(t, cueFaded(hm, cueTestRate), got[1].Audio.Samples)
 }

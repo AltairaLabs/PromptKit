@@ -546,6 +546,13 @@ func (a *GuardrailHookAdapter) blockText(replacement string) string {
 	return prompt.DefaultBlockedMessage
 }
 
+// BlockMessages implements hooks.BlockMessager: the message this guardrail
+// speaks when it blocks, known in advance (its configured message, else the
+// default). A check's own replacement is decided only when it fires.
+func (a *GuardrailHookAdapter) BlockMessages() []string {
+	return []string{a.blockText("")}
+}
+
 // enforced builds an Enforced decision from an EvalResult.
 func (a *GuardrailHookAdapter) enforced(result *evals.EvalResult) hooks.Decision {
 	metadata := map[string]any{
