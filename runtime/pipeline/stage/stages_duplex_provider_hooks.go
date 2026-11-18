@@ -33,7 +33,9 @@ import (
 //   - Spoken input (BeforeCall, after the fact): the caller's transcript is
 //     checked once it is materialized as their user turn. The model heard the
 //     audio before the transcript existed, so a block can only stop the reply
-//     to it: that reply becomes the blocked turn.
+//     to it: that reply becomes the blocked turn. A session that can is then
+//     asked to take the turn and that reply out of the model's conversation
+//     (providers.TurnForgetter); one that cannot (Gemini Live) remembers it.
 //
 // An enforced turn is marked types.FinishReasonSafety and its tool calls are
 // dropped, so they are not executed. A hook that denies without enforcing
@@ -628,6 +630,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 			return err
 		}
 	}
+	s.forgetBlockedTurn(ctx)
 	text := s.blockedLive
 	if text == nil {
 		return nil
@@ -645,6 +648,31 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	return nil
 }
 
+// forgetTurnOf has the spoken turn an input guardrail blocked forgotten, with
+// the reply numbered gen, by the next cutReply (forgetBlockedTurn).
+func (s *DuplexProviderStage) forgetTurnOf(gen int64) {
+	s.forgetPending = true
+	s.forgetGen = gen
+}
+
+// forgetBlockedTurn asks the session to take the blocked spoken turn and its
+// reply out of the model's conversation (providers.TurnForgetter), once per
+// block, after the reply was cut. A session that cannot keeps the turn; one
+// that fails to is logged.
+func (s *DuplexProviderStage) forgetBlockedTurn(ctx context.Context) {
+	if !s.forgetPending {
+		return
+	}
+	s.forgetPending = false
+	f, ok := s.session.(providers.TurnForgetter)
+	if !ok {
+		return
+	}
+	if err := f.ForgetTurn(ctx, s.forgetGen); err != nil {
+		logger.Warn("DuplexProviderStage: the provider did not forget the blocked turn", "error", err)
+	}
+}
+
 // interruptElement is an Interrupt element carrying why the reply was cut:
 // types.FinishReasonSafety for a guardrail, FinishReasonInterrupted for a
 // barge-in.
@@ -660,7 +688,9 @@ func interruptElement(reason string) StreamElement {
 // fact: the model heard the audio before its transcript existed. A block
 // stops the reply to it (blockTurnWith, the firing recorded on the reply), or,
 // with replyDone (the reply already completed and was emitted), only cuts what
-// is still playing.
+// is still playing. Either way the session is asked to forget the turn and
+// that reply (forgetBlockedTurn), so the model does not remember what was
+// blocked.
 func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []types.Message, replyDone bool) {
 	if !s.hooksActive() {
 		return
@@ -676,8 +706,10 @@ func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []t
 	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, time.Since(start), req.TurnIndex)
 	if replyDone {
 		s.cutReplyOf(s.lastReplyGen)
+		s.forgetTurnOf(s.lastReplyGen)
 		return
 	}
+	s.forgetTurnOf(s.replyGeneration())
 	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
 		s.turnGuard.validations = append(s.turnGuard.validations, v)
 	}

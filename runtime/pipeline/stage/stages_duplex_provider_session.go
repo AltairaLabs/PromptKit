@@ -219,6 +219,11 @@ type DuplexProviderStage struct {
 	cutPending  bool
 	cutGen      int64
 	blockedLive *string
+	// forgetPending is set when an input guardrail blocked a spoken turn and
+	// the session is still to be asked to forget it (providers.TurnForgetter),
+	// with the reply numbered forgetGen. Response goroutine only.
+	forgetPending bool
+	forgetGen     int64
 	// blockedLiveSpoken is set when blockedLive is a message to speak
 	// (queueAnnouncement), announce is the spoken blocked message's state, and
 	// chunkAnnounces is set while the chunk being handled is part of it.

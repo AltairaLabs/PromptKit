@@ -150,6 +150,10 @@ type RealtimeSession struct {
 	// numbers them. A transcript of such an item is not the caller's turn.
 	toolMediaItems sync.Map
 	toolMediaSeq   atomic.Int64
+
+	// turns is what the session knows of each turn's items, to forget one a
+	// guardrail blocked (realtime_forget.go). Guarded by recvMu.
+	turns turnLedger
 }
 
 // realtimeSessionOpts carries internal/test-only construction overrides for a
@@ -371,7 +375,9 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 	}
 
 	// Trigger a response: a new turn once it is sent, which waits for a
-	// response in progress to end (requestResponse).
+	// response in progress to end (requestResponse), and a typed one, which
+	// answers no audio item of the caller's.
+	s.startTypedTurn()
 	responseEvent := ResponseCreateEvent{
 		ClientEvent: ClientEvent{
 			EventID: s.nextEventID(),
@@ -702,6 +708,10 @@ func (s *RealtimeSession) handleMessage(data []byte) {
 		s.handleSpeechStarted(e)
 	case *conversationItemTruncatedEvent:
 		s.truncates.done(e.ItemID)
+	case *conversationItemDeletedEvent:
+		s.turns.deletes.done(e.ItemID)
+	case *InputAudioBufferCommittedEvent:
+		s.noteUserItem(e.ItemID)
 	case *InputAudioBufferSpeechStoppedEvent:
 		logger.Debug("OpenAI Realtime: speech stopped", "item_id", e.ItemID)
 		s.speechStopped()
@@ -729,10 +739,13 @@ func (s *RealtimeSession) startGeneration(responseID string) {
 	}
 	s.respGens[responseID] = s.gen
 	s.respOrder = append(s.respOrder, responseID)
+	var evicted int64
 	if len(s.respOrder) > maxRespGens {
+		evicted = s.respGens[s.respOrder[0]]
 		delete(s.respGens, s.respOrder[0])
 		s.respOrder = s.respOrder[1:]
 	}
+	s.noteResponseStarted(s.gen, evicted)
 }
 
 // maxRespGens bounds the responses whose generation the session remembers.
@@ -829,7 +842,7 @@ func (s *RealtimeSession) handleError(e *ErrorEvent) {
 			"code", e.Error.Code, "message", e.Error.Message)
 		return
 	}
-	if s.cancelRejected(e) {
+	if s.cancelRejected(e) || s.deleteRejected(e) {
 		return
 	}
 	handled, ended := s.requestRejected(e)
@@ -1028,6 +1041,9 @@ func (s *RealtimeSession) handleResponseDone(e *ResponseDoneEvent) {
 	logger.Debug("OpenAI Realtime: response done", "response_id", e.Response.ID, "status", e.Response.Status)
 	s.responseActive = false
 	s.ClearDrop()
+	// A response forgotten while it ran is deleted now, ahead of anything the
+	// caller asks for once it has seen the response end.
+	s.noteResponseDone(s.respGens[e.Response.ID], &e.Response)
 
 	finishReason := realtimeFinishReason(&e.Response)
 	chunk := providers.StreamChunk{

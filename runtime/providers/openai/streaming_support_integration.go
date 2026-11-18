@@ -221,6 +221,16 @@ func (s *realtimeSessionBookkeeping) Announce(ctx context.Context, text string) 
 	return false, nil
 }
 
+// ForgetTurn forwards to the underlying session if it implements
+// providers.TurnForgetter — same reason for the explicit forward: hidden, a
+// spoken turn an input guardrail blocked would stay in the model's context.
+func (s *realtimeSessionBookkeeping) ForgetTurn(ctx context.Context, generation int64) error {
+	if f, ok := s.StreamInputSession.(providers.TurnForgetter); ok {
+		return f.ForgetTurn(ctx, generation)
+	}
+	return errors.New("realtime session cannot forget a turn")
+}
+
 // BargeIn() is promoted from the embedded StreamInputSession (which now includes
 // it as a required method), so the wrapper forwards it automatically — no
 // explicit override needed.

@@ -250,6 +250,27 @@ type ResponseInterrupter interface {
 	InterruptResponse(ctx context.Context, generation int64) error
 }
 
+// TurnForgetter is an optional StreamInputSession interface for a session that
+// can take a turn out of the model's conversation. The duplex pipeline calls it
+// when an input guardrail blocks a spoken turn: the model heard the audio
+// before its transcript existed, so cutting the reply leaves the caller's turn,
+// and what was said back, in the model's context, and a later turn can revive
+// what the guardrail blocked.
+//
+// ForgetTurn removes the caller's input that the reply numbered generation
+// (StreamChunk.Generation) answers, and that reply. A reply still in progress,
+// or not created yet, is removed once it ends; a completed one at once.
+// Generation 0 is the reply in progress, or the next one. Earlier replies of a
+// tool turn, and their tool results, stay. Removing an item the provider has
+// already dropped is not an error.
+//
+// OpenAI Realtime deletes the conversation items. A session without it keeps
+// the turn: Gemini Live has no way to remove one, so the model still remembers
+// what the caller said.
+type TurnForgetter interface {
+	ForgetTurn(ctx context.Context, generation int64) error
+}
+
 // Announcer is an optional interface a StreamInputSession implements to have
 // the model speak a given text as its own reply, in its own voice. The
 // pipeline uses it after a guardrail cuts a spoken reply, so the caller hears
