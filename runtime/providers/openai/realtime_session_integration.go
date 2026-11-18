@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -368,7 +369,7 @@ func (s *RealtimeSession) SendText(ctx context.Context, text string) error {
 		Role: roleUser,
 		Content: []ConversationContent{
 			{
-				Type: "input_text",
+				Type: contentInputText,
 				Text: text,
 			},
 		},
@@ -786,7 +787,29 @@ func (s *RealtimeSession) emit(chunk providers.StreamChunk) {
 			}
 		}
 	}
+	s.tagReplyInput(&chunk)
 	s.emitCh <- chunk
+}
+
+// metaTypeInputTranscription is the Metadata type of a chunk carrying the
+// caller's transcribed speech.
+const metaTypeInputTranscription = "input_transcription"
+
+// tagReplyInput names, on a reply's chunk, the caller's audio input the reply
+// answers (providers.ReplyToInputKey), when the session knows it, so the
+// pipeline can tell a late transcript of that input from the next turn's.
+// The chunk's Metadata is copied, not changed. Called with recvMu held.
+func (s *RealtimeSession) tagReplyInput(chunk *providers.StreamChunk) {
+	input := s.turns.genUser[chunk.Generation]
+	if input == "" || chunk.Metadata[keyType] == metaTypeInputTranscription {
+		return
+	}
+	meta := maps.Clone(chunk.Metadata)
+	if meta == nil {
+		meta = map[string]interface{}{}
+	}
+	meta[providers.ReplyToInputKey] = input
+	chunk.Metadata = meta
 }
 
 // playoutEstimate returns the session's playout estimate, creating it on
@@ -1082,7 +1105,7 @@ func (s *RealtimeSession) handleInputTranscription(e *ConversationItemInputAudio
 	}
 	s.emit(providers.StreamChunk{
 		Metadata: map[string]interface{}{
-			keyType:         "input_transcription",
+			keyType:         metaTypeInputTranscription,
 			"transcription": e.Transcript, // DuplexProviderStage expects this key
 			// The input it transcribes, which ForgetTurn takes.
 			providers.InputItemIDKey: e.ItemID,

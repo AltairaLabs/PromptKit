@@ -29,6 +29,10 @@ type lateTranscriptState struct {
 	// owedHistPos is where the owed turn's messages begin in the hooks'
 	// history; turnHistStart is where the current turn's do.
 	owedHistPos, turnHistStart int
+	// owedInput is the session's ID for the caller's input the owed turn's
+	// reply answered (providers.ReplyToInputKey), "" when the session did not
+	// say; replyInput is the one the reply streaming now answers.
+	owedInput, replyInput string
 	// lastText is the last user message emitted, and lastFromDeltas whether
 	// it was assembled from incremental transcript chunks.
 	lastText       string
@@ -51,6 +55,23 @@ func (l *lateTranscriptState) repeats(text string) bool {
 	return strings.HasPrefix(strings.TrimSpace(l.lastText), strings.TrimSpace(text))
 }
 
+// owes reports whether the transcript of the caller's input inputID can be
+// the owed turn's: it is, unless both name their input and the inputs differ.
+// A transcript of another input is the next turn's, whose reply has not
+// begun; taking it for the owed turn's would judge it against a reply long
+// done and leave the reply that answers it uncut.
+func (l *lateTranscriptState) owes(inputID string) bool {
+	return inputID == "" || l.owedInput == "" || inputID == l.owedInput
+}
+
+// noteReplyInput records the caller's input the reply chunk answers, when
+// the session names it (providers.ReplyToInputKey).
+func (s *DuplexProviderStage) noteReplyInput(chunk *providers.StreamChunk) {
+	if id, ok := chunk.Metadata[providers.ReplyToInputKey].(string); ok && id != "" {
+		s.late.replyInput = id
+	}
+}
+
 // placeFinalTranscript handles a final transcript on the streaming path that
 // is not a new user turn: one owed to the turn just answered is emitted as
 // its late user message, and a repeat of a turn already shown is dropped.
@@ -65,9 +86,9 @@ func (s *DuplexProviderStage) placeFinalTranscript(
 	if text == "" {
 		return false, nil
 	}
+	inputID, _ := chunk.Metadata[providers.InputItemIDKey].(string)
 	switch {
-	case s.late.owed:
-		inputID, _ := chunk.Metadata[providers.InputItemIDKey].(string)
+	case s.late.owed && s.late.owes(inputID):
 		return true, s.emitLateUserTurn(ctx, text, inputID, output)
 	case s.late.repeats(text):
 		logger.Debug("DuplexProviderStage: dropping a final transcript of a user turn already shown")
@@ -146,6 +167,7 @@ func (s *DuplexProviderStage) noteTurnEnd(toolCalls bool) {
 	shown := s.late.shown || s.inputUserTurn.Swap(false)
 	s.late.owed = !shown
 	s.late.owedToolTurn = toolCalls
+	s.late.owedInput, s.late.replyInput = s.late.replyInput, ""
 	if !shown {
 		s.late.owedHistPos = s.late.turnHistStart
 	}
