@@ -344,6 +344,11 @@ type realtimeOpts struct {
 	// finalWait and toolWaitLimit replace the stage's waits once input
 	// closes; zero keeps the defaults.
 	finalWait, toolWaitLimit time.Duration
+	// lateUsage makes the provider a providers.LateUsageReporter that reports
+	// usage after a call ends; usageWait then replaces how long a completion
+	// with no cost waits for its call's usage (zero keeps the default).
+	lateUsage bool
+	usageWait time.Duration
 	// timeout bounds the stage's run; zero means 5s. outputBuffer sizes the
 	// output channel, read only at the end; zero means 256.
 	timeout      time.Duration
@@ -371,7 +376,11 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 		sort.Strings(names)
 		turnState = &TurnState{AllowedTools: names}
 	}
-	st := NewDuplexProviderStageWithTurnState(p, cfg, o.emitter, turnState)
+	var prov providers.StreamInputSupport = p
+	if o.lateUsage {
+		prov = &lateUsageToolProvider{realtimeToolProvider: p}
+	}
+	st := NewDuplexProviderStageWithTurnState(prov, cfg, o.emitter, turnState)
 	if o.hookReg != nil {
 		st.SetHookRegistry(o.hookReg)
 	}
@@ -380,6 +389,9 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	}
 	if o.toolWaitLimit > 0 {
 		st.toolWaitLimit = o.toolWaitLimit
+	}
+	if o.usageWait > 0 {
+		st.usageWait = o.usageWait
 	}
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)

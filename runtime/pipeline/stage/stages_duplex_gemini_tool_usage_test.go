@@ -45,6 +45,10 @@ type geminiLiveProvider struct {
 	url string
 }
 
+// ReportsUsageAfterCallEnds declares, as the Gemini provider does, that
+// usage can arrive after a call ends (providers.LateUsageReporter).
+func (*geminiLiveProvider) ReportsUsageAfterCallEnds() bool { return true }
+
 func (p *geminiLiveProvider) CreateStreamSession(
 	ctx context.Context, _ *providers.StreamingInputConfig,
 ) (providers.StreamInputSession, error) {
@@ -97,11 +101,13 @@ func awaitToolResponse(conn *websocket.Conn) bool {
 }
 
 // runGeminiLive runs the stage, with the weather tool, on a Gemini Live
-// session the server plays script on, until the server ends it. With
-// usageFirst set, the tool runs (and its response is sent) only once
-// usageFirst provider.call.usage events were reported: the session has then
-// read the messages that carried them before the tool response went out.
-func runGeminiLive(t *testing.T, usageFirst int, script func(conn *websocket.Conn)) (*callEvents, []StreamElement) {
+// session the server plays script on, until the server ends it. A completion
+// with no cost waits for its call's usage until the usage arrives, a
+// completion after it goes out, or the session ends. With completedFirst
+// set, the tool runs (and its response is sent) only once completedFirst
+// provider.call.completed events were reported: the session has then read the
+// usage they waited for before the tool response went out.
+func runGeminiLive(t *testing.T, completedFirst int, script func(conn *websocket.Conn)) (*callEvents, []StreamElement) {
 	t.Helper()
 	emitter, ev := newCallEvents()
 	p := &geminiLiveProvider{
@@ -109,15 +115,15 @@ func runGeminiLive(t *testing.T, usageFirst int, script func(conn *websocket.Con
 		url:               scriptedGeminiLive(t, script),
 	}
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
-	if usageFirst > 0 {
+	if completedFirst > 0 {
 		exec.gate = make(chan struct{})
 		go func() {
 			defer close(exec.gate)
 			for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
 				ev.mu.Lock()
-				n := len(ev.usage)
+				n := len(ev.done)
 				ev.mu.Unlock()
-				if n >= usageFirst {
+				if n >= completedFirst {
 					return
 				}
 				time.Sleep(time.Millisecond)
@@ -126,6 +132,7 @@ func runGeminiLive(t *testing.T, usageFirst int, script func(conn *websocket.Con
 	}
 	st := NewDuplexProviderStageWithTurnState(p, baseConfig(), emitter, &TurnState{AllowedTools: []string{"weather"}})
 	st.SetToolExecution(newWeatherRegistry(t, exec), nil, DuplexToolConfig{}, nil)
+	st.usageWait = time.Minute
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 	input := make(chan StreamElement, 1)
@@ -141,11 +148,11 @@ func runGeminiLive(t *testing.T, usageFirst int, script func(conn *websocket.Con
 
 // Gemini Live (3.x) ends the tool-call generation with its own turnComplete,
 // carrying that generation's usage, right after the toolCall. The tool calls
-// run at once, so the tool-call call completes before that usage arrives: it
-// is reported as a provider.call.usage for that call, never as an empty
-// reply's call and never on the reply's. The tool runs only once that usage
-// was reported, so the session read the generation's end before it sent the
-// tool response: no clock decides it.
+// end the call at once, before that usage arrives: the call's completion
+// waits for it and carries it, never as an empty reply's call and never on
+// the reply's, and no provider.call.usage follows. The tool runs only once
+// that completion was reported, so the session read the generation's end
+// before it sent the tool response: no clock decides it.
 func TestDuplexGeminiLive_ToolCallTurnUsageIsReportedOnItsCall(t *testing.T) {
 	ev, elems := runGeminiLive(t, 1, func(conn *websocket.Conn) {
 		send(conn, liveToolCall, liveGenerationComplete, liveTurnComplete(935, 6))
@@ -154,14 +161,13 @@ func TestDuplexGeminiLive_ToolCallTurnUsageIsReportedOnItsCall(t *testing.T) {
 		}
 		send(conn, liveReply, liveGenerationComplete, liveTurnComplete(1019, 74))
 	})
-	done, usage := ev.await(t, 2, 1)
+	done, usage := ev.await(t, 2, 0)
 
 	require.Len(t, done, 2, "the tool-call call and the reply's; no empty call")
 	assert.Equal(t, 1, done[0].ToolCallCount)
-	assertCall(t, done[0], 0, 0)
+	assertCall(t, done[0], 935, 6)
 	assertCall(t, done[1], 1019, 74)
-	require.Len(t, usage, 1)
-	assertUsage(t, usage[0], done[0].CallID, 935, 6)
+	assert.Empty(t, usage, "the completion carried the usage")
 	msgs := costedReplies(elems)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "It is 21 degrees", msgs[1].Content)
@@ -215,23 +221,24 @@ func TestDuplexGeminiLive_EmptyReplyToTheToolResultEndsItsTurn(t *testing.T) {
 
 // A content-free turn end on the generation of a call that already completed
 // (a provider reporting a tool-call generation's end, with its usage, as a
-// turn end) ends no turn: it is that call's late usage. No empty assistant
-// message reaches the caller, and the reply that follows is its own call.
+// turn end) ends no turn: it is that call's usage, which its completion,
+// waiting for it, carries. No empty assistant message reaches the caller, and
+// the reply that follows is its own call.
 func TestDuplexGeminiLive_ContentlessEndOfACompletedCallIsItsUsage(t *testing.T) {
-	h, ev := costHarness(t, 0)
+	h, ev := costHarnessWaiting(t, time.Minute)
 	h.emit(gen(1, toolCallTurn(weatherCall("c1"))))
 	h.awaitSent(1)
 	stop := "stop"
 	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(935, 6)}}))
 	h.emit(gen(2, textTurn("It is 21 degrees", usd(1019, 74))))
-	done, usage := ev.await(t, 2, 1)
+	done, usage := ev.await(t, 2, 0)
 	elems := h.finish()
 
 	require.Len(t, done, 2, "the tool-call call and the reply's; no empty call")
 	assert.Equal(t, 1, done[0].ToolCallCount)
+	assertCall(t, done[0], 935, 6)
 	assertCall(t, done[1], 1019, 74)
-	require.Len(t, usage, 1)
-	assertUsage(t, usage[0], done[0].CallID, 935, 6)
+	assert.Empty(t, usage)
 	assert.Empty(t, streamErrors(elems))
 	assert.Equal(t, []string{"", "It is 21 degrees"}, endedTurnContents(elems),
 		"the tool-call turn and the reply: no empty reply between them")

@@ -333,6 +333,23 @@ type LateInputTranscriber interface {
 	EmitsLateInputTranscription() bool
 }
 
+// LateUsageReporter is an optional interface a StreamInputSupport provider
+// implements to declare that its sessions can report a call's usage after the
+// call has ended: Gemini Live reports a tool-call turn's usage, and an
+// interrupted reply's, on the turn completion that follows.
+//
+// When a provider reports true, the streaming pipeline holds a call's
+// provider.call.completed that carries no usage for a short while, so the
+// usage that follows lands on it rather than on a separate
+// provider.call.usage event. Only that event waits. Providers that report a
+// call's usage with the call (or not at all) need not implement this: their
+// completions go out at once.
+type LateUsageReporter interface {
+	// ReportsUsageAfterCallEnds reports whether a call's usage can arrive
+	// after the call has ended.
+	ReportsUsageAfterCallEnds() bool
+}
+
 // StreamingCapabilities describes what streaming features a provider supports.
 type StreamingCapabilities struct {
 	// SupportedMediaTypes lists the media types that can be streamed

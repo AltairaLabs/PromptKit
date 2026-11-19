@@ -88,7 +88,7 @@ The `middleware.started`, `middleware.completed` and `middleware.failed` types a
 ### Provider and tool calls
 
 - `provider.call.started`, `provider.call.completed` (tokens, cost, duration), `provider.call.failed`
-- `provider.call.usage` (tokens, cost): usage a provider reported for a call after the call completed. A call's total cost is its `provider.call.completed` cost plus its `provider.call.usage` costs.
+- `provider.call.usage` (tokens, cost): usage a provider reported for a call after the call's `provider.call.completed` went out. For a realtime provider that reports usage after a call ends (`providers.LateUsageReporter`, such as Gemini Live), a call's completion with no cost waits briefly for that usage and carries it, so this event is only for usage that arrives later than that. A call's total cost is its `provider.call.completed` cost plus its `provider.call.usage` costs.
 - `tool.call.started`, `tool.call.completed`, `tool.call.failed`
 - `tool.excluded`: the tool loop dropped a tool from the model's tool set after its calls failed twice in one loop (`ToolExcludedData`: tool name, reason, failure count, round)
 
