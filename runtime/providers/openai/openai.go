@@ -1294,6 +1294,9 @@ func convertOpenAIPart(part interface{}) *types.ContentPart {
 func (p *Provider) predictWithMessages(
 	ctx context.Context, req providers.PredictionRequest, messages []map[string]interface{},
 ) (providers.PredictionResponse, error) {
+	if err := checkStrictResponseFormat(req.ResponseFormat); err != nil {
+		return providers.PredictionResponse{}, err
+	}
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)
 
@@ -1433,6 +1436,9 @@ func (p *Provider) decodeChatResponse(
 func (p *Provider) predictStreamWithMessages(
 	ctx context.Context, req providers.PredictionRequest, messages []map[string]interface{},
 ) (<-chan providers.StreamChunk, error) {
+	if err := checkStrictResponseFormat(req.ResponseFormat); err != nil {
+		return nil, err
+	}
 	// Enrich context with provider and model info for logging
 	ctx = p.LoggingContext(ctx, p.model)
 

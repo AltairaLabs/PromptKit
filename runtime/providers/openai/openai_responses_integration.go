@@ -344,6 +344,9 @@ func (p *Provider) predictWithResponses(
 	tools any,
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	if err := checkStrictResponseFormat(req.ResponseFormat); err != nil {
+		return providers.PredictionResponse{}, nil, err
+	}
 	ctx = p.LoggingContext(ctx, p.model)
 
 	start := time.Now()
@@ -496,6 +499,9 @@ func (p *Provider) predictStreamWithResponses(
 	tools any,
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
+	if err := checkStrictResponseFormat(req.ResponseFormat); err != nil {
+		return nil, err
+	}
 	ctx = p.LoggingContext(ctx, p.model)
 
 	req, err := p.prepareResponsesMessages(ctx, req)

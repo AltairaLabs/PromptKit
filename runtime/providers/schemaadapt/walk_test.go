@@ -123,3 +123,32 @@ func TestIsObjectNode(t *testing.T) {
 func TestRewrite_EmptyInput(t *testing.T) {
 	assert.Empty(t, Rewrite(nil, func(map[string]any) {}))
 }
+
+// TestWalkPath_ReportsEachNodesLocation pins the path WalkPath passes for each
+// kind of child keyword, and its order: parents first, map entries sorted.
+func TestWalkPath_ReportsEachNodesLocation(t *testing.T) {
+	raw := `{
+	  "type": "object",
+	  "properties": {
+	    "z": {"type": "array", "items": {"type": "string"}},
+	    "a": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+	  },
+	  "$defs": {"named": {"type": "object", "additionalProperties": {"type": "integer"}}}
+	}`
+	var doc any
+	require.NoError(t, json.Unmarshal([]byte(raw), &doc))
+
+	var paths []string
+	WalkPath(doc, func(path string, _ map[string]any) { paths = append(paths, path) })
+
+	assert.Equal(t, []string{
+		"$",
+		"$.properties.a",
+		"$.properties.a.anyOf[0]",
+		"$.properties.a.anyOf[1]",
+		"$.properties.z",
+		"$.properties.z.items",
+		"$.$defs.named",
+		"$.$defs.named.additionalProperties",
+	}, paths)
+}
