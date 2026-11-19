@@ -344,6 +344,9 @@ type realtimeOpts struct {
 	// finalWait and toolWaitLimit replace the stage's waits once input
 	// closes; zero keeps the defaults.
 	finalWait, toolWaitLimit time.Duration
+	// usageWait replaces how long a completion with no cost waits for its
+	// call's usage; zero keeps the default.
+	usageWait time.Duration
 	// timeout bounds the stage's run; zero means 5s. outputBuffer sizes the
 	// output channel, read only at the end; zero means 256.
 	timeout      time.Duration
@@ -380,6 +383,9 @@ func startRealtime(t *testing.T, o realtimeOpts) *realtimeHarness {
 	}
 	if o.toolWaitLimit > 0 {
 		st.toolWaitLimit = o.toolWaitLimit
+	}
+	if o.usageWait > 0 {
+		st.usageWait = o.usageWait
 	}
 	if !o.noToolSet {
 		st.SetToolExecution(o.registry, o.policy, o.cfg, o.resolver)
@@ -539,6 +545,9 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 		registry: newWeatherRegistry(t, exec),
 		emitter:  events.NewEmitter(bus, "run", "sess", "conv"),
 		script:   [][]providers.StreamChunk{textTurn("It is 21 degrees", nil)},
+		// The calls report no cost: each completion waits for its usage until
+		// the session ends, while the tool runs and the next call starts.
+		usageWait: time.Minute,
 	})
 
 	h.emit(toolCallTurn(weatherCall("c1")))
@@ -552,7 +561,7 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	require.Eventually(t, func() bool {
 		evMu.Lock()
 		defer evMu.Unlock()
-		return len(evs) >= 6
+		return len(evs) >= 4
 	}, 2*time.Second, time.Millisecond)
 	elems := h.finish()
 
@@ -576,7 +585,9 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	assert.Equal(t, weatherResult, results[0].GetTextContent())
 
 	// Events: round 1's provider call, its tool call, then round 2's provider
-	// call, which only follows the tool responses reaching the session.
+	// call, which only follows the tool responses reaching the session. The
+	// completions, waiting for usage that never comes, go out in order when
+	// the session ends: nothing else waited for them.
 	evMu.Lock()
 	defer evMu.Unlock()
 	type step struct {
@@ -605,10 +616,10 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	}
 	assert.Equal(t, []step{
 		{events.EventProviderCallStarted, 1},
-		{events.EventProviderCallCompleted, 1},
 		{events.EventToolCallStarted, 1},
 		{events.EventToolCallCompleted, 1},
 		{events.EventProviderCallStarted, 2},
+		{events.EventProviderCallCompleted, 1},
 		{events.EventProviderCallCompleted, 2},
 	}, got)
 	assert.NotEmpty(t, callID)

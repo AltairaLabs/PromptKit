@@ -287,6 +287,10 @@ type DuplexProviderStage struct {
 	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it. Zero
 	// means the default (see inputGrace).
 	inputGracePeriod time.Duration
+	// usageWait is how long a provider call's completion with no cost waits
+	// for the call's usage (completionUsageWait); tests shorten or lengthen
+	// it. Zero means the default (see completionWait).
+	usageWait time.Duration
 	// chunkHandled, when set, runs once each response chunk has been handled:
 	// tests wait on it for the stage to have handled what they emitted.
 	chunkHandled func()

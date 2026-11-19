@@ -31,8 +31,10 @@ import (
 //     guardrail denying the turn does not stop the call completing or its
 //     cost being charged.
 //   - Events: cost for a call still open is carried by its
-//     provider.call.completed; cost for a call already completed is a
-//     provider.call.usage event for it. A call's total is its completed Cost
+//     provider.call.completed; a completion with no cost waits briefly for
+//     the call's usage and carries it (stages_duplex_cost_hold.go); cost for
+//     a call whose completion is out is a provider.call.usage event for it,
+//     after the completion. A call's total is its completed Cost
 //     plus its usage events'. Output of a completed call (a canceled
 //     response's trailing chunks) is dropped; only its cost counts. A cost
 //     with Generation 0 (a provider that does not number calls) goes to the
@@ -341,11 +343,7 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 	}
 	dt.mu.Unlock()
 	if !open {
-		usageOf := round
-		if usageOf == nil {
-			usageOf = &duplexRound{} // a session-level record: no call to name
-		}
-		s.emitRoundUsage(ctx, cost, usageOf)
+		s.reportUsage(ctx, cost, round)
 	}
 	return s.chargeLate(turn, cost, rr)
 }

@@ -131,10 +131,14 @@ type duplexTools struct {
 	// mu guards the current tool turn, its round count, the provider call in
 	// progress, the session's spend and the terminal flag, which the
 	// response, input and worker goroutines all reach.
-	mu    sync.Mutex
-	turn  *duplexToolTurn
-	round int
-	open  *duplexRound
+	mu sync.Mutex
+	// completionMu serializes sending provider.call.completed and
+	// provider.call.usage events, so held completions go out in order and a
+	// call's usage never precedes its completion. Taken before mu.
+	completionMu sync.Mutex
+	turn         *duplexToolTurn
+	round        int
+	open         *duplexRound
 	// gens maps the provider's generations to the calls opened for them, so
 	// cost reported for a generation lands on its own call; last is the call
 	// started last (stages_duplex_cost.go). genOrder bounds gens.
@@ -147,6 +151,9 @@ type duplexTools struct {
 	forgottenUpTo int64
 	last          *duplexRound
 	spent         float64
+	// held are the completions waiting for their call's usage, in the order
+	// the calls completed (stages_duplex_cost_hold.go).
+	held []*heldCompletion
 	// terminal is set once a limit closes the session: nothing more is run
 	// or reported.
 	terminal bool
@@ -787,9 +794,8 @@ func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, round *duple
 	s.emitter.ProviderCallStartedCtx(ctx, data)
 }
 
-// emitRoundCompleted emits provider.call.completed for a realtime round that
-// took dur, as ProviderStage.emitProviderCallCompleted does for a round.
-func (s *DuplexProviderStage) emitRoundCompleted(
+// emitRoundCompletedNow emits provider.call.completed for round at once.
+func (s *DuplexProviderStage) emitRoundCompletedNow(
 	ctx context.Context, msg *types.Message, round *duplexRound, dur time.Duration, noMessage bool,
 ) {
 	if s.emitter == nil {
@@ -918,7 +924,8 @@ func (dt *duplexTools) takeUndelivered() []*duplexToolResult {
 // no result (a round cut short or still queued, a call held for approval)
 // with a refusal, emits what was held behind them, and completes the provider
 // call still open, so its provider.call.started has its
-// provider.call.completed. Nil-safe without tool execution.
+// provider.call.completed, which, with every completion still waiting for its
+// usage, goes out now. Nil-safe without tool execution.
 func (s *DuplexProviderStage) finishToolRounds(ctx context.Context, output chan<- StreamElement) {
 	dt := s.tools
 	if dt == nil {
@@ -941,6 +948,8 @@ func (s *DuplexProviderStage) finishToolRounds(ctx context.Context, output chan<
 	}
 	s.exchange.closeOut(ctx, output, deadline)
 	s.completeOpenCall(ctx, nil, false)
+	// The session has ended: completions waiting for usage go out now.
+	s.flushHeldCompletions()
 }
 
 // runToolJob runs one round, or refuses its calls, and returns its results.
