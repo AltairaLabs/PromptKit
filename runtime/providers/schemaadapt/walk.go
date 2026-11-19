@@ -16,7 +16,11 @@
 // on an object nested inside an array's items.
 package schemaadapt
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"sort"
+	"strconv"
+)
 
 // typeObject is the JSON Schema type name for an object node.
 const typeObject = "object"
@@ -47,50 +51,71 @@ var schemaListKeys = []string{"anyOf", "allOf", "oneOf", "prefixItems"}
 // model. $ref is a string and is not followed, which also means a recursive
 // schema cannot send this into a loop.
 func Walk(node any, visit func(map[string]any)) {
+	WalkPath(node, func(_ string, obj map[string]any) { visit(obj) })
+}
+
+// RootPath is the path WalkPath reports for the document's root node.
+const RootPath = "$"
+
+// WalkPath is Walk, also passing each node's location as a JSONPath-style
+// string: "$" for the root, ".<keyword>" for a schema-valued keyword,
+// ".<keyword>.<name>" for an entry of a schema map such as properties or
+// $defs, and ".<keyword>[i]" for an entry of a schema list such as anyOf.
+// Map entries are visited in sorted key order, so the order is deterministic.
+func WalkPath(node any, visit func(path string, node map[string]any)) {
+	walkPath(node, RootPath, visit)
+}
+
+func walkPath(node any, path string, visit func(string, map[string]any)) {
 	obj, ok := node.(map[string]any)
 	if !ok {
 		return
 	}
-	visit(obj)
+	visit(path, obj)
 
-	walkChildSchemas(obj, visit)
-	walkChildSchemaMaps(obj, visit)
-	walkChildSchemaLists(obj, visit)
+	walkChildSchemas(obj, path, visit)
+	walkChildSchemaMaps(obj, path, visit)
+	walkChildSchemaLists(obj, path, visit)
 }
 
 // walkChildSchemas descends through keywords whose value is one schema.
-func walkChildSchemas(obj map[string]any, visit func(map[string]any)) {
+func walkChildSchemas(obj map[string]any, path string, visit func(string, map[string]any)) {
 	for _, k := range schemaBearingKeys {
 		if child, ok := obj[k]; ok {
-			Walk(child, visit)
+			walkPath(child, path+"."+k, visit)
 		}
 	}
 }
 
 // walkChildSchemaMaps descends through keywords whose value is an object whose
 // values are schemas.
-func walkChildSchemaMaps(obj map[string]any, visit func(map[string]any)) {
+func walkChildSchemaMaps(obj map[string]any, path string, visit func(string, map[string]any)) {
 	for _, k := range schemaMapKeys {
 		children, ok := obj[k].(map[string]any)
 		if !ok {
 			continue
 		}
-		for _, child := range children {
-			Walk(child, visit)
+		names := make([]string, 0, len(children))
+		for name := range children {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			walkPath(children[name], path+"."+k+"."+name, visit)
 		}
 	}
 }
 
 // walkChildSchemaLists descends through keywords whose value is an array of
 // schemas.
-func walkChildSchemaLists(obj map[string]any, visit func(map[string]any)) {
+func walkChildSchemaLists(obj map[string]any, path string, visit func(string, map[string]any)) {
 	for _, k := range schemaListKeys {
 		children, ok := obj[k].([]any)
 		if !ok {
 			continue
 		}
-		for _, child := range children {
-			Walk(child, visit)
+		for i, child := range children {
+			walkPath(child, path+"."+k+"["+strconv.Itoa(i)+"]", visit)
 		}
 	}
 }

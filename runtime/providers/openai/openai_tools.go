@@ -121,7 +121,8 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 //
 // A non-strict response format is sent as written: without strict: true
 // OpenAI treats the schema as guidance and enforces neither rule, so
-// rewriting it would change the caller's contract for no gain.
+// rewriting it would change the caller's contract for no gain. A strict one
+// reaches here only after checkStrictResponseFormat has accepted it.
 func strictResponseSchema(rf *providers.ResponseFormat) json.RawMessage {
 	if rf == nil {
 		return nil
@@ -130,6 +131,32 @@ func strictResponseSchema(rf *providers.ResponseFormat) json.RawMessage {
 		return rf.JSONSchema
 	}
 	return ensureStrictSchema(rf.JSONSchema)
+}
+
+// checkStrictResponseFormat refuses a strict response format whose schema
+// strict mode cannot express, before any request is built.
+//
+// A tool with such a schema is sent non-strict (BuildTooling), because the
+// tool's author never chose strict mode. A response format's caller did, so
+// sending it non-strict would silently drop the guarantee they asked for, and
+// sending it strict either 400s at OpenAI (a keyword strict mode refuses) or
+// rewrites it into a different contract (a map-typed object closed to accept
+// no keys). The error names the offending keyword and where it sits.
+func checkStrictResponseFormat(rf *providers.ResponseFormat) error {
+	if rf == nil || !rf.Strict || rf.Type != providers.ResponseFormatJSONSchema || len(rf.JSONSchema) == 0 {
+		return nil
+	}
+	v := strictViolationOf(rf.JSONSchema)
+	if v == nil {
+		return nil
+	}
+	name := rf.SchemaName
+	if name == "" {
+		name = defaultResponseSchema
+	}
+	return fmt.Errorf("openai: response_format %q asks for strict mode, but strict mode cannot express its "+
+		"schema: %q at %s %s; change the schema or send the response format with strict: false",
+		name, v.keyword, v.path, v.problem)
 }
 
 // ensureStrictSchema modifies a JSON schema for OpenAI strict mode:
@@ -201,39 +228,60 @@ var strictSupportedFormats = map[string]bool{
 // not decode is left to the strict path, which sends it unchanged for the API
 // to report.
 func strictCompatible(schema json.RawMessage) bool {
-	var doc any
-	if len(schema) == 0 || json.Unmarshal(schema, &doc) != nil {
-		return true
-	}
-	ok, root := true, true
-	// Walk visits parents before children, so the first node is the root.
-	schemaadapt.Walk(doc, func(node map[string]any) {
-		if ok && !strictCompatibleNode(node, root) {
-			ok = false
-		}
-		root = false
-	})
-	return ok
+	return strictViolationOf(schema) == nil
 }
 
-// strictCompatibleNode applies strictCompatible's rules to one schema node.
-func strictCompatibleNode(node map[string]any, root bool) bool {
+// strictViolation is the first thing in a schema that strict mode cannot
+// express: the keyword, the JSONPath of the node carrying it, and why.
+type strictViolation struct {
+	keyword string
+	path    string
+	problem string
+}
+
+// strictViolationOf returns the first node, in schemaadapt.WalkPath order,
+// that breaks one of strictCompatible's rules, or nil when there is none.
+func strictViolationOf(schema json.RawMessage) *strictViolation {
+	var doc any
+	if len(schema) == 0 || json.Unmarshal(schema, &doc) != nil {
+		return nil
+	}
+	var found *strictViolation
+	schemaadapt.WalkPath(doc, func(path string, node map[string]any) {
+		if found != nil {
+			return
+		}
+		if keyword, problem, bad := strictNodeViolation(node, path == schemaadapt.RootPath); bad {
+			found = &strictViolation{keyword: keyword, path: path, problem: problem}
+		}
+	})
+	return found
+}
+
+// strictNodeViolation applies strictCompatible's rules to one schema node.
+func strictNodeViolation(node map[string]any, root bool) (keyword, problem string, bad bool) {
 	for _, k := range strictUnsupportedKeywords {
 		if _, present := node[k]; present {
-			return false
+			return k, "is not supported in strict mode", true
 		}
 	}
 	if f, isString := node["format"].(string); isString && !strictSupportedFormats[f] {
-		return false
+		return "format", fmt.Sprintf("is %q, which strict mode does not support", f), true
 	}
 	if _, tuple := node["items"].([]any); tuple {
-		return false
+		return "items", "is a list (tuple form), which strict mode does not support", true
 	}
-	ap, hasAP := node["additionalProperties"]
-	if hasAP {
-		return ap == false
+	if ap, hasAP := node["additionalProperties"]; hasAP {
+		if ap != false {
+			return "additionalProperties", "is not false (strict mode requires every object to be closed)", true
+		}
+		return "", "", false
 	}
-	return root || !isFreeFormObject(node)
+	if !root && isFreeFormObject(node) {
+		return "properties", "declares none on an object that sets no additionalProperties, so it accepts " +
+			"any keys; strict mode would close it to accept none", true
+	}
+	return "", "", false
 }
 
 // isFreeFormObject reports whether node is an object schema that declares no
@@ -366,6 +414,9 @@ func (p *ToolProvider) predictWithCompletions(
 func (p *ToolProvider) buildToolRequest(
 	ctx context.Context, req providers.PredictionRequest, tools interface{}, toolChoice string,
 ) (map[string]interface{}, error) {
+	if err := checkStrictResponseFormat(req.ResponseFormat); err != nil {
+		return nil, err
+	}
 	messages, err := p.convertRequestMessagesToOpenAI(ctx, req)
 	if err != nil {
 		return nil, err
