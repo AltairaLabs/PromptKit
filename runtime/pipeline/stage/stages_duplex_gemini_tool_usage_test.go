@@ -45,6 +45,10 @@ type geminiLiveProvider struct {
 	url string
 }
 
+// ReportsUsageAfterCallEnds declares, as the Gemini provider does, that
+// usage can arrive after a call ends (providers.LateUsageReporter).
+func (*geminiLiveProvider) ReportsUsageAfterCallEnds() bool { return true }
+
 func (p *geminiLiveProvider) CreateStreamSession(
 	ctx context.Context, _ *providers.StreamingInputConfig,
 ) (providers.StreamInputSession, error) {
@@ -221,7 +225,7 @@ func TestDuplexGeminiLive_EmptyReplyToTheToolResultEndsItsTurn(t *testing.T) {
 // waiting for it, carries. No empty assistant message reaches the caller, and
 // the reply that follows is its own call.
 func TestDuplexGeminiLive_ContentlessEndOfACompletedCallIsItsUsage(t *testing.T) {
-	h, ev := costHarness(t, 0)
+	h, ev := costHarnessWaiting(t, time.Minute)
 	h.emit(gen(1, toolCallTurn(weatherCall("c1"))))
 	h.awaitSent(1)
 	stop := "stop"

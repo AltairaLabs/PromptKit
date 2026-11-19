@@ -5,15 +5,18 @@ import (
 	"slices"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // A provider can end a call before it reports the call's usage: Gemini Live
 // reports a tool-call turn's usage, and an interrupted reply's, on the
 // turnComplete that follows. Completing the call at once would report it at
-// $0 and its usage as a provider.call.usage a few milliseconds later. So a
-// completion with no cost waits, up to completionUsageWait, for the call's
-// usage, and carries it when it arrives in time. Only the event waits: the
+// $0 and its usage as a provider.call.usage a few milliseconds later. So, for
+// a provider that declares it (providers.LateUsageReporter), a completion
+// with no cost waits, up to completionUsageWait, for the call's usage, and
+// carries it when it arrives in time. Any other provider's completions go out
+// at once, and usage after them is a provider.call.usage. Only the event waits: the
 // interruption, the tool calls, the next call and the messages go on at once.
 //
 // Completions still go out in the order the calls completed: one that does
@@ -72,13 +75,21 @@ func (s *DuplexProviderStage) emitRoundCompleted(
 	s.emitRoundCompletedNow(ctx, msg, round, dur, noMessage)
 }
 
-// holdCompletionLocked holds round's completion, when it has no cost, until
-// the call's usage arrives (sendWithUsage) or the wait ends, and reports
-// whether it did. Called with dt.completionMu held.
+// reportsLateUsage reports whether the stage's provider can report a call's
+// usage after the call ends (providers.LateUsageReporter).
+func (s *DuplexProviderStage) reportsLateUsage() bool {
+	r, ok := s.provider.(providers.LateUsageReporter)
+	return ok && r.ReportsUsageAfterCallEnds()
+}
+
+// holdCompletionLocked holds round's completion, when it has no cost and the
+// provider can report usage after a call ends, until the call's usage
+// arrives (reportUsage) or the wait ends, and reports whether it did. Called
+// with dt.completionMu held.
 func (s *DuplexProviderStage) holdCompletionLocked(
 	ctx context.Context, msg *types.Message, round *duplexRound, dur time.Duration, noMessage bool,
 ) bool {
-	if hasCost(msg.CostInfo) {
+	if hasCost(msg.CostInfo) || !s.reportsLateUsage() {
 		return false
 	}
 	dt := s.tools

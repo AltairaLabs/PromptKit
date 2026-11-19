@@ -97,12 +97,7 @@ func costHarness(t *testing.T, budget float64) (*realtimeHarness, *callEvents) {
 		policy = &pipeline.ToolPolicy{MaxCostUSD: budget}
 	}
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
-	// A completion with no cost waits for its call's usage until the usage
-	// arrives, a completion after it goes out, or the session ends; never on a
-	// timer here.
-	return startRealtime(t, realtimeOpts{
-		registry: newWeatherRegistry(t, exec), policy: policy, emitter: emitter, usageWait: time.Minute,
-	}), ev
+	return startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec), policy: policy, emitter: emitter}), ev
 }
 
 func assertCall(t *testing.T, d *events.ProviderCallCompletedData, in, out int) {
@@ -161,23 +156,25 @@ func derefMessages(msgs []*types.Message) []types.Message {
 
 // Gemini 3 reports a tool-call turn's usage after its tool calls; here the
 // tool has run and the reply's call started before it arrives. It is still
-// the tool call's: its completion, waiting for it, carries it. The completed
-// events go out one per call, in order, and the messages carry the usage on
-// the next reply, adding up to the spend a resumed budget is rebuilt from.
+// the tool call's: a provider.call.usage on that call. The completed events
+// go out as each call completes, one per call, and the messages carry the
+// usage on the next reply, adding up to the spend a resumed budget is
+// rebuilt from.
 func TestDuplexCost_LateUsageLandsOnItsCallAfterTheToolFinished(t *testing.T) {
 	h, ev := costHarness(t, 0)
 	h.emit(gen(1, toolCallTurn(weatherCall("c1"))))
 	h.awaitSent(1) // the tool ran; the reply's call has started
 	h.emit(gen(1, []providers.StreamChunk{{CostInfo: usd(600, 12)}}))
 	h.emit(gen(2, textTurn("It is 21 degrees", usd(20, 5))))
-	done, usage := ev.await(t, 2, 0)
+	done, usage := ev.await(t, 2, 1)
 	msgs := costedReplies(h.finish())
 
 	require.Len(t, done, 2, "one completed event per call")
 	assert.Equal(t, 1, done[0].ToolCallCount)
-	assertCall(t, done[0], 600, 12)
+	assertCall(t, done[0], 0, 0)
 	assertCall(t, done[1], 20, 5)
-	assert.Empty(t, usage)
+	require.Len(t, usage, 1)
+	assertUsage(t, usage[0], done[0].CallID, 600, 12)
 	require.Len(t, msgs, 2)
 	assert.Nil(t, msgs[0].CostInfo)
 	assertCostInfo(t, usd(620, 17), msgs[1].CostInfo)
@@ -185,7 +182,7 @@ func TestDuplexCost_LateUsageLandsOnItsCallAfterTheToolFinished(t *testing.T) {
 	assert.InDelta(t, h.spent(), sumHistoryCost(derefMessages(msgs)), 1e-12)
 }
 
-// Two barge-ins in a row: each interrupted call's usage, arriving after
+// Two barge-ins in a row: each interrupted call's completion, arriving after
 // both, lands on its own call.
 func TestDuplexCost_DoubleBargeInLandsEachCompletionOnItsCall(t *testing.T) {
 	stop := "stop"
@@ -195,41 +192,40 @@ func TestDuplexCost_DoubleBargeInLandsEachCompletionOnItsCall(t *testing.T) {
 	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(0, 6)}}))
 	h.emit(gen(2, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(0, 9)}}))
 	h.emit(gen(3, textTurn("Yes?", usd(30, 2))))
-	done, usage := ev.await(t, 3, 0)
+	done, usage := ev.await(t, 3, 2)
 	msgs := costedReplies(h.finish())
 
 	require.Len(t, done, 3)
 	assert.Equal(t, types.FinishReasonInterrupted, done[0].FinishReason)
 	assert.Equal(t, types.FinishReasonInterrupted, done[1].FinishReason)
-	assertCall(t, done[0], 0, 6)
-	assertCall(t, done[1], 0, 9)
-	assert.Empty(t, usage)
+	require.Len(t, usage, 2)
+	assertUsage(t, usage[0], done[0].CallID, 0, 6)
+	assertUsage(t, usage[1], done[1].CallID, 0, 9)
 	assertCall(t, done[2], 30, 2)
 	require.Len(t, msgs, 3)
 	assertCostInfo(t, usd(30, 17), msgs[2].CostInfo)
 }
 
-// The interrupted call's turn end, with its usage, can arrive after the
-// caller's next turn began: it is still the interrupted call's, not the new
-// call's.
+// The interrupted call's completion can arrive after the caller's next turn
+// began: it is still the interrupted call's, not the new call's.
 func TestDuplexCost_InterruptedCompletionAfterTheNextTurnBegins(t *testing.T) {
 	stop := "stop"
 	h, ev := costHarness(t, 0)
 	h.emit(gen(1, []providers.StreamChunk{{Content: "Once upon", Delta: "Once upon"}, {Interrupted: true}}))
-	h.settle() // the interrupted call has completed
+	ev.await(t, 1, 0) // the interrupted call has completed
 	user := types.Message{Role: roleUser, Content: "stop, tell me about Rome"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(50, 3)}}))
 	h.emit(gen(2, textTurn("Rome is hazy", usd(30, 2))))
-	done, usage := ev.await(t, 2, 0)
+	done, usage := ev.await(t, 2, 1)
 	h.finish()
 
 	require.Len(t, done, 2, "no phantom call")
 	assert.Equal(t, types.FinishReasonInterrupted, done[0].FinishReason)
-	assertCall(t, done[0], 50, 3)
 	assertCall(t, done[1], 30, 2)
-	assert.Empty(t, usage)
+	require.Len(t, usage, 1)
+	assertUsage(t, usage[0], done[0].CallID, 50, 3)
 }
 
 // With the host running the tools (no registry), a Gemini 3 two-tool chain's
@@ -277,10 +273,8 @@ func TestDuplexCost_LateCostRefusesOnItsCall(t *testing.T) {
 	errs := streamErrors(elems)
 	require.Len(t, errs, 1)
 	assert.Equal(t, "provider stage: cost budget exceeded (0.0200 > 0.0100 USD)", errs[0].Error())
-	done, usage := ev.await(t, 2, 0)
-	assert.Equal(t, 1, done[0].ToolCallCount)
-	assertCall(t, done[0], 15, 5)
-	assert.Empty(t, usage)
+	done, usage := ev.await(t, 1, 1)
+	assertUsage(t, usage[0], done[0].CallID, 15, 5)
 }
 
 // A turn's end that carries a cost but nothing to build a message from is
@@ -453,17 +447,15 @@ func TestDuplexCost_NewGenerationEndsThePreviousCall(t *testing.T) {
 	h.emit([]providers.StreamChunk{{Interrupted: true, Generation: 7}})
 	stop := "stop"
 	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(10, 1)}}))
-	h.settle()
+	done, usage := ev.await(t, 2, 1)
 	msgs := costedReplies(h.finish())
 
-	done, usage := ev.await(t, 2, 0)
 	require.Len(t, done, 2)
 	assert.True(t, done[0].NoMessage, "generation 1's call: moved on from")
 	assert.Equal(t, types.FinishReasonInterrupted, done[0].FinishReason)
-	assertCall(t, done[0], 10, 1)
 	assert.True(t, done[1].NoMessage, "generation 7's call: interrupted before any output")
-	assertCall(t, done[1], 0, 0)
-	assert.Empty(t, usage)
+	require.Len(t, usage, 1)
+	assertUsage(t, usage[0], done[0].CallID, 10, 1)
 	assert.Empty(t, msgs, "generation 1's text is in no message")
 }
 

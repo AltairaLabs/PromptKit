@@ -2,12 +2,14 @@ package stage
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -15,17 +17,28 @@ import (
 
 // A provider can end a call before it reports the call's usage (Gemini Live
 // reports a tool-call turn's usage, and an interrupted reply's, on the
-// turnComplete after). The call's provider.call.completed waits a short while
-// for that usage, so it carries the call's whole cost; nothing else waits.
+// turnComplete after). For a provider that declares it
+// (providers.LateUsageReporter), the call's provider.call.completed waits a
+// short while for that usage, so it carries the call's whole cost; nothing
+// else waits. Any other provider's completions go out at once.
 
-// costHarnessWaiting is costHarness with a completion waiting wait for its
-// call's usage.
+// lateUsageToolProvider is the harness's provider declaring that it reports
+// usage after a call ends.
+type lateUsageToolProvider struct {
+	*realtimeToolProvider
+}
+
+func (*lateUsageToolProvider) ReportsUsageAfterCallEnds() bool { return true }
+
+// costHarnessWaiting is costHarness on a provider that reports usage after a
+// call ends, with a completion waiting wait for its call's usage.
 func costHarnessWaiting(t *testing.T, wait time.Duration) (*realtimeHarness, *callEvents) {
 	t.Helper()
 	emitter, ev := newCallEvents()
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
 	h := startRealtime(t, realtimeOpts{
-		registry: newWeatherRegistry(t, exec), policy: &pipeline.ToolPolicy{}, emitter: emitter, usageWait: wait,
+		registry: newWeatherRegistry(t, exec), policy: &pipeline.ToolPolicy{}, emitter: emitter,
+		lateUsage: true, usageWait: wait,
 	})
 	return h, ev
 }
@@ -162,4 +175,56 @@ func TestDuplexCost_CompletionWithUsageAndNoPriceDoesNotWait(t *testing.T) {
 			assert.InDelta(t, cost.TotalCost, done[0].Cost, 1e-12)
 		})
 	}
+}
+
+// A provider that does not declare it reports usage after a call ends: its
+// completion goes out at once, ahead of the tool's events, even with no cost
+// and a long wait configured, and usage after it is a provider.call.usage.
+func TestDuplexCost_ProviderWithoutLateUsageDoesNotWait(t *testing.T) {
+	bus := events.NewEventBus()
+	var mu sync.Mutex
+	var order []events.EventType
+	var completed []*events.ProviderCallCompletedData
+	var usage []*events.ProviderCallUsageData
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch d := e.Data.(type) {
+		case *events.ProviderCallCompletedData:
+			order = append(order, e.Type)
+			completed = append(completed, d)
+		case *events.ProviderCallUsageData:
+			order = append(order, e.Type)
+			usage = append(usage, d)
+		case *events.ToolCallEventData:
+			order = append(order, e.Type)
+		}
+	})
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
+	h := startRealtime(t, realtimeOpts{
+		registry: newWeatherRegistry(t, exec), emitter: events.NewEmitter(bus, "run", "sess", "conv"),
+		usageWait: time.Minute,
+	})
+	h.emit(gen(1, toolCallTurn(weatherCall("c1"))))
+	h.awaitSent(1)
+	h.emit(gen(1, []providers.StreamChunk{{CostInfo: usd(600, 12)}}))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(usage) == 1
+	}, 2*time.Second, time.Millisecond, "the usage was never reported")
+	h.finish()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.GreaterOrEqual(t, len(order), 4)
+	assert.Equal(t, []events.EventType{
+		events.EventProviderCallCompleted,
+		events.EventToolCallStarted,
+		events.EventToolCallCompleted,
+	}, order[:3], "the completion did not wait")
+	assert.Equal(t, 1, completed[0].ToolCallCount)
+	assert.Zero(t, completed[0].Cost)
+	assert.Zero(t, completed[0].InputTokens)
+	assertUsage(t, usage[0], completed[0].CallID, 600, 12)
 }

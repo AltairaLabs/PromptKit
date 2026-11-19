@@ -188,8 +188,9 @@ Run the voice mode and say each of these in turn.
   Realtime, so your `message.created` line and the `no-bruno` guardrail
   arrive later, and more of the blocked reply plays first.
 - **Late usage.** Gemini Live reports a tool-call turn's usage, and a cut
-  reply's, a few milliseconds after the call ends. The call's `cost` line
-  waits briefly for it, so it shows the call's whole cost. Usage that comes
+  reply's, a few milliseconds after the call ends. Because the provider
+  declares this, the call's `cost` line waits briefly for it, so it shows the
+  call's whole cost. Usage that comes
   later than that prints as a `late usage for call N` line, and the session
   total includes it.
 - **The picture.** Gemini Live sends a tool's images to Gemini 3 and later

@@ -32,6 +32,13 @@ const (
 // Ensure GeminiProvider implements StreamInputSupport
 var _ providers.StreamInputSupport = (*Provider)(nil)
 
+var _ providers.LateUsageReporter = (*Provider)(nil)
+
+// ReportsUsageAfterCallEnds reports that Gemini Live reports a tool-call
+// turn's usage, and an interrupted reply's, on the turnComplete after the
+// call ended. Implements providers.LateUsageReporter.
+func (p *Provider) ReportsUsageAfterCallEnds() bool { return true }
+
 // geminiLiveAPIURL is the WebSocket URL for Gemini Live API
 //
 //nolint:lll // URL cannot be split

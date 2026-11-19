@@ -31,8 +31,9 @@ import (
 //     guardrail denying the turn does not stop the call completing or its
 //     cost being charged.
 //   - Events: cost for a call still open is carried by its
-//     provider.call.completed; a completion with no cost waits briefly for
-//     the call's usage and carries it (stages_duplex_cost_hold.go); cost for
+//     provider.call.completed; for a provider that reports usage after a
+//     call ends, a completion with no cost waits briefly for the call's
+//     usage and carries it (stages_duplex_cost_hold.go); cost for
 //     a call whose completion is out is a provider.call.usage event for it,
 //     after the completion. A call's total is its completed Cost
 //     plus its usage events'. Output of a completed call (a canceled
