@@ -159,11 +159,16 @@ func runBounded(
 
 // lifecycleFor builds the emitter pair for one direction. A func guardrail has
 // no eval type, so it reports "func" — the listener maps that to
-// promptkit.eval.type, where the caller's name would be redundant.
-func (g *funcGuardrail) lifecycleFor(direction string) lifecycle {
-	return lifecycle{
+// promptkit.eval.type, where the caller's name would be redundant. The events
+// carry req's turn, as an eval-backed guardrail's do; a nil req is turn 0.
+func (g *funcGuardrail) lifecycleFor(direction string, req *hooks.ProviderRequest) lifecycle {
+	lc := lifecycle{
 		emitter: g.emitter, name: g.name, valType: funcValidatorType, direction: direction,
 	}
+	if req != nil {
+		lc.turnIndex = req.TurnIndex
+	}
+	return lc
 }
 
 // BeforeCall runs the input func, if any, when the last message is from the
@@ -187,7 +192,7 @@ func (g *funcGuardrail) BeforeCall(
 		Round:     req.Round,
 		Caller:    req.Caller,
 	}
-	lc := g.lifecycleFor(DirectionInput)
+	lc := g.lifecycleFor(DirectionInput, req)
 	start := lc.start()
 
 	d, err := runBounded(ctx, g.timeout, func(c context.Context) hooks.Decision { return g.input(c, in) })
@@ -219,7 +224,7 @@ func (g *funcGuardrail) AfterCall(
 		caller = req.Caller
 	}
 
-	lc := g.lifecycleFor(DirectionOutput)
+	lc := g.lifecycleFor(DirectionOutput, req)
 	start := lc.start()
 
 	// The func rewrites a copy, adopted only if it answers in time — so a

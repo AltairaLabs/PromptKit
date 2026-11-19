@@ -10,7 +10,7 @@ type TriggerContext struct {
 	// SessionID identifies the current session (used for sampling).
 	SessionID string
 
-	// TurnIndex is the current turn number (used for sampling).
+	// TurnIndex is the current turn's 0-based index (used for sampling).
 	TurnIndex int
 
 	// IsSessionComplete indicates whether the session has ended.

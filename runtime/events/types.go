@@ -477,19 +477,14 @@ type ValidationEventData struct {
 	Enforced      bool          // True when the guardrail modified content (truncation/replacement)
 	Score         float64       // Evaluation score (0.0–1.0)
 
-	// TurnIndex is the turn this validation ran against, counted by the
-	// ProviderStage that hosts the guardrail hooks.
+	// TurnIndex is the 0-based turn this validation ran against: 0 for the
+	// conversation's first turn, on the text path (Send, Stream) and the
+	// realtime path alike. It is the hooks.ProviderRequest.TurnIndex of the
+	// call the guardrail judged, so a validation and the hook calls of its turn
+	// carry the same number. A composition step reports its parent's turn.
 	//
-	// It is NOT the same counter as EvalEventData.TurnIndex and the two must
-	// not be joined. That one is the SDK's (evalMiddleware.turnIndex): it is
-	// 1-based, is incremented only after the pipeline returns, and is skipped
-	// entirely for a turn suspended on pending client tools. This one is
-	// 0-based, advances while the turn is still running — which is the only
-	// reason a guardrail can read it at all — and restarts at 0 in each
-	// composition sub-pipeline, since those build their own ProviderStage.
-	//
-	// Each is internally consistent. Correlating a validation with an eval
-	// requires the message they both hang off, not these numbers.
+	// EvalEventData.TurnIndex uses the same numbering, so an eval and a
+	// validation of the same turn carry the same number.
 	TurnIndex int
 
 	// Validator is the pack's definition of the validator (RFC 0016), so a
@@ -955,7 +950,11 @@ type EvalEventData struct {
 	Kind    EvalKind `json:"kind,omitempty"`
 	Trigger string   `json:"trigger"` // "every_turn", "on_session_complete", etc.
 
-	// TurnIndex is the turn this eval evaluated.
+	// TurnIndex is the 0-based turn this eval evaluated: 0 for the
+	// conversation's first turn, as ValidationEventData.TurnIndex and
+	// hooks.ProviderRequest.TurnIndex number it, so an eval and a validation of
+	// the same turn carry the same number. A session or conversation eval
+	// carries the index of the last turn it saw.
 	//
 	// No omitempty: turn 0 is a real turn, and dropping it would make the
 	// first turn of every session indistinguishable from "not set".

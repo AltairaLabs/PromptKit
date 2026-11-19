@@ -708,3 +708,24 @@ func TestRange_JSON(t *testing.T) {
 		})
 	}
 }
+
+// A result for the conversation's first turn carries turn_index 0 on the wire.
+// Turns are 0-based, so dropping a zero would make a first-turn result
+// indistinguishable from one that names no turn.
+func TestEvalResult_FirstTurnSerializesTurnIndex(t *testing.T) {
+	data, err := json.Marshal(EvalResult{EvalID: "e1", Type: "contains", TurnIndex: 0})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got, ok := fields["turn_index"]
+	if !ok {
+		t.Fatalf("turn_index missing from %s", data)
+	}
+	if got != float64(0) {
+		t.Fatalf("turn_index = %v, want 0", got)
+	}
+}

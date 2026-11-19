@@ -21,7 +21,7 @@ func TestReportedTurn_PrefersThePipelineTurnOverDispatchCount(t *testing.T) {
 	conv := &Conversation{turnState: ts}
 	em := &evalMiddleware{conv: conv}
 
-	assert.Equal(t, 9, em.reportedTurn(1),
+	assert.Equal(t, 8, em.reportedTurn(1),
 		"a resumed conversation must report the transcript's turn, not the first dispatch")
 }
 
@@ -29,10 +29,11 @@ func TestReportedTurn_PrefersThePipelineTurnOverDispatchCount(t *testing.T) {
 // dispatch count stands in.
 func TestReportedTurn_FallsBackToDispatchCount(t *testing.T) {
 	em := &evalMiddleware{conv: &Conversation{}}
-	assert.Equal(t, 3, em.reportedTurn(3))
+	assert.Equal(t, 2, em.reportedTurn(3), "the third dispatch is turn index 2")
 
 	em = &evalMiddleware{}
-	assert.Equal(t, 2, em.reportedTurn(2), "no conversation at all is still safe")
+	assert.Equal(t, 1, em.reportedTurn(2), "no conversation at all is still safe")
+	assert.Equal(t, 0, em.reportedTurn(0), "nothing dispatched yet is turn 0, never -1")
 }
 
 // A turn state that was never populated (no state-store load stage ran) is
@@ -41,5 +42,5 @@ func TestReportedTurn_FallsBackToDispatchCount(t *testing.T) {
 func TestReportedTurn_UnsetTurnStateFallsBack(t *testing.T) {
 	conv := &Conversation{turnState: stage.NewTurnState()}
 	em := &evalMiddleware{conv: conv}
-	assert.Equal(t, 5, em.reportedTurn(5))
+	assert.Equal(t, 4, em.reportedTurn(5))
 }

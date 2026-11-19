@@ -73,7 +73,7 @@ func (c *turnCollector) snapshot() (validation, eval []int) {
 }
 
 // End-to-end proof through the real Open/Send path that a guardrail and an eval
-// covering the same turn report the SAME turn index.
+// covering the same turn report the same 0-based turn: 0 for the first turn.
 //
 // The unit tests cover the pieces; only this covers the wiring between them —
 // that Conversation.turnState actually reaches both the ProviderStage (through
@@ -81,7 +81,7 @@ func (c *turnCollector) snapshot() (validation, eval []int) {
 // is the one both report. That is invisible to a test driving a stage directly.
 //
 // The turn index is what lines these events up with the transcript, so a
-// disagreement here makes both unplaceable.
+// turn placed differently by either makes both unplaceable.
 func TestE2E_GuardrailAndEvalAgreeOnTurnIndex(t *testing.T) {
 	packPath := filepath.Join(t.TempDir(), "turnalign.pack.json")
 	require.NoError(t, os.WriteFile(packPath, []byte(turnAlignPackJSON), 0o600))
@@ -134,10 +134,10 @@ func TestE2E_GuardrailAndEvalAgreeOnTurnIndex(t *testing.T) {
 
 	validation, eval := col.snapshot()
 
-	assert.Equal(t, []int{1, 2, 3}, eval,
-		"evals should number turns 1..3")
-	assert.Equal(t, eval, validation,
-		"a guardrail and an eval covering the same turn must report the same turn index")
+	assert.Equal(t, []int{0, 1, 2}, eval,
+		"evals number turns from 0, as every other turn index does")
+	assert.Equal(t, []int{0, 1, 2}, validation,
+		"guardrails number the same turns 0..2")
 
 	// Agreement alone is necessary but not sufficient, so pin the seam too: the
 	// number both sides read is the one the pipeline derived onto the
@@ -182,10 +182,10 @@ func TestConversation_PipelineConfigCarriesTheTurnState(t *testing.T) {
 //
 // This is the case that discriminates. On a fresh conversation the eval
 // middleware's own dispatch count and the transcript-derived turn agree at
-// 1, 2, 3 — so the alignment test above passes even if evals ignore the
+// 0, 1, 2 — so the alignment test above passes even if evals ignore the
 // pipeline entirely. Resume with three turns already on the record and the two
-// sources diverge immediately: the dispatch count restarts at 1 while the
-// transcript is on turn 4. The transcript is the one that is right, because it
+// sources diverge immediately: the dispatch count restarts at 0 while the
+// transcript is on turn index 3. The transcript is the one that is right, because it
 // is the thing these events are placed against.
 func TestE2E_ResumedConversationReportsTranscriptTurn(t *testing.T) {
 	ctx := context.Background()
@@ -244,8 +244,8 @@ func TestE2E_ResumedConversationReportsTranscriptTurn(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "expected both event families")
 
 	validation, eval := col.snapshot()
-	assert.Equal(t, []int{4}, eval,
-		"a resumed conversation continues the transcript, it does not restart at 1")
-	assert.Equal(t, []int{4}, validation,
-		"the guardrail must report the same resumed turn")
+	assert.Equal(t, []int{3}, eval,
+		"a resumed conversation continues the transcript, it does not restart at 0")
+	assert.Equal(t, []int{3}, validation,
+		"the guardrail must report the same resumed turn, 0-based")
 }

@@ -471,14 +471,18 @@ type EvalResult struct {
 	Skipped    bool            `json:"skipped,omitempty"`
 	SkipReason string          `json:"skip_reason,omitempty"`
 	SessionID  string          `json:"session_id,omitempty"`
-	TurnIndex  int             `json:"turn_index,omitempty"`
+	// TurnIndex is the 0-based turn the result belongs to. Always serialized:
+	// 0 is the conversation's first turn, not an absent value.
+	TurnIndex int `json:"turn_index"`
 }
 
 // EvalContext provides data to eval handlers.
 // For turn-level evals: Messages contains history up to the current turn.
 // For session-level evals: Messages contains the full conversation.
 type EvalContext struct {
-	Messages      []types.Message  `json:"messages"`
+	Messages []types.Message `json:"messages"`
+	// TurnIndex is the 0-based turn being evaluated: 0 for the conversation's
+	// first turn. A session or conversation eval gets its last turn's index.
 	TurnIndex     int              `json:"turn_index"`
 	CurrentOutput string           `json:"current_output"`
 	ToolCalls     []ToolCallRecord `json:"tool_calls,omitempty"`

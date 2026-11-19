@@ -234,7 +234,7 @@ func (s *DuplexProviderStage) recordHistory(m *types.Message) {
 // hookTurnIndex is the turn index the hooks and their events report: the
 // pipeline's turn plus the assistant turns this session has completed.
 func (s *DuplexProviderStage) hookTurnIndex() int {
-	return s.turnState.TurnIndex() + int(s.assistantTurns.Load())
+	return s.turnState.TurnIndex() + s.turnState.SessionTurns()
 }
 
 // inputTurnIndex is the turn index of the turn input sent now belongs to: it
@@ -264,7 +264,7 @@ func (s *DuplexProviderStage) syncReplyStreaming() {
 func (s *DuplexProviderStage) completeAssistantTurn() {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-	s.assistantTurns.Add(1)
+	s.turnState.completeSessionTurn()
 	s.replyStreaming = false
 }
 
@@ -273,7 +273,7 @@ func (s *DuplexProviderStage) completeAssistantTurn() {
 func (s *DuplexProviderStage) completeBlockedTurn() {
 	s.turnMu.Lock()
 	defer s.turnMu.Unlock()
-	s.assistantTurns.Add(1)
+	s.turnState.completeSessionTurn()
 	s.queuedBlocked--
 }
 
@@ -892,10 +892,13 @@ func dropAssistantOutput(chunk *providers.StreamChunk, isOutputTranscription boo
 // completes it: on the scenario path the caller's transcript, which arrives
 // with the turn, is checked (guardSpokenInput); the firings are folded into
 // its Message; a blocked turn is marked enforced; and the AfterCall chain
-// runs. A block found only now cuts the reply (cutReply).
+// runs. A block found only now cuts the reply (cutReply). The turn is counted
+// whether or not hooks run: the session's completed turns are also what its
+// session evals report.
 func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *StreamElement) {
 	msg := elem.Message
-	turn := msg != nil && msg.Role == roleAssistant && s.hooksActive()
+	assistant := msg != nil && msg.Role == roleAssistant
+	turn := assistant && s.hooksActive()
 	if tr := elem.Meta.Transcription; turn && tr != nil && tr.Text != "" {
 		s.history.fillUserTranscript(tr.Text)
 		// The scenario path's transcript names no session input to forget.
@@ -904,6 +907,9 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 	guard := s.turnGuard
 	s.turnGuard = duplexTurnGuard{}
 	if !turn {
+		if assistant {
+			s.completeAssistantTurn()
+		}
 		return
 	}
 	msg.Validations = append(msg.Validations, guard.validations...)

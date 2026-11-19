@@ -156,7 +156,7 @@ The synchronous `ExecExecutor.Execute` cannot hold a call, so it returns an erro
   "content": "I'd be happy to help you with that!",
   "context": {
     "messages": [{"role": "user", "content": "Can you help?"}],
-    "turn_index": 1,
+    "turn_index": 0,
     "tool_calls": [],
     "variables": {},
     "metadata": {}
@@ -171,7 +171,7 @@ The synchronous `ExecExecutor.Execute` cannot hold a call, so it returns an erro
 | `content` | string | Current assistant output to evaluate |
 | `context` | object | Conversation context |
 | `context.messages` | array | Conversation history, as `{"role", "content"}` objects. Omitted when empty. |
-| `context.turn_index` | integer | Current turn index |
+| `context.turn_index` | integer | 0-based index of the turn being evaluated: 0 for the first turn. A session or conversation eval gets its last turn's index. |
 | `context.tool_calls` | array | Tool calls made during this turn. Omitted when empty. |
 | `context.variables` | object | Template variables in scope. Omitted when empty. |
 | `context.metadata` | object | Metadata the host attached to the eval context. Entries that cannot be encoded as JSON (live objects such as a tool registry) are dropped; the rest pass through unchanged. Omitted when empty. |
@@ -414,7 +414,7 @@ An eval hook runs once per eval result. The runtime writes the JSON-encoded `Eva
 }
 ```
 
-`EvalResult` (`runtime/evals/types.go`) tags every field, so keys are snake_case. The fields beyond the example are `kind`, `passed`, `value`, `metrics`, `error`, `message`, `details`, `violations`, `skipped`, `skip_reason`, `session_id` and `turn_index`; all except `eval_id`, `type` and `duration_ms` are omitted when empty.
+`EvalResult` (`runtime/evals/types.go`) tags every field, so keys are snake_case. The fields beyond the example are `kind`, `passed`, `value`, `metrics`, `error`, `message`, `details`, `violations`, `skipped`, `skip_reason`, `session_id` and `turn_index`; all except `eval_id`, `type`, `duration_ms` and `turn_index` are omitted when empty. `turn_index` is always present, since 0 is the first turn.
 
 ## Failure handling
 

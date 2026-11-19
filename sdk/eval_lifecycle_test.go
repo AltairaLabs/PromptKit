@@ -65,7 +65,7 @@ func TestConversationEvals_RunOnComplete(t *testing.T) {
 	got := col.byTrigger(evals.TriggerOnConversationComplete)
 	require.Len(t, got, 1, "one Complete runs the conversation evals once")
 	assert.Equal(t, "conv", got[0].EvalID)
-	assert.Equal(t, 1, got[0].TurnIndex, "the result carries the conversation's last turn")
+	assert.Equal(t, 0, got[0].TurnIndex, "the result carries the conversation's last turn, 0-based")
 	assert.Len(t, col.byTrigger(evals.TriggerOnSessionComplete), 1, "session evals run on Complete too")
 
 	seen := conv.transcripts()

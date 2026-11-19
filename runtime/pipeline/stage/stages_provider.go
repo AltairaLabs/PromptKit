@@ -111,28 +111,24 @@ type ProviderStage struct {
 	callRate *CallRateWindow
 }
 
-// currentTurn returns the 1-based number of the turn being processed, or 0 when
-// nothing established one.
+// turnIndex is the 0-based index of the turn being processed, as every host
+// sees it: ProviderRequest.TurnIndex, ValidationEventData.TurnIndex and
+// BlockedMessage.TurnIndex. 0 is the conversation's first turn, as on the
+// realtime path (DuplexProviderStage.hookTurnIndex), and is also what a turn
+// reports when no state store established one.
 //
-// The number comes from TurnState, which the state-store load stage derives
-// from the persisted transcript. There is deliberately no local counter to fall
-// back on: counting executions here would be right only while one stage
-// instance outlives the conversation, and silently report turn 1 forever for
-// any caller that rebuilds the pipeline per turn. A wrong turn number is worse
-// than an absent one — 0 is visibly "unknown", whereas a repeating 1 looks
-// like data.
-func (s *ProviderStage) currentTurn() int { return s.turnState.TurnIndex() }
-
-// blockedTurnIndex is BlockedMessage.TurnIndex for the turn in progress: the
-// 0-based index of the turn, as DuplexProviderStage reports it. currentTurn is
-// the 1-based number of the turn (0 when no state store established one).
-func (s *ProviderStage) blockedTurnIndex() int { return max(s.currentTurn()-1, 0) }
+// TurnState holds the 1-based number of the turn, which the state-store load
+// stage derives from the persisted transcript. There is deliberately no local
+// counter to fall back on: counting executions here would be right only while
+// one stage instance outlives the conversation, and silently report the first
+// turn forever for any caller that rebuilds the pipeline per turn.
+func (s *ProviderStage) turnIndex() int { return max(s.turnState.TurnIndex()-1, 0) }
 
 // chooseBlocked is the text firing d blocks the turn with, in direction:
 // ProviderConfig.BlockedMessage's choice for text, else text.
 func (s *ProviderStage) chooseBlocked(ctx context.Context, d *hooks.Decision, direction, text string) string {
 	return chooseBlockedText(ctx, s.config.BlockedMessage, 0, blockedFiring{
-		d: d, direction: direction, text: text, turn: s.blockedTurnIndex(), caller: s.config.Caller,
+		d: d, direction: direction, text: text, turn: s.turnIndex(), caller: s.config.Caller,
 	})
 }
 
@@ -2876,7 +2872,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		SystemPrompt: p.systemPrompt,
 		Round:        p.round,
 		Metadata:     p.metadata,
-		TurnIndex:    s.currentTurn(),
+		TurnIndex:    s.turnIndex(),
 		Prompt:       s.promptDeclaration(),
 		Caller:       s.config.Caller,
 	}
@@ -2958,7 +2954,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 		SystemPrompt: systemPrompt,
 		Round:        round,
 		Metadata:     metadata,
-		TurnIndex:    s.currentTurn(),
+		TurnIndex:    s.turnIndex(),
 		Prompt:       s.promptDeclaration(),
 		Caller:       s.config.Caller,
 	}
@@ -3092,7 +3088,7 @@ func decisionMessageMeta(d hooks.Decision) map[string]interface{} {
 func (s *ProviderStage) recordGuardrailFiring(
 	msg *types.Message, d hooks.Decision, direction string, duration time.Duration,
 ) {
-	recordGuardrailFiring(s.emitter, msg, d, direction, duration, s.currentTurn())
+	recordGuardrailFiring(s.emitter, msg, d, direction, duration, s.turnIndex())
 }
 
 // recordGuardrailFiring is the body of ProviderStage.recordGuardrailFiring,

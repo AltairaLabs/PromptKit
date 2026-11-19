@@ -165,7 +165,7 @@ type ChunkInterceptor interface {
 ```
 
 <a name="ChunkRequest"></a>
-## type [ChunkRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L92-L102>)
+## type [ChunkRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L95-L105>)
 
 ChunkRequest is a streamed response chunk handed to a ChunkRequestInterceptor, with who the call acts for.
 
@@ -450,7 +450,7 @@ func (e *HookDeniedError) Error() string
 
 
 <a name="InputRequest"></a>
-## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L115-L128>)
+## type [InputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L118-L131>)
 
 InputRequest is the narrow view of an about\-to\-be\-sent call handed to a func\-based input guardrail. Use guardrails.InputFunc to build one.
 
@@ -508,7 +508,7 @@ func WithToolHook(h ToolHook) Option
 WithToolHook registers a tool hook.
 
 <a name="OutputRequest"></a>
-## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L132-L142>)
+## type [OutputRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L135-L145>)
 
 OutputRequest is the narrow view of a completed call handed to a func\-based output guardrail. Use guardrails.OutputFunc to build one.
 
@@ -540,7 +540,7 @@ type ProviderHook interface {
 ```
 
 <a name="ProviderRequest"></a>
-## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L57-L88>)
+## type [ProviderRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L57-L91>)
 
 ProviderRequest describes an LLM call about to be made.
 
@@ -553,9 +553,12 @@ type ProviderRequest struct {
     Round        int
     Metadata     map[string]any
 
-    // TurnIndex is the 0-based turn this call belongs to, counted by the
-    // ProviderStage. Round is not a substitute: it counts tool-loop rounds
-    // within one turn and restarts in each composition sub-pipeline.
+    // TurnIndex is the 0-based turn this call belongs to: 0 for the
+    // conversation's first turn, on the text path (Send, Stream) and the
+    // realtime path alike, counted from the persisted transcript. A text
+    // pipeline built without a state store (sdk.Open always has one) has no
+    // transcript to count, and reports 0 on every turn. Round is not a substitute: it counts tool-loop
+    // rounds within one turn and restarts in each composition sub-pipeline.
     TurnIndex int
 
     // Prompt is the pack's definition of the prompt the model is being
@@ -580,7 +583,7 @@ type ProviderRequest struct {
 ```
 
 <a name="ProviderResponse"></a>
-## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L105-L111>)
+## type [ProviderResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L108-L114>)
 
 ProviderResponse describes a completed LLM call.
 
@@ -815,7 +818,7 @@ func (r *Registry) SetEmitter(e *events.Emitter)
 SetEmitter hands the emitter to every registered provider hook that wants one. Hooks that do not implement EmitterAware are untouched. Nil\-safe on both the receiver and the emitter.
 
 <a name="SessionEvent"></a>
-## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L179-L191>)
+## type [SessionEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L182-L194>)
 
 SessionEvent carries context for session lifecycle hooks.
 
@@ -863,7 +866,7 @@ type ToolHook interface {
 ```
 
 <a name="ToolRequest"></a>
-## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L151-L167>)
+## type [ToolRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L154-L170>)
 
 ToolRequest describes a tool call about to be executed.
 
@@ -888,7 +891,7 @@ type ToolRequest struct {
 ```
 
 <a name="ToolResponse"></a>
-## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L170-L176>)
+## type [ToolResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/hooks/types.go#L173-L179>)
 
 ToolResponse describes a completed tool execution.
 

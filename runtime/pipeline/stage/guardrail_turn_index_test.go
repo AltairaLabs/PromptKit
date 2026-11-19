@@ -86,11 +86,13 @@ func TestStateStoreLoadStage_ResumedTurnDoesNotDoubleCount(t *testing.T) {
 }
 
 // The ProviderStage reports the turn TurnState carries, rather than counting
-// executions itself.
+// executions itself, as the 0-based index hosts see (#2797): TurnState's 7th
+// turn is turn index 6.
 //
 // A local counter would be right only while one stage instance outlives the
-// conversation; a caller that rebuilds the pipeline per turn would get 1
-// forever. Both turns here are stamped 7, which no counter would produce.
+// conversation; a caller that rebuilds the pipeline per turn would get the
+// first turn forever. Both turns here are stamped 7, which no counter would
+// produce.
 func TestProviderStage_ReportsTurnStateTurnIndex(t *testing.T) {
 	guard, err := guardrails.NewGuardrailHook("length", map[string]any{
 		"max_characters": 5,
@@ -119,11 +121,11 @@ func TestProviderStage_ReportsTurnStateTurnIndex(t *testing.T) {
 	got := getEvents()
 	require.Len(t, got, 2)
 	for _, d := range got {
-		assert.Equal(t, 7, d.TurnIndex, "the stage must report the turn state's number")
+		assert.Equal(t, 6, d.TurnIndex, "the stage must report the turn state's turn, 0-based")
 	}
 }
 
-// With no turn state the stage reports 0 — visibly "unknown" rather than a
+// With no turn state the stage reports 0 — never a negative index, and never a
 // locally invented count that would look like data.
 func TestProviderStage_NoTurnStateReportsUnknown(t *testing.T) {
 	guard, err := guardrails.NewGuardrailHook("length", map[string]any{

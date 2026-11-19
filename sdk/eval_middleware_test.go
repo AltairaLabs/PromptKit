@@ -448,8 +448,8 @@ func TestEvalMiddleware_BuildEvalContext_NoSession(t *testing.T) {
 	mw.turnIndex.Store(3)
 	ctx := mw.buildEvalContext(context.Background())
 
-	if ctx.TurnIndex != 3 {
-		t.Errorf("expected TurnIndex 3, got %d", ctx.TurnIndex)
+	if ctx.TurnIndex != 2 {
+		t.Errorf("expected TurnIndex 2 (third dispatch, 0-based), got %d", ctx.TurnIndex)
 	}
 	if ctx.PromptID != "my-prompt" {
 		t.Errorf("expected PromptID 'my-prompt', got %q", ctx.PromptID)
@@ -876,8 +876,8 @@ func TestEvalMiddleware_BuildEvalContext_CachesMessages(t *testing.T) {
 	// Increment turn — cache should be invalidated
 	mw.turnIndex.Store(1)
 	ctx3 := mw.buildEvalContext(context.Background())
-	if ctx3.TurnIndex != 1 {
-		t.Errorf("expected TurnIndex 1, got %d", ctx3.TurnIndex)
+	if ctx3.TurnIndex != 0 {
+		t.Errorf("expected TurnIndex 0 (first dispatch), got %d", ctx3.TurnIndex)
 	}
 }
 

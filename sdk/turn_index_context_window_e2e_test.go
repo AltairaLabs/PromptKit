@@ -20,8 +20,8 @@ import (
 // TestE2E_ContextWindowConversationReportsTranscriptTurn covers #1945.
 // WithContextWindow swaps the load stage for ContextAssemblyStage, which
 // loaded only the hot window and never derived the turn, so every guardrail
-// and eval event on such a conversation carried turn 0 — the documented
-// "unknown" value — and a resumed one could not be placed against its
+// and eval event on such a conversation carried the first turn's number, and a
+// resumed one could not be placed against its
 // transcript at all. The window here is two messages, smaller than the
 // history, so counting what the stage loaded would still be wrong.
 func TestE2E_ContextWindowConversationReportsTranscriptTurn(t *testing.T) {
@@ -83,7 +83,7 @@ func TestE2E_ContextWindowConversationReportsTranscriptTurn(t *testing.T) {
 	}, 5*time.Second, 10*time.Millisecond, "expected a validation and an eval event per turn")
 
 	validation, eval := col.snapshot()
-	assert.Equal(t, []int{4, 5}, eval, "evals must number turns from the transcript, not the window")
-	assert.Equal(t, eval, validation, "guardrails and evals must agree on the turn")
+	assert.Equal(t, []int{3, 4}, eval, "evals must number turns from the transcript, not the window, 0-based")
+	assert.Equal(t, []int{3, 4}, validation, "guardrails report the same transcript turns")
 	assert.Equal(t, 5, conv.turnState.TurnIndex())
 }
