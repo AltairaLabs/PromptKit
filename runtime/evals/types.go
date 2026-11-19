@@ -471,7 +471,9 @@ type EvalResult struct {
 	Skipped    bool            `json:"skipped,omitempty"`
 	SkipReason string          `json:"skip_reason,omitempty"`
 	SessionID  string          `json:"session_id,omitempty"`
-	TurnIndex  int             `json:"turn_index,omitempty"`
+	// TurnIndex is the 0-based turn the result belongs to. Always serialized:
+	// 0 is the conversation's first turn, not an absent value.
+	TurnIndex int `json:"turn_index"`
 }
 
 // EvalContext provides data to eval handlers.

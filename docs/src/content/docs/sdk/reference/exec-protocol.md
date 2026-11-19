@@ -414,7 +414,7 @@ An eval hook runs once per eval result. The runtime writes the JSON-encoded `Eva
 }
 ```
 
-`EvalResult` (`runtime/evals/types.go`) tags every field, so keys are snake_case. The fields beyond the example are `kind`, `passed`, `value`, `metrics`, `error`, `message`, `details`, `violations`, `skipped`, `skip_reason`, `session_id` and `turn_index`; all except `eval_id`, `type` and `duration_ms` are omitted when empty, so a result for the first turn (index 0) has no `turn_index`.
+`EvalResult` (`runtime/evals/types.go`) tags every field, so keys are snake_case. The fields beyond the example are `kind`, `passed`, `value`, `metrics`, `error`, `message`, `details`, `violations`, `skipped`, `skip_reason`, `session_id` and `turn_index`; all except `eval_id`, `type`, `duration_ms` and `turn_index` are omitted when empty. `turn_index` is always present, since 0 is the first turn.
 
 ## Failure handling
 

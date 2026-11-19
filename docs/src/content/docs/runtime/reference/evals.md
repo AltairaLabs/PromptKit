@@ -769,7 +769,7 @@ ValidateParams lets a wrapped eval's own param validation run at load time, the 
 The inner params are also checked for keys the inner check does not read \(see ValidateHandlerParams\). That check runs here, at load, and not on Eval.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L528>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L482-L530>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
@@ -1003,7 +1003,7 @@ type EvalHook interface {
 ```
 
 <a name="EvalResult"></a>
-## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L420-L475>)
+## type [EvalResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L420-L477>)
 
 EvalResult captures the outcome of a single eval execution. Handlers produce scores only \(0.0 to 1.0\); there is no pass/fail on a plain eval. The assertion and guardrail wrappers state a verdict in Passed.
 
@@ -1062,7 +1062,9 @@ type EvalResult struct {
     Skipped    bool            `json:"skipped,omitempty"`
     SkipReason string          `json:"skip_reason,omitempty"`
     SessionID  string          `json:"session_id,omitempty"`
-    TurnIndex  int             `json:"turn_index,omitempty"`
+    // TurnIndex is the 0-based turn the result belongs to. Always serialized:
+    // 0 is the conversation's first turn, not an absent value.
+    TurnIndex int `json:"turn_index"`
 }
 ```
 
@@ -1644,7 +1646,7 @@ type ParamValidator interface {
 ```
 
 <a name="PartialEvalRequest"></a>
-## type [PartialEvalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L532-L539>)
+## type [PartialEvalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L534-L541>)
 
 PartialEvalRequest is the partial content a StreamableRequestEvalHandler judges, with who the conversation acts for.
 
@@ -1846,7 +1848,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L555>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L557>)
 
 ToolCallRecord is an alias for types.ToolCallRecord.
 
