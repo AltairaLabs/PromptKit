@@ -43,9 +43,9 @@ func TestSessionEvals_TextTurnIndexIsZeroBased(t *testing.T) {
 	assert.Equal(t, 1, got[0].TurnIndex, "two turns: the last is index 1")
 }
 
-// A session eval on the realtime path numbers turns from 0 as the text path
-// does: a session of one turn reports 0.
-func TestSessionEvals_DuplexTurnIndexIsZeroBased(t *testing.T) {
+// A session eval on the realtime path carries the 0-based index of the
+// session's last completed turn, as the text path does: three turns, so 2.
+func TestSessionEvals_DuplexTurnIndexIsLastTurn(t *testing.T) {
 	bus, col, registry, _ := newStepEvalHarness(t)
 	registry.Register(&stepRecordingHandler{typeName: "sess_stub"})
 	registry.Register(&stepRecordingHandler{typeName: "conv_stub"})
@@ -71,17 +71,20 @@ func TestSessionEvals_DuplexTurnIndexIsZeroBased(t *testing.T) {
 		}
 	}()
 
-	require.NoError(t, conv.SendText(context.Background(), "hello"))
-	require.Eventually(t, func() bool { return len(ms.GetTexts()) > 0 }, 2*time.Second, 2*time.Millisecond)
-	ms.EmitChunk(&providers.StreamChunk{Delta: "Hi.", Metadata: map[string]any{"type": "output_transcription"}})
-	stop := "stop"
-	ms.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
-	require.Eventually(t, func() bool { return turns.Load() >= 1 }, 3*time.Second, 2*time.Millisecond)
+	const n = 3
+	for i := 1; i <= n; i++ {
+		require.NoError(t, conv.SendText(context.Background(), "hello"))
+		require.Eventually(t, func() bool { return len(ms.GetTexts()) >= i }, 2*time.Second, 2*time.Millisecond)
+		ms.EmitChunk(&providers.StreamChunk{Delta: "Hi.", Metadata: map[string]any{"type": "output_transcription"}})
+		stop := "stop"
+		ms.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+		require.Eventually(t, func() bool { return int(turns.Load()) >= i }, 3*time.Second, 2*time.Millisecond)
+	}
 
 	require.NoError(t, conv.Close())
 	require.Eventually(t, func() bool { return len(col.byTrigger(evals.TriggerOnSessionComplete)) >= 1 },
 		5*time.Second, 5*time.Millisecond, "the session evals never ran")
 	got := col.byTrigger(evals.TriggerOnSessionComplete)
 	require.Len(t, got, 1)
-	assert.Equal(t, 0, got[0].TurnIndex, "a one-turn realtime session's last turn is index 0")
+	assert.Equal(t, n-1, got[0].TurnIndex, "three realtime turns: the last is index 2")
 }

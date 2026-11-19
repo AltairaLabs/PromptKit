@@ -204,10 +204,8 @@ type DuplexProviderStage struct {
 	blockedMessage BlockedMessageFunc
 	// history is the conversation the hooks see, kept only while hooks run.
 	history duplexHistory
-	// assistantTurns counts the assistant turns completed this session, for the
-	// turn index the hooks report.
-	assistantTurns atomic.Int64
-	// turnMu serializes changes to assistantTurns with replyStreaming and
+	// turnMu serializes changes to the session's completed-turn count
+	// (TurnState.SessionTurns) with replyStreaming and
 	// queuedBlocked, the counts an input-side hook's turn index adds up.
 	// replyStreaming is set while an assistant turn has streamed content and
 	// not yet completed; queuedBlocked counts blocked turns not yet emitted.
@@ -341,6 +339,10 @@ func NewDuplexProviderStage(
 		toolWaitLimit:          finalToolWaitLimit,
 		inputGracePeriod:       inputForwardingGracePeriod,
 		inputVerdictInline:     defaultInputVerdictInline,
+		// The session's completed turns are counted on the turn state, so a
+		// stage always has one; an empty one allows every tool and holds no
+		// system prompt, as no turn state did.
+		turnState: NewTurnState(),
 	}
 }
 
@@ -367,7 +369,9 @@ func NewDuplexProviderStageWithTurnState(
 ) *DuplexProviderStage {
 	s := NewDuplexProviderStage(provider, baseConfig)
 	s.emitter = emitter
-	s.turnState = turnState
+	if turnState != nil {
+		s.turnState = turnState
+	}
 	return s
 }
 

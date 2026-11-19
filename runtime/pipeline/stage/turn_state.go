@@ -92,6 +92,13 @@ type TurnState struct {
 	// session runs all its stages concurrently for the whole conversation, so
 	// the load stage advances the turn while the provider stage is reading it.
 	turnIndex atomic.Int64
+
+	// sessionTurns counts the turns a realtime (duplex) session has completed
+	// since it opened. A duplex pipeline runs once for the whole session, so
+	// turnIndex holds only the turns persisted before it opened; the provider
+	// stage counts the session's own turns here, where the conversation can
+	// read them. Always 0 on the text path, where turnIndex advances per turn.
+	sessionTurns atomic.Int64
 }
 
 // TurnIndex is the 1-based number of the turn being executed, or 0 when none
@@ -124,6 +131,26 @@ func (t *TurnState) AdvanceTurn() int {
 		return 0
 	}
 	return int(t.turnIndex.Add(1))
+}
+
+// SessionTurns is the number of turns a realtime session has completed since
+// it opened, on top of the TurnIndex it opened at. TurnIndex()+SessionTurns()
+// is then the number of turns the conversation has had, on either path: the
+// text path never counts session turns, and its TurnIndex is the 1-based
+// number of the turn being executed.
+func (t *TurnState) SessionTurns() int {
+	if t == nil {
+		return 0
+	}
+	return int(t.sessionTurns.Load())
+}
+
+// completeSessionTurn counts one completed realtime-session turn. The
+// DuplexProviderStage owns this.
+func (t *TurnState) completeSessionTurn() {
+	if t != nil {
+		t.sessionTurns.Add(1)
+	}
 }
 
 // NewTurnState constructs a fresh, empty TurnState.

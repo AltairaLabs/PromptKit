@@ -123,7 +123,7 @@ Unreleased holds changes that are on `main` and in no release.
 Every turn index PromptKit hands a host now counts from 0: 0 for a conversation's first turn, 1 for its second.
 
 - `hooks.ProviderRequest.TurnIndex` and `events.ValidationEventData.TurnIndex` were documented as 0-based and were 0-based in a realtime session, but on the text path (`Send`, `Stream`) the first turn reported 1. Validation events from a func guardrail (`guardrails.InputFunc`, `guardrails.OutputFunc`) reported 0 on every turn, on both paths; they now carry the turn too.
-- `events.EvalEventData.TurnIndex` (on `eval.completed` and `eval.failed`), and the `EvalContext.TurnIndex` and `EvalResult.TurnIndex` of the evals a conversation runs, were 1-based. A session or conversation eval carries its last turn's index, so a two-turn session reports 1, not 2. A serialized `EvalResult` now always has `turn_index`, so a first-turn result reads `"turn_index": 0` instead of leaving the key out.
+- `events.EvalEventData.TurnIndex` (on `eval.completed` and `eval.failed`), and the `EvalContext.TurnIndex` and `EvalResult.TurnIndex` of the evals a conversation runs, were 1-based. A session or conversation eval carries its last turn's index, so a two-turn session reports 1, not 2. That holds for a realtime session too, whose session evals reported 0 however many turns it had. A serialized `EvalResult` now always has `turn_index`, so a first-turn result reads `"turn_index": 0` instead of leaving the key out.
 
 | If you | You will see | Change |
 |---|---|---|
