@@ -483,10 +483,8 @@ type ValidationEventData struct {
 	// call the guardrail judged, so a validation and the hook calls of its turn
 	// carry the same number. A composition step reports its parent's turn.
 	//
-	// It is NOT the same numbering as EvalEventData.TurnIndex, which is
-	// 1-based: an eval and a validation of the same turn differ by one, and the
-	// two must not be joined on these numbers. Correlating a validation with an
-	// eval requires the message they both hang off.
+	// EvalEventData.TurnIndex uses the same numbering, so an eval and a
+	// validation of the same turn carry the same number.
 	TurnIndex int
 
 	// Validator is the pack's definition of the validator (RFC 0016), so a
@@ -952,7 +950,11 @@ type EvalEventData struct {
 	Kind    EvalKind `json:"kind,omitempty"`
 	Trigger string   `json:"trigger"` // "every_turn", "on_session_complete", etc.
 
-	// TurnIndex is the turn this eval evaluated.
+	// TurnIndex is the 0-based turn this eval evaluated: 0 for the
+	// conversation's first turn, as ValidationEventData.TurnIndex and
+	// hooks.ProviderRequest.TurnIndex number it, so an eval and a validation of
+	// the same turn carry the same number. A session or conversation eval
+	// carries the index of the last turn it saw.
 	//
 	// No omitempty: turn 0 is a real turn, and dropping it would make the
 	// first turn of every session indistinguishable from "not set".

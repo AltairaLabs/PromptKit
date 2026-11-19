@@ -346,21 +346,23 @@ func hasTrigger(defs []evals.EvalDef, trigger evals.EvalTrigger) bool {
 	return false
 }
 
-// reportedTurn is the turn number an eval result carries.
+// reportedTurn is the 0-based turn index an eval result carries: 0 for the
+// conversation's first turn, the numbering of every other turn index a host
+// sees (hook requests, validation events, blocked messages).
 //
-// The pipeline derives it from the persisted transcript, and that is the number
-// to report: it is what the guardrails inside that same pipeline reported, and
-// it is what lines up with the message log.
+// The pipeline derives the turn from the persisted transcript, and that is the
+// one to report: it is what the guardrails inside that same pipeline reported,
+// and it is what lines up with the message log. TurnState holds it 1-based.
 //
-// dispatchCount is only a fallback for a conversation with no pipeline turn
-// state. It counts dispatches in this process, so it is wrong for a resumed
-// conversation — it restarts at 1 while the transcript already holds earlier
-// turns.
+// dispatchCount (1 after the first dispatch) is only a fallback for a
+// conversation with no pipeline turn state. It counts dispatches in this
+// process, so it is wrong for a resumed conversation — it restarts at the first
+// turn while the transcript already holds earlier turns.
 func (em *evalMiddleware) reportedTurn(dispatchCount int32) int {
 	if em.conv != nil && em.conv.turnState.TurnIndex() > 0 {
-		return em.conv.turnState.TurnIndex()
+		return em.conv.turnState.TurnIndex() - 1
 	}
-	return int(dispatchCount)
+	return max(int(dispatchCount)-1, 0)
 }
 
 // dispatchTurnEvals dispatches turn-level evals asynchronously.

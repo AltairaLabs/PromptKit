@@ -206,7 +206,7 @@ func TestWorkflowStepEvals_ManualTransition(t *testing.T) {
 	got := waitStepEvals(t, col, 1)
 	require.Len(t, got, 1, "one transition runs the on_workflow_step evals once")
 	assert.Equal(t, "step", got[0].EvalID, "the disabled eval must not run")
-	assert.Equal(t, 1, got[0].TurnIndex, "the eval runs against the turn that preceded the transition")
+	assert.Equal(t, 0, got[0].TurnIndex, "the eval runs against the turn that preceded the transition")
 	seen := step.transcripts()
 	require.Len(t, seen, 1)
 	assert.Contains(t, seen[0], "hello", "the eval sees the origin state's transcript")
@@ -246,7 +246,7 @@ func TestWorkflowStepEvals_MidTurnTransition(t *testing.T) {
 			got := waitStepEvals(t, col, 1)
 			require.Len(t, got, 1)
 			assert.Equal(t, "step", got[0].EvalID)
-			assert.Equal(t, 1, got[0].TurnIndex)
+			assert.Equal(t, 0, got[0].TurnIndex)
 			seen := step.transcripts()
 			require.Len(t, seen, 1)
 			assert.Contains(t, seen[0], "reply after transition",
@@ -297,7 +297,7 @@ func TestWorkflowStepEvals_ResumedWorkflow(t *testing.T) {
 
 	got := waitStepEvals(t, col, 1)
 	require.Len(t, got, 1)
-	assert.Equal(t, 3, got[0].TurnIndex, "the resumed transcript is on turn 3")
+	assert.Equal(t, 2, got[0].TurnIndex, "the resumed transcript is on its third turn, index 2")
 	seen := step.transcripts()
 	require.Len(t, seen, 1)
 	assert.Contains(t, seen[0], "one", "the eval sees the resumed transcript")

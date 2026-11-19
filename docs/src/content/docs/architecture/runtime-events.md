@@ -129,7 +129,7 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 - `Kind` is the role: `eval`, `assertion` or `guardrail`.
 - `Passed` is a pointer that is set only for an assertion or a guardrail.
 - `Value`, `MetricValue` and `Score` are what the eval measured.
-- `TurnIndex` is the turn it evaluated. Turn 0 is a real turn, so the field has no `omitempty`.
+- `TurnIndex` is the 0-based turn it evaluated, numbered as validation events number it: 0 is the conversation's first turn, so the field has no `omitempty`. A session or conversation eval carries its last turn's index.
 
 An eval measures and returns a value; it does not pass or fail, so its `Passed` is always nil. Only an assertion (score against thresholds) or a guardrail (the same shape, gating rather than reporting) states a verdict. A nil `Passed` on `Kind: eval` means that this kind of result has no pass or fail. Do not derive the boolean from `Score`: the `1.0` threshold is the assertion's default, and applying it to an eval nobody asserted on reports a 0.9 judge score as a failure.
 

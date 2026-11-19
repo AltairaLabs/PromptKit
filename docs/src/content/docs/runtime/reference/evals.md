@@ -769,13 +769,15 @@ ValidateParams lets a wrapped eval's own param validation run at load time, the 
 The inner params are also checked for keys the inner check does not read \(see ValidateHandlerParams\). That check runs here, at load, and not on Eval.
 
 <a name="EvalContext"></a>
-## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L526>)
+## type [EvalContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L480-L528>)
 
 EvalContext provides data to eval handlers. For turn\-level evals: Messages contains history up to the current turn. For session\-level evals: Messages contains the full conversation.
 
 ```go
 type EvalContext struct {
-    Messages      []types.Message  `json:"messages"`
+    Messages []types.Message `json:"messages"`
+    // TurnIndex is the 0-based turn being evaluated: 0 for the conversation's
+    // first turn. A session or conversation eval gets its last turn's index.
     TurnIndex     int              `json:"turn_index"`
     CurrentOutput string           `json:"current_output"`
     ToolCalls     []ToolCallRecord `json:"tool_calls,omitempty"`
@@ -1642,7 +1644,7 @@ type ParamValidator interface {
 ```
 
 <a name="PartialEvalRequest"></a>
-## type [PartialEvalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L530-L537>)
+## type [PartialEvalRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L532-L539>)
 
 PartialEvalRequest is the partial content a StreamableRequestEvalHandler judges, with who the conversation acts for.
 
@@ -1844,7 +1846,7 @@ type Threshold = packspec.EvalThreshold
 ```
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L553>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L555>)
 
 ToolCallRecord is an alias for types.ToolCallRecord.
 
@@ -1871,7 +1873,7 @@ type TriggerContext struct {
     // SessionID identifies the current session (used for sampling).
     SessionID string
 
-    // TurnIndex is the current turn number (used for sampling).
+    // TurnIndex is the current turn's 0-based index (used for sampling).
     TurnIndex int
 
     // IsSessionComplete indicates whether the session has ended.

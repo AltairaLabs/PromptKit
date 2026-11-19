@@ -118,18 +118,23 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
-### Hooks and validation events number text turns from 0
+### Hooks, validation events and eval results number turns from 0
 
-`hooks.ProviderRequest.TurnIndex` and `events.ValidationEventData.TurnIndex` were documented as 0-based and were 0-based in a realtime session, but on the text path (`Send`, `Stream`) the first turn reported 1. The text path now reports 0 for the first turn, 1 for the second, as the realtime path does. Validation events from a func guardrail (`guardrails.InputFunc`, `guardrails.OutputFunc`) reported 0 on every turn, on both paths; they now carry the turn too.
+Every turn index PromptKit hands a host now counts from 0: 0 for a conversation's first turn, 1 for its second.
+
+- `hooks.ProviderRequest.TurnIndex` and `events.ValidationEventData.TurnIndex` were documented as 0-based and were 0-based in a realtime session, but on the text path (`Send`, `Stream`) the first turn reported 1. Validation events from a func guardrail (`guardrails.InputFunc`, `guardrails.OutputFunc`) reported 0 on every turn, on both paths; they now carry the turn too.
+- `events.EvalEventData.TurnIndex` (on `eval.completed` and `eval.failed`), and the `EvalContext.TurnIndex` and `EvalResult.TurnIndex` of the evals a conversation runs, were 1-based. A session or conversation eval carries its last turn's index, so a two-turn session reports 1, not 2.
 
 | If you | You will see | Change |
 |---|---|---|
 | Read `TurnIndex` in a `BeforeCall` or `AfterCall` hook, or `TurnIndex` in an exec hook's request | the first text turn is 0, not 1 | drop any `-1` that turned it 0-based |
 | Read `TurnIndex` on `validation.started`, `validation.passed` or `validation.failed` events | the first text turn is 0, not 1; a func guardrail's events carry the turn instead of 0 | expect 0-based values; records stored before the upgrade hold 1-based ones for text turns |
-| Read `EvalContext.TurnIndex` in an eval handler run as a guardrail | the first text turn is 0, not 1 | as above |
-| Join validation events to eval events (`eval.completed`, `eval.failed`) by turn number | the eval event's `TurnIndex` is still 1-based, so the two differ by one for the same turn | join on the message they belong to, not the turn number |
+| Read `TurnIndex` on `eval.completed` or `eval.failed` events, or on the results a `MetricResultWriter` or an eval hook receives | every turn is one lower: the first is 0, not 1 | drop any `-1`; records stored before the upgrade hold 1-based values |
+| Read `EvalContext.TurnIndex` in an eval handler, or `turn_index` in an exec eval handler's request | the first turn is 0, not 1 | as above |
+| Join validation events to eval events by turn number | the two now carry the same number for the same turn | drop any offset between them |
+| Sample turns with `sample_turns` | the same rate, but a given session samples different turns, since the sampling hash includes the turn index | nothing, unless you depend on which turns were sampled |
 
-`sdk.BlockedMessage.TurnIndex` was already 0-based on every path. `hooks.SessionEvent.TurnIndex` is still the number of completed turns.
+`sdk.BlockedMessage.TurnIndex` was already 0-based on every path, and `sdk.Evaluate` passes on the `TurnIndex` you give it. `hooks.SessionEvent.TurnIndex` is still the number of completed turns.
 
 ## v2.21.0
 

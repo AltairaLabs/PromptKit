@@ -478,7 +478,9 @@ type EvalResult struct {
 // For turn-level evals: Messages contains history up to the current turn.
 // For session-level evals: Messages contains the full conversation.
 type EvalContext struct {
-	Messages      []types.Message  `json:"messages"`
+	Messages []types.Message `json:"messages"`
+	// TurnIndex is the 0-based turn being evaluated: 0 for the conversation's
+	// first turn. A session or conversation eval gets its last turn's index.
 	TurnIndex     int              `json:"turn_index"`
 	CurrentOutput string           `json:"current_output"`
 	ToolCalls     []ToolCallRecord `json:"tool_calls,omitempty"`
