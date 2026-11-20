@@ -8,7 +8,7 @@
 // The package provides:
 //   - Service interface (extends base.STTProvider) for STT providers
 //   - TranscriptionConfig for audio format configuration
-//   - Multiple provider implementations (OpenAI Whisper, etc.)
+//   - Provider implementations for OpenAI, ElevenLabs and Cartesia
 //
 // # Usage
 //
@@ -28,6 +28,8 @@
 // # Available Providers
 //
 // The package includes implementations for:
-//   - OpenAI Whisper (whisper-1 model)
+//   - OpenAI transcription (NewOpenAI, whisper-1 by default)
+//   - ElevenLabs Scribe (NewElevenLabs, scribe_v3 by default)
+//   - Cartesia Ink (NewCartesia, ink-whisper by default)
 //   - More providers can be added following the Service interface
 package stt

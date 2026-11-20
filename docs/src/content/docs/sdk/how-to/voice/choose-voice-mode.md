@@ -16,6 +16,8 @@ verified:
     - runtime/providers/gemini/streaming_support.go
     - runtime/providers/openai/realtime_interrupt.go
     - runtime/providers/openai/streaming_support.go
+    - runtime/stt/cartesia.go
+    - runtime/stt/elevenlabs.go
     - sdk/conversation.go
     - sdk/examples/openai-realtime/main.go
     - sdk/internal/pipeline/builder_vad.go
@@ -86,6 +88,13 @@ func main() {
 A field left at its zero value takes its default (800ms silence, 200ms minimum speech, 30s maximum turn, 16000 Hz, `alloy`); the [`VADModeConfig` reference](/sdk/reference/conversation-manager/#VADModeConfig) lists every field.
 
 VAD mode does not resample the input: send audio at `SampleRate`.
+
+Any `stt.Service` fills the STT slot. Besides `stt.NewOpenAI`, `stt.NewElevenLabs` (ElevenLabs Scribe) and `stt.NewCartesia` (Cartesia Ink) take an API key the same way, so one vendor can both hear and speak:
+
+```go
+sttService := stt.NewElevenLabs(os.Getenv("ELEVENLABS_API_KEY"))
+ttsService := tts.NewElevenLabs(os.Getenv("ELEVENLABS_API_KEY"))
+```
 
 ## Step 2b: Open in ASM mode
 
