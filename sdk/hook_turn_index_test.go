@@ -61,12 +61,7 @@ func newTurnRecorder(t *testing.T) (*turnRecorder, events.Bus) {
 		bus.Subscribe(et, func(e *events.Event) {
 			if d, ok := e.Data.(*events.ValidationEventData); ok {
 				r.mu.Lock()
-				// The checks of streamed chunks are kept apart from the
-				// once-per-turn checks of the input and the completed reply.
 				key := string(e.Type) + "/" + d.ValidatorType
-				if d.Partial {
-					key = partialKey + key
-				}
 				r.events[key] = append(r.events[key], d.TurnIndex)
 				r.mu.Unlock()
 			}
@@ -95,26 +90,6 @@ func (r *turnRecorder) eventTurns(t *testing.T, et events.EventType, vt string, 
 		return len(got) >= n
 	}, 5*time.Second, time.Millisecond, "%s from %s", et, vt)
 	slices.Sort(got)
-	return got
-}
-
-// partialKey prefixes the events of the checks of streamed chunks
-// (events.ValidationEventData.Partial) in turnRecorder.events.
-const partialKey = "partial:"
-
-// partialTurns is the turns the checks of streamed chunks of type vt reported
-// event et for, each once, in order, once n turns have reported it.
-func (r *turnRecorder) partialTurns(t *testing.T, et events.EventType, vt string, n int) []int {
-	t.Helper()
-	var got []int
-	require.Eventually(t, func() bool {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		got = slices.Clone(r.events[partialKey+string(et)+"/"+vt])
-		slices.Sort(got)
-		got = slices.Compact(got)
-		return len(got) >= n
-	}, 5*time.Second, time.Millisecond, "partial %s from %s", et, vt)
 	return got
 }
 
@@ -202,10 +177,6 @@ func assertPassingTurns(t *testing.T, rec *turnRecorder) {
 		for _, et := range []events.EventType{events.EventValidationStarted, events.EventValidationPassed} {
 			assert.Equal(t, []int{0, 0, 1, 1}, rec.eventTurns(t, et, vt, 4), "%s from %s", et, vt)
 		}
-	}
-	// The streaming check of each reply's chunks reports the reply's turn too.
-	for _, et := range []events.EventType{events.EventValidationStarted, events.EventValidationPassed} {
-		assert.Equal(t, []int{0, 1}, rec.partialTurns(t, et, "banned_words", 2), "partial %s", et)
 	}
 	before, after := rec.hookCalls()
 	assert.Equal(t, []int{0, 1}, before, "BeforeCall")

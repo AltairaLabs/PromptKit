@@ -447,10 +447,12 @@ func (a *GuardrailHookAdapter) OnChunk(
 // evals.StreamableEvalHandler through EvalPartial. It does not rewrite the
 // chunk: an Enforced decision carries the text that replaces it in Content.
 //
-// The judgment is bounded and reported as a completed reply's is
-// (evaluateMessage): the guardrail timeout applies, validation.started and,
-// when the chunk passes, validation.passed are emitted, and a handler that
-// errors or runs out of time fails closed with the validator's message.
+// The judgment is bounded as a completed reply's is (evaluateMessage): the
+// guardrail timeout applies, and a handler that errors or runs out of time
+// fails closed with the validator's message. It emits no validation.started
+// or validation.passed: a reply has many chunks, and those events would
+// multiply by them. A firing is reported by the stage (validation.failed),
+// and the completed reply's check reports the turn's started and passed.
 func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.ChunkRequest) hooks.Decision {
 	if a.direction == DirectionInput || !a.judgesPartial() {
 		return hooks.Allow
@@ -458,11 +460,6 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 	content := req.Chunk.Content
 	params, thresholds := a.evalParams()
 
-	lc := lifecycle{
-		emitter: a.emitter, name: a.evalType, valType: a.evalType, direction: a.direction,
-		turnIndex: req.TurnIndex, validator: a.declaration, partial: true,
-	}
-	start := lc.start()
 	handlerCtx, cancel := context.WithTimeout(ctx, a.evalTimeoutOrDefault())
 	defer cancel()
 	result, err := a.evalPartial(handlerCtx, content, params, req.Caller)
@@ -491,7 +488,6 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 		return d
 	}
 
-	lc.pass(start, result.Score)
 	return hooks.Decision{Allow: true, Hold: a.partialHold(content, params)}
 }
 

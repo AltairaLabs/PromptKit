@@ -3247,15 +3247,6 @@ func recordGuardrailFiring(
 	emitter *events.Emitter, msg *types.Message, d hooks.Decision,
 	direction string, duration time.Duration, turn int,
 ) {
-	recordFiring(emitter, msg, d, direction, duration, turn, false)
-}
-
-// recordFiring is recordGuardrailFiring, with partial set for a firing on a
-// streamed chunk (events.ValidationEventData.Partial).
-func recordFiring(
-	emitter *events.Emitter, msg *types.Message, d hooks.Decision,
-	direction string, duration time.Duration, turn int, partial bool,
-) {
 	vType, _ := d.Metadata["validator_type"].(string)
 
 	if msg != nil {
@@ -3275,7 +3266,6 @@ func recordFiring(
 		Enforced:      d.Enforced,
 		Score:         metadataScore(d.Metadata),
 		TurnIndex:     turn,
-		Partial:       partial,
 	}
 	data.Validator, _ = d.Metadata[hooks.MetadataKeyValidatorDeclaration].(*packspec.Validator)
 	if !d.Allow {

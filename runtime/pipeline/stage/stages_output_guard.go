@@ -97,7 +97,7 @@ func (g outputGuard) judgeChunk(ctx context.Context, chunk *providers.StreamChun
 	if len(j.Firings) == 0 {
 		return outputVerdict{holds: j.Holds}
 	}
-	return g.verdict(ctx, nil, chunk.Content, j.Firings, time.Since(start), true)
+	return g.verdict(ctx, nil, chunk.Content, j.Firings, time.Since(start))
 }
 
 // judgeResponse runs the AfterCall hooks on a completed reply, msg, for the
@@ -127,21 +127,19 @@ func (g outputGuard) judgeResponse(
 	if d.Allow {
 		return outputVerdict{}
 	}
-	v := g.verdict(ctx, req, msg.Content, []hooks.Decision{d}, time.Since(start), false)
+	v := g.verdict(ctx, req, msg.Content, []hooks.Decision{d}, time.Since(start))
 	v.validations = append(v.validations, addedValidations(resp.Message.Validations, known)...)
 	return v
 }
 
-// verdict turns firings on a reply whose text was original into a verdict;
-// partial is set for firings on a streamed chunk.
+// verdict turns firings on a reply whose text was original into a verdict.
 // The last firing stands: the deny that stopped the chain, or the last
 // enforcing hook, whose text the others judged. Its text is the reply's; a
 // replacement's or a deny's is the stage's choice (choose), made once. Every
 // firing is recorded: a validation.failed event each, and a validation record
 // each, so a truncation a later guardrail replaced still shows.
 func (g outputGuard) verdict(
-	ctx context.Context, req *hooks.ProviderRequest, original string, firings []hooks.Decision,
-	dur time.Duration, partial bool,
+	ctx context.Context, req *hooks.ProviderRequest, original string, firings []hooks.Decision, dur time.Duration,
 ) outputVerdict {
 	last := len(firings) - 1
 	d := firings[last]
@@ -165,7 +163,7 @@ func (g outputGuard) verdict(
 	v.decision = d
 	v.firings = firings
 	for _, f := range firings {
-		recordFiring(g.emitter, nil, f, hooks.DirectionOutput, dur, g.turn, partial)
+		recordGuardrailFiring(g.emitter, nil, f, hooks.DirectionOutput, dur, g.turn)
 		if val, ok := guardrailValidation(f, hooks.DirectionOutput); ok {
 			v.validations = append(v.validations, val)
 		}

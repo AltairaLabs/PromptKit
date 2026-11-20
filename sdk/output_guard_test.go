@@ -163,8 +163,8 @@ func failingGuardrail() []Option {
 	}
 }
 
-// validationEvents records the validation events of failing_check and
-// content_excludes, as "<event>/<type>" plus "/partial" for a chunk's check.
+// validationEvents records the output validation events, as
+// "<event>/<type>".
 type validationEvents struct {
 	mu  sync.Mutex
 	got []string
@@ -184,9 +184,6 @@ func newValidationEvents(t *testing.T) (*validationEvents, events.Bus) {
 				return
 			}
 			key := string(e.Type) + "/" + d.ValidatorType
-			if d.Partial {
-				key += "/partial"
-			}
 			v.mu.Lock()
 			v.got = append(v.got, key)
 			v.mu.Unlock()
@@ -195,22 +192,24 @@ func newValidationEvents(t *testing.T) (*validationEvents, events.Bus) {
 	return v, bus
 }
 
-func (v *validationEvents) wait(t *testing.T, n int) []string {
+// settled waits for n events, then for the bus to deliver any stragglers,
+// and returns every event recorded.
+func (v *validationEvents) settled(t *testing.T, n int) []string {
 	t.Helper()
-	var got []string
 	require.Eventually(t, func() bool {
 		v.mu.Lock()
 		defer v.mu.Unlock()
-		got = append([]string(nil), v.got...)
-		return len(got) >= n
+		return len(v.got) >= n
 	}, 5*time.Second, time.Millisecond)
-	return got
+	time.Sleep(50 * time.Millisecond)
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return append([]string(nil), v.got...)
 }
 
 // A streaming check that fails gives the guardrail's message on a streamed
 // reply, as it does on a whole one: the turn does not error, none of the
-// unjudged reply reaches the caller, and the check reports its start and its
-// failure.
+// unjudged reply reaches the caller, and the check reports its failure.
 func TestStream_FailedChunkCheckGivesTheGuardrailMessage(t *testing.T) {
 	rec, bus := newValidationEvents(t)
 	got := streamChunks(t, []string{"Hello", " there."}, append(failingGuardrail(), WithEventBus(bus))...)
@@ -221,10 +220,9 @@ func TestStream_FailedChunkCheckGivesTheGuardrailMessage(t *testing.T) {
 	assert.Equal(t, types.FinishReasonSafety, got.resp.Message().FinishReason)
 	require.Len(t, got.resp.Validations(), 1)
 	assert.Equal(t, "error", got.resp.Validations()[0].Details["reason"])
-	// The bus does not promise delivery order across event types.
-	assert.ElementsMatch(t, []string{
-		"validation.started/failing_check/partial", "validation.failed/failing_check/partial",
-	}, rec.wait(t, 2))
+	// A chunk's check reports only its firing: no started or passed per
+	// chunk, and the replaced reply is not judged again.
+	assert.Equal(t, []string{"validation.failed/failing_check"}, rec.settled(t, 1))
 }
 
 // The same check fails a whole reply (Send) with the same message.
@@ -381,7 +379,7 @@ func TestDuplex_ReplacedReplyRunsNoToolCalls(t *testing.T) {
 }
 
 // A realtime reply's failed streaming check gives the guardrail's message,
-// as on the text paths, and reports its start and failure.
+// as on the text paths, and reports its failure.
 func TestDuplex_FailedChunkCheckGivesTheGuardrailMessage(t *testing.T) {
 	rec, bus := newValidationEvents(t)
 	_, ch, sess, store := realtimeGuardSession(t, writeIngestionTestPack(t), "main",
@@ -394,10 +392,9 @@ func TestDuplex_FailedChunkCheckGivesTheGuardrailMessage(t *testing.T) {
 	got := realtimeGuardCut(t, ch, 1)
 	assert.Equal(t, []string{"interrupted", "replace:" + failingCheckMessage, "end:safety"}, got)
 	assert.Equal(t, failingCheckMessage, storedReply(t, store).Content)
-	// The bus does not promise delivery order across event types.
-	assert.ElementsMatch(t, []string{
-		"validation.started/failing_check/partial", "validation.failed/failing_check/partial",
-	}, rec.wait(t, 2))
+	// A chunk's check reports only its firing: no started or passed per
+	// chunk, and the replaced reply is not judged again.
+	assert.Equal(t, []string{"validation.failed/failing_check"}, rec.settled(t, 1))
 }
 
 // Two guardrails firing on one realtime chunk are both recorded.
