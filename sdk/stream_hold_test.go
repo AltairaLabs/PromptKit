@@ -334,7 +334,7 @@ func lastAssistant(t *testing.T, conv *Conversation) types.Message {
 var weatherChunks = []string{"The weather is mild today. ", "Expect light rain later. ", "Bring a coat."}
 
 // smallSegments makes every sentence a segment of its own.
-func smallSegments() Option { return WithStreamHoldSegments(1, 1, 600) }
+func smallSegments() Option { return WithStreamHold(StreamHoldConfig{MinChars: 1, FirstMinChars: 1}) }
 
 // Each segment reaches the caller only after the judge passed it, while the
 // model goes on writing; the last is judged by the completed-reply check,
@@ -584,7 +584,7 @@ func TestStreamHold_SegmentJudgeTimeoutFailsClosed(t *testing.T) {
 	judge.gate = make(chan struct{}) // never opened: the judge never answers
 	model := newPacedModel(false, mock.Turn{Type: "text", StreamChunks: weatherChunks})
 	s := openHold(t, model, judge, map[string]any{"stream_hold": "segment"},
-		smallSegments(), WithStreamHoldJudges(8, 20*time.Millisecond))
+		WithStreamHold(StreamHoldConfig{MinChars: 1, FirstMinChars: 1, SegmentTimeout: 20 * time.Millisecond}))
 	turn := s.stream(t)
 	turn.finish(t)
 
@@ -603,7 +603,7 @@ func TestStreamHold_MaxSegmentJudgesHandsTheRestToTheFinalCheck(t *testing.T) {
 	judge.gate = make(chan struct{})
 	model := newPacedModel(true, mock.Turn{Type: "text", StreamChunks: weatherChunks})
 	s := openHold(t, model, judge, map[string]any{"stream_hold": "segment"},
-		smallSegments(), WithStreamHoldJudges(1, 0))
+		WithStreamHold(StreamHoldConfig{MinChars: 1, FirstMinChars: 1, MaxSegmentJudges: 1}))
 	turn := s.stream(t)
 
 	model.next(t)
@@ -688,4 +688,13 @@ func TestStreamHold_InvalidModeIsAConstructionError(t *testing.T) {
 		map[string]any{"criteria": "c", "stream_hold": "tail"}, guardrails.WithJudge(handlers.NewProviderJudge(newHoldJudge(&holdLog{})))))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not judge chunks")
+}
+
+// Negative limits are refused when the conversation is opened.
+func TestWithStreamHold_RejectsNegativeLimits(t *testing.T) {
+	_, err := Open(writeGatePack(t), "assist",
+		WithProvider(mock.NewToolProviderWithRepository("mock", "mock-model", false, &sequenceRepo{})),
+		WithSkipSchemaValidation(), WithStreamHold(StreamHoldConfig{MaxChars: -1}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "WithStreamHold: limits must be non-negative")
 }

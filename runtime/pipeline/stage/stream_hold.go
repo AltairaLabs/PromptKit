@@ -39,29 +39,30 @@ type StreamHoldConfig struct {
 
 // Defaults for StreamHoldConfig.
 const (
-	DefaultStreamHoldMinChars         = 60
-	DefaultStreamHoldFirstMinChars    = 24
-	DefaultStreamHoldMaxChars         = 600
-	DefaultStreamHoldMaxSegmentJudges = 8
-	DefaultStreamHoldSegmentTimeout   = 10 * time.Second
+	defaultStreamHoldMinChars         = 60
+	defaultStreamHoldFirstMinChars    = 24
+	defaultStreamHoldMaxChars         = 600
+	defaultStreamHoldMaxSegmentJudges = 8
+	defaultStreamHoldSegmentTimeout   = 10 * time.Second
 )
 
 // withDefaults returns c with every unset field defaulted.
 func (c StreamHoldConfig) withDefaults() StreamHoldConfig {
+	seg := defaultSegmentConfig()
 	if c.MinChars <= 0 {
-		c.MinChars = DefaultStreamHoldMinChars
+		c.MinChars = seg.minChars
 	}
 	if c.FirstMinChars <= 0 {
-		c.FirstMinChars = min(DefaultStreamHoldFirstMinChars, c.MinChars)
+		c.FirstMinChars = min(seg.firstMinChars, c.MinChars)
 	}
 	if c.MaxChars <= 0 {
-		c.MaxChars = DefaultStreamHoldMaxChars
+		c.MaxChars = seg.maxChars
 	}
 	if c.MaxSegmentJudges <= 0 {
-		c.MaxSegmentJudges = DefaultStreamHoldMaxSegmentJudges
+		c.MaxSegmentJudges = defaultStreamHoldMaxSegmentJudges
 	}
 	if c.SegmentTimeout <= 0 {
-		c.SegmentTimeout = DefaultStreamHoldSegmentTimeout
+		c.SegmentTimeout = defaultStreamHoldSegmentTimeout
 	}
 	return c
 }
@@ -86,8 +87,7 @@ type streamHold struct {
 	cancel  context.CancelFunc
 	results chan partialVerdict
 
-	bounds  []int // segment ends found so far
-	scanned int   // where the next segment starts
+	seg *segmenter // the round's segments
 
 	arrivals []textArrival // when each chunk's text arrived
 }
@@ -130,7 +130,11 @@ func (s *ProviderStage) newStreamHold(
 	if len(holders) == 0 {
 		return nil
 	}
-	h := &streamHold{stage: s, req: req, cfg: s.config.StreamHold.withDefaults(), rr: rr, judging: true}
+	cfg := s.config.StreamHold.withDefaults()
+	h := &streamHold{
+		stage: s, req: req, cfg: cfg, rr: rr, judging: true,
+		seg: newSegmenter(segmentConfig{minChars: cfg.MinChars, firstMinChars: cfg.FirstMinChars, maxChars: cfg.MaxChars}),
+	}
 	for i, hook := range holders {
 		g := &heldGuardrail{hook: hook, index: i, segment: hook.StreamHold() == hooks.StreamHoldSegment}
 		if !g.segment {
@@ -172,7 +176,8 @@ func (h *streamHold) restart() {
 	h.cancel()
 	h.ctx, h.cancel = context.WithCancel(h.parent)
 	h.results = make(chan partialVerdict, len(h.holders))
-	h.bounds, h.scanned, h.arrivals = nil, 0, nil
+	h.seg.reset()
+	h.arrivals = nil
 	for _, g := range h.holders {
 		g.busy, g.calls, g.judged = false, 0, 0
 	}
@@ -195,30 +200,24 @@ func (h *streamHold) heldSince(offset int) time.Time {
 	return time.Now()
 }
 
-// segmentAndJudge finds the segments text now completes and starts a
-// judgment for each idle segment guardrail with a segment it has not judged.
-func (h *streamHold) segmentAndJudge(text string) {
+// segmentAndJudge takes delta, the text a chunk adds to the reply, finds the
+// segments it completes, and starts a judgment for each idle segment
+// guardrail with a segment it has not judged.
+func (h *streamHold) segmentAndJudge(delta string) {
+	h.seg.feed(delta)
 	if !h.judging {
 		return
 	}
-	seg := segmentConfig{minChars: h.cfg.MinChars, firstMinChars: h.cfg.FirstMinChars, maxChars: h.cfg.MaxChars}
-	for {
-		end, ok := nextSegmentEnd(text, h.scanned, len(h.bounds) == 0, seg)
-		if !ok {
-			break
-		}
-		h.bounds = append(h.bounds, end)
-		h.scanned = end
-	}
 	for _, g := range h.holders {
-		h.judge(g, text)
+		h.judge(g)
 	}
 }
 
 // judge starts g's judgment of every segment ready since its last one,
 // unless it is busy, has none new, or has made its round's last judgment.
-func (h *streamHold) judge(g *heldGuardrail, text string) {
-	n := len(h.bounds)
+func (h *streamHold) judge(g *heldGuardrail) {
+	bounds := h.seg.segments()
+	n := len(bounds)
 	if !g.segment || g.busy || n == g.judged || g.calls >= h.cfg.MaxSegmentJudges {
 		return
 	}
@@ -233,7 +232,7 @@ func (h *streamHold) judge(g *heldGuardrail, text string) {
 		logger.Debug("stream_hold: last partial-reply judgment this round; the rest is judged with the reply",
 			"guardrail", g.hook.(hooks.ProviderHook).Name(), "judgments", g.calls)
 	}
-	judged := text[:h.bounds[n-1]]
+	judged := h.seg.text()[:bounds[n-1]]
 	ctx, results, req := h.ctx, h.results, h.req
 	reply := hooks.PartialReply{Text: judged, SegmentIndex: n, Timeout: h.cfg.SegmentTimeout}
 	go func() {
@@ -269,7 +268,7 @@ func (s *ProviderStage) readHeldStream(ctx context.Context, rs *roundStream) (st
 			if got, done, err := s.applyPartialVerdict(ctx, rs, v); done {
 				return got, err
 			}
-			h.judge(v.g, rs.text.text())
+			h.judge(v.g)
 		case <-ctx.Done():
 			return rs.text.withoutHeld(&rs.acc), fmt.Errorf("stream interrupted: %w", ctx.Err())
 		}
@@ -300,7 +299,7 @@ func (s *ProviderStage) takeHeldChunk(
 		return got, done, err
 	}
 	rs.hold.received(rs.text.received())
-	rs.hold.segmentAndJudge(rs.text.text())
+	rs.hold.segmentAndJudge(chunk.Delta)
 	return streamedRound{}, false, nil
 }
 
