@@ -81,6 +81,23 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 }
 ```
 
+With a streaming output guardrail (`banned_words`, `length`), each text chunk reaches you only after the guardrail has checked it. `banned_words` also holds back the end of a chunk that could be the start of a banned word, so a word the provider splits across chunks never arrives in pieces. When the guardrail cuts the reply, its message arrives as the last text chunk with `ReplacesText` set: that text replaces everything the turn streamed before it, and it alone is the reply's text in `ChunkDone`. Honor the marker. A client that only concatenates chunks shows the text that came before the banned word followed by the message:
+
+```go
+var shown strings.Builder
+for chunk := range conv.Stream(ctx, "Tell me a story") {
+    if chunk.Type != sdk.ChunkText {
+        continue
+    }
+    if chunk.ReplacesText {
+        shown.Reset() // and clear what the UI displays
+    }
+    shown.WriteString(chunk.Text)
+}
+```
+
+`StreamRaw` chunks, `TextDeltaEvent` and `stream.CollectText` carry the same marker. Over A2A, the server restarts the text artifact with the message, sending its update with `append: false`.
+
 ## Read and clear history
 
 ```go

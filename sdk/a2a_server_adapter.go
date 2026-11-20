@@ -135,7 +135,7 @@ func chunkToEvent(c StreamChunk) a2aserver.StreamEvent {
 	}
 	switch c.Type {
 	case ChunkText:
-		return a2aserver.StreamEvent{Kind: a2aserver.EventText, Text: c.Text}
+		return a2aserver.StreamEvent{Kind: a2aserver.EventText, Text: c.Text, ReplacesText: c.ReplacesText}
 	case ChunkMedia:
 		if c.Media == nil {
 			return a2aserver.StreamEvent{Kind: a2aserver.EventMedia}

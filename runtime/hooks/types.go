@@ -18,6 +18,14 @@ type Decision struct {
 	// records the validation result but continues the pipeline instead of
 	// returning an error.
 	Enforced bool
+
+	// Hold is set by a chunk interceptor that allows a chunk: how many bytes
+	// at the end of the chunk's Content it has not cleared yet, because they
+	// could be the start of content it blocks once more of the reply arrives
+	// (a banned word split across chunks). The provider stage keeps those
+	// bytes from the caller until a later chunk clears them, completes what it
+	// blocks, or the reply ends. Zero holds nothing back.
+	Hold int
 }
 
 // Allow is the zero-cost approval decision.

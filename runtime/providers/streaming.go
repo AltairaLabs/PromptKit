@@ -114,6 +114,12 @@ type StreamChunk struct {
 	// response from scratch.
 	Reset bool `json:"reset,omitempty"`
 
+	// ReplacesText marks a chunk whose Delta replaces all the text the turn
+	// streamed before it: an output guardrail cut the reply, and Delta is its
+	// message, the turn's whole text from here on. A consumer that renders
+	// deltas must discard the turn's text so far and show Delta instead.
+	ReplacesText bool `json:"replaces_text,omitempty"`
+
 	// Error is set if an error occurred during streaming
 	Error error `json:"error,omitempty"`
 

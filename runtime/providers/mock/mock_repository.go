@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -61,6 +62,23 @@ type Turn struct {
 
 	// AudioMIMEType is the MIME type advertised on emitted audio chunks. Defaults to "audio/pcm".
 	AudioMIMEType string `yaml:"audio_mime_type,omitempty"`
+
+	// StreamChunks, when set, is how a streamed text reply arrives: one chunk
+	// per entry, carrying it as the Delta, then a final chunk with the finish
+	// reason and the usage, as the real providers end a stream. Content is
+	// their concatenation when it is empty. It is set in code only (not read
+	// from a mock config file), for tests that need a reply split at a given
+	// point.
+	StreamChunks []string `yaml:"-"`
+}
+
+// streamedText is the reply text of a turn that scripts its stream chunks:
+// Content, or the chunks joined when Content is empty.
+func (t *Turn) streamedText() string {
+	if t.Content == "" {
+		return strings.Join(t.StreamChunks, "")
+	}
+	return t.Content
 }
 
 // ContentPart represents a single content part in a multimodal mock response.

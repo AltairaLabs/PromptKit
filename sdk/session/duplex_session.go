@@ -1175,6 +1175,7 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 	if elem.Text != nil && *elem.Text != "" && !elem.Meta.SynthesizedSpeech {
 		chunk.Delta = *elem.Text
 		chunk.Content = *elem.Text
+		chunk.ReplacesText = elem.Meta.ReplacesText
 	}
 
 	// Surface the faithful spoken text of a synthesized-speech element (post

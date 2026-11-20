@@ -42,6 +42,18 @@ type StreamableRequestEvalHandler interface {
 	EvalPartialRequest(ctx context.Context, req PartialEvalRequest) (*EvalResult, error)
 }
 
+// PartialHolder is an optional extension of a streamable handler whose match
+// can span chunks, such as a banned word a provider splits across two of them.
+// A guardrail whose handler implements it keeps the tail PartialHold names
+// from the caller until a later chunk shows whether it completes a match, so
+// no fragment of blocked content is delivered before the match is seen.
+type PartialHolder interface {
+	// PartialHold returns how many bytes at the end of content, the partial
+	// content accumulated so far, could be the start of content the handler
+	// would flag once more of it arrives. Zero when none could be.
+	PartialHold(content string, params map[string]any) int
+}
+
 // ParamValidator is an optional interface for EvalTypeHandler implementations
 // that have required or strictly-typed params. Handlers without required
 // params need not implement it.

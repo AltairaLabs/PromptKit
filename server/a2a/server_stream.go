@@ -154,6 +154,18 @@ func (st *streamTurn) addText(text string) {
 	st.text.all.WriteString(text)
 }
 
+// replaceText discards the current text artifact's text, so the next chunk
+// restarts it: that chunk goes out without append (A2A replaces the
+// artifact's content) and the run keeps only what follows.
+func (st *streamTurn) replaceText() {
+	if st.text == nil {
+		return
+	}
+	st.text.held = nil
+	st.text.started = false
+	st.text.all.Reset()
+}
+
 // emitTextChunk sends one chunk of the current text artifact.
 func (st *streamTurn) emitTextChunk(text string, last bool) {
 	run := st.text
@@ -286,6 +298,9 @@ func (st *streamTurn) handle(evt StreamEvent) (done bool) {
 
 	switch evt.Kind {
 	case EventText:
+		if evt.ReplacesText {
+			st.replaceText()
+		}
 		st.addText(evt.Text)
 
 	case EventMedia:

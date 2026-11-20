@@ -222,20 +222,36 @@ func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk)
 }
 
 // RunOnChunkRequest executes all chunk interceptors in order: InterceptChunk
-// for one that implements ChunkRequestInterceptor, OnChunk otherwise. First
-// deny wins and short-circuits.
+// for one that implements ChunkRequestInterceptor, OnChunk otherwise.
+//
+// Every interceptor judges every chunk. One that enforces rewrites the chunk's
+// Content in place (a truncation, a replacement), and the interceptors after
+// it judge the rewritten Content, so a truncation cannot pass on text a later
+// interceptor blocks. The decision returned is the last enforcing one: the
+// one whose Content stands. A deny (not enforced) short-circuits and is
+// returned. When every interceptor allows the chunk, the decision holds back
+// the most any of them holds (Decision.Hold).
 func (r *Registry) RunOnChunkRequest(ctx context.Context, req ChunkRequest) Decision {
 	if r == nil {
 		return Allow
 	}
+	result := Allow
 	for _, ci := range r.chunkInterceptors {
-		if d := ci.run(ctx, req); !d.Allow {
+		d := ci.run(ctx, req)
+		switch {
+		case !d.Allow && !d.Enforced:
 			logger.Warn("chunk interceptor denied",
 				"interceptor", fmt.Sprintf("%T", ci.hook), "reason", d.Reason)
 			return d
+		case !d.Allow:
+			logger.Warn("chunk interceptor enforced",
+				"interceptor", fmt.Sprintf("%T", ci.hook), "reason", d.Reason)
+			result = d
+		case result.Allow:
+			result.Hold = max(result.Hold, d.Hold)
 		}
 	}
-	return Allow
+	return result
 }
 
 // --- Tool hooks ---

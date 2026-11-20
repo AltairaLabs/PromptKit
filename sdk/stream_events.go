@@ -12,6 +12,10 @@ type StreamEvent interface {
 type TextDeltaEvent struct {
 	// Delta is the new text content in this chunk.
 	Delta string
+	// ReplacesText marks a Delta that replaces all the text streamed before it
+	// in this turn (StreamChunk.ReplacesText): discard what was shown and
+	// show Delta instead.
+	ReplacesText bool
 }
 
 func (TextDeltaEvent) streamEvent() { /* marker method — intentionally empty */ }
@@ -98,7 +102,7 @@ func (c *Conversation) StreamWithCallback(ctx context.Context, message any, opts
 
 		switch chunk.Type {
 		case ChunkText:
-			handler(TextDeltaEvent{Delta: chunk.Text})
+			handler(TextDeltaEvent{Delta: chunk.Text, ReplacesText: chunk.ReplacesText})
 		case ChunkClientTool:
 			if chunk.ClientTool != nil {
 				handler(ClientToolRequestEvent{

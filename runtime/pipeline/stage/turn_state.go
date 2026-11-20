@@ -231,6 +231,12 @@ type ElementMetadata struct {
 	// session was interrupted mid-response.
 	Interrupted bool
 
+	// ReplacesText marks a text element that replaces all the text the turn
+	// streamed before it: an output guardrail cut the reply, and the element's
+	// text is its message, the turn's whole text. A consumer rendering deltas
+	// swaps what it showed for it (providers.StreamChunk.ReplacesText).
+	ReplacesText bool
+
 	// InterruptedTurnComplete marks the element that closes an
 	// interrupted turn (downstream cleanup signal).
 	InterruptedTurnComplete bool

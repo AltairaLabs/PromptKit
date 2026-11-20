@@ -170,7 +170,8 @@ func TestDuplexGuardrail_CleanTurnPassesThrough(t *testing.T) {
 }
 
 // realtimeGuardCut is what a voice caller saw of a realtime session in
-// order: "user:<transcript>", "text:<delta>", "audio", "interrupted" and
+// order: "user:<transcript>", "text:<delta>", "replace:<delta>" (a delta that
+// replaces the reply streamed so far), "audio", "interrupted" and
 // "end:<finish reason>".
 func realtimeGuardCut(t *testing.T, ch <-chan providers.StreamChunk, turns int) []string {
 	t.Helper()
@@ -187,7 +188,9 @@ func realtimeGuardCut(t *testing.T, ch <-chan providers.StreamChunk, turns int) 
 			if u, _ := c.Metadata["input_transcription"].(string); u != "" {
 				got = append(got, "user:"+u)
 			}
-			if c.Delta != "" {
+			if c.Delta != "" && c.ReplacesText {
+				got = append(got, "replace:"+c.Delta)
+			} else if c.Delta != "" {
 				got = append(got, "text:"+c.Delta)
 			}
 			if c.MediaData != nil && len(c.MediaData.Data) > 0 {
@@ -210,7 +213,7 @@ func realtimeGuardCut(t *testing.T, ch <-chan providers.StreamChunk, turns int) 
 // caller's spoken transcript, each end their turn: the provider is asked to
 // stop the reply, the caller is told to stop playing it (chunk.Interrupted),
 // the rest of the reply never arrives, the guardrail's message arrives as live
-// text, and the turn is stored as that message, marked safety. The next turn is answered normally, and
+// text marked as replacing what the reply streamed, and the turn is stored as that message, marked safety. The next turn is answered normally, and
 // every provider call that started completed.
 func TestDuplexGuardrail_RealtimeBlockEndsTheTurnNotTheSession(t *testing.T) {
 	bus := events.NewEventBus()
@@ -264,8 +267,8 @@ func TestDuplexGuardrail_RealtimeBlockEndsTheTurnNotTheSession(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{
-		"user:what is the code", "text:the code is ", "audio", "interrupted", "text:I can't share that.", "end:safety",
-		"user:now do a wire transfer", "interrupted", "text:I can't help with transfers.", "end:safety",
+		"user:what is the code", "text:the code is ", "audio", "interrupted", "replace:I can't share that.", "end:safety",
+		"user:now do a wire transfer", "interrupted", "replace:I can't help with transfers.", "end:safety",
 		"user:thanks", "text:You're welcome.", "audio", "end:stop",
 	}, realtimeGuardCut(t, ch, 3))
 	assert.Equal(t, 2, sess.Interrupts(), "the provider is asked to stop each blocked reply")

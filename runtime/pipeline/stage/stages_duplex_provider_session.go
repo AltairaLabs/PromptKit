@@ -236,6 +236,15 @@ type DuplexProviderStage struct {
 	// blockedLiveSpoken is set when blockedLive is a message to speak (a cue,
 	// cutReply). Response goroutine only.
 	blockedLiveSpoken bool
+	// blockedLiveReplaces is set when blockedLive replaces the text the turn
+	// already streamed rather than following it (StreamElement
+	// Meta.ReplacesText). Response goroutine only.
+	blockedLiveReplaces bool
+	// liveHeld is the turn's live text the streaming guardrails have not
+	// cleared yet, and liveHold how much of its end the last chunk they
+	// judged holds (holdLiveText). Response goroutine only.
+	liveHeld heldText
+	liveHold int
 	// lastReplyGen is the latest generation of the session's replies the
 	// stage has handled, and chunkIsReply whether the chunk being handled is
 	// one of a reply's (not the caller's transcript). Response goroutine only.
@@ -1719,6 +1728,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
 		return err
 	}
+	s.holdLiveText(chunk, isOutputTranscription)
 	// The reply is streaming from before it reaches the consumer, so input
 	// sent once it can be seen counts as following it.
 	s.syncReplyStreaming()

@@ -141,6 +141,17 @@ func (m *ToolProvider) PredictWithTools(
 	tools providers.ProviderTools,
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	resp, toolCalls, _, err := m.predictTurn(ctx, req, toolChoice)
+	return resp, toolCalls, err
+}
+
+// predictTurn is PredictWithTools, also returning the mock turn it answered
+// from.
+func (m *ToolProvider) predictTurn(
+	ctx context.Context,
+	req providers.PredictionRequest,
+	toolChoice string,
+) (providers.PredictionResponse, []types.MessageToolCall, *Turn, error) {
 	logger.Debug("ToolProvider PredictWithTools",
 		"provider_id", m.id,
 		"tool_choice", toolChoice,
@@ -166,12 +177,13 @@ func (m *ToolProvider) PredictWithTools(
 
 	mockTurn, err := m.repository.GetTurn(ctx, params)
 	if err != nil {
-		return providers.PredictionResponse{}, nil, fmt.Errorf("failed to get mock turn: %w", err)
+		return providers.PredictionResponse{}, nil, nil, fmt.Errorf("failed to get mock turn: %w", err)
 	}
+	text := mockTurn.streamedText()
 
 	// Build cost info for the response
 	inputTokens := m.calculateInputTokens(req.Messages)
-	outputTokens := m.calculateOutputTokens(mockTurn.Content)
+	outputTokens := m.calculateOutputTokens(text)
 	costInfo := m.generateMockCostInfo(inputTokens, outputTokens)
 
 	// If turn type is tool_calls, return tool calls
@@ -180,7 +192,8 @@ func (m *ToolProvider) PredictWithTools(
 		for i, tc := range mockTurn.ToolCalls {
 			argsBytes, err := json.Marshal(tc.Arguments)
 			if err != nil {
-				return providers.PredictionResponse{}, nil, fmt.Errorf("failed to marshal tool call arguments: %w", err)
+				return providers.PredictionResponse{}, nil, nil, fmt.Errorf(
+					"failed to marshal tool call arguments: %w", err)
 			}
 
 			toolCalls[i] = types.MessageToolCall{
@@ -195,23 +208,23 @@ func (m *ToolProvider) PredictWithTools(
 			"tool_call_count", len(toolCalls))
 
 		return providers.PredictionResponse{
-			Content:      mockTurn.Content,
+			Content:      text,
 			ToolCalls:    toolCalls,
 			CostInfo:     &costInfo,
 			FinishReason: types.FinishReasonToolUse,
-		}, toolCalls, nil
+		}, toolCalls, mockTurn, nil
 	}
 
 	// Otherwise return normal text response
 	logger.Debug("ToolProvider returning text response",
 		"provider_id", m.id,
-		"response_length", len(mockTurn.Content))
+		"response_length", len(text))
 
 	return providers.PredictionResponse{
-		Content:      mockTurn.Content,
+		Content:      text,
 		CostInfo:     &costInfo,
 		FinishReason: types.FinishReasonStop,
-	}, nil, nil
+	}, nil, mockTurn, nil
 }
 
 // generateMockCostInfo creates cost information for mock responses.
@@ -327,11 +340,11 @@ func (m *ToolProvider) getArenaRole(req providers.PredictionRequest) string {
 func (m *ToolProvider) PredictStreamWithTools(
 	ctx context.Context,
 	req providers.PredictionRequest,
-	tools interface{},
+	_ interface{},
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	// Get the non-streaming response
-	resp, toolCalls, err := m.PredictWithTools(ctx, req, tools, toolChoice)
+	resp, toolCalls, turn, err := m.predictTurn(ctx, req, toolChoice)
 	if err != nil {
 		return nil, err
 	}
@@ -342,19 +355,12 @@ func (m *ToolProvider) PredictStreamWithTools(
 	go func() {
 		defer close(outChan)
 
-		// Send content in chunks (simulate streaming)
+		// Send content in chunks (simulate streaming): the turn's own chunks
+		// when it scripts them, else 20 characters at a time.
 		content := resp.Content
-		chunkSize := 20 // Characters per chunk
-
-		for i := 0; i < len(content); i += chunkSize {
-			end := i + chunkSize
-			if end > len(content) {
-				end = len(content)
-			}
-			outChan <- providers.StreamChunk{
-				Delta:   content[i:end],
-				Content: content[:end],
-			}
+		deltas := streamDeltas(turn, content)
+		for i := range deltas {
+			outChan <- deltas[i]
 		}
 
 		// Send final chunk with tool calls and finish reason

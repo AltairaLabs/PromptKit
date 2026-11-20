@@ -565,8 +565,12 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	probe := &providers.StreamChunk{Content: original, Delta: text}
 	d := s.hookRegistry.RunOnChunkRequest(ctx, hooks.ChunkRequest{Chunk: probe, Caller: s.caller})
 	if d.Allow {
+		s.liveHold = d.Hold
 		return
 	}
+	// What the caller has of the turn's text: the held end never went out.
+	sent := strings.TrimSuffix(s.accumulatedText.String(), s.liveHeld.pending)
+	s.liveHeld.reset()
 	// The blocked text is chosen before the firing is recorded, which records
 	// the choice: a replacement's (not a truncation's), or a deny's message.
 	var denied types.Message
@@ -584,14 +588,13 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		// The interceptor rewrote probe.Content (truncated or replaced): that
 		// is the turn's text from here on. The caller already has what was
 		// forwarded: a truncation sends only what follows it.
-		sent := s.accumulatedText.String()
 		s.accumulatedText.Reset()
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
 		// A truncation keeps a prefix of the model's own text: it is shown,
 		// not spoken, and the completed turn is still judged. Anything else
 		// replaced the text with the guardrail's own.
-		replaced := !strings.HasPrefix(sent+text, probe.Content)
+		replaced := !strings.HasPrefix(original, probe.Content)
 		s.turnGuard.replaced = replaced
 		s.turnGuard.spoken = replaced
 		if replaced {
@@ -600,10 +603,10 @@ func (s *DuplexProviderStage) guardOutputChunk(
 			s.turnGuard.blockedText = &shown
 		}
 		if rest, kept := strings.CutPrefix(probe.Content, sent); !kept {
-			s.showBlockedText(probe.Content, replaced)
+			s.showBlockedText(probe.Content, replaced, true)
 		} else if rest != "" {
 			// What follows what was already sent.
-			s.showBlockedText(rest, replaced)
+			s.showBlockedText(rest, replaced, false)
 		}
 	} else {
 		s.blockTurnWithMessage(denied)
@@ -673,7 +676,7 @@ func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
 	s.turnGuard.replaced = true
 	s.turnGuard.spoken = true
 	s.blockTurn()
-	s.showBlockedText(blocked.Content, true)
+	s.showBlockedText(blocked.Content, true, true)
 }
 
 // blockedTurnMessage is blockedTurnMessage with its text chosen by the
@@ -707,10 +710,13 @@ func (s *DuplexProviderStage) chooseBlocked(
 
 // showBlockedText has a blocked turn's text sent as live output by the next
 // cutReply, and, with speak, spoken (a cue, guardrailCue): a message that
-// replaces the reply is, the rest of a truncated one is not.
-func (s *DuplexProviderStage) showBlockedText(text string, speak bool) {
+// replaces the reply is, the rest of a truncated one is not. With replaces the
+// text is marked as replacing what the turn already streamed
+// (Meta.ReplacesText); without, it follows it.
+func (s *DuplexProviderStage) showBlockedText(text string, speak, replaces bool) {
 	s.blockedLive = &text
 	s.blockedLiveSpoken = speak
+	s.blockedLiveReplaces = replaces
 }
 
 // cutReply cuts a reply a guardrail blocked, once per block: the session is
@@ -745,6 +751,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	fr := types.FinishReasonSafety
 	elem := StreamElement{Text: text, Timestamp: timeNow()}
 	elem.Meta.FinishReason = &fr
+	elem.Meta.ReplacesText = s.blockedLiveReplaces
 	if s.blockedLiveSpoken {
 		elem.Cue = s.guardrailCue(*text)
 	}
@@ -868,6 +875,34 @@ func (s *DuplexProviderStage) turnText() string {
 	return s.accumulatedText.String()
 }
 
+// holdLiveText keeps from what a chunk forwards the end of the turn's text the
+// streaming guardrails have not cleared (hooks.Decision.Hold): text that could
+// be the start of a word they block. It is released when a later chunk clears
+// it or the turn ends, and dropped when the turn is blocked or cut short. The
+// turn's text (accumulatedText) keeps all of it; only the live text waits. The
+// audio of it cannot wait: it has already been generated and plays as it is.
+func (s *DuplexProviderStage) holdLiveText(chunk *providers.StreamChunk, isOutputTranscription bool) {
+	if !s.hookRegistry.HasChunkInterceptors() {
+		return
+	}
+	if chunk.Interrupted {
+		s.liveHeld.reset()
+		return
+	}
+	text := assistantChunkText(chunk, isOutputTranscription)
+	s.liveHeld.add(text)
+	hold := s.liveHold
+	if chunk.FinishReason != nil {
+		hold = 0
+	}
+	out := s.liveHeld.release(hold)
+	if isOutputTranscription {
+		chunk.Delta = out
+		return
+	}
+	chunk.Content = out
+}
+
 // assistantChunkText returns the assistant text a chunk adds to the turn,
 // as accumulateResponseChunk reads it.
 func assistantChunkText(chunk *providers.StreamChunk, isOutputTranscription bool) string {
@@ -922,7 +957,7 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 			s.cutReplyOf(s.replyGeneration())
 		}
 		s.endedTurnCut = true
-		s.showBlockedText(msg.Content, true)
+		s.showBlockedText(msg.Content, true, true)
 	}
 	s.history.add(msg)
 	s.completeAssistantTurn()
