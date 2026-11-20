@@ -31,14 +31,15 @@ func TestRegisteredProviderTypes_CoversEveryRole(t *testing.T) {
 
 // Each role must read its own registry. Asserting a type unique to one
 // capability catches a lister wired to the wrong registry — the TTS and STT
-// sets overlap on "openai", so only "cartesia" distinguishes them.
+// sets overlap on "openai", "elevenlabs" and "cartesia", so only "gemini"
+// (TTS only) distinguishes them.
 func TestRegisteredProviderTypes_RolesReadTheirOwnRegistry(t *testing.T) {
 	got := RegisteredProviderTypes()
 
-	assert.Contains(t, got[pkgconfig.RoleTTS], "cartesia")
-	assert.NotContains(t, got[pkgconfig.RoleSTT], "cartesia",
+	assert.Contains(t, got[pkgconfig.RoleTTS], "gemini")
+	assert.NotContains(t, got[pkgconfig.RoleSTT], "gemini",
 		"STT must not report TTS-only types")
-	assert.Contains(t, got[pkgconfig.RoleSTT], "openai")
+	assert.Equal(t, []string{"cartesia", "elevenlabs", "openai"}, got[pkgconfig.RoleSTT])
 
 	// Registered by the blank imports in runtime_config.go.
 	assert.Contains(t, got[pkgconfig.RoleEmbedding], "voyageai")

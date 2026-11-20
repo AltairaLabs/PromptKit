@@ -12,6 +12,11 @@ verified:
     - runtime/credentials/resolver.go
     - runtime/providers/base/factory.go
     - runtime/providers/base/platform_transport.go
+    - runtime/stt/batch.go
+    - runtime/stt/cartesia.go
+    - runtime/stt/cartesia_register.go
+    - runtime/stt/elevenlabs.go
+    - runtime/stt/elevenlabs_register.go
     - runtime/stt/factory.go
     - runtime/stt/openai.go
     - runtime/stt/openai_register.go
@@ -66,6 +71,11 @@ spec:
       model: whisper-1
       credential:
         credential_env: OPENAI_API_KEY
+    - id: scribe
+      role: stt
+      type: elevenlabs
+      credential:
+        credential_env: ELEVENLABS_API_KEY
 ```
 
 `model` is optional and overrides the provider's own default.
@@ -79,8 +89,12 @@ spec:
 | `tts` | `cartesia` | Cartesia |
 | `tts` | `gemini` | Gemini speech generation |
 | `stt` | `openai` | OpenAI Whisper |
+| `stt` | `elevenlabs` | ElevenLabs Scribe |
+| `stt` | `cartesia` | Cartesia Ink |
 
 Cartesia reads `additional_config.ws_url` as its websocket streaming endpoint.
+
+An `elevenlabs` or `cartesia` entry reads no default environment variable: name its key with `credential`. Without `model`, an `elevenlabs` STT entry uses `stt.ElevenLabsModelScribeV3` and a `cartesia` one `stt.CartesiaModelInkWhisper`. Both transcribe each finished turn with the vendor's batch endpoint.
 
 A `gemini` entry reads its key from `GEMINI_API_KEY` or `GOOGLE_API_KEY` when it has no `credential` block. Without `model` it uses `tts.DefaultGeminiTTSModel`. It returns PCM and speaks Gemini Live's prebuilt voices:
 

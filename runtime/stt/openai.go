@@ -57,7 +57,7 @@ const (
 // Rate: $0.006/minute = $0.0001/second (OpenAI public pricing).
 var openAIDefaultPricing = &base.PricingDescriptor{
 	Source:   base.PricingSourceInline,
-	Currency: "usd",
+	Currency: currencyUSD,
 	Items: []base.PriceItem{
 		{Unit: unitSecond, Rate: openAIWhisperPerSecondRate},
 	},
@@ -250,6 +250,12 @@ type normalizedConfig struct {
 
 // normalizeConfig applies defaults to transcription config.
 func (s *OpenAIService) normalizeConfig(config *TranscriptionConfig) *normalizedConfig {
+	return normalizeTranscriptionConfig(config, s.Model)
+}
+
+// normalizeTranscriptionConfig applies the package defaults to config, and
+// defaultModel when config names no model.
+func normalizeTranscriptionConfig(config *TranscriptionConfig, defaultModel string) *normalizedConfig {
 	nc := &normalizedConfig{
 		format:     config.Format,
 		sampleRate: config.SampleRate,
@@ -270,7 +276,7 @@ func (s *OpenAIService) normalizeConfig(config *TranscriptionConfig) *normalized
 		nc.bitDepth = DefaultBitDepth
 	}
 	if nc.model == "" {
-		nc.model = s.Model
+		nc.model = defaultModel
 	}
 	return nc
 }
@@ -280,6 +286,12 @@ func (s *OpenAIService) prepareAudio(
 	audio []byte,
 	nc *normalizedConfig,
 ) (audioData []byte, filename string) {
+	return containerAudio(audio, nc)
+}
+
+// containerAudio returns audio as an uploadable file and its name: PCM
+// wrapped as WAV, any other format as it is.
+func containerAudio(audio []byte, nc *normalizedConfig) (audioData []byte, filename string) {
 	if nc.format == FormatPCM {
 		return WrapPCMAsWAV(audio, nc.sampleRate, nc.channels, nc.bitDepth), "audio.wav"
 	}
@@ -538,16 +550,16 @@ func (s *OpenAIService) handleError(statusCode int, body []byte) error {
 // SupportedFormats returns audio formats supported by OpenAI Whisper.
 func (s *OpenAIService) SupportedFormats() []string {
 	return []string{
-		"flac",
-		"m4a",
+		formatFLAC,
+		formatM4A,
 		"mp3",
 		"mp4",
 		"mpeg",
 		"mpga",
 		"oga",
-		"ogg",
+		formatOGG,
 		"wav",
-		"webm",
+		formatWebM,
 		"pcm", // Wrapped as WAV internally
 	}
 }
