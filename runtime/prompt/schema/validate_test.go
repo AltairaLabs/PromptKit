@@ -71,6 +71,34 @@ func TestValidateJSONAgainstLoader_InvalidSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "schema validation failed")
 }
 
+// A "required" error carries the whole parent object as its Value. Error()
+// must not print it: the object is user config and can hold secrets (#2813).
+// The value stays available on the field for callers that want it.
+func TestValidateJSONAgainstLoader_ErrorOmitsValidatedValue(t *testing.T) {
+	schemaJSON := `{
+		"type": "object",
+		"required": ["name", "version"],
+		"properties": {
+			"name": {"type": "string"},
+			"version": {"type": "string"},
+			"env": {"type": "object"}
+		}
+	}`
+	loader := gojsonschema.NewStringLoader(schemaJSON)
+	data := []byte(`{"name": "test", "env": {"API_TOKEN": "sk-secret-123"}}`)
+
+	result, err := ValidateJSONAgainstLoader(data, loader)
+	require.NoError(t, err)
+	require.Len(t, result.Errors, 1)
+
+	got := result.Errors[0]
+	assert.Equal(t, "(root): version is required", got.Error())
+	assert.Equal(t, map[string]any{
+		"name": "test",
+		"env":  map[string]any{"API_TOKEN": "sk-secret-123"},
+	}, got.Value)
+}
+
 func TestValidationError_Error(t *testing.T) {
 	t.Run("with value", func(t *testing.T) {
 		e := ValidationError{
@@ -78,7 +106,7 @@ func TestValidationError_Error(t *testing.T) {
 			Description: "is required",
 			Value:       "bad",
 		}
-		assert.Equal(t, "spec.name: is required (value: bad)", e.Error())
+		assert.Equal(t, "spec.name: is required", e.Error())
 	})
 
 	t.Run("without value", func(t *testing.T) {

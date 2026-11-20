@@ -224,7 +224,11 @@ const (
 type SchemaValidationError struct {
 	Field       string
 	Description string
-	Value       interface{}
+	// Value is the instance value that failed validation, as decoded from the
+	// document. It can be an entire object (for "required", the parent), so
+	// it may hold secrets: Error() never prints it, and callers that show it
+	// should redact it first.
+	Value interface{}
 
 	// Keyword mirrors runtime/prompt/schema.ValidationError.Keyword
 	// (e.g. "enum", "additional_property_not_allowed").
@@ -236,11 +240,10 @@ type SchemaValidationError struct {
 	Suggestions []string
 }
 
-// Error implements the error interface
+// Error implements the error interface. It reports the field and what is
+// wrong with it, never Value: for a "required" error Value is the whole
+// parent object, which in user config can hold tokens and env values.
 func (e SchemaValidationError) Error() string {
-	if e.Value != nil {
-		return fmt.Sprintf("%s: %s (value: %v)", e.Field, e.Description, e.Value)
-	}
 	return fmt.Sprintf("%s: %s", e.Field, e.Description)
 }
 
