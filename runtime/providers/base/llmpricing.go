@@ -1,6 +1,7 @@
 package base
 
 import (
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ const per1KScale = 1000.0
 
 // ResolveLLMPricing selects the pricing descriptor for a model, in order:
 // explicit config descriptor > flat config pricing > embedded default table.
+// Both config forms bill cache-written tokens at the input rate unless the
+// descriptor prices cache_write_token itself (see withCacheWriteAtInputRate).
 //
 // A provider that ships a table is a paid one, so a model missing from it
 // resolves to an empty descriptor: PriceUsage then warns about every nonzero
@@ -33,7 +36,7 @@ func ResolveLLMPricing(
 	table map[string]*PricingDescriptor, model string,
 ) *PricingDescriptor {
 	if configDesc != nil && len(configDesc.Items) > 0 {
-		return configDesc
+		return withCacheWriteAtInputRate(configDesc)
 	}
 	if flat.Input > 0 && flat.Output > 0 {
 		// Reasoning tokens bill at the output rate for every provider that
@@ -41,15 +44,17 @@ func ResolveLLMPricing(
 		// — which does carry a known output rate — must price reasoning too, or
 		// a thinking model under flat config understates cost by the reasoning
 		// amount. A flat config is one input rate and one output rate, so audio,
-		// image and video bill at them too, as they did before providers split
-		// those modalities out. (Cache tokens are NOT priced here: a flat config
-		// carries no provider-specific cache multiplier, so they go loud-unpriced.)
+		// image, video and cache-written input bill at them too, as they did
+		// before providers split those out. (Cache READS are NOT priced here: a
+		// flat config carries no provider-specific read discount, so they go
+		// loud-unpriced.)
 		in, out := flat.Input/per1KScale, flat.Output/per1KScale
 		return &PricingDescriptor{Source: PricingSourceInline, Items: []PriceItem{
 			{Unit: UnitInputToken, Rate: in},
 			{Unit: UnitAudioInputToken, Rate: in},
 			{Unit: UnitImageInputToken, Rate: in},
 			{Unit: UnitVideoInputToken, Rate: in},
+			{Unit: UnitCacheWriteToken, Rate: in},
 			{Unit: UnitOutputToken, Rate: out},
 			{Unit: UnitAudioOutputToken, Rate: out},
 			{Unit: UnitReasoningToken, Rate: out},
@@ -65,6 +70,31 @@ func ResolveLLMPricing(
 		return &PricingDescriptor{Source: PricingSourceInline}
 	}
 	return nil
+}
+
+// withCacheWriteAtInputRate returns desc, or — when desc prices no
+// cache_write_token — a copy that bills cache writes at desc's input rate, one
+// item per input item with the same dimensions. A config written before
+// providers reported cache writes apart from input (OpenAI folded them into
+// prompt tokens) keeps the cost it recorded then; it is also OpenAI's actual
+// charge for models with no write premium. A config that prices the unit keeps
+// its own rate.
+func withCacheWriteAtInputRate(desc *PricingDescriptor) *PricingDescriptor {
+	var writes []PriceItem
+	for _, it := range desc.Items {
+		switch it.Unit {
+		case UnitCacheWriteToken:
+			return desc
+		case UnitInputToken:
+			writes = append(writes, PriceItem{Unit: UnitCacheWriteToken, Rate: it.Rate, Dimensions: it.Dimensions})
+		}
+	}
+	if len(writes) == 0 {
+		return desc
+	}
+	out := *desc
+	out.Items = append(slices.Clone(desc.Items), writes...)
+	return &out
 }
 
 // unknownPricingWarnOnce and unknownWindowWarnOnce remember which models have

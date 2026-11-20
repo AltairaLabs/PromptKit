@@ -102,3 +102,27 @@ func TestClaudeCost_CalculateCostWrapperMatchesCostFromUsage(t *testing.T) {
 	assert.Equal(t, want.CachedTokens, got.CachedTokens)
 	assert.Equal(t, want.Quantities, got.Quantities)
 }
+
+// A provider-config pricing descriptor without a cache_write_token item bills
+// cache-creation tokens at its input rate instead of recording them as $0; one
+// that prices the unit keeps its own rate.
+func TestClaudeCost_ConfigPricingWithoutCacheWriteBillsWritesAsInput(t *testing.T) {
+	usage := claudeUsage{InputTokens: 1000, CacheCreationInputTokens: 4000, OutputTokens: 500}
+
+	p := newTestClaudeProvider(t, "claude-sonnet-5-5")
+	p.SetPricing(&base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 3e-6},
+		{Unit: base.UnitOutputToken, Rate: 15e-6},
+	}})
+	ci := p.costFromUsage(usage)
+	assert.InDelta(t, 5000*3e-6, ci.InputCostUSD, 1e-12)
+	assert.InDelta(t, 5000*3e-6+500*15e-6, ci.TotalCost, 1e-12)
+
+	p.SetPricing(&base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 3e-6},
+		{Unit: base.UnitCacheWriteToken, Rate: 3.75e-6},
+		{Unit: base.UnitOutputToken, Rate: 15e-6},
+	}})
+	ci = p.costFromUsage(usage)
+	assert.InDelta(t, 1000*3e-6+4000*3.75e-6+500*15e-6, ci.TotalCost, 1e-12)
+}

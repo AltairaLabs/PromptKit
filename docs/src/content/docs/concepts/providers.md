@@ -186,8 +186,8 @@ flowchart TD
 
 Claude, OpenAI and Gemini use the first of these that covers the model:
 
-- A pricing descriptor set on the provider in code.
-- The provider's `pricing` config, used when both `input_cost_per_1k` and `output_cost_per_1k` are set. It applies one input rate and one output rate to every input and output token, whatever its modality (text, audio, image or video), and prices reasoning tokens at the output rate. Cached tokens get no rate, so they are recorded unpriced with a warning.
+- A pricing descriptor set on the provider in code. If it has no `cache_write_token` item, cache-written tokens bill at its input rate.
+- The provider's `pricing` config, used when both `input_cost_per_1k` and `output_cost_per_1k` are set. It applies one input rate and one output rate to every input and output token, whatever its modality (text, audio, image or video), and prices reasoning tokens at the output rate. Cache-written tokens bill at the input rate. Cache reads get no rate, so they are recorded unpriced with a warning.
 - The built-in rates for the model. These are a fallback. Each entry records the date it was checked against the vendor's price list, and vendors change prices without notice. A dated snapshot ID such as `gpt-5.5-2026-04-23` or `claude-sonnet-4-5-20250929` uses its alias's rates when the table has no entry of its own. No other part of an ID is matched loosely, so `gpt-5.5-pro` never takes the `gpt-5.5` rates.
 
 A model with none of these is recorded at $0. The runtime logs `cost: no built-in pricing for model` once for each such model, and a warning names each unpriced unit, once per unit. vLLM has no built-in rates, so it prices from config only and records $0 without a warning when the config is absent.

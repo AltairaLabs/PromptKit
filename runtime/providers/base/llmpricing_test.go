@@ -167,3 +167,67 @@ func TestResolveLLMPricing_KnownOrUntabledModelDoesNotWarn(t *testing.T) {
 
 	assert.NotContains(t, buf.String(), "no built-in pricing for model")
 }
+
+// A config descriptor that does not price cache_write_token bills written
+// tokens at its own input rate, as configs did before providers reported cache
+// writes separately; one that prices the unit keeps its rate. The caller's
+// descriptor is not modified.
+func TestResolveLLMPricing_ConfigWithoutCacheWriteBillsWritesAsInput(t *testing.T) {
+	usage := base.TokenUsage{Input: 1000, CacheWrite: 4000, Output: 500}
+	cfg := &base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 2e-6},
+		{Unit: base.UnitOutputToken, Rate: 8e-6},
+	}}
+	ci := base.PriceUsage(base.ResolveLLMPricing(cfg, base.FlatPricing{}, nil, "m"),
+		"p", base.ProviderTypeInference, usage, nil, 0)
+	assert.InDelta(t, 1000*2e-6+4000*2e-6+500*8e-6, ci.TotalCost, 1e-12)
+	assert.InDelta(t, 5000*2e-6, ci.InputCostUSD, 1e-12)
+	assert.Len(t, cfg.Items, 2, "the caller's descriptor was modified")
+
+	own := &base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 2e-6},
+		{Unit: base.UnitCacheWriteToken, Rate: 2.5e-6},
+		{Unit: base.UnitOutputToken, Rate: 8e-6},
+	}}
+	ci = base.PriceUsage(base.ResolveLLMPricing(own, base.FlatPricing{}, nil, "m"),
+		"p", base.ProviderTypeInference, usage, nil, 0)
+	assert.InDelta(t, 1000*2e-6+4000*2.5e-6+500*8e-6, ci.TotalCost, 1e-12)
+}
+
+// The fallback mirrors each input item with its dimensions, so a config tiered
+// by dimension bills writes at the matching tier's input rate.
+func TestResolveLLMPricing_ConfigCacheWriteFallbackKeepsDimensions(t *testing.T) {
+	long := map[string]string{"prompt_size": "over_100k"}
+	cfg := &base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 1e-6},
+		{Unit: base.UnitInputToken, Rate: 3e-6, Dimensions: long},
+	}}
+	desc := base.ResolveLLMPricing(cfg, base.FlatPricing{}, nil, "m")
+	ci := base.PriceUsage(desc, "p", base.ProviderTypeInference, base.TokenUsage{CacheWrite: 1000}, long, 0)
+	assert.InDelta(t, 1000*3e-6, ci.TotalCost, 1e-12)
+	ci = base.PriceUsage(desc, "p", base.ProviderTypeInference, base.TokenUsage{CacheWrite: 1000}, nil, 0)
+	assert.InDelta(t, 1000*1e-6, ci.TotalCost, 1e-12)
+}
+
+// A flat per-1K config has one input rate, which written tokens bill at too.
+func TestResolveLLMPricing_FlatConfigBillsWritesAsInput(t *testing.T) {
+	desc := base.ResolveLLMPricing(nil, base.FlatPricing{Input: 0.002, Output: 0.008}, nil, "m")
+	ci := base.PriceUsage(desc, "p", base.ProviderTypeInference,
+		base.TokenUsage{Input: 1000, CacheWrite: 4000, Output: 500}, nil, 0)
+	assert.InDelta(t, 5000*0.002/1000+500*0.008/1000, ci.TotalCost, 1e-12)
+}
+
+// A config that prices cache_write_token keeps that rate in every tier: the
+// input-rate fallback is not added beside it, where a tiered input item would
+// otherwise produce a more specific write rate that wins.
+func TestResolveLLMPricing_ConfigCacheWriteRateKeptInEveryTier(t *testing.T) {
+	long := map[string]string{"prompt_size": "over_100k"}
+	cfg := &base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 1e-6},
+		{Unit: base.UnitInputToken, Rate: 3e-6, Dimensions: long},
+		{Unit: base.UnitCacheWriteToken, Rate: 2e-6},
+	}}
+	desc := base.ResolveLLMPricing(cfg, base.FlatPricing{}, nil, "m")
+	ci := base.PriceUsage(desc, "p", base.ProviderTypeInference, base.TokenUsage{CacheWrite: 1000}, long, 0)
+	assert.InDelta(t, 1000*2e-6, ci.TotalCost, 1e-12)
+}

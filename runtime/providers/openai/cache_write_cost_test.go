@@ -225,3 +225,39 @@ func compactJSON(t *testing.T, s string) string {
 	require.NoError(t, json.Compact(&b, []byte(s)))
 	return b.String()
 }
+
+// A provider-config pricing descriptor that does not price cache_write_token
+// bills the written tokens at its input rate, which is what such a config
+// recorded before cache writes were reported apart from input.
+func TestCost_ConfigPricingWithoutCacheWriteBillsWritesAsInput(t *testing.T) {
+	srv := chatServer(t, liveChatWriteUsage)
+	p := NewProviderWithConfig("cw", "gpt-6-luna", srv.URL, providers.ProviderDefaults{MaxTokens: 100}, false,
+		map[string]any{"api_mode": APIModeCompletions})
+	p.SetPricing(&base.PricingDescriptor{Items: []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: 1e-6},
+		{Unit: base.UnitOutputToken, Rate: 4e-6},
+	}})
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.CostInfo)
+	// 3 uncached + 17130 written input tokens at $1/M, 4 output at $4/M.
+	assert.InDelta(t, 17133*1e-6, resp.CostInfo.InputCostUSD, 1e-12)
+	assert.InDelta(t, 17133*1e-6+4*4e-6, resp.CostInfo.TotalCost, 1e-12)
+}
+
+// The legacy flat per-1K config bills written tokens at its input rate too.
+func TestCost_FlatConfigPricingBillsWritesAsInput(t *testing.T) {
+	srv := chatServer(t, liveChatWriteUsage)
+	defaults := providers.ProviderDefaults{MaxTokens: 100,
+		Pricing: providers.Pricing{InputCostPer1K: 0.001, OutputCostPer1K: 0.004}}
+	p := NewProviderWithConfig("cw", "gpt-6-luna", srv.URL, defaults, false,
+		map[string]any{"api_mode": APIModeCompletions})
+	resp, err := p.Predict(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.CostInfo)
+	assert.InDelta(t, 17133*1e-6+4*4e-6, resp.CostInfo.TotalCost, 1e-12)
+}
