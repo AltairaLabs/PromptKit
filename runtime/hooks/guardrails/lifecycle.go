@@ -31,6 +31,9 @@ type lifecycle struct {
 	direction string
 	turnIndex int
 	validator *packspec.Validator
+	// partial marks the events of a check of a streamed chunk
+	// (events.ValidationEventData.Partial).
+	partial bool
 }
 
 // start emits validation.started and returns the instant to measure from.
@@ -47,6 +50,7 @@ func (l lifecycle) start() time.Time {
 			Direction:     l.direction,
 			TurnIndex:     l.turnIndex,
 			Validator:     l.validator,
+			Partial:       l.partial,
 		})
 	}
 	return time.Now()
@@ -65,6 +69,7 @@ func (l lifecycle) pass(since time.Time, score *float64) {
 		Duration:      time.Since(since),
 		TurnIndex:     l.turnIndex,
 		Validator:     l.validator,
+		Partial:       l.partial,
 	}
 	if score != nil {
 		data.Score = *score

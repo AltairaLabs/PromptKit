@@ -40,22 +40,25 @@ func TestRunAfterCallHooks_EnforcedKeepsEachValidationOnce(t *testing.T) {
 }
 
 // A hook that records its own validation on the response it was handed still
-// has that validation folded into the message.
-func TestApplyEnforcedResponse_KeepsValidationsTheHookAdded(t *testing.T) {
+// has that validation in the verdict, after the firing's, while the message
+// it judged is left as it was.
+func TestOutputGuard_KeepsValidationsTheHookAdded(t *testing.T) {
 	prior := types.ValidationResult{ValidatorType: "prior"}
-	msg := types.Message{Validations: []types.ValidationResult{prior}}
-	resp := &hooks.ProviderResponse{Message: msg}
-	resp.Message.Validations = append(resp.Message.Validations,
-		types.ValidationResult{ValidatorType: "hook_added"})
-	var toolCalls []types.MessageToolCall
+	msg := types.Message{Content: "original", Validations: []types.ValidationResult{prior}}
+	g := outputGuard{
+		registry: hooks.NewRegistry(hooks.WithProviderHook(appendingEnforceHook{})),
+		choose:   func(_ context.Context, _ *hooks.Decision, text string) string { return text },
+	}
 
-	applyEnforcedResponse(&msg, &toolCalls, resp, hooks.Enforced("x", nil), 1)
+	v := g.judgeResponse(context.Background(), &hooks.ProviderRequest{}, &msg, 1, 0)
 
 	var got []string
-	for _, v := range msg.Validations {
-		got = append(got, v.ValidatorType)
+	for _, val := range v.validations {
+		got = append(got, val.ValidatorType)
 	}
-	assert.Equal(t, []string{"prior", "hook_added"}, got)
+	assert.Equal(t, []string{"firing", "hook_added"}, got)
+	assert.Equal(t, []types.ValidationResult{prior}, msg.Validations)
+	assert.Equal(t, verdictTruncate, v.kind, "a hook that left the text unchanged did not replace it")
 }
 
 // appendingEnforceHook records its own validation on the response it is handed,

@@ -496,6 +496,13 @@ type ValidationEventData struct {
 	// copy, shared by every event the validator emits. Nil for a guardrail not declared in
 	// the pack. PromptKit never reads it.
 	Validator *packspec.Validator
+
+	// Partial is set on the events of a check of a streamed reply's text so
+	// far (a chunk), rather than of a completed reply or an input. A
+	// streaming guardrail reports a started event and a passed or failed one
+	// for each chunk it judges, then a pair for the completed reply it
+	// passed, so a count of checks per turn leaves partial ones out.
+	Partial bool
 }
 
 type (

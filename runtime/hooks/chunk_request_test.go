@@ -127,3 +127,108 @@ func TestRegistry_RunOnChunk_LaterInterceptorsJudgeAnEnforcedRewrite(t *testing.
 	assert.Equal(t, []any{false, false, "tenant blocked"}, []any{d.Allow, d.Enforced, d.Reason})
 	assert.Equal(t, []string{"replaced"}, after.chunks, "nothing runs after a deny")
 }
+
+// contentChunkHook enforces by giving its text in Decision.Content, leaving
+// the chunk it was handed as it was.
+type contentChunkHook struct {
+	plainChunkHook
+	text string
+}
+
+func (h *contentChunkHook) OnChunk(_ context.Context, c *providers.StreamChunk) Decision {
+	h.chunks = append(h.chunks, c.Content)
+	d := Enforced("left "+h.text, map[string]any{"validator_type": h.text})
+	d.Content = &h.text
+	return d
+}
+
+// JudgeChunk reports every firing, in order, each with the text it left, and
+// leaves the caller's chunk as it was; the next interceptor judges the text
+// the last one left, whichever way it gave it.
+func TestRegistry_JudgeChunk_ReportsEveryFiringWithItsText(t *testing.T) {
+	first := &enforcingChunkHook{replacement: "cut"}
+	second := &contentChunkHook{text: "replaced"}
+	after := &plainChunkHook{}
+	r := NewRegistry(WithProviderHook(first), WithProviderHook(second), WithProviderHook(after))
+	chunk := &providers.StreamChunk{Content: "original text"}
+
+	j := r.JudgeChunk(context.Background(), ChunkRequest{Chunk: chunk})
+
+	require.Len(t, j.Firings, 2)
+	assert.Equal(t, "cut", *j.Firings[0].Content)
+	assert.Equal(t, "replaced", *j.Firings[1].Content)
+	assert.Equal(t, []string{"cut"}, second.chunks)
+	assert.Equal(t, []string{"replaced"}, after.chunks)
+	assert.Nil(t, j.Holds, "a chunk that fired holds nothing")
+	assert.Equal(t, "original text", chunk.Content, "the caller's chunk is not rewritten")
+
+	d := r.RunOnChunk(context.Background(), chunk)
+	assert.Equal(t, "replaced", chunk.Content, "RunOnChunk rewrites the chunk to the text that stands")
+	assert.Equal(t, "left replaced", d.Reason)
+}
+
+// Each interceptor's hold is reported in registration order.
+func TestRegistry_JudgeChunk_ReportsEachHold(t *testing.T) {
+	r := NewRegistry(
+		WithProviderHook(&holdingChunkHook{hold: 2}),
+		WithProviderHook(&holdingChunkHook{hold: 5}),
+	)
+
+	j := r.JudgeChunk(context.Background(), ChunkRequest{Chunk: &providers.StreamChunk{Content: "hello pin"}})
+
+	assert.Equal(t, []int{2, 5}, j.Holds)
+	assert.Equal(t, 5, j.MaxHold())
+	assert.Empty(t, j.Firings)
+}
+
+// afterCallEnforcer enforces after the call, either by rewriting the response
+// in place or by giving its text in Decision.Content.
+type afterCallEnforcer struct {
+	plainChunkHook
+	inPlace bool
+	text    string
+}
+
+func (h *afterCallEnforcer) AfterCall(_ context.Context, _ *ProviderRequest, resp *ProviderResponse) Decision {
+	d := Enforced("enforced", nil)
+	if h.inPlace {
+		resp.Message.Content = h.text
+	} else {
+		d.Content = &h.text
+	}
+	return d
+}
+
+// An enforcing AfterCall hook's text reaches the caller both ways: as
+// Decision.Content and as the response's content, whichever the hook set.
+func TestRegistry_RunAfterProviderCall_ReconcilesTheEnforcedText(t *testing.T) {
+	for name, inPlace := range map[string]bool{"in place": true, "as Content": false} {
+		t.Run(name, func(t *testing.T) {
+			r := NewRegistry(WithProviderHook(&afterCallEnforcer{inPlace: inPlace, text: "redacted"}))
+			resp := &ProviderResponse{Message: types.Message{Content: "secret"}}
+
+			d := r.RunAfterProviderCall(context.Background(), &ProviderRequest{}, resp)
+
+			require.NotNil(t, d.Content)
+			assert.Equal(t, "redacted", *d.Content)
+			assert.Equal(t, "redacted", resp.Message.Content)
+		})
+	}
+}
+
+// afterCallDenier denies after the call without enforcing.
+type afterCallDenier struct{ plainChunkHook }
+
+func (afterCallDenier) AfterCall(context.Context, *ProviderRequest, *ProviderResponse) Decision {
+	return Deny("no")
+}
+
+// A deny leaves no text: nothing replaces the response it judged.
+func TestRegistry_RunAfterProviderCall_DenyCarriesNoText(t *testing.T) {
+	r := NewRegistry(WithProviderHook(&afterCallDenier{}))
+
+	d := r.RunAfterProviderCall(context.Background(), &ProviderRequest{},
+		&ProviderResponse{Message: types.Message{Content: "secret"}})
+
+	assert.Equal(t, []any{false, false, (*string)(nil)}, []any{d.Allow, d.Enforced, d.Content})
+}

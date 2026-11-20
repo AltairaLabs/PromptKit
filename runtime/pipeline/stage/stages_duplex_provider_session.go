@@ -238,10 +238,11 @@ type DuplexProviderStage struct {
 	// Meta.ReplacesText). Response goroutine only.
 	blockedLiveReplaces bool
 	// liveHeld is the turn's live text the streaming guardrails have not
-	// cleared yet, and liveHold how much of its end the last chunk they
-	// judged holds (holdLiveText). Response goroutine only.
-	liveHeld heldText
-	liveHold int
+	// cleared yet, and liveHolds each chunk interceptor's hold on the end of
+	// the turn's text from the last chunk they judged (holdLiveText).
+	// Response goroutine only.
+	liveHeld  holdController
+	liveHolds []int
 	// lastReplyGen is the latest generation of the session's replies the
 	// stage has handled, and chunkIsReply whether the chunk being handled is
 	// one of a reply's (not the caller's transcript). Response goroutine only.

@@ -97,11 +97,13 @@ func (h *PIIHook) check(content string) hooks.Decision {
 // Helper: detect hook denials (the Deny / hard-error path)
 // ---------------------------------------------------------------------------
 
-// hookDenialReason extracts the denial reason from either a HookDeniedError
-// (non-streaming AfterCall) or a ValidationAbortError (streaming chunk
-// interceptor). Both only ever show up when a hook returns hooks.Deny — an
-// Enforced guardrail never produces an error, so it never reaches this
-// helper. See blockedByGuardrail for detecting the graceful-block path.
+// hookDenialReason extracts the denial reason from a HookDeniedError, which
+// shows up only when a provider hook's BeforeCall or AfterCall returns
+// hooks.Deny. An Enforced guardrail never produces an error, and neither does
+// a chunk interceptor's Deny, which ends the streamed reply with the blocked
+// message, so neither reaches this helper. A ValidationAbortError is still
+// unwrapped for a host stage that returns one. See blockedByGuardrail for
+// detecting the graceful-block path.
 func hookDenialReason(err error) (string, bool) {
 	var denied *hooks.HookDeniedError
 	if errors.As(err, &denied) {

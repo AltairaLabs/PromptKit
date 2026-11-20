@@ -46,7 +46,9 @@ func TestE2E_ContextWindowConversationReportsTranscriptTurn(t *testing.T) {
 
 	col := &turnCollector{}
 	bus.Subscribe(events.EventValidationPassed, func(e *events.Event) {
-		if d, ok := e.Data.(*events.ValidationEventData); ok {
+		// One per turn: the checks of the streamed chunks (Partial) are
+		// not counted.
+		if d, ok := e.Data.(*events.ValidationEventData); ok && !d.Partial {
 			col.mu.Lock()
 			col.validation = append(col.validation, d.TurnIndex)
 			col.mu.Unlock()

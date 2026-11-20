@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -763,10 +764,65 @@ func TestGuardrailHookAdapter_OnChunk_StreamableError(t *testing.T) {
 
 	chunk := &providers.StreamChunk{Content: "test", Delta: "test"}
 	decision := adapter.OnChunk(context.Background(), chunk)
-	if decision.Allow {
-		t.Fatal("expected Deny on EvalPartial error")
+	// A failed streaming check fails closed with the validator's message, as
+	// a failed check on a completed reply does.
+	if decision.Allow || !decision.Enforced {
+		t.Fatalf("expected Enforced on EvalPartial error, got %+v", decision)
 	}
-	if decision.Reason != "guardrail streaming error: eval partial failed" {
-		t.Errorf("unexpected reason: %s", decision.Reason)
+	if decision.Reason != "guardrail error: eval partial failed" || decision.Metadata["reason"] != "error" {
+		t.Errorf("unexpected reason: %s / %v", decision.Reason, decision.Metadata["reason"])
 	}
+	if chunk.Content != prompt.DefaultBlockedMessage || decision.Content == nil ||
+		*decision.Content != prompt.DefaultBlockedMessage {
+		t.Errorf("want the blocked message, got chunk %q", chunk.Content)
+	}
+}
+
+// slowPartialHandler is a streaming check that answers only when its context
+// ends, as a stalled classifier does.
+type slowPartialHandler struct{ streamableStubHandler }
+
+func (s *slowPartialHandler) EvalPartial(ctx context.Context, _ string, _ map[string]any) (*evals.EvalResult, error) {
+	<-ctx.Done()
+	return &evals.EvalResult{Score: floatPtr(1.0)}, nil
+}
+
+// A streaming check is bounded by the guardrail timeout and fails closed past
+// it, with the validator's message, as a completed reply's check does, even
+// when the handler swallows the cancellation and answers.
+func TestGuardrailHookAdapter_InterceptChunk_TimesOutClosed(t *testing.T) {
+	adapter := &GuardrailHookAdapter{
+		handler:   &slowPartialHandler{streamableStubHandler{typeName: "slow"}},
+		evalType:  "slow",
+		params:    map[string]any{},
+		direction: DirectionOutput,
+		message:   "Can't check that now.",
+	}
+	adapter.SetEvalTimeout(5 * time.Millisecond)
+	chunk := &providers.StreamChunk{Content: "hello"}
+
+	d := adapter.InterceptChunk(context.Background(), hooks.ChunkRequest{Chunk: chunk})
+
+	require.True(t, d.Enforced)
+	assert.Equal(t, reasonTimeout, d.Metadata["reason"])
+	require.NotNil(t, d.Content)
+	assert.Equal(t, "Can't check that now.", *d.Content)
+	assert.Equal(t, "hello", chunk.Content, "InterceptChunk does not rewrite the chunk")
+}
+
+// A streaming check that returns neither a result nor an error fails closed.
+func TestGuardrailHookAdapter_InterceptChunk_NoResultFailsClosed(t *testing.T) {
+	adapter := &GuardrailHookAdapter{
+		handler:   &streamableStubHandler{typeName: "empty"},
+		evalType:  "empty",
+		params:    map[string]any{},
+		direction: DirectionOutput,
+	}
+
+	d := adapter.InterceptChunk(context.Background(),
+		hooks.ChunkRequest{Chunk: &providers.StreamChunk{Content: "hello"}})
+
+	require.True(t, d.Enforced)
+	assert.Equal(t, reasonError, d.Metadata["reason"])
+	assert.Equal(t, prompt.DefaultBlockedMessage, *d.Content)
 }

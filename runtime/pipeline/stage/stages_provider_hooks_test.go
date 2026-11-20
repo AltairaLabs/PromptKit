@@ -456,7 +456,10 @@ func TestProviderStage_AfterCallHook_PopulatesValidations(t *testing.T) {
 // Chunk interceptor hook tests
 // =============================================================================
 
-func TestProviderStage_ChunkInterceptor_AbortsStream(t *testing.T) {
+// A chunk interceptor that denies (without enforcing) fails the reply closed
+// with the blocked message, as every path does: the stream ends, the turn
+// does not error.
+func TestProviderStage_ChunkInterceptor_DenyEndsTheReplyWithTheBlockedMessage(t *testing.T) {
 	provider := mock.NewProvider("p", "m", false)
 
 	// Use a simple chunk interceptor that aborts when content exceeds 5 chars.
@@ -468,13 +471,23 @@ func TestProviderStage_ChunkInterceptor_AbortsStream(t *testing.T) {
 		MaxTokens: 100,
 	}, nil, reg)
 
-	_, err := runProviderStage(t, stage, "tell me a long story")
+	elems, err := runProviderStage(t, stage, "tell me a long story")
 
-	// The stream should be aborted because accumulated content exceeds 5 chars.
-	require.Error(t, err)
-	var abortErr *providers.ValidationAbortError
-	require.ErrorAs(t, err, &abortErr)
-	assert.Contains(t, abortErr.Reason, "exceeds max")
+	require.NoError(t, err)
+	var final *types.Message
+	var text []string
+	for _, e := range elems {
+		if e.Text != nil {
+			text = append(text, *e.Text)
+		}
+		if e.Message != nil {
+			final = e.Message
+		}
+	}
+	require.NotNil(t, final)
+	assert.Equal(t, prompt.DefaultBlockedMessage, final.Content)
+	assert.Equal(t, types.FinishReasonSafety, final.FinishReason)
+	assert.Equal(t, []string{prompt.DefaultBlockedMessage}, text, "nothing of the denied reply reaches the caller")
 }
 
 // =============================================================================
