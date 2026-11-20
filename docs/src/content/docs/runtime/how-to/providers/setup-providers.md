@@ -23,6 +23,9 @@ verified:
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_tools.go
     - runtime/providers/openai/pricing_table.go
+    - runtime/providers/openai/responses_convert.go
+    - runtime/providers/openai/responses_learning.go
+    - runtime/providers/openai/streaming_support.go
     - runtime/providers/provider.go
     - runtime/providers/vllm/vllm.go
     - runtime/providers/vllm/vllm_tools.go
@@ -200,6 +203,23 @@ provider := openai.NewProviderWithCredential(
 )
 ```
 
+### Use an Azure realtime deployment
+
+A realtime session opens only for a model the provider takes to be a realtime model. Without a declaration, that is a model whose name contains `realtime`. A deployment name is chosen by whoever created it, so declare it with `additional_config.realtime`:
+
+```yaml
+id: azure-voice
+type: openai
+model: voice-prod
+platform:
+  type: azure
+  endpoint: https://your-resource.openai.azure.com
+additional_config:
+  realtime: true
+```
+
+`realtime: true` makes `SupportsStreamInput` report audio, and `realtime: false` withholds it from a name that contains `realtime`. A value that is not a boolean is ignored with a warning, and the name decides. The declaration does not add a platform: a provider on Bedrock or Vertex reports no stream input whatever it declares, because realtime sessions open only against OpenAI (no platform) and Azure.
+
 ## Use an OpenAI-compatible endpoint
 
 Pass the endpoint as the base URL:
@@ -207,6 +227,10 @@ Pass the endpoint as the base URL:
 ```go
 provider := openai.NewProvider("local-llm", "model-name", "http://localhost:8080/v1", defaults, false)
 ```
+
+Against any host other than `api.openai.com`, the provider sends requests to Chat Completions, unless the model name ends in `-pro`, which sends them to the Responses API. `additional_config.api_mode` (`completions` or `responses`) chooses the API and is always followed.
+
+Without `api_mode`, a model the host serves only on the Responses API is still reached. When Chat Completions answers 404 with OpenAI's message for such a model, such as "This model is only supported in v1/responses", the provider sends the request again to the Responses API and sends every later request there. Set `api_mode: responses` to skip that first request. Azure, Bedrock and Vertex providers always use Chat Completions and never switch.
 
 ## Use Ollama
 

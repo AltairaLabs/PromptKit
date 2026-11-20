@@ -133,3 +133,19 @@ func TestLive_OutputDimensionalityIsHonored(t *testing.T) {
 	assert.Len(t, resp.Embeddings[0], 256,
 		"Vertex must return the requested dimensionality, not the family default")
 }
+
+// text-multilingual-embedding-002 is outside the known prefixes. It builds,
+// reports no size until it is used, and then reports the size the service
+// returned.
+func TestLive_UnknownFamilyTakesSizeFromFirstResponse(t *testing.T) {
+	p := liveProvider(t, "text-multilingual-embedding-002")
+	require.Equal(t, 0, p.EmbeddingDimensions())
+	require.Equal(t, 1, p.MaxBatchSize())
+
+	resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"hola mundo"}})
+	require.NoError(t, err)
+
+	require.Len(t, resp.Embeddings, 1)
+	assert.NotEmpty(t, resp.Embeddings[0])
+	assert.Equal(t, len(resp.Embeddings[0]), p.EmbeddingDimensions())
+}

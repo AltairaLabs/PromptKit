@@ -10,12 +10,14 @@ verified:
     - runtime/credentials/resolver.go
     - runtime/pipeline/stage/stages_context.go
     - runtime/providers/base_embedding.go
+    - runtime/providers/bedrock/embedding.go
     - runtime/providers/bedrock/embedding_register.go
     - runtime/providers/embedding_factory.go
     - runtime/providers/embedding_platform.go
     - runtime/providers/gemini/embedding.go
     - runtime/providers/huggingface/embedding_register.go
     - runtime/providers/openai/embedding.go
+    - runtime/providers/vertex/embedding.go
     - runtime/providers/vertex/embedding_register.go
     - runtime/providers/voyageai/embedding.go
     - runtime/providers/voyageai/embedding_register.go
@@ -80,8 +82,14 @@ The `type` is one of the values `sdk.RegisteredProviderTypes()["embedding"]` ret
 |---|---|---|
 | `dimensions` | every type | Vector size to request. The provider sends it to the API as `dimensions`, `outputDimensionality` or `output_dimension`, and fails any response whose vectors have a different length. |
 | `input_type` | `voyageai` | `query` or `document`. |
+| `embedding_format` | `bedrock` | `titan` or `cohere`: the request body the model takes. Any other value fails provider construction. |
+| `batch_size` | `bedrock`, `vertex` | The most texts one request carries, reported by `MaxBatchSize`. Replaces the model family's default. |
 
 Without `dimensions`, the provider reports the size of a model it knows. For any other model it reports `0` until the first response arrives.
+
+A `bedrock` provider reads the request body from the model ID when `embedding_format` is not set: an `amazon.titan-embed` ID takes Titan's body and a `cohere.embed` ID takes Cohere's. Any other ID, such as an inference profile (`us.cohere.embed-english-v3`), an application inference profile ARN or a provisioned-throughput ARN, fails provider construction until `embedding_format` names the body. With `embedding_format` set, a Titan request carries a declared `dimensions` unless the ID names a Titan model other than `text-v2`, and Cohere requests never carry it.
+
+A `vertex` provider builds for any model. A `text-embedding`, `textembedding-gecko` or `gemini-embedding` model gets that family's size and batch size; any other model gets a batch size of 1 and the size of its first response.
 
 ### 3. Open the conversation
 

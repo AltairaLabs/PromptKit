@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	credentials "github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
@@ -105,12 +106,18 @@ func addMaxTokensToRequest(req map[string]interface{}, unsupportedParams []strin
 // Provider implements the Provider interface for OpenAI
 type Provider struct {
 	providers.BaseProvider
-	model             string
-	baseURL           string
-	apiKey            string
-	credential        providers.Credential
-	defaults          providers.ProviderDefaults
-	apiMode           APIMode
+	model      string
+	baseURL    string
+	apiKey     string
+	credential providers.Credential
+	defaults   providers.ProviderDefaults
+	apiMode    APIMode
+	// apiModeDeclared records that additional_config.api_mode chose apiMode,
+	// so the API's answer never overrides it.
+	apiModeDeclared bool
+	// learnedResponses is set when Chat Completions rejected the model as
+	// served only by the Responses API; shared by copies of the provider.
+	learnedResponses  *atomic.Bool
 	additionalConfig  map[string]any
 	extraBody         map[string]any // additional_config.extra_body, merged into every request
 	platform          string
@@ -334,6 +341,8 @@ func NewProviderFromConfig(cfg *ProviderConfig) *Provider {
 		credential:        cfg.Credential,
 		defaults:          cfg.Defaults,
 		apiMode:           getAPIMode(cfg.Model, baseURL, cfg.AdditionalConfig),
+		apiModeDeclared:   declaredAPIMode(cfg.AdditionalConfig) != "",
+		learnedResponses:  &atomic.Bool{},
 		additionalConfig:  cfg.AdditionalConfig,
 		extraBody:         providers.ExtraBody(cfg.ID, cfg.AdditionalConfig),
 		platform:          cfg.Platform,
@@ -528,7 +537,7 @@ func applyAudioModalities(openAIReq map[string]interface{}, additionalConfig map
 func (p *Provider) enrichRequest(
 	openAIReq map[string]interface{}, req *providers.PredictionRequest, audioFmtFallback string,
 ) {
-	if p.apiMode == APIModeCompletions && p.supportsAudioInput() &&
+	if p.currentAPIMode() == APIModeCompletions && p.supportsAudioInput() &&
 		(requestContainsAudio(req) || hasAudioOutputConfigured(p.additionalConfig)) {
 		applyAudioModalities(openAIReq, p.additionalConfig, audioFmtFallback)
 	}
@@ -743,12 +752,18 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 }
 
 // Predict runs predictOnce, retrying without any sampling parameter the API
-// rejects for this model (providers.BaseProvider.RetryRejectedParams).
+// rejects for this model (providers.BaseProvider.RetryRejectedParams), and on
+// the Responses API if Chat Completions rejects the model as Responses-only.
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
-			return p.predictOnce(ctx, r)
-		})
+	var resp providers.PredictionResponse
+	err := p.withResponsesFallback(func() (err error) {
+		resp, err = providers.RetryCall(&p.BaseProvider, req,
+			func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+				return p.predictOnce(ctx, r)
+			})
+		return err
+	})
+	return resp, err
 }
 
 // predictOnce sends a predict request to OpenAI
@@ -758,7 +773,7 @@ func (p *Provider) predictOnce(
 	// Route to the Responses API when selected (config or the requiresResponsesAPI
 	// fallback, via getAPIMode), mirroring PredictWithTools. Responses-only
 	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
-	if p.apiMode == APIModeResponses {
+	if p.currentAPIMode() == APIModeResponses {
 		resp, _, err := p.predictWithResponses(ctx, req, nil, "")
 		return resp, err
 	}
@@ -850,14 +865,20 @@ func (p *Provider) CalculateCost(tokensIn, tokensOut, cachedTokens int) types.Co
 }
 
 // PredictStream runs predictStreamOnce, retrying without any sampling
-// parameter the API rejects for this model.
+// parameter the API rejects for this model, and on the Responses API if Chat
+// Completions rejects the model as Responses-only.
 func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
-	return providers.RetryCall(&p.BaseProvider, req,
-		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-			return p.predictStreamOnce(ctx, r)
-		})
+	var ch <-chan providers.StreamChunk
+	err := p.withResponsesFallback(func() (err error) {
+		ch, err = providers.RetryCall(&p.BaseProvider, req,
+			func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
+				return p.predictStreamOnce(ctx, r)
+			})
+		return err
+	})
+	return ch, err
 }
 
 // predictStreamOnce streams a predict response from OpenAI.
@@ -879,7 +900,7 @@ func (p *Provider) predictStreamOnce(
 	// Route to the Responses API when selected (config or the requiresResponsesAPI
 	// fallback, via getAPIMode), mirroring PredictStreamWithTools. Responses-only
 	// models (gpt-5-pro, o1-pro, ...) 404 on chat/completions.
-	if p.apiMode == APIModeResponses {
+	if p.currentAPIMode() == APIModeResponses {
 		return p.predictStreamWithResponses(ctx, req, nil, "")
 	}
 
@@ -1511,7 +1532,7 @@ func (p *Provider) predictStreamWithMessages(
 // Audio models only support non-streaming responses (Predict) or the Realtime
 // API for bidirectional audio.
 func (p *Provider) SupportsStreaming() bool {
-	if p.apiMode == APIModeCompletions && p.supportsAudioInput() {
+	if p.currentAPIMode() == APIModeCompletions && p.supportsAudioInput() {
 		return false
 	}
 	return true

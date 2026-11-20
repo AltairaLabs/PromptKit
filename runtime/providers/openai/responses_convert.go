@@ -102,16 +102,13 @@ func transformToResponsesCallID(callID string) string {
 //
 // Config-first ordering means a provider config is the source of truth; the
 // model-name heuristic is only a best-effort default for undeclared configs.
+//
+// When none of these chose Responses and Chat Completions then rejects the
+// model as served only by Responses, the provider switches to Responses
+// (withResponsesFallback). A declared api_mode is never switched.
 func getAPIMode(model, baseURL string, additionalConfig map[string]any) APIMode {
-	if additionalConfig != nil {
-		if mode, ok := additionalConfig["api_mode"].(string); ok {
-			switch strings.ToLower(mode) {
-			case "completions", "chat_completions", "legacy":
-				return APIModeCompletions
-			case "responses":
-				return APIModeResponses
-			}
-		}
+	if mode := declaredAPIMode(additionalConfig); mode != "" {
+		return mode
 	}
 
 	if requiresResponsesAPI(model) || isOpenAIHost(baseURL) {
@@ -119,6 +116,23 @@ func getAPIMode(model, baseURL string, additionalConfig map[string]any) APIMode 
 	}
 
 	return APIModeCompletions
+}
+
+// declaredAPIMode returns the API additional_config.api_mode selects, or ""
+// when it is unset or not a recognized value.
+func declaredAPIMode(additionalConfig map[string]any) APIMode {
+	mode, ok := additionalConfig["api_mode"].(string)
+	if !ok {
+		return ""
+	}
+	switch strings.ToLower(mode) {
+	case "completions", "chat_completions", "legacy":
+		return APIModeCompletions
+	case "responses":
+		return APIModeResponses
+	default:
+		return ""
+	}
 }
 
 // openAIHost is the host of OpenAI's own API.

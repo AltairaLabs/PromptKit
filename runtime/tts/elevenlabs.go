@@ -65,6 +65,25 @@ var elevenLabsDefaultPricing = &base.PricingDescriptor{
 type ElevenLabsService struct {
 	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
 	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
+	// inlineTags is the declared inline-tag support (SetInlineTags); nil reads
+	// it from the model ID.
+	inlineTags *bool
+}
+
+// SetInlineTags declares whether the model takes inline markup tags such as
+// "[whispers]". On, the tags are sent as written and PersonaRubric offers the
+// markup rubric; off, they are stripped from the text and no rubric is
+// offered. It wins over the model ID, which otherwise decides (eleven_v3*
+// takes tags). The declarative form is additional_config.inline_tags.
+func (s *ElevenLabsService) SetInlineTags(on bool) { s.inlineTags = &on }
+
+// takesInlineTags reports whether model takes inline tags: the declaration,
+// else the model ID.
+func (s *ElevenLabsService) takesInlineTags(model string) bool {
+	if s.inlineTags != nil {
+		return *s.inlineTags
+	}
+	return elevenLabsSupportsInlineTags(model)
 }
 
 // ElevenLabsOption configures the ElevenLabs TTS service.
@@ -92,11 +111,11 @@ func (s *ElevenLabsService) ImplName() string { return providerElevenLabs }
 func (s *ElevenLabsService) ModelName() string { return s.Model }
 
 // PersonaRubric implements [PersonaRubricProvider]. Returns the full markup
-// rubric on v3-class models (they consume bracket tags natively); older
-// models (v1, v2, turbo) speak the brackets literally, so we return the
-// empty string and the persona prompt is left untouched.
+// rubric on a model that takes inline tags (SetInlineTags, else v3-class
+// models); older models (v1, v2, turbo) speak the brackets literally, so we
+// return the empty string and the persona prompt is left untouched.
 func (s *ElevenLabsService) PersonaRubric() string {
-	if elevenLabsSupportsInlineTags(s.Model) {
+	if s.takesInlineTags(s.Model) {
 		return markup.RubricExpressiveFull
 	}
 	return ""
@@ -138,7 +157,8 @@ func (s *ElevenLabsService) Synthesize(
 	// "[whispers]" / "[laughs]" tags natively, so we pass the text
 	// through verbatim. Non-v3 models would speak the brackets literally,
 	// so strip them. Plain text (no tags) is byte-identical either way.
-	body := lowerElevenLabsMarkup(text, model)
+	passthrough := s.takesInlineTags(model)
+	body := lowerElevenLabsMarkup(text, passthrough)
 	if tags := markup.ParseTags(text); len(tags) > 0 {
 		names := make([]string, 0, len(tags))
 		for _, t := range tags {
@@ -147,7 +167,6 @@ func (s *ElevenLabsService) Synthesize(
 			}
 			names = append(names, t.Name)
 		}
-		passthrough := elevenLabsSupportsInlineTags(model)
 		preview := body
 		if len(preview) > logPreviewLen {
 			preview = preview[:logPreviewLen] + "..."
@@ -183,32 +202,33 @@ func (s *ElevenLabsService) Synthesize(
 }
 
 // SpokenText reports the text ElevenLabs will actually speak for the given input,
-// after markup lowering: eleven_v3 keeps inline tags (the model interprets them),
-// other models strip tags. Implements tts.SpokenTextReporter.
+// after markup lowering: a model that takes inline tags (SetInlineTags, else
+// eleven_v3) keeps them, other models strip them. Implements
+// tts.SpokenTextReporter.
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string {
 	model := config.Model
 	if model == "" {
 		model = s.Model
 	}
-	return lowerElevenLabsMarkup(text, model)
+	return lowerElevenLabsMarkup(text, s.takesInlineTags(model))
 }
 
 // lowerElevenLabsMarkup returns the spoken-text body to send to ElevenLabs:
-// pass-through verbatim for v3-class models (they consume inline tags
-// natively), strip tags for older models so they don't literally speak
-// the brackets. No tags ⇒ identical wire output either way, so the
-// audio cache key for plain-text utterances stays stable.
-func lowerElevenLabsMarkup(text, model string) string {
-	if elevenLabsSupportsInlineTags(model) {
+// pass-through verbatim for a model that takes inline tags, strip tags for
+// other models so they don't literally speak the brackets. No tags ⇒
+// identical wire output either way, so the audio cache key for plain-text
+// utterances stays stable.
+func lowerElevenLabsMarkup(text string, passthrough bool) string {
+	if passthrough {
 		return text
 	}
 	return markup.StripTags(text)
 }
 
 // elevenLabsSupportsInlineTags reports whether the given model ID accepts
-// inline characterization tags in the request body. Currently true for
-// every model whose ID starts with "eleven_v3" (matches "eleven_v3",
-// "eleven_v3_alpha", etc.).
+// inline characterization tags in the request body, when SetInlineTags has
+// not declared it. True for every model whose ID starts with "eleven_v3"
+// (matches "eleven_v3", "eleven_v3_alpha", etc.).
 func elevenLabsSupportsInlineTags(model string) bool {
 	return strings.HasPrefix(model, ElevenLabsModelV3)
 }

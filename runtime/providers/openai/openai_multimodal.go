@@ -54,7 +54,7 @@ func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabili
 	// Audio input is sent only on the Chat Completions API, as an input_audio
 	// part (wav or mp3, see getAudioFormat). The Responses API path refuses an
 	// audio part (convertContentPartToOpenAI), so audio is not declared there.
-	if p.apiMode == APIModeCompletions && p.supportsAudioInput() {
+	if p.currentAPIMode() == APIModeCompletions && p.supportsAudioInput() {
 		caps.SupportsAudio = true
 		caps.AudioFormats = []string{
 			types.MIMETypeAudioWAV,
@@ -152,7 +152,7 @@ func (p *Provider) convertContentPartToOpenAI(
 
 	case types.ContentTypeAudio:
 		// Audio is only supported for audio models using Chat Completions API
-		if p.apiMode != APIModeCompletions || !p.supportsAudioInput() {
+		if p.currentAPIMode() != APIModeCompletions || !p.supportsAudioInput() {
 			return nil, fmt.Errorf("audio content requires audio model with Chat Completions API")
 		}
 		if part.Media == nil {

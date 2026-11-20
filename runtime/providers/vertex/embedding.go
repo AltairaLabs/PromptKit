@@ -27,7 +27,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
-// Model family prefixes used to select defaults.
+// Model family prefixes used to select defaults. A model outside them is not
+// refused: it gets unknownModelMaxBatch and the size of its first response.
 const (
 	textEmbeddingPrefix   = "text-embedding"
 	geckoEmbeddingPrefix  = "textembedding-gecko"
@@ -48,6 +49,9 @@ const (
 	geminiEmbeddingDimensions = 3072
 	textEmbeddingMaxBatch     = 250
 	geminiEmbeddingMaxBatch   = 1
+	// unknownModelMaxBatch is the batch size of a model no prefix matches: one
+	// text per request is the one size every :predict embedding model takes.
+	unknownModelMaxBatch = 1
 )
 
 // DefaultTaskType is Vertex's task type for embedding documents to be indexed.
@@ -61,6 +65,8 @@ const vertexTimeout = 60 * time.Second
 type EmbeddingProvider struct {
 	*providers.BaseEmbeddingProvider
 	taskType string
+	// batchSize is the declared batch size, 0 for the family's.
+	batchSize int
 	// dimsExplicit records that the caller set Dimensions, so the family
 	// default must not overwrite it and outputDimensionality is only sent when
 	// actually requested — tracking intent rather than comparing to a default,
@@ -77,6 +83,16 @@ func WithTaskType(taskType string) EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.taskType = taskType }
 }
 
+// WithBatchSize declares the most texts one request may carry, replacing the
+// family default that MaxBatchSize reports. Values below 1 are ignored.
+func WithBatchSize(n int) EmbeddingOption {
+	return func(p *EmbeddingProvider) {
+		if n > 0 {
+			p.batchSize = n
+		}
+	}
+}
+
 // WithPlatformAuth marks the provider as authenticated by its HTTP client's
 // transport. Vertex has no API-key mode, so this is always the case in real
 // use; the flag exists for symmetry with the other embedding providers.
@@ -89,9 +105,10 @@ func WithWiring(w providers.EmbeddingWiring) EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.dimsExplicit = p.ApplyWiring(w) }
 }
 
-// NewEmbeddingProvider creates a Vertex embedding provider. It fails when the
-// model is not a recognized embedding family rather than sending a body the
-// endpoint would reject at request time.
+// NewEmbeddingProvider creates a Vertex embedding provider. The model family
+// sets the default dimensions and batch size; declared ones win. A model of no
+// known family is sent one text per request, and its size is taken from the
+// first response unless one is declared.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
 		BaseEmbeddingProvider: providers.NewBaseEmbeddingProvider(
@@ -104,30 +121,28 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 		opt(p)
 	}
 
-	dims, batch, err := familyDefaults(p.ProviderModel)
-	if err != nil {
-		return nil, err
-	}
+	dims, batch := familyDefaults(p.ProviderModel)
 	p.BatchSize = batch
+	if p.batchSize > 0 {
+		p.BatchSize = p.batchSize
+	}
 	if !p.dimsExplicit {
 		p.Dimensions = dims
 	}
 	return p, nil
 }
 
-// familyDefaults returns the dimension and batch defaults for a model id, and
-// an error when the model is not a known Vertex embedding family.
-func familyDefaults(model string) (dims, batch int, err error) {
+// familyDefaults returns the dimension and batch defaults for a model id. A
+// model of no known family has no known size (0) and a batch of one.
+func familyDefaults(model string) (dims, batch int) {
 	switch {
 	case strings.HasPrefix(model, geminiEmbeddingPrefix):
-		return geminiEmbeddingDimensions, geminiEmbeddingMaxBatch, nil
+		return geminiEmbeddingDimensions, geminiEmbeddingMaxBatch
 	case strings.HasPrefix(model, textEmbeddingPrefix),
 		strings.HasPrefix(model, geckoEmbeddingPrefix):
-		return textEmbeddingDimensions, textEmbeddingMaxBatch, nil
+		return textEmbeddingDimensions, textEmbeddingMaxBatch
 	default:
-		return 0, 0, fmt.Errorf(
-			"unsupported vertex embedding model %q: expected a %s*, %s* or %s* model",
-			model, textEmbeddingPrefix, geckoEmbeddingPrefix, geminiEmbeddingPrefix)
+		return 0, unknownModelMaxBatch
 	}
 }
 

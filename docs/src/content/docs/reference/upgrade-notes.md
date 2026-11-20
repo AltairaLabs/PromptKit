@@ -54,6 +54,7 @@ verified:
     - runtime/providers/base/platform_transport.go
     - runtime/providers/base_embedding.go
     - runtime/providers/base_provider.go
+    - runtime/providers/bedrock/embedding.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_tools.go
     - runtime/providers/claude/context_window_table.go
@@ -73,6 +74,7 @@ verified:
     - runtime/providers/openai/openai_multimodal.go
     - runtime/providers/openai/realtime_config.go
     - runtime/providers/openai/realtime_platform.go
+    - runtime/providers/openai/responses_learning.go
     - runtime/providers/openai/streaming_support.go
     - runtime/providers/openai/streaming_support_integration.go
     - runtime/providers/provider.go
@@ -80,6 +82,7 @@ verified:
     - runtime/providers/rejected_params.go
     - runtime/providers/retry.go
     - runtime/providers/stream_metrics.go
+    - runtime/providers/vertex/embedding.go
     - runtime/providers/vllm/factory.go
     - runtime/providers/vllm/vllm_tools.go
     - runtime/skills/active_set.go
@@ -93,6 +96,7 @@ verified:
     - runtime/tools/http_mapping.go
     - runtime/tools/registry.go
     - runtime/tools/types.go
+    - runtime/tts/elevenlabs.go
     - runtime/tts/errors.go
     - runtime/tts/http_helpers.go
     - runtime/tts/openai.go
@@ -337,6 +341,18 @@ The thinking wire shape (adaptive, or enabled with `budget_tokens`) was chosen f
 |---|---|---|
 | Use thinking on Claude behind Bedrock, Vertex or Azure | requests succeed, the first after one refused attempt | set `additional_config.thinking_mode` to `adaptive` or `budget` to skip that attempt |
 | Set `thinking_mode` to another value | provider construction fails | use `adaptive` or `budget` |
+
+#### Providers take what the model name cannot say from config or the API
+
+Several providers decided behavior from the model name alone, which fails for an Azure deployment, a Bedrock inference profile or ARN, a proxy alias, or a model released after the name rule was written. Each now takes a declaration, or learns from the API, and keeps the name rule only when nothing is declared.
+
+| If you | You will see | Change |
+|---|---|---|
+| Use an OpenAI realtime model under a name without `realtime` (an Azure deployment, a proxy alias) | no stream input, as before | set `additional_config.realtime: true` |
+| Use a Responses-only OpenAI model behind a proxy under a name not ending in `-pro` (`gpt-5-pro-2025-10-06`, `gpt-5.3-codex`, an alias) | requests succeed, the first after one refused Chat Completions request; later requests go to the Responses API | set `additional_config.api_mode: responses` to skip that request |
+| Use a Bedrock embedding inference profile or ARN | provider construction fails, as before, with an error that names `embedding_format` | set `additional_config.embedding_format` to `titan` or `cohere` |
+| Use a Vertex embedding model outside `text-embedding`, `textembedding-gecko` and `gemini-embedding` | the provider builds, sends one text per request and takes the size from the first response, where construction failed | set `dimensions` and `batch_size` if the defaults do not fit |
+| Use an ElevenLabs model that takes inline tags under an ID not starting with `eleven_v3` | tags stripped, as before | set `additional_config.inline_tags: true` |
 
 #### Gemini applies a response schema only to the answering round
 

@@ -147,18 +147,37 @@ func (p *Provider) applyStreamTools(req *providers.StreamingInputConfig, config 
 	logger.Debug("CreateStreamSession: tools configured", "tool_count", len(config.Tools))
 }
 
-// SupportsStreamInput returns the media types supported for streaming input.
+// SupportsStreamInput returns the media types supported for streaming input:
+// audio when the platform can open a realtime session and the model is a
+// realtime model (isRealtimeModel), else none.
 func (p *Provider) SupportsStreamInput() []string {
 	if _, err := p.realtimeDial(); err != nil {
 		return []string{} // a session on this platform is refused
 	}
-	// Only return audio if the model supports realtime
-	if strings.Contains(p.model, "realtime") {
+	if p.isRealtimeModel() {
 		return []string{types.ContentTypeAudio}
 	}
-	// For non-realtime models, we could potentially support text streaming
-	// but return empty for now to indicate no bidirectional streaming support
 	return []string{}
+}
+
+// realtimeConfigKey is the additional_config key that declares whether the
+// model is served by the Realtime API.
+const realtimeConfigKey = "realtime"
+
+// isRealtimeModel reports whether the model is served by the Realtime API.
+// additional_config.realtime (a bool) decides when it is set, so a deployment
+// or proxy alias without "realtime" in its name can be declared one, and a
+// name that contains it can be declared not one. Unset, or not a bool, the
+// model name decides: it is a realtime model when it contains "realtime".
+func (p *Provider) isRealtimeModel() bool {
+	if raw, ok := p.additionalConfig[realtimeConfigKey]; ok {
+		if declared, isBool := raw.(bool); isBool {
+			return declared
+		}
+		logger.Warn("openai: ignoring non-boolean additional_config.realtime",
+			"value", raw, "expected", "true|false")
+	}
+	return strings.Contains(p.model, "realtime")
 }
 
 // GetStreamingCapabilities returns detailed information about OpenAI's streaming support.
