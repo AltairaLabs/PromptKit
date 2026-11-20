@@ -3259,8 +3259,8 @@ type VADModeConfig struct {
 	// Default: "en"
 	Language string
 
-	// Voice is the TTS voice to use.
-	// Default: "alloy"
+	// Voice is the TTS voice to use, one the TTS service has.
+	// Default: "", the TTS service's own default voice (alloy for OpenAI TTS)
 	Voice string
 
 	// Speed is the TTS speech rate (0.5-2.0).
@@ -3288,7 +3288,6 @@ func DefaultVADModeConfig() *VADModeConfig {
 		MaxTurnDuration:   defaultVADMaxTurnDuration,
 		SampleRate:        defaultVADSampleRate,
 		Language:          "en",
-		Voice:             "alloy",
 		Speed:             1.0,
 	}
 }
@@ -3392,9 +3391,9 @@ func (v *VADModeConfig) toSTTStageConfig() stage.STTStageConfig {
 // toTTSStageConfig converts VADModeConfig to internal TTSStageWithInterruptionConfig.
 func (v *VADModeConfig) toTTSStageConfig(ih *audio.InterruptionHandler) stage.TTSStageWithInterruptionConfig {
 	cfg := stage.DefaultTTSStageWithInterruptionConfig()
-	if v.Voice != "" {
-		cfg.Voice = v.Voice
-	}
+	// No voice asks the service for its own default. The stage's default
+	// voice is OpenAI's alloy, which no other service has.
+	cfg.Voice = v.Voice
 	if v.Speed > 0 {
 		cfg.Speed = v.Speed
 	}

@@ -1,10 +1,11 @@
 //go:build !portaudio
 
-// Package main is the realtime showcase in scripted text mode: it opens the
-// same realtime session as the voice mode (OpenAI Realtime or Gemini Live),
-// types six requests into it and prints the event log. It needs no
-// microphone, so it shows the output guardrail, the input guardrails, the
-// picture tool and per-call cost, but not barge-in.
+// Package main is the realtime showcase in scripted mode: it opens the same
+// session as the voice mode and sends it six requests, printing the event log.
+// In ASM mode (OpenAI Realtime or Gemini Live) it types each request; in VAD
+// mode it synthesizes each one with OpenAI TTS and sends it as the caller's
+// speech. It needs no microphone, so it shows the output guardrail, the input
+// guardrails, the picture tool and per-call cost, but not barge-in.
 //
 // For the voice mode (microphone and speaker), build with the portaudio tag:
 //
@@ -13,7 +14,8 @@
 // Run with:
 //
 //	export OPENAI_API_KEY=your-key   # or GEMINI_API_KEY with -provider gemini
-//	go run . -provider openai
+//	go run . -provider openai             # ASM: OpenAI Realtime
+//	go run . -mode vad -provider gemini   # VAD: Gemini text model, OpenAI STT and TTS
 package main
 
 import (
@@ -22,16 +24,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
-
-// turnTimeout bounds how long the script waits for each reply.
-const turnTimeout = 90 * time.Second
 
 // script is what the text mode types, in order.
 var script = []string{
@@ -48,10 +45,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("Realtime showcase - %s (%s), scripted text mode\n", setup.name, setup.model)
-	fmt.Println("For voice (barge-in), run: go run -tags portaudio . -provider ...")
-	_, heard := setup.cueOptions()
-	fmt.Println("Guardrail messages: " + heard)
+	fmt.Println(setup.banner())
+	if setup.mode == modeVAD {
+		fmt.Println("Scripted: each request is synthesized with OpenAI TTS and sent as your speech.")
+	} else {
+		fmt.Println("Scripted: each request is typed into the session.")
+	}
+	fmt.Println("For voice (barge-in), run: go run -tags portaudio . -mode ... -provider ...")
 	fmt.Println()
 	if err := runScript(setup); err != nil {
 		log.Fatal(err)
@@ -61,17 +61,18 @@ func main() {
 // runScript opens the session, sends each scripted line and waits for its
 // reply, then closes the session.
 func runScript(setup *providerSetup) error {
+	if setup.mode == modeVAD && setup.callerTTS == nil {
+		return errors.New("the scripted VAD mode speaks its requests with OpenAI TTS: set OPENAI_API_KEY")
+	}
 	bus := events.NewEventBus()
 	store := statestore.NewMemoryStore()
 	elog := newEventLog(os.Stdout, store, conversationID)
+	elog.speechCosts = setup.mode == modeVAD
 	elog.attach(bus)
 
-	cueOpts, _ := setup.cueOptions()
-	opts := append(sessionOptions(bus, store),
-		sdk.WithProvider(setup.build(setup.model)),
-		setup.judgeProvider(),
-		sdk.WithStreamingConfig(setup.streamingConfig()))
-	opts = append(opts, cueOpts...)
+	modeOpts, _ := setup.sessionOptions()
+	opts := append(logOptions(bus, store), setup.judgeProvider())
+	opts = append(opts, modeOpts...)
 	conv, err := sdk.OpenDuplex(packPath, promptName, opts...)
 	if err != nil {
 		return fmt.Errorf("open the session: %w", err)
@@ -83,55 +84,28 @@ func runScript(setup *providerSetup) error {
 	if err != nil {
 		return err
 	}
-	turns := make(chan string, len(script))
+	turns := make(chan reply, len(script))
 	go readReplies(resp, elog, turns)
 
 	for _, line := range script {
-		elog.logf("you type", "%q", line)
-		if err := conv.SendText(context.Background(), line); err != nil {
+		if err := send(setup, conv, elog, line); err != nil {
 			return err
 		}
-		if err := waitReply(turns); err != nil {
+		r, err := waitReply(turns)
+		if err != nil {
 			return err
+		}
+		if setup.mode == modeVAD {
+			// Listen to the reply before speaking again: the session counts
+			// the assistant as speaking until its audio would have played,
+			// and speech before then barges in on it.
+			if err := listen(context.Background(), conv, r.audio); err != nil {
+				return err
+			}
 		}
 	}
 	err = conv.Close()
 	bus.Close()
 	elog.end()
 	return err
-}
-
-// readReplies reads Response(), shows each chunk to the log, and reports
-// each finished reply's finish reason on turns. A tool-call turn is not a
-// reply: the model answers after the tool's result.
-func readReplies(resp <-chan providers.StreamChunk, elog *eventLog, turns chan<- string) {
-	for c := range resp {
-		elog.observe(c)
-		if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
-			continue
-		}
-		if fr, _ := c.Metadata["finish_reason"].(string); fr != "tool_use" {
-			select {
-			case turns <- fr:
-			default: // nobody is waiting (the script is done)
-			}
-		}
-	}
-	close(turns)
-}
-
-// waitReply waits for the next reply to finish.
-func waitReply(turns <-chan string) error {
-	select {
-	case _, ok := <-turns:
-		if !ok {
-			return errors.New("the session ended")
-		}
-		// Let the reply's message.created and cost lines print before the
-		// next request.
-		time.Sleep(time.Second)
-		return nil
-	case <-time.After(turnTimeout):
-		return errors.New("no reply within the timeout")
-	}
 }

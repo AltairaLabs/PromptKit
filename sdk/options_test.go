@@ -173,7 +173,7 @@ func TestDefaultVADModeConfig(t *testing.T) {
 	assert.Equal(t, 800000000, int(cfg.SilenceDuration)) // 800ms in nanoseconds
 	assert.Equal(t, 16000, cfg.SampleRate)
 	assert.Equal(t, "en", cfg.Language)
-	assert.Equal(t, "alloy", cfg.Voice)
+	assert.Empty(t, cfg.Voice, "no voice: the TTS service speaks in its own default")
 	assert.Equal(t, 1.0, cfg.Speed)
 }
 

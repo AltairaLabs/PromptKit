@@ -2,12 +2,13 @@ package main
 
 // eventlog.go prints the session as it happens, one timestamped line per
 // event: the conversation's messages, barge-in, guardrail blocks, tool calls
-// and what each provider call cost.
+// and what each provider call cost — in VAD mode, each STT and TTS call too.
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -54,12 +55,19 @@ type eventLog struct {
 	cut     bool
 	// cuePlaying is set while Response() carries a cue's audio.
 	cuePlaying bool
+	// speechCosts is set in VAD mode: the STT and TTS services' cost is
+	// stamped on the stored messages (stt_cost on the caller's, tts_cost on
+	// the reply), and the log reads it from there.
+	speechCosts bool
+	// ended is closed by end: a speech cost not stored by then never will be.
+	ended     chan struct{}
+	endedOnce sync.Once
 }
 
 // newEventLog returns a log writing to out. The conversation's messages are
 // read from store under convID, the conversation's ID.
 func newEventLog(out io.Writer, store statestore.Store, convID string) *eventLog {
-	return &eventLog{out: out, now: time.Now, store: store, convID: convID}
+	return &eventLog{out: out, now: time.Now, store: store, convID: convID, ended: make(chan struct{})}
 }
 
 // attach subscribes the log to the conversation's event bus.
@@ -127,6 +135,86 @@ func (l *eventLog) onMessage(d *events.MessageCreatedData) {
 		l.wg.Add(1)
 		go l.reportPlayout(d.Index)
 	}
+	if l.speechCosts && l.store != nil && text != "" {
+		switch d.Role {
+		case "user":
+			l.wg.Add(1)
+			go l.reportSpeechCost(d.Index, sttCostKey, "STT")
+		case "assistant":
+			l.wg.Add(1)
+			go l.reportSpeechCost(d.Index, ttsCostKey, "TTS")
+		}
+	}
+}
+
+// The message metadata keys the VAD pipeline stamps speech cost under.
+const (
+	sttCostKey = "stt_cost"
+	ttsCostKey = "tts_cost"
+)
+
+// reportSpeechCost waits for the message at index to be stored with its
+// speech cost under key and prints it, adding it to the session total. The
+// caller's message is stored with its STT cost only when its turn ends, which
+// can be long after it is created, so the wait lasts until the log ends. A
+// message with no cost there (an unpriced service, or a reply the caller
+// barged in on before it was synthesized) prints nothing.
+func (l *eventLog) reportSpeechCost(index int, key, service string) {
+	defer l.wg.Done()
+	for {
+		ended := false
+		select {
+		case <-l.ended:
+			ended = true
+		default:
+		}
+		if cost, ok := l.storedMeta(index, key); ok {
+			total, _ := cost["total_cost_usd"].(float64)
+			l.mu.Lock()
+			l.total += total
+			l.logLockedf("cost", "%s for #%d: $%.4f (%s); session total $%.4f",
+				service, index, total, quantities(cost["quantities"]), l.total)
+			l.mu.Unlock()
+			return
+		}
+		if ended {
+			return
+		}
+		select {
+		case <-l.ended:
+		case <-time.After(playoutPollEvery):
+		}
+	}
+}
+
+// storedMeta returns the cost map stored under key on the message at index.
+func (l *eventLog) storedMeta(index int, key string) (map[string]any, bool) {
+	state, err := l.store.Load(context.Background(), l.convID)
+	if err != nil || state == nil || len(state.Messages) <= index {
+		return nil, false
+	}
+	cost, ok := state.Messages[index].Meta[key].(map[string]any)
+	return cost, ok
+}
+
+// quantities names what a speech call was priced on, such as "5 second".
+func quantities(q any) string {
+	var parts []string
+	switch m := q.(type) {
+	case map[string]float64:
+		for unit, n := range m {
+			parts = append(parts, fmt.Sprintf("%g %s", n, unit))
+		}
+	case map[string]any:
+		for unit, n := range m {
+			parts = append(parts, fmt.Sprintf("%v %s", n, unit))
+		}
+	}
+	if len(parts) == 0 {
+		return "no quantities"
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
 }
 
 // reportPlayout waits for the reply at index to be stored and prints how
@@ -255,6 +343,9 @@ func (l *eventLog) printLateUsageLocked(callID string, u lateUsage) {
 func (l *eventLog) observe(c providers.StreamChunk) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if c.Error != nil {
+		l.logLockedf("error", "%v", c.Error)
+	}
 	if c.Interrupted {
 		l.logLockedf("interrupt", "Interrupted: stop playing the current reply")
 		l.cut = true
@@ -270,6 +361,12 @@ func (l *eventLog) observe(c providers.StreamChunk) {
 		l.logLockedf("cue", "the guardrail's message plays as audio (%s), not spoken by the model", kind)
 	}
 	l.cuePlaying = kind != ""
+	// In VAD mode the TTS service speaks each reply once it is complete; the
+	// chunk names the words it spoke.
+	if spoken, _ := c.Metadata["spoken_text"].(string); spoken != "" && kind == "" && c.MediaData != nil {
+		l.logLockedf("speech", "TTS speaks %q (%d ms of audio)",
+			shorten(spoken), pcmDuration(len(c.MediaData.Data), c.MediaData.SampleRate).Milliseconds())
+	}
 	if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
 		return
 	}
@@ -283,6 +380,7 @@ func (l *eventLog) observe(c providers.StreamChunk) {
 // end waits for pending reads of the store and prints the session's end.
 // Call it after closing the conversation and its event bus.
 func (l *eventLog) end() {
+	l.endedOnce.Do(func() { close(l.ended) })
 	l.wg.Wait()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -292,7 +390,11 @@ func (l *eventLog) end() {
 		}
 	}
 	l.pendingUsage, l.pendingOrder = nil, nil
-	l.logLockedf("session", "end: %d provider calls, total cost $%.4f", l.calls, l.total)
+	what := ""
+	if l.speechCosts {
+		what = " (with STT and TTS)"
+	}
+	l.logLockedf("session", "end: %d provider calls, total cost%s $%.4f", l.calls, what, l.total)
 }
 
 // shorten cuts text to maxShownText characters.
