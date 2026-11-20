@@ -103,26 +103,63 @@ type responsesContent struct {
 
 // responsesUsage represents token usage in Responses API
 type responsesUsage struct {
-	InputTokens        int `json:"input_tokens"`
-	OutputTokens       int `json:"output_tokens"`
+	InputTokens         int                           `json:"input_tokens"`
+	OutputTokens        int                           `json:"output_tokens"`
+	InputTokensDetails  *responsesInputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *responsesOutputTokensDetails `json:"output_tokens_details,omitempty"`
+	// InputTokensCached and OutputTokensCached are flat fields the Responses API
+	// does not send (it reports cache reads in input_tokens_details). Kept as a
+	// fallback for compatible servers that may.
 	InputTokensCached  int `json:"input_tokens_cached,omitempty"`
 	OutputTokensCached int `json:"output_tokens_cached,omitempty"`
 }
 
+// responsesInputTokensDetails breaks input_tokens down. input_tokens INCLUDES
+// both the cached (read) and the cache-written tokens.
+type responsesInputTokensDetails struct {
+	CachedTokens            int                               `json:"cached_tokens"`
+	CacheWriteTokens        int                               `json:"cache_write_tokens"`
+	CacheWriteTokensDetails *responsesCacheWriteTokensDetails `json:"cache_write_tokens_details,omitempty"`
+}
+
+// responsesCacheWriteTokensDetails splits cache writes by retention.
+type responsesCacheWriteTokensDetails struct {
+	TTL12hTokens int `json:"ttl_12h_tokens"`
+	TTL30mTokens int `json:"ttl_30m_tokens"`
+}
+
+// responsesOutputTokensDetails carries the reasoning sub-count of output_tokens.
+type responsesOutputTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
 // responsesUsageToOpenAIUsage builds the equivalent chat-shape openAIUsage
 // from a Responses API usage payload so both API surfaces share a single
-// costFromUsage pricing path. InputTokensCached maps to the chat
-// prompt_tokens_details.cached_tokens sub-count; a nil usage returns a
+// costFromUsage pricing path. input_tokens_details maps to the chat
+// prompt_tokens_details (cache reads, cache writes and their 12-hour part),
+// output_tokens_details to completion_tokens_details; a nil usage returns a
 // zero-value openAIUsage (zero cost).
 func responsesUsageToOpenAIUsage(u *responsesUsage) openAIUsage {
 	if u == nil {
 		return openAIUsage{}
 	}
-	return openAIUsage{
+	prompt := &openAIPromptDetails{CachedTokens: u.InputTokensCached}
+	if d := u.InputTokensDetails; d != nil {
+		prompt.CachedTokens = d.CachedTokens
+		prompt.CacheWriteTokens = d.CacheWriteTokens
+		if d.CacheWriteTokensDetails != nil {
+			prompt.cacheWrite12hTokens = d.CacheWriteTokensDetails.TTL12hTokens
+		}
+	}
+	out := openAIUsage{
 		PromptTokens:        u.InputTokens,
 		CompletionTokens:    u.OutputTokens,
-		PromptTokensDetails: &openAIPromptDetails{CachedTokens: u.InputTokensCached},
+		PromptTokensDetails: prompt,
 	}
+	if u.OutputTokensDetails != nil {
+		out.CompletionTokensDetails = &openAICompletionDetails{ReasoningTokens: u.OutputTokensDetails.ReasoningTokens}
+	}
+	return out
 }
 
 // responsesError represents an error in the Responses API

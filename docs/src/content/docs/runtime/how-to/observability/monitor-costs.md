@@ -160,7 +160,7 @@ Run a few calls against `mock.NewProvider`. Each reports nonzero token counts an
 
 ## Troubleshoot
 
-- Cost is `0`: the model has no pricing and the runtime logged `cost: nonzero token unit has no pricing; cost understated` once per unit. Set the provider's `pricing`. A provider with no pricing descriptor records `0` without a warning.
+- Cost is `0`: the model has no pricing. The runtime logged `cost: no built-in pricing for model` once with the model ID, and `cost: nonzero token unit has no pricing; cost understated` once per unit. Set the provider's `pricing`. A provider with no pricing descriptor records `0` without a warning.
 - Totals differ from the provider bill: the runtime prices usage from a pricing descriptor, the provider's `pricing` config or built-in rates. Built-in rates are a fallback and can lag a vendor's price change. Set `pricing` when cost feeds billing.
 - Spend is higher than expected: lower `MaxTokens` in `providers.ProviderDefaults`, trim conversation history, or choose a cheaper model.
 

@@ -14,6 +14,12 @@ const (
 	openaiPricingCorrectAtYear  = 2026
 	openaiPricingCorrectAtMonth = time.July
 	openaiPricingCorrectAtDay   = 8
+
+	// The GPT-5.1 – 6.x rows and GPT-5/o3 pro were read from the pricing page
+	// on this later date.
+	openaiPricingCheckedYear  = 2026
+	openaiPricingCheckedMonth = time.November
+	openaiPricingCheckedDay   = 20
 )
 
 // openaiPricingCorrectAt is the date these per-model rates were captured.
@@ -22,6 +28,13 @@ const (
 // the task-12 report for the full per-model list and verification note.
 var openaiPricingCorrectAt = time.Date(
 	openaiPricingCorrectAtYear, openaiPricingCorrectAtMonth, openaiPricingCorrectAtDay,
+	0, 0, 0, 0, time.UTC,
+)
+
+// openaiPricingCheckedAt stamps the rows read from
+// https://developers.openai.com/api/docs/pricing on 2026-11-20.
+var openaiPricingCheckedAt = time.Date(
+	openaiPricingCheckedYear, openaiPricingCheckedMonth, openaiPricingCheckedDay,
 	0, 0, 0, 0, time.UTC,
 )
 
@@ -34,16 +47,56 @@ const perMillionScale = 1_000_000.0
 // (which reasoning_tokens is a sub-count of) is one undifferentiated output
 // budget on the wire — so reasoning_token prices at the output rate rather
 // than a separate published constant.
+//
+// These models charge nothing extra to write the prompt cache, so a written
+// token (should one be reported) bills at the input rate, as it did before
+// writes were reported separately.
 func perM(input, cachedInput, output float64) *base.PricingDescriptor {
+	return perMAt(openaiPricingCorrectAt, input, cachedInput, output)
+}
+
+// perMAt is perM with the date the rates were checked against the price list.
+func perMAt(checked time.Time, input, cachedInput, output float64) *base.PricingDescriptor {
 	return &base.PricingDescriptor{
 		Source:           base.PricingSourceInline,
-		PricingCorrectAt: openaiPricingCorrectAt,
-		Items: []base.PriceItem{
-			{Unit: base.UnitInputToken, Rate: input / perMillionScale},
-			{Unit: base.UnitCacheReadToken, Rate: cachedInput / perMillionScale},
-			{Unit: base.UnitOutputToken, Rate: output / perMillionScale},
-			{Unit: base.UnitReasoningToken, Rate: output / perMillionScale},
-		},
+		PricingCorrectAt: checked,
+		Items: append(tokenItems(input, cachedInput, output),
+			base.PriceItem{Unit: base.UnitCacheWriteToken, Rate: input / perMillionScale}),
+	}
+}
+
+// Cache-write premiums for GPT-5.6 and later, as multiples of the input rate:
+// 1.25x for the default 30-minute retention, 2.5x for the 12-hour retention
+// the Responses API offers (https://developers.openai.com/api/docs/guides/prompt-caching).
+const (
+	cacheWrite30mPremium = 1.25
+	cacheWrite12hPremium = 2.5
+)
+
+// perMCacheWrite is perMAt for a model that bills cache writes at a premium.
+// The 12-hour item carries cacheWriteTTLDimension, so it wins only for a
+// request costFromUsage marks as a 12-hour write.
+func perMCacheWrite(input, cachedInput, output float64) *base.PricingDescriptor {
+	return &base.PricingDescriptor{
+		Source:           base.PricingSourceInline,
+		PricingCorrectAt: openaiPricingCheckedAt,
+		Items: append(tokenItems(input, cachedInput, output),
+			base.PriceItem{Unit: base.UnitCacheWriteToken, Rate: input * cacheWrite30mPremium / perMillionScale},
+			base.PriceItem{
+				Unit: base.UnitCacheWriteToken, Rate: input * cacheWrite12hPremium / perMillionScale,
+				Dimensions: map[string]string{cacheWriteTTLDimension: cacheWriteTTL12h},
+			}),
+	}
+}
+
+// tokenItems are the input, cache-read, output and reasoning items every
+// OpenAI text model carries.
+func tokenItems(input, cachedInput, output float64) []base.PriceItem {
+	return []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: input / perMillionScale},
+		{Unit: base.UnitCacheReadToken, Rate: cachedInput / perMillionScale},
+		{Unit: base.UnitOutputToken, Rate: output / perMillionScale},
+		{Unit: base.UnitReasoningToken, Rate: output / perMillionScale},
 	}
 }
 
@@ -79,6 +132,33 @@ const (
 	gpt5In, gpt5Cached, gpt5Out             = 1.25, 0.125, 10.0 // GPT-5
 	gpt5MiniIn, gpt5MiniCached, gpt5MiniOut = 0.25, 0.025, 2.00 // GPT-5 mini
 	gpt5NanoIn, gpt5NanoCached, gpt5NanoOut = 0.05, 0.005, 0.40 // GPT-5 nano
+	gpt5ProIn, gpt5ProOut                   = 15.0, 120.0       // GPT-5 pro (no cached discount)
+	o3ProIn, o3ProOut                       = 20.0, 80.0        // o3-pro (no cached discount)
+
+	// GPT-5.1 – 5.6. Rows below are the Standard tier, short-context (<=272K
+	// input) list price read from https://developers.openai.com/api/docs/pricing
+	// on 2026-11-20. Models with a 1.05M window bill 2x input and 1.5x output for
+	// a whole request above 272K input tokens; that tier is not modeled, so such
+	// a request is understated (set pricing in the provider config to override).
+	gpt51In, gpt51Cached, gpt51Out                = 1.25, 0.125, 10.0
+	gpt52In, gpt52Cached, gpt52Out                = 1.75, 0.175, 14.0
+	gpt52ProIn, gpt52ProOut                       = 21.0, 168.0 // no cached discount
+	gpt54In, gpt54Cached, gpt54Out                = 2.50, 0.25, 15.0
+	gpt54MiniIn, gpt54MiniCached, gpt54MiniOut    = 0.75, 0.075, 4.50
+	gpt54NanoIn, gpt54NanoCached, gpt54NanoOut    = 0.20, 0.02, 1.25
+	gpt5xProIn, gpt5xProOut                       = 30.0, 180.0 // GPT-5.4 pro and 5.5 pro; no cached discount
+	gpt55In, gpt55Cached, gpt55Out                = 5.00, 0.50, 30.0
+	gpt56SolIn, gpt56SolCached, gpt56SolOut       = 4.00, 0.40, 20.0 // promotional price, published until 2026-11-30
+	gpt56TerraIn, gpt56TerraCached, gpt56TerraOut = 2.00, 0.20, 12.0
+	gpt56LunaIn, gpt56LunaCached, gpt56LunaOut    = 0.20, 0.02, 1.20
+
+	// GPT-6.x (same source and short-context tier as above).
+	gpt6AstraIn, gpt6AstraCached, gpt6AstraOut    = 10.0, 1.00, 50.0
+	gpt6SolIn, gpt6SolCached, gpt6SolOut          = 2.00, 0.20, 10.0
+	gpt6LunaIn, gpt6LunaCached, gpt6LunaOut       = 0.10, 0.01, 0.50
+	gpt61SolIn, gpt61SolCached, gpt61SolOut       = 2.00, 0.10, 10.0 // also GPT-6.2 sol
+	gpt61TerraIn, gpt61TerraCached, gpt61TerraOut = 1.00, 0.05, 5.00
+	gpt62AstraIn, gpt62AstraCached, gpt62AstraOut = 8.00, 0.40, 40.0
 )
 
 // Shared descriptors, one per rate tier, reused across bare family aliases
@@ -104,14 +184,38 @@ var (
 	gpt5     = perM(gpt5In, gpt5Cached, gpt5Out)
 	gpt5Mini = perM(gpt5MiniIn, gpt5MiniCached, gpt5MiniOut)
 	gpt5Nano = perM(gpt5NanoIn, gpt5NanoCached, gpt5NanoOut)
+	// A model with no cached-input discount bills any cached tokens at the
+	// input rate, so its cache_read rate is its input rate.
+	gpt5Pro = perMAt(openaiPricingCheckedAt, gpt5ProIn, gpt5ProIn, gpt5ProOut)
+	o3Pro   = perMAt(openaiPricingCheckedAt, o3ProIn, o3ProIn, o3ProOut)
+
+	gpt51     = perMAt(openaiPricingCheckedAt, gpt51In, gpt51Cached, gpt51Out)
+	gpt52     = perMAt(openaiPricingCheckedAt, gpt52In, gpt52Cached, gpt52Out)
+	gpt52Pro  = perMAt(openaiPricingCheckedAt, gpt52ProIn, gpt52ProIn, gpt52ProOut)
+	gpt54     = perMAt(openaiPricingCheckedAt, gpt54In, gpt54Cached, gpt54Out)
+	gpt54Mini = perMAt(openaiPricingCheckedAt, gpt54MiniIn, gpt54MiniCached, gpt54MiniOut)
+	gpt54Nano = perMAt(openaiPricingCheckedAt, gpt54NanoIn, gpt54NanoCached, gpt54NanoOut)
+	gpt5xPro  = perMAt(openaiPricingCheckedAt, gpt5xProIn, gpt5xProIn, gpt5xProOut)
+	gpt55     = perMAt(openaiPricingCheckedAt, gpt55In, gpt55Cached, gpt55Out)
+	// GPT-5.6 and later bill cache writes at a premium.
+	gpt56Sol  = perMCacheWrite(gpt56SolIn, gpt56SolCached, gpt56SolOut)
+	gpt56Ter  = perMCacheWrite(gpt56TerraIn, gpt56TerraCached, gpt56TerraOut)
+	gpt56Luna = perMCacheWrite(gpt56LunaIn, gpt56LunaCached, gpt56LunaOut)
+
+	gpt6Astra  = perMCacheWrite(gpt6AstraIn, gpt6AstraCached, gpt6AstraOut)
+	gpt6Sol    = perMCacheWrite(gpt6SolIn, gpt6SolCached, gpt6SolOut)
+	gpt6Luna   = perMCacheWrite(gpt6LunaIn, gpt6LunaCached, gpt6LunaOut)
+	gpt61Sol   = perMCacheWrite(gpt61SolIn, gpt61SolCached, gpt61SolOut)
+	gpt61Terra = perMCacheWrite(gpt61TerraIn, gpt61TerraCached, gpt61TerraOut)
+	gpt62Astra = perMCacheWrite(gpt62AstraIn, gpt62AstraCached, gpt62AstraOut)
 )
 
-// openaiPricingTable maps bare model-family names to their pricing
-// descriptor. Looked up via base.ResolveLLMPricing, which normalizes a
-// vendor-qualified model id (e.g. "azure/gpt-4o") down to the bare id
-// before matching — there is no substring/heuristic fallback, so a model
-// absent here prices as $0 with a loud warning rather than silently
-// guessing a wrong constant.
+// openaiPricingTable maps model aliases to their pricing descriptor. Looked up
+// via base.ResolveLLMPricing, which strips a vendor prefix ("azure/gpt-4o")
+// and falls back from a dated snapshot ("gpt-5.5-2026-04-23") to its alias.
+// There is no other family or substring fallback, so a model absent here is
+// reported unpriced, with a warning naming it, rather than billed at a guessed
+// sibling's rate.
 //
 //nolint:goconst // ids are shared with the context-window table by value; each table spells its own keys
 var openaiPricingTable = map[string]*base.PricingDescriptor{
@@ -140,4 +244,29 @@ var openaiPricingTable = map[string]*base.PricingDescriptor{
 	modelGPT5:    gpt5,
 	"gpt-5-mini": gpt5Mini,
 	"gpt-5-nano": gpt5Nano,
+	"gpt-5-pro":  gpt5Pro,
+	"o3-pro":     o3Pro,
+
+	// GPT-5.1 – 5.6
+	"gpt-5.1":       gpt51,
+	"gpt-5.2":       gpt52,
+	"gpt-5.2-pro":   gpt52Pro,
+	"gpt-5.4":       gpt54,
+	"gpt-5.4-mini":  gpt54Mini,
+	"gpt-5.4-nano":  gpt54Nano,
+	"gpt-5.4-pro":   gpt5xPro,
+	"gpt-5.5":       gpt55,
+	"gpt-5.5-pro":   gpt5xPro,
+	"gpt-5.6-sol":   gpt56Sol,
+	"gpt-5.6-terra": gpt56Ter,
+	"gpt-5.6-luna":  gpt56Luna,
+
+	// GPT-6.x
+	"gpt-6-astra":   gpt6Astra,
+	"gpt-6-sol":     gpt6Sol,
+	"gpt-6-luna":    gpt6Luna,
+	"gpt-6.1-sol":   gpt61Sol,
+	"gpt-6.1-terra": gpt61Terra,
+	"gpt-6.2-sol":   gpt61Sol,
+	"gpt-6.2-astra": gpt62Astra,
 }
