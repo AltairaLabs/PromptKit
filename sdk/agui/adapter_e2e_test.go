@@ -335,8 +335,8 @@ func TestWorkflowSender_SettlesOnActiveConversation(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = wc.Close() })
 	var sender Sender = &workflowSender{wc: wc}
-	settler, ok := sender.(clientToolSettler)
-	require.True(t, ok, "the workflow adapter settles answers")
+	settler := settlerOf(sender)
+	require.NotNil(t, settler, "the workflow adapter settles answers")
 	ctx := context.Background()
 
 	assert.True(t, settler.HasToolResultRewriters())

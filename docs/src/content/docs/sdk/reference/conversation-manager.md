@@ -277,7 +277,6 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) Fork\(\) \(\*Conversation, error\)](<#Conversation.Fork>)
   - [func \(c \*Conversation\) GetVar\(name string\) \(string, bool\)](<#Conversation.GetVar>)
   - [func \(c \*Conversation\) Governance\(\) \*Governance](<#Conversation.Governance>)
-  - [func \(c \*Conversation\) HasToolResultRewriters\(\) bool](<#Conversation.HasToolResultRewriters>)
   - [func \(c \*Conversation\) ID\(\) string](<#Conversation.ID>)
   - [func \(c \*Conversation\) Messages\(ctx context.Context\) \[\]types.Message](<#Conversation.Messages>)
   - [func \(c \*Conversation\) OnClientTool\(name string, handler ClientToolHandler\)](<#Conversation.OnClientTool>)
@@ -316,8 +315,6 @@ Mock response from mock model mock-model
   - [func \(c \*Conversation\) SetVar\(name, value string\)](<#Conversation.SetVar>)
   - [func \(c \*Conversation\) SetVars\(vars map\[string\]any\)](<#Conversation.SetVars>)
   - [func \(c \*Conversation\) SetVarsFromEnv\(prefix string\)](<#Conversation.SetVarsFromEnv>)
-  - [func \(c \*Conversation\) SettleClientTool\(ctx context.Context, callID string, result any, failure error\) \(prepared types.MessageToolResult, answered bool, err error\)](<#Conversation.SettleClientTool>)
-  - [func \(c \*Conversation\) SettleClientToolRejection\(ctx context.Context, callID, reason string\) \(prepared types.MessageToolResult, answered bool, err error\)](<#Conversation.SettleClientToolRejection>)
   - [func \(c \*Conversation\) Start\(ctx context.Context\) error](<#Conversation.Start>)
   - [func \(c \*Conversation\) Stream\(ctx context.Context, message any, opts ...SendOption\) \<\-chan StreamChunk](<#Conversation.Stream>)
   - [func \(c \*Conversation\) StreamRaw\(ctx context.Context, message any\) \(\<\-chan streamPkg.Chunk, error\)](<#Conversation.StreamRaw>)
@@ -1545,7 +1542,7 @@ type Conversation struct {
 ```
 
 <a name="Open"></a>
-### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L91>)
+### func [Open](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L93>)
 
 ```go
 func Open(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1629,7 +1626,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1374>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1377>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1657,7 +1654,7 @@ fmt.Println(string(resp.CompositionOutput()))
 ```
 
 <a name="OpenDuplex"></a>
-### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L143>)
+### func [OpenDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L145>)
 
 ```go
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1697,7 +1694,7 @@ Provider requirements depend on how the input side is driven:
 The session runs on a context detached from any caller, so its tool calls see no context values; use [OpenDuplexContext](<#OpenDuplexContext>) to give them the host's. Who the session acts for is set with [WithCaller](<#WithCaller>), never on a context.
 
 <a name="OpenDuplexContext"></a>
-### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L161>)
+### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L163>)
 
 ```go
 func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1738,7 +1735,7 @@ func OpenVoiceContext(ctx context.Context, packPath, promptName string, opts ...
 OpenVoiceContext is [OpenVoice](<#OpenVoice>) with a base context for the session, as [OpenDuplexContext](<#OpenDuplexContext>): the session's tool calls see ctx's values, which PromptKit does not read; the caller is [WithCaller](<#WithCaller>)'s. The context passed to Start only bounds the audio pumps; it does not reach tool calls.
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1227>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1230>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1766,7 +1763,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1339>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1342>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1798,7 +1795,7 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 In a realtime \(ASM\) conversation the new provider session is given the persisted user and assistant turns before the caller's first input, through the provider's own mechanism \(OpenAI Realtime conversation.item.create items, Gemini Live client\_content turns\). A provider that cannot take them \(see \[providers.StreamHistorySupport\]\) makes ResumeDuplex return [ErrResumeHistoryUnsupported](<#ErrConversationClosed>) rather than continue without memory. In VAD mode each turn's request carries the history, as in a unary conversation.
 
 <a name="ResumeDuplexContext"></a>
-### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1346-L1348>)
+### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1349-L1351>)
 
 ```go
 func ResumeDuplexContext(ctx context.Context, conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -2097,15 +2094,6 @@ When the conversation was opened as a named agent, this is the agent's governanc
 Nothing in PromptKit acts on the result. A governance block describes and does not gate: it is here so a host can show what the pack claims — surface an AI disclosure in its UI, log the accountable owner beside a transcript, refuse to deploy a pack whose approved\_environments do not include the one it is being deployed to. Those are the host's decisions to make, on its own policy, with these facts.
 
 The result is a copy; adjusting it does not change the loaded pack.
-
-<a name="Conversation.HasToolResultRewriters"></a>
-### func \(\*Conversation\) [HasToolResultRewriters](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settle_client_tool.go#L23>)
-
-```go
-func (c *Conversation) HasToolResultRewriters() bool
-```
-
-HasToolResultRewriters reports whether the conversation has a tool hook that rewrites tool results \(hooks.ToolResultRewriter, see WithToolHook\).
 
 <a name="Conversation.ID"></a>
 ### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2031>)
@@ -3102,28 +3090,6 @@ Environment variables matching the prefix are added as template variables with t
 conv.SetVarsFromEnv("PROMPTKIT_")
 // Sets variable "customer_name" = "Alice"
 ```
-
-<a name="Conversation.SettleClientTool"></a>
-### func \(\*Conversation\) [SettleClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settle_client_tool.go#L49-L51>)
-
-```go
-func (c *Conversation) SettleClientTool(ctx context.Context, callID string, result any, failure error) (prepared types.MessageToolResult, answered bool, err error)
-```
-
-SettleClientTool answers the deferred client tool call callID, as SendToolResult does \(SendToolResultMultimodal for a non\-empty \[\]types.ContentPart result, FailClientTool when failure is not nil, with result as the partial output\), and prepares now, on ctx, the tool result Resume will give the model for it: checked against the tool's output schema when it sets validate\_output, admitted under ToolPolicy.MaxCallsPerMinute and the tool registry's rate limit, and passed through the ToolResultRewriter hooks, then capped at the registry's result size limit. It returns that result, which Resume and Continue give the model as it is. If the turn is abandoned instead \(Send starts a new one\), the answer is discarded and its admissions taken back.
-
-Use it to report an answer before the turn resumes with the content the model will see, as the AG\-UI adapter does for an answer its ToolResultProvider gives while other calls are still pending.
-
-It runs as a turn of the conversation, as Resume does: it waits for a turn in progress, and no other answer can be recorded for the call while it prepares this one. A call that already has an answer, recorded with this method or any other, is not answered again: answered is false, the result is the zero value, and nothing is checked, admitted or rewritten. A call the conversation is not waiting on is refused with ErrToolCallNotAwaited, as SendToolResult refuses it.
-
-<a name="Conversation.SettleClientToolRejection"></a>
-### func \(\*Conversation\) [SettleClientToolRejection](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/settle_client_tool.go#L66-L68>)
-
-```go
-func (c *Conversation) SettleClientToolRejection(ctx context.Context, callID, reason string) (prepared types.MessageToolResult, answered bool, err error)
-```
-
-SettleClientToolRejection is SettleClientTool for a rejection, as RejectClientTool records it: the result it returns is the rejection the model is given, in the words of the tool's decline strategy.
 
 <a name="Conversation.Start"></a>
 ### func \(\*Conversation\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L109>)

@@ -39,7 +39,7 @@ func TestSettleClientTool_PreparesTheResultResumeGives(t *testing.T) {
 	conv, id := suspendOnClientSend(t, 2, WithToolHook(rw))
 	ctx := context.Background()
 
-	prepared, answered, err := conv.SettleClientTool(ctx, id, "ok", nil)
+	prepared, answered, err := conv.settleClientTool(ctx, id, "ok", nil)
 	require.NoError(t, err)
 	require.True(t, answered)
 	assert.Equal(t, `<redacted:"ok">`, prepared.GetTextContent())
@@ -63,7 +63,7 @@ func TestSettleClientTool_IgnoresASecondAnswer(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, conv.SendToolResult(ctx, id, "first"))
 
-	prepared, answered, err := conv.SettleClientTool(ctx, id, "second", nil)
+	prepared, answered, err := conv.settleClientTool(ctx, id, "second", nil)
 	require.NoError(t, err)
 	assert.False(t, answered)
 	assert.Equal(t, types.MessageToolResult{}, prepared)
@@ -78,7 +78,7 @@ func TestSettleClientTool_IgnoresASecondAnswer(t *testing.T) {
 // rewritten, then the error.
 func TestSettleClientTool_PreparesAFailure(t *testing.T) {
 	conv, id := suspendOnClientSend(t, 0, WithToolHook(&wrappingRewriter{}))
-	prepared, answered, err := conv.SettleClientTool(context.Background(), id,
+	prepared, answered, err := conv.settleClientTool(context.Background(), id,
 		map[string]any{"rows": 3}, errors.New("disk full"))
 	require.NoError(t, err)
 	require.True(t, answered)
@@ -89,17 +89,17 @@ func TestSettleClientTool_PreparesAFailure(t *testing.T) {
 // A call the turn is not waiting on is refused, as SendToolResult refuses it.
 func TestSettleClientTool_RefusesACallNotAwaited(t *testing.T) {
 	conv, _ := suspendOnClientSend(t, 0)
-	_, answered, err := conv.SettleClientTool(context.Background(), "nope", "x", nil)
+	_, answered, err := conv.settleClientTool(context.Background(), "nope", "x", nil)
 	assert.ErrorIs(t, err, ErrToolCallNotAwaited)
 	assert.False(t, answered)
 }
 
-// HasToolResultRewriters reports a tool hook that rewrites results.
+// hasToolResultRewriters reports a tool hook that rewrites results.
 func TestHasToolResultRewriters(t *testing.T) {
 	with, _ := suspendOnClientSend(t, 0, WithToolHook(&wrappingRewriter{}))
 	without, _ := suspendOnClientSend(t, 0)
-	assert.True(t, with.HasToolResultRewriters())
-	assert.False(t, without.HasToolResultRewriters())
+	assert.True(t, with.hasToolResultRewriters())
+	assert.False(t, without.hasToolResultRewriters())
 }
 
 // A prepared result whose answer Resume drops unused (a second answer to its
@@ -154,7 +154,7 @@ func TestSettleClientTool_AnotherAnswerDuringASettleIsASecondAnswer(t *testing.T
 
 	settled := make(chan types.MessageToolResult, 1)
 	go func() {
-		prepared, answered, err := conv.SettleClientTool(ctx, id, "settled", nil)
+		prepared, answered, err := conv.settleClientTool(ctx, id, "settled", nil)
 		assert.NoError(t, err)
 		assert.True(t, answered)
 		settled <- prepared
@@ -210,7 +210,7 @@ func TestSettleClientTool_RewriterMayRecordAnotherAnswer(t *testing.T) {
 
 	done := make(chan bool, 1)
 	go func() {
-		_, answered, settleErr := conv.SettleClientTool(ctx, first, "settled", nil)
+		_, answered, settleErr := conv.settleClientTool(ctx, first, "settled", nil)
 		assert.NoError(t, settleErr)
 		done <- answered
 	}()
@@ -246,7 +246,7 @@ func TestSettleClientTool_AnswersACallIDALaterTurnReuses(t *testing.T) {
 	for i, answer := range []string{"first", "second"} {
 		_, err = conv.Send(ctx, "send")
 		require.NoError(t, err)
-		prepared, answered, err := conv.SettleClientTool(ctx, "call_0", answer, nil)
+		prepared, answered, err := conv.settleClientTool(ctx, "call_0", answer, nil)
 		require.NoError(t, err)
 		require.True(t, answered, "turn %d's call is answered", i+1)
 		assert.Equal(t, `<redacted:"`+answer+`">`, prepared.GetTextContent())
@@ -261,7 +261,7 @@ func TestSettleClientTool_AnswersACallIDALaterTurnReuses(t *testing.T) {
 func TestSettleClientTool_AbandonedAnswerGivesBackItsAdmission(t *testing.T) {
 	conv, id := suspendOnClientSend(t, 1, sendMessageRegistry(t, 1))
 	ctx := context.Background()
-	_, answered, err := conv.SettleClientTool(ctx, id, "sent", nil)
+	_, answered, err := conv.settleClientTool(ctx, id, "sent", nil)
 	require.NoError(t, err)
 	require.True(t, answered)
 	require.False(t, roomFor(conv, 1), "the settled answer took the calls-per-minute slot")
@@ -284,13 +284,13 @@ func TestSettleClientToolRejection_IsTheRejectionTheModelIsGiven(t *testing.T) {
 	desc.ClientConfig = &tools.ClientConfig{Consent: &tools.ConsentConfig{DeclineStrategy: tools.DeclineStrategyRetry}}
 	ctx := context.Background()
 
-	prepared, answered, err := conv.SettleClientToolRejection(ctx, id, "not now")
+	prepared, answered, err := conv.settleClientToolRejection(ctx, id, "not now")
 	require.NoError(t, err)
 	require.True(t, answered)
 	assert.Equal(t,
 		"Tool send_message denied: user declined consent. Try a different approach. Reason: not now",
 		prepared.GetTextContent())
-	_, answered, err = conv.SettleClientTool(ctx, id, "sent", nil)
+	_, answered, err = conv.settleClientTool(ctx, id, "sent", nil)
 	require.NoError(t, err)
 	assert.False(t, answered, "the call has its answer")
 
@@ -322,7 +322,7 @@ func TestSettleClientTool_ClientAndModelGetTheSameText(t *testing.T) {
 				}
 				conv, id := suspendOnClientSend(t, 0, WithToolHook(rw), limitedTools(t, limit, "send_message"))
 				ctx := context.Background()
-				prepared, answered, err := conv.SettleClientTool(ctx, id, tc.answer, nil)
+				prepared, answered, err := conv.settleClientTool(ctx, id, tc.answer, nil)
 				require.NoError(t, err)
 				require.True(t, answered)
 				assert.Equal(t, tc.want, prepared.GetTextContent())
@@ -366,7 +366,7 @@ func TestSettleClientTool_IgnoresACallTheHistoryAnswers(t *testing.T) {
 	require.True(t, resp.HasPendingClientTools())
 	ran := len(rw.requests()) // the server tool's result, rewritten in the turn
 
-	_, answered, err := conv.SettleClientTool(ctx, "c-srv", "again", nil)
+	_, answered, err := conv.settleClientTool(ctx, "c-srv", "again", nil)
 	require.NoError(t, err)
 	assert.False(t, answered, "the history answers c-srv")
 	assert.Len(t, rw.requests(), ran, "nothing more is rewritten")
@@ -392,7 +392,7 @@ func TestSettleClientTool_PanickingRewriterFreesTheCall(t *testing.T) {
 	ctx := context.Background()
 	func() {
 		defer func() { assert.Equal(t, "rewriter blew up", recover()) }()
-		_, _, _ = conv.SettleClientTool(ctx, id, "first", nil)
+		_, _, _ = conv.settleClientTool(ctx, id, "first", nil)
 	}()
 
 	require.NoError(t, conv.SendToolResult(ctx, id, "after"))
@@ -408,14 +408,14 @@ func TestSettleClientTool_PanickingRewriterFreesTheCall(t *testing.T) {
 func TestSettleClientTool_FailingRewriterFreesTheCall(t *testing.T) {
 	conv, id := suspendOnClientSend(t, 0, WithToolHook(&wrappingRewriter{err: errors.New("redactor offline")}))
 	ctx := context.Background()
-	prepared, answered, err := conv.SettleClientTool(ctx, id, "first", nil)
+	prepared, answered, err := conv.settleClientTool(ctx, id, "first", nil)
 	require.NoError(t, err)
 	require.True(t, answered)
 	assert.NotEmpty(t, prepared.Error)
 	conv.settleMu.Lock()
 	assert.Empty(t, conv.settling, "the claim is freed")
 	conv.settleMu.Unlock()
-	_, answered, err = conv.SettleClientTool(ctx, id, "again", nil)
+	_, answered, err = conv.settleClientTool(ctx, id, "again", nil)
 	require.NoError(t, err)
 	assert.False(t, answered, "the call has its answer")
 

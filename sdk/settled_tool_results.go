@@ -33,7 +33,7 @@ type toolResultMessageSubmitter interface {
 // model for res: the rejection, the error, or the result as modelResult
 // prepares it. The result names the tool it answers, as an in-turn result
 // does: a provider can match a result to its call by name (Gemini's
-// functionResponse carries only the name). A result SettleClientTool prepared
+// functionResponse carries only the name). A result settleClientTool prepared
 // is given as it was prepared: its text is what the client was shown.
 func (c *Conversation) continuedResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,
@@ -94,7 +94,7 @@ func failedResult(call types.MessageToolCall, res *sdktools.ToolResolution) type
 // truncated (it is also the AG-UI TOOL_CALL_RESULT), passed through the
 // conversation's ToolResultRewriter hooks. It names the tool of the call the
 // answer settles (callFor). An approved call's result is given as Continue
-// gives it (continuedResult), and one SettleClientTool prepared as it was
+// gives it (continuedResult), and one settleClientTool prepared as it was
 // prepared, as Resume gives any answer.
 func (c *Conversation) resumeResult(
 	ctx context.Context, calls func() map[string]types.MessageToolCall, res *sdktools.ToolResolution,

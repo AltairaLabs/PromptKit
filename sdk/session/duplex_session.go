@@ -226,7 +226,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		pipeline:          builtPipeline,
 		provider:          cfg.Provider,
 		streamConfig:      cfg.Config,
-		pipelineRunsTools: cfg.PipelineRunsTools,
+		pipelineRunsTools: cfg.pipelineRunsTools,
 		toolRegistry:      cfg.ToolRegistry,
 		asyncToolChecker:  cfg.AsyncToolChecker,
 		caller:            cfg.Caller,
@@ -509,7 +509,7 @@ func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.Str
 
 // handleToolCalls handles an assistant turn that made tool calls.
 //
-//   - The pipeline runs the calls (PipelineRunsTools): its DuplexProviderStage
+//   - The pipeline runs the calls (pipelineRunsTools): its DuplexProviderStage
 //     answers them and surfaces those held for approval on an element of their
 //     own, so the turn is not passed on and nothing runs here.
 //   - The pipeline does not, and the session has a registry: the session runs
@@ -1027,7 +1027,7 @@ func (s *duplexSession) ForkSession(
 		// the fork's config is its own.
 		Config:            copyStreamConfig(s.streamConfig),
 		ToolRegistry:      s.toolRegistry,
-		PipelineRunsTools: s.pipelineRunsTools,
+		pipelineRunsTools: s.pipelineRunsTools,
 		AsyncToolChecker:  s.asyncToolChecker,
 		Caller:            s.caller,
 		Variables:         forkVars,

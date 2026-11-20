@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/duplexcfg"
+
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
@@ -977,7 +979,7 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 	// context, tool calls included (a realtime session's run in the pipeline),
 	// so that context carries the conversation's capability state: the active
 	// skills a skill__activate grants tools through, and the memory scope.
-	duplexSession, err := session.NewDuplexSession(conv.withConversationState(ctx), &session.DuplexSessionConfig{
+	sessionCfg := &session.DuplexSessionConfig{
 		ConversationID:  conversationID,
 		UserID:          cfg.userID,
 		StateStore:      store,
@@ -985,13 +987,14 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Provider:        conv.callProvider(),
 		Config:          streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:    conv.toolRegistry,
-		// The pipeline's DuplexProviderStage runs the session's tool calls
-		// (realtime), or its ProviderStage does (VAD): never the session.
-		PipelineRunsTools: true,
-		Caller:            cfg.caller,
-		Metadata:          cfg.sessionMetadata,
-		Variables:         initialVars,
-	})
+		Caller:          cfg.caller,
+		Metadata:        cfg.sessionMetadata,
+		Variables:       initialVars,
+	}
+	// The pipeline's DuplexProviderStage runs the session's tool calls
+	// (realtime), or its ProviderStage does (VAD): never the session.
+	duplexcfg.RunToolsInPipeline(sessionCfg)
+	duplexSession, err := session.NewDuplexSession(conv.withConversationState(ctx), sessionCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)
 	}

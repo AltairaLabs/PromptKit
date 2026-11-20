@@ -144,7 +144,7 @@ func TestDuplexSession_RecordsEveryCallTheLatestUnderAnID(t *testing.T) {
 		Provider:          mock.NewProvider("mock", "mock-model", false),
 		PipelineBuilder:   builder,
 		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		pipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()
@@ -230,7 +230,7 @@ func TestDuplexSession_ReusedIDWhileTheFirstIsHeld(t *testing.T) {
 		Provider:          mock.NewProvider("mock", "mock-model", false),
 		PipelineBuilder:   builder,
 		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		pipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()
@@ -292,7 +292,7 @@ func TestDuplexSession_RecordsACallHeldAlongsideAnError(t *testing.T) {
 		Provider:          mock.NewProvider("mock", "mock-model", false),
 		PipelineBuilder:   builder,
 		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		pipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()
@@ -366,7 +366,7 @@ func TestDuplexSession_UnheldCallAnsweredByIDIsNamed(t *testing.T) {
 		Provider:          mock.NewProvider("mock", "mock-model", false),
 		PipelineBuilder:   builder,
 		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		pipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()

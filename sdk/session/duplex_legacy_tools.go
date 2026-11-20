@@ -1,12 +1,12 @@
 package session
 
 // This file is the tool execution of a duplex session whose pipeline does not
-// run tool calls (DuplexSessionConfig.PipelineRunsTools unset): a host that
+// run tool calls (DuplexSessionConfig.pipelineRunsTools unset): a host that
 // builds its own pipeline, with a DuplexProviderStage that was not given
 // SetToolExecution, and passes the session a ToolRegistry. The session runs
 // those calls itself, gated by DuplexSessionConfig.AsyncToolChecker, as every
 // duplex session did before the provider stage could. The SDK's own sessions
-// set PipelineRunsTools and never reach this code: their pipeline runs the
+// set pipelineRunsTools and never reach this code: their pipeline runs the
 // calls under the conversation's tool policy, hooks and approval gate.
 
 import (

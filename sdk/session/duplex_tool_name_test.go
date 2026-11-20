@@ -86,7 +86,7 @@ func TestDuplexSession_SubmittedToolResultsCarryTheCallName(t *testing.T) {
 		Provider:          mock.NewProvider("mock", "mock-model", false),
 		PipelineBuilder:   builder,
 		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		pipelineRunsTools: true,
 	})
 	require.NoError(t, err)
 	defer sess.Close()

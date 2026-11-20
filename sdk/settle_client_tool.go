@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/clienttool"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	sdktools "github.com/AltairaLabs/PromptKit/sdk/v2/tools"
 )
 
-// preparedAnswer is an answer SettleClientTool prepared: the tool result it
+// preparedAnswer is an answer settleClientTool prepared: the tool result it
 // gives the model, rewritten, and release, which takes back the admissions
 // the answer took when it is discarded unused (nil when it took none).
 type preparedAnswer struct {
@@ -18,13 +20,46 @@ type preparedAnswer struct {
 	release func()
 }
 
-// HasToolResultRewriters reports whether the conversation has a tool hook
+// The AG-UI adapter settles answers through clienttool.SettlerOf, which keeps
+// these methods off the Conversation's public API.
+//
+//nolint:gochecknoinits // registration is how the internal package reaches the SDK's settler.
+func init() {
+	clienttool.Register(func(conv any) clienttool.Settler {
+		if c, ok := conv.(*Conversation); ok && c != nil {
+			return clientToolSettler{c}
+		}
+		return nil
+	})
+}
+
+// clientToolSettler is a conversation's clienttool.Settler.
+type clientToolSettler struct{ c *Conversation }
+
+// HasToolResultRewriters is the conversation's hasToolResultRewriters.
+func (s clientToolSettler) HasToolResultRewriters() bool { return s.c.hasToolResultRewriters() }
+
+// SettleClientTool is the conversation's settleClientTool.
+func (s clientToolSettler) SettleClientTool(
+	ctx context.Context, callID string, result any, failure error,
+) (types.MessageToolResult, bool, error) {
+	return s.c.settleClientTool(ctx, callID, result, failure)
+}
+
+// SettleClientToolRejection is the conversation's settleClientToolRejection.
+func (s clientToolSettler) SettleClientToolRejection(
+	ctx context.Context, callID, reason string,
+) (types.MessageToolResult, bool, error) {
+	return s.c.settleClientToolRejection(ctx, callID, reason)
+}
+
+// hasToolResultRewriters reports whether the conversation has a tool hook
 // that rewrites tool results (hooks.ToolResultRewriter, see WithToolHook).
-func (c *Conversation) HasToolResultRewriters() bool {
+func (c *Conversation) hasToolResultRewriters() bool {
 	return c.hookRegistry.HasToolResultRewriters()
 }
 
-// SettleClientTool answers the deferred client tool call callID, as
+// settleClientTool answers the deferred client tool call callID, as
 // SendToolResult does (SendToolResultMultimodal for a non-empty
 // []types.ContentPart result, FailClientTool when failure is not nil, with
 // result as the partial output), and prepares now, on ctx, the tool result
@@ -35,9 +70,9 @@ func (c *Conversation) HasToolResultRewriters() bool {
 // It returns that result, which Resume and Continue give the model as it is. If the turn is abandoned instead (Send
 // starts a new one), the answer is discarded and its admissions taken back.
 //
-// Use it to report an answer before the turn resumes with the content the
-// model will see, as the AG-UI adapter does for an answer its
-// ToolResultProvider gives while other calls are still pending.
+// The AG-UI adapter uses it to report an answer before the turn resumes with
+// the content the model will see, for an answer its ToolResultProvider gives
+// while other calls are still pending.
 //
 // It runs as a turn of the conversation, as Resume does: it waits for a turn
 // in progress, and no other answer can be recorded for the call while it
@@ -46,7 +81,7 @@ func (c *Conversation) HasToolResultRewriters() bool {
 // is the zero value, and nothing is checked, admitted or rewritten. A call
 // the conversation is not waiting on is refused with ErrToolCallNotAwaited,
 // as SendToolResult refuses it.
-func (c *Conversation) SettleClientTool(
+func (c *Conversation) settleClientTool(
 	ctx context.Context, callID string, result any, failure error,
 ) (prepared types.MessageToolResult, answered bool, err error) {
 	var parts []types.ContentPart
@@ -60,17 +95,17 @@ func (c *Conversation) SettleClientTool(
 	return c.settle(ctx, res)
 }
 
-// SettleClientToolRejection is SettleClientTool for a rejection, as
+// settleClientToolRejection is settleClientTool for a rejection, as
 // RejectClientTool records it: the result it returns is the rejection the
 // model is given, in the words of the tool's decline strategy.
-func (c *Conversation) SettleClientToolRejection(
+func (c *Conversation) settleClientToolRejection(
 	ctx context.Context, callID, reason string,
 ) (prepared types.MessageToolResult, answered bool, err error) {
 	return c.settle(ctx, &sdktools.ToolResolution{ID: callID, Rejected: true, RejectionReason: reason})
 }
 
 // settle records res and prepares the result Resume gives the model for it
-// (SettleClientTool).
+// (settleClientTool).
 func (c *Conversation) settle(
 	ctx context.Context, res *sdktools.ToolResolution,
 ) (types.MessageToolResult, bool, error) {
@@ -222,14 +257,14 @@ func answeredInHistory(history []types.Message, callID string) bool {
 	return false
 }
 
-// isPrepared reports whether SettleClientTool prepared res's result: it was
+// isPrepared reports whether settleClientTool prepared res's result: it was
 // checked and admitted then.
 func (c *Conversation) isPrepared(res *sdktools.ToolResolution) bool {
 	_, ok := c.preparedResult(res)
 	return ok
 }
 
-// preparedResult is the result SettleClientTool prepared for res, if any.
+// preparedResult is the result settleClientTool prepared for res, if any.
 func (c *Conversation) preparedResult(res *sdktools.ToolResolution) (types.MessageToolResult, bool) {
 	c.settledMu.Lock()
 	defer c.settledMu.Unlock()
