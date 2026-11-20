@@ -215,11 +215,50 @@ func (m *Provider) handleStreamRequest(
 		parts = turn.ToContentParts()
 	}
 
+	scripted := len(turn.StreamChunks) > 0
+	if scripted {
+		responseText = turn.streamedText()
+	}
+
 	inputTokens := m.calculateInputTokens(req.Messages)
 	outputTokens := m.calculateOutputTokens(responseText)
 
 	chunk := m.createStreamChunk(responseText, parts, inputTokens, outputTokens)
+	if scripted {
+		// The text went out in the scripted chunks: the final chunk carries
+		// only the finish reason and the usage.
+		deltas := streamDeltas(turn, responseText)
+		for i := range deltas {
+			outChan <- deltas[i]
+		}
+		chunk.Delta = ""
+	}
 	outChan <- chunk
+}
+
+// mockStreamChunkSize is how many bytes of a reply each simulated stream chunk
+// carries when the turn does not script its chunks.
+const mockStreamChunkSize = 20
+
+// streamDeltas splits a streamed reply into text chunks, each carrying its
+// Delta and the reply so far as Content: turn's StreamChunks when it scripts
+// them, else mockStreamChunkSize bytes at a time.
+func streamDeltas(turn *Turn, content string) []providers.StreamChunk {
+	deltas := []string(nil)
+	if turn != nil && len(turn.StreamChunks) > 0 {
+		deltas = turn.StreamChunks
+	} else {
+		for i := 0; i < len(content); i += mockStreamChunkSize {
+			deltas = append(deltas, content[i:min(i+mockStreamChunkSize, len(content))])
+		}
+	}
+	chunks := make([]providers.StreamChunk, 0, len(deltas))
+	sofar := ""
+	for _, d := range deltas {
+		sofar += d
+		chunks = append(chunks, providers.StreamChunk{Delta: d, Content: sofar})
+	}
+	return chunks
 }
 
 // buildResponseParams creates parameters for the mock response

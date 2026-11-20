@@ -94,6 +94,9 @@ type ProviderStage struct {
 	// turn ending with the origin state still in control. Nil for
 	// non-workflow runs. See state_handoff.go.
 	stateResolver WorkflowStateResolver
+	// cutUsageWait overrides how long a round an output guardrail cut waits
+	// for its stream's usage (awaitCutUsage); zero is the default.
+	cutUsageWait time.Duration
 	// offers is the stage's offer state: the tool names handed to the provider
 	// across this turn's rounds, stamped onto each assistant message and reset
 	// per turn by newToolLoop (see toolRunner.resetOffered), and the
@@ -2515,6 +2518,13 @@ func completeToolCalls(calls []types.MessageToolCall) []types.MessageToolCall {
 // processStreamChunks processes streaming chunks and emits elements to output.
 // It returns the round's accumulated output and any error. When it returns an
 // error, the round still holds everything received before the failure.
+//
+// A chunk reaches output only after the chunk interceptors (the streaming
+// output guardrails) have passed it, and without the tail they hold back
+// (hooks.Decision.Hold): text that could be the start of something they block.
+// A chunk they block is never emitted; the text that replaces the reply is
+// emitted in its place (emitCutText). A stream they cut is still read until
+// its usage arrives (awaitCutUsage), so the call reports what it cost.
 func (s *ProviderStage) processStreamChunks(
 	ctx context.Context,
 	streamChan <-chan providers.StreamChunk,
@@ -2523,13 +2533,14 @@ func (s *ProviderStage) processStreamChunks(
 	suppressText bool,
 ) (streamedRound, error) {
 	var acc streamAccumulator
+	var text heldText
 
 	// Every return before the provider closes the channel — a canceled emit,
 	// a guardrail abort or enforcement — leaves the provider (and the relay in
 	// front of it) blocked sending its remaining chunks, often a terminal
 	// error chunk. Drain what is left so those goroutines finish and release
 	// the response body and stream slot.
-	drained, stoppedEarly := false, false
+	drained := false
 	defer drainIfAbandoned(streamChan, &drained)
 
 	for chunk := range streamChan {
@@ -2541,6 +2552,7 @@ func (s *ProviderStage) processStreamChunks(
 		// failed attempt and the retry.
 		if chunk.Reset {
 			acc.reset()
+			text.reset()
 			continue
 		}
 
@@ -2550,26 +2562,131 @@ func (s *ProviderStage) processStreamChunks(
 		}
 
 		acc.absorb(&chunk)
+		text.add(chunk.Delta)
 
-		if err := s.emitChunkElement(ctx, &chunk, output, rr, suppressText); err != nil {
-			return acc.collected(), err
-		}
-
-		// Run chunk interceptor hooks
-		stop, abortErr := s.interceptChunk(ctx, &chunk, &acc)
+		// Run chunk interceptor hooks before anything of the chunk is emitted.
+		hold, stop, abortErr := s.interceptChunk(ctx, &chunk, &acc)
 		if abortErr != nil {
 			// An empty round: a guardrail blocked this output, so none of
 			// it may be kept as an interrupted message.
 			return streamedRound{}, abortErr
 		}
 		if stop {
-			stoppedEarly = true
-			break
+			if err := s.emitCutText(ctx, &acc, &text, output, suppressText); err != nil {
+				return acc.collected(), err
+			}
+			drained = s.awaitCutUsage(ctx, streamChan, &acc)
+			return acc.collected(), nil
+		}
+
+		if err := s.emitChunkElement(ctx, &chunk, text.release(hold), output, rr, suppressText); err != nil {
+			return acc.collected(), err
 		}
 	}
-	drained = !stoppedEarly // the range ended because the provider closed the channel
+	drained = true // the range ended because the provider closed the channel
+
+	// The reply has ended, so nothing can complete what is still held.
+	if rest := text.release(0); rest != "" && !suppressText {
+		var finish *string
+		if acc.finishReason != "" {
+			finish = &acc.finishReason
+		}
+		if err := sendStreamElement(ctx, textDeltaElement(rest, finish), output); err != nil {
+			return acc.collected(), err
+		}
+	}
 
 	return acc.collected(), canceledBeforeFinish(ctx, acc.finishReason)
+}
+
+// heldText is the reply text a streaming round has received but not yet
+// emitted: the chunk interceptors have not cleared it (hooks.Decision.Hold).
+type heldText struct {
+	sent    strings.Builder // emitted so far
+	pending string          // received, not yet emitted
+}
+
+func (h *heldText) add(delta string) { h.pending += delta }
+
+// release returns the pending text except its last hold bytes, now cleared
+// for the caller, and records it as sent.
+func (h *heldText) release(hold int) string {
+	n := max(len(h.pending)-hold, 0)
+	out := h.pending[:n]
+	h.pending = h.pending[n:]
+	h.sent.WriteString(out)
+	return out
+}
+
+func (h *heldText) reset() {
+	h.sent.Reset()
+	h.pending = ""
+}
+
+// emitCutText emits the text of a reply an enforcing chunk interceptor cut,
+// in place of the chunk it blocked: the guardrail's message when it replaced
+// the reply, or what the caller has not yet had of a truncated one. The
+// element carries types.FinishReasonSafety like a blocked turn's
+// (emitBlockedTurnText), and is a delta, so a speech-out stage speaks the
+// completed Message, once. Text already released before the cut (clean text
+// before the blocked content) stays with the caller.
+func (s *ProviderStage) emitCutText(
+	ctx context.Context, acc *streamAccumulator, text *heldText, output chan<- StreamElement, suppressText bool,
+) error {
+	cut := acc.content
+	if !acc.replaced {
+		// A truncation keeps the model's own text: send what follows what
+		// was already sent.
+		rest, ok := strings.CutPrefix(cut, text.sent.String())
+		if !ok {
+			return nil
+		}
+		cut = rest
+	}
+	if cut == "" || suppressText {
+		return nil
+	}
+	fr := types.FinishReasonSafety
+	return sendStreamElement(ctx, textDeltaElement(cut, &fr), output)
+}
+
+// cutUsageWait bounds how long a round an output guardrail cut keeps reading
+// its stream for the usage the provider sends at its end (awaitCutUsage).
+const cutUsageWait = 30 * time.Second
+
+// awaitCutUsage reads the rest of a stream an output guardrail cut, discarding
+// its content, until the usage arrives (OpenAI, Claude and Gemini all send it
+// on the stream's last chunk), the stream ends, or cutUsageWait passes. The
+// provider generated and billed the whole reply, so without this the call
+// reports no cost. It reports whether the stream was read to its end.
+func (s *ProviderStage) awaitCutUsage(
+	ctx context.Context, streamChan <-chan providers.StreamChunk, acc *streamAccumulator,
+) (drained bool) {
+	wait := s.cutUsageWait
+	if wait <= 0 {
+		wait = cutUsageWait
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	for {
+		select {
+		case chunk, ok := <-streamChan:
+			if !ok {
+				return true
+			}
+			ResetIdleFromContext(ctx)
+			if chunk.CostInfo != nil {
+				acc.costInfo = chunk.CostInfo
+				return false
+			}
+		case <-timer.C:
+			logger.Warn("output guardrail cut a stream whose usage did not arrive; its cost is not recorded",
+				"wait", wait)
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
 // streamAccumulator gathers a streaming round's output across chunks.
@@ -2629,19 +2746,21 @@ func (a *streamAccumulator) collected() streamedRound {
 	return r
 }
 
-// interceptChunk runs the chunk interceptor hooks on one chunk. stop reports
-// an enforcing hook (e.g., truncated content): the modified chunk content is
-// kept and the stream must stop being read. A non-nil error is the
-// ValidationAbortError for a hook that blocked the output outright.
+// interceptChunk runs the chunk interceptor hooks on one chunk. hold is how
+// many bytes at the end of the reply so far they have not cleared
+// (hooks.Decision.Hold). stop reports an enforcing hook (e.g., truncated
+// content): the modified chunk content is kept and the stream must stop being
+// read. A non-nil error is the ValidationAbortError for a hook that blocked
+// the output outright.
 func (s *ProviderStage) interceptChunk(
 	ctx context.Context, chunk *providers.StreamChunk, acc *streamAccumulator,
-) (stop bool, err error) {
+) (hold int, stop bool, err error) {
 	if s.hookRegistry == nil || !s.hookRegistry.HasChunkInterceptors() {
-		return false, nil
+		return 0, false, nil
 	}
 	d := s.hookRegistry.RunOnChunkRequest(ctx, hooks.ChunkRequest{Chunk: chunk, Caller: s.config.Caller})
 	if d.Allow {
-		return false, nil
+		return d.Hold, false, nil
 	}
 	// A replacement (not a prefix of what the model said) is the guardrail's
 	// own text, which the completed-reply checks do not judge again, and the
@@ -2672,9 +2791,9 @@ func (s *ProviderStage) interceptChunk(
 		// one: the provider's own reason describes a reply that was replaced.
 		acc.content = chunk.Content
 		acc.finishReason = types.FinishReasonSafety
-		return true, nil
+		return 0, true, nil
 	}
-	return false, &providers.ValidationAbortError{
+	return 0, false, &providers.ValidationAbortError{
 		Reason: d.Reason,
 		Chunk:  *chunk,
 	}
@@ -2706,9 +2825,10 @@ func drainIfAbandoned(streamChan <-chan providers.StreamChunk, drained *bool) {
 	}()
 }
 
-// textDeltaElement builds the text element for a chunk's Delta.
-func textDeltaElement(chunk *providers.StreamChunk) StreamElement {
-	elem := NewTextElement(chunk.Delta)
+// textDeltaElement builds a text delta element carrying text, ending the
+// reply with finishReason when it is set.
+func textDeltaElement(text string, finishReason *string) StreamElement {
+	elem := NewTextElement(text)
 	elem.Timestamp = timeNow()
 	elem.Priority = PriorityNormal
 
@@ -2716,19 +2836,21 @@ func textDeltaElement(chunk *providers.StreamChunk) StreamElement {
 	// the complete assistant Message instead of each fragment (see
 	// ElementMetadata.StreamingDelta).
 	elem.Meta.StreamingDelta = true
-	elem.Meta.TokenCount = chunk.TokenCount
-	if chunk.FinishReason != nil {
-		fr := *chunk.FinishReason
+	if finishReason != nil {
+		fr := *finishReason
 		elem.Meta.FinishReason = &fr
 	}
 	return elem
 }
 
 // emitChunkElement creates and emits streaming element(s) for a chunk.
-// Handles both text (Delta) and media (MediaData) content.
+// Handles both text and media (MediaData) content. text is the reply text the
+// chunk releases to the caller: its Delta, less any the chunk interceptors
+// hold back, plus any they held from earlier chunks and have now cleared.
 func (s *ProviderStage) emitChunkElement(
 	ctx context.Context,
 	chunk *providers.StreamChunk,
+	text string,
 	output chan<- StreamElement,
 	rr roundRef,
 	suppressText bool,
@@ -2763,8 +2885,10 @@ func (s *ProviderStage) emitChunkElement(
 	// Reasoning deltas above are deliberately NOT suppressed. They are a
 	// separate, non-content channel that a UI renders as thinking, and they
 	// never form part of the schema-constrained answer.
-	if chunk.Delta != "" && !suppressText {
-		if err := sendStreamElement(ctx, textDeltaElement(chunk), output); err != nil {
+	if text != "" && !suppressText {
+		elem := textDeltaElement(text, chunk.FinishReason)
+		elem.Meta.TokenCount = chunk.TokenCount
+		if err := sendStreamElement(ctx, elem, output); err != nil {
 			return err
 		}
 	}

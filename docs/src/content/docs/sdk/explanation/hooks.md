@@ -101,7 +101,7 @@ Four consequences that a flat list hides:
 - `BeforeCall` and `AfterCall` fire once per round, not once per turn. A turn that uses tools runs several rounds, so a hook doing expensive or billable work must decide whether it wants per-round or per-turn semantics. Built-in input guardrails evaluate only when the last message is a user message, because later rounds end in a tool result.
 - A turn can involve more than one provider. Each composition step builds its own provider stage with its own round loop, and shares the same hook registry.
 - Retries happen below the hook boundary. One round is one `BeforeCall`/`AfterCall` pair even if the transport retried the HTTP request several times. Hooks never see retries.
-- On the streaming path, `OnChunk` fires before `provider.call.completed`. Chunks are consumed as they arrive, and the completion event carries the totals (tokens, cost, finish reason) that are known only once the stream closes. A chunk interceptor that aborts a stream runs before any completion event for that call.
+- On the streaming path, `OnChunk` fires before `provider.call.completed`. Chunks are consumed as they arrive, and the completion event carries the totals (tokens, cost, finish reason) that are known only once the stream closes. A chunk interceptor that aborts a stream runs before any completion event for that call. When an interceptor enforces (a guardrail cuts the reply), the provider stage keeps reading the rest of the stream, discarding it, until the provider's usage arrives, so the completion event reports what the call cost. It waits at most 30 seconds.
 
 Within a single phase, multiple hooks run in registration order. For decision-based hooks the first non-`Allow` decision short-circuits. Every session hook for the event runs, and the registry logs each failure. For eval hooks every registered hook always runs, and a panic in one does not block the others.
 
@@ -173,7 +173,9 @@ sdk.WithGuardrail(
 sdk.WithProviderHook(customExpensiveHook),                               // slow
 ```
 
-Prefer streaming guardrails when latency matters. A `ChunkInterceptor` can abort a streaming response mid-flight, saving generation cost when the model produces something you would reject anyway. Guardrails backed by a streamable eval handler do this: `length` (`max_length`) and `banned_words` (`content_excludes`). Guardrails such as `max_sentences` and `required_fields` need the full response and check it after the stream ends.
+Prefer streaming guardrails when latency matters. A `ChunkInterceptor` judges each streamed chunk before the caller gets it, so a reply it blocks never reaches the caller. Guardrails backed by a streamable eval handler do this: `length` (`max_length`) and `banned_words` (`content_excludes`). Guardrails such as `max_sentences` and `required_fields` need the full response and check it after the stream ends, when the caller has already received the reply's text.
+
+A chunk interceptor that allows a chunk can hold back its end with `Decision.Hold`: the number of bytes at the end of the reply so far that could still become content it blocks. `banned_words` holds the longest tail that starts a banned word, so "Say P" releases "Say " and holds "P" until the next chunk shows whether it spells the word. Held text is released when a later chunk rules the word out or the reply ends, and dropped when the word completes. A handler opts in by implementing `evals.PartialHolder`. When an interceptor enforces, the stage emits the guardrail's message, or the rest of a truncated reply, as the reply's last text delta. A cut does not stop the provider generating the reply, so it does not save generation cost.
 
 Keep hooks stateless when you can. Stateless hooks are safe under concurrent use across conversations.
 

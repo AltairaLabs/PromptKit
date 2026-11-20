@@ -195,7 +195,7 @@ func TestReasoningDelta_CarriesRoundAttribution(t *testing.T) {
 
 	out := make(chan StreamElement, 8)
 	chunk := &providers.StreamChunk{Reasoning: "weighing the options"}
-	require.NoError(t, stage.emitChunkElement(t.Context(), chunk, out,
+	require.NoError(t, stage.emitChunkElement(t.Context(), chunk, "", out,
 		roundRef{round: 3, providerCallID: "pc-zzz"}, false))
 
 	got := waitForEvents(t, snapshot, 1)

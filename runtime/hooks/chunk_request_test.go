@@ -66,3 +66,28 @@ func TestRegistry_RunOnChunk_GivesARequestInterceptorNoCaller(t *testing.T) {
 	assert.Equal(t, "tenant blocked", d.Reason)
 	assert.Equal(t, []types.Caller{{}}, withReq.callers)
 }
+
+// holdingChunkHook allows every chunk, holding back its last hold bytes.
+type holdingChunkHook struct {
+	plainChunkHook
+	hold int
+}
+
+func (h *holdingChunkHook) OnChunk(context.Context, *providers.StreamChunk) Decision {
+	return Decision{Allow: true, Hold: h.hold}
+}
+
+// The chunk is cleared only as far as every interceptor clears it: the
+// registry holds back the most any of them holds.
+func TestRegistry_RunOnChunk_HoldsTheMostAnyInterceptorHolds(t *testing.T) {
+	r := NewRegistry(
+		WithProviderHook(&holdingChunkHook{hold: 2}),
+		WithProviderHook(&holdingChunkHook{hold: 5}),
+		WithProviderHook(&holdingChunkHook{hold: 3}),
+	)
+
+	d := r.RunOnChunk(context.Background(), &providers.StreamChunk{Content: "hello pin"})
+
+	assert.True(t, d.Allow)
+	assert.Equal(t, 5, d.Hold)
+}

@@ -223,19 +223,23 @@ func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk)
 
 // RunOnChunkRequest executes all chunk interceptors in order: InterceptChunk
 // for one that implements ChunkRequestInterceptor, OnChunk otherwise. First
-// deny wins and short-circuits.
+// deny wins and short-circuits. When every interceptor allows the chunk, the
+// decision holds back the most any of them holds (Decision.Hold).
 func (r *Registry) RunOnChunkRequest(ctx context.Context, req ChunkRequest) Decision {
 	if r == nil {
 		return Allow
 	}
+	allow := Allow
 	for _, ci := range r.chunkInterceptors {
-		if d := ci.run(ctx, req); !d.Allow {
+		d := ci.run(ctx, req)
+		if !d.Allow {
 			logger.Warn("chunk interceptor denied",
 				"interceptor", fmt.Sprintf("%T", ci.hook), "reason", d.Reason)
 			return d
 		}
+		allow.Hold = max(allow.Hold, d.Hold)
 	}
-	return Allow
+	return allow
 }
 
 // --- Tool hooks ---

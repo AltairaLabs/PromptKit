@@ -451,14 +451,23 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 		// content blocker left the offending text in place and the caller
 		// received the very pattern it was configured to block (#1697).
 		//
-		// Deltas already emitted to a consumer cannot be recalled — that is
-		// inherent to streaming — but the accumulated content the stage keeps,
-		// which becomes the assistant message, is corrected here.
+		// The provider stage forwards a chunk only once this has passed it,
+		// and holds back the tail PartialHold names, so the caller has had
+		// none of the text this replaces.
 		chunk.Content = a.enforcedContent(chunk.Content, params, evals.ResultReplacement(result))
 		return a.enforced(result)
 	}
 
-	return hooks.Allow
+	return hooks.Decision{Allow: true, Hold: a.partialHold(chunk.Content, params)}
+}
+
+// partialHold is how much of the end of content the handler has not cleared
+// (evals.PartialHolder), or 0 for a handler that judges each chunk whole.
+func (a *GuardrailHookAdapter) partialHold(content string, params map[string]any) int {
+	if h, ok := a.handler.(evals.PartialHolder); ok {
+		return h.PartialHold(content, params)
+	}
+	return 0
 }
 
 // evalPartial runs the handler's streaming entry point on content, the one

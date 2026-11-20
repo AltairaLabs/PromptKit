@@ -5,12 +5,17 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 )
 
 // Compile-time interface check for streaming support.
-var _ evals.StreamableEvalHandler = (*ContentExcludesHandler)(nil)
+var (
+	_ evals.StreamableEvalHandler = (*ContentExcludesHandler)(nil)
+	_ evals.PartialHolder         = (*ContentExcludesHandler)(nil)
+)
 
 const (
 	matchModeSubstring    = "substring"
@@ -119,6 +124,60 @@ func (h *ContentExcludesHandler) EvalPartial(
 		Type:  h.Type(),
 		Score: boolScore(true),
 	}, nil
+}
+
+// PartialHold returns the length of the longest tail of content that is the
+// start of a forbidden pattern: text that completes the pattern if the next
+// chunk carries the rest of it. Matching follows EvalPartial (substring, and
+// case-insensitive unless case_sensitive is set), so a held tail is released
+// as soon as the content after it rules the pattern out.
+func (h *ContentExcludesHandler) PartialHold(content string, params map[string]any) int {
+	caseSensitive := extractBool(params, paramCaseSensitive)
+	hold := 0
+	for _, p := range extractStringSlice(params, "patterns") {
+		hold = max(hold, patternStartAtEnd(content, p, caseSensitive))
+	}
+	return hold
+}
+
+// patternStartAtEnd returns the byte length of the longest tail of content
+// that is a proper prefix of pattern, or 0. Tails start on a rune boundary and
+// are at most one rune shorter than the pattern: a tail as long as the pattern
+// would already be a match.
+func patternStartAtEnd(content, pattern string, caseSensitive bool) int {
+	start := len(content)
+	for range utf8.RuneCountInString(pattern) - 1 {
+		if start == 0 {
+			break
+		}
+		_, size := utf8.DecodeLastRuneInString(content[:start])
+		start -= size
+	}
+	for i := start; i < len(content); {
+		if isPrefixOf(content[i:], pattern, caseSensitive) {
+			return len(content) - i
+		}
+		_, size := utf8.DecodeRuneInString(content[i:])
+		i += size
+	}
+	return 0
+}
+
+// isPrefixOf reports whether s is a prefix of pattern, comparing rune by rune
+// in lower case unless caseSensitive (as containsInsensitive compares). s has
+// fewer runes than pattern (patternStartAtEnd tries no longer tail).
+func isPrefixOf(s, pattern string, caseSensitive bool) bool {
+	if caseSensitive {
+		return strings.HasPrefix(pattern, s)
+	}
+	for _, r := range s {
+		p, size := utf8.DecodeRuneInString(pattern)
+		if unicode.ToLower(r) != unicode.ToLower(p) {
+			return false
+		}
+		pattern = pattern[size:]
+	}
+	return true
 }
 
 // substringMatcher returns the substring match function for the case mode.

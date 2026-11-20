@@ -81,6 +81,8 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 }
 ```
 
+With a streaming output guardrail (`banned_words`, `length`), each text chunk reaches you only after the guardrail has checked it. `banned_words` also holds back the end of a chunk that could be the start of a banned word, so a word the provider splits across chunks never arrives in pieces. When the guardrail cuts the reply, its message arrives as the last text chunk and is the reply's text in `ChunkDone`. Text that arrived before the banned word was already shown: to show the reply as stored, replace what you printed with `chunk.Message.Text()` when `chunk.Message.Message().FinishReason` is `types.FinishReasonSafety`.
+
 ## Read and clear history
 
 ```go
