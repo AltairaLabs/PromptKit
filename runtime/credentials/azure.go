@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,6 +23,55 @@ const DefaultAzureAPIVersion = "2024-12-01-preview"
 // that addresses a single deployment.
 const azureDeploymentPath = "/openai/deployments/"
 
+// azureFoundryProjectPath is the path segment under a Foundry account host
+// that addresses a project: https://<account>.services.ai.azure.com/api/projects/<project>.
+const azureFoundryProjectPath = "/api/projects/"
+
+// azureOpenAIV1Path is the OpenAI v1 route under a Foundry project. It takes
+// the deployment as the request's model and no api-version.
+const azureOpenAIV1Path = "/openai/v1"
+
+// Entra ID token scopes. An Azure OpenAI or Foundry account endpoint
+// (<resource>.openai.azure.com, <resource>.cognitiveservices.azure.com,
+// <account>.services.ai.azure.com) takes Cognitive Services tokens; a Foundry
+// project endpoint answers 401 "audience is incorrect (https://ai.azure.com)"
+// to them and takes only Foundry tokens.
+const (
+	azureCognitiveServicesScope = "https://cognitiveservices.azure.com/.default"
+	azureFoundryScope           = "https://ai.azure.com/.default"
+)
+
+// AzureFoundryProject returns the Foundry project endpoint that endpoint
+// addresses, without a trailing slash or anything after the project name, and
+// whether it addresses one at all: a path of /api/projects/<project>, as a Foundry
+// project endpoint has. The path decides, not the host, so a private endpoint
+// or a sovereign-cloud host is recognized too.
+func AzureFoundryProject(endpoint string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	i := strings.Index(u.Path, azureFoundryProjectPath)
+	if i < 0 {
+		return "", false
+	}
+	rest := u.Path[i+len(azureFoundryProjectPath):]
+	project, _, _ := strings.Cut(rest, "/")
+	if project == "" {
+		return "", false
+	}
+	base := url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path[:i] + azureFoundryProjectPath + project}
+	return base.String(), true
+}
+
+// azureTokenScope is the Entra ID scope a token for endpoint must carry.
+func azureTokenScope(endpoint string) string {
+	if _, ok := AzureFoundryProject(endpoint); ok {
+		return azureFoundryScope
+	}
+	return azureCognitiveServicesScope
+}
+
 // AzureOpenAIEndpoint returns the base URL for an Azure OpenAI deployment.
 // The returned URL does NOT include the API path (/chat/completions) or
 // api-version query param — the provider appends those per-request.
@@ -35,7 +85,16 @@ const azureDeploymentPath = "/openai/deployments/"
 // An endpoint that already addresses a deployment is returned as-is instead of
 // having a second deployment path stacked onto it, so a caller that passes a
 // full deployment URL still ends up with a usable base.
+//
+// A Foundry project endpoint gets the project's OpenAI v1 route instead,
+// which names the deployment in the request body, not the path:
+//
+//	https://<account>.services.ai.azure.com/api/projects/<project>
+//	  -> https://<account>.services.ai.azure.com/api/projects/<project>/openai/v1
 func AzureOpenAIEndpoint(endpoint, deployment string) string {
+	if project, ok := AzureFoundryProject(endpoint); ok {
+		return project + azureOpenAIV1Path
+	}
 	trimmed := strings.TrimRight(endpoint, "/")
 	if strings.Contains(trimmed, azureDeploymentPath) {
 		return trimmed
@@ -86,9 +145,10 @@ func (c *AzureCredential) getToken(ctx context.Context) (*azcore.AccessToken, er
 		return c.cachedToken, nil
 	}
 
-	// Request token for Azure Cognitive Services scope
+	// The scope follows the endpoint: Cognitive Services for an account,
+	// Foundry for a project.
 	token, err := c.cred.GetToken(ctx, policy.TokenRequestOptions{
-		Scopes: []string{"https://cognitiveservices.azure.com/.default"},
+		Scopes: []string{azureTokenScope(c.endpoint)},
 	})
 	if err != nil {
 		return nil, err

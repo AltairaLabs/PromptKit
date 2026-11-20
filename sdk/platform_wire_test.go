@@ -283,7 +283,7 @@ func TestConv_AzureManagedIdentityTokenReachesTheDeployment(t *testing.T) {
 	require.NotEmpty(t, reqs)
 	assert.Equal(t, clientID, reqs[0].Query.Get("client_id"))
 	assert.Equal(t, "header-secret", reqs[0].Header.Get("X-Identity-Header"))
-	assert.Contains(t, reqs[0].Query.Get("resource"), "cognitiveservices.azure.com")
+	assert.Equal(t, "https://cognitiveservices.azure.com", reqs[0].Query.Get("resource"))
 }
 
 // convEntraHost is the public Entra ID host the identity library talks to.

@@ -60,13 +60,19 @@ func (rt *CredentialTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return next.RoundTrip(r)
 }
 
-// AzureAPIVersion returns the platform's additional_config.api_version, or
-// credentials.DefaultAzureAPIVersion when it sets none.
+// AzureAPIVersion returns the platform's additional_config.api_version. When
+// it sets none, it returns credentials.DefaultAzureAPIVersion for an account
+// endpoint and "" (no api-version) for a Foundry project endpoint, whose
+// OpenAI v1 route takes none.
 func AzureAPIVersion(pc *credentials.PlatformConfig) string {
-	if pc != nil {
-		if v, ok := pc.AdditionalConfig["api_version"].(string); ok && v != "" {
-			return v
-		}
+	if pc == nil {
+		return credentials.DefaultAzureAPIVersion
+	}
+	if v, ok := pc.AdditionalConfig["api_version"].(string); ok && v != "" {
+		return v
+	}
+	if _, ok := credentials.AzureFoundryProject(pc.Endpoint); ok {
+		return ""
 	}
 	return credentials.DefaultAzureAPIVersion
 }

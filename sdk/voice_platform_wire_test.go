@@ -24,8 +24,9 @@ import (
 
 // convAzureManagedIdentity points the Azure credential chain at a stand-in
 // managed identity endpoint that issues MITOKEN, and pins the chain to it so a
-// developer's own az login never answers (or reaches the test server).
-func convAzureManagedIdentity(t *testing.T) {
+// developer's own az login never answers (or reaches the test server). It
+// returns the stand-in, which records the token requests.
+func convAzureManagedIdentity(t *testing.T) *convCredServer {
 	t.Helper()
 	t.Setenv("AZURE_TOKEN_CREDENTIALS", "ManagedIdentityCredential")
 	for _, k := range []string{"AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_CLIENT_SECRET", "MSI_ENDPOINT", "MSI_SECRET",
@@ -38,6 +39,7 @@ func convAzureManagedIdentity(t *testing.T) {
 		`{"access_token":"MITOKEN","expires_on":"`+expires+`","resource":"https://cognitiveservices.azure.com","token_type":"Bearer"}`)
 	t.Setenv("IDENTITY_ENDPOINT", msi.URL+"/msi/token")
 	t.Setenv("IDENTITY_HEADER", "header-secret")
+	return msi
 }
 
 // convAzureSpec is a keyless OpenAI spec hosted on the Azure resource w serves.

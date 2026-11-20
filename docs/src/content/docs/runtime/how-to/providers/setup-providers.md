@@ -177,7 +177,9 @@ provider := openai.NewProviderWithCredential(
 )
 ```
 
-The provider derives the deployment URL (`{endpoint}/openai/deployments/{model}`) and appends `?api-version=...` to requests. `AzureCredential` handles Azure AD authentication (managed identity, Azure CLI, environment variables).
+The provider derives the deployment URL (`{endpoint}/openai/deployments/{model}`) and appends `?api-version=...` to requests. `AzureCredential` handles Microsoft Entra ID authentication (managed identity, Azure CLI, environment variables) with a token for `https://cognitiveservices.azure.com/.default`.
+
+A Microsoft Foundry project endpoint (`https://<account>.services.ai.azure.com/api/projects/<project>`) works the same way: pass it to both `NewAzureCredential` and `PlatformConfig.Endpoint`. `AzureCredential` then asks for a token for `https://ai.azure.com/.default`, the only audience a project accepts, and the provider sends requests to `{endpoint}/openai/v1/chat/completions` with the deployment as `model` and no `api-version`.
 
 For API key authentication, pass an API key credential instead:
 
