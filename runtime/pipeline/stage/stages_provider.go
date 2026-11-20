@@ -2628,8 +2628,9 @@ func (h *heldText) reset() {
 // the reply, or what the caller has not yet had of a truncated one. The
 // element carries types.FinishReasonSafety like a blocked turn's
 // (emitBlockedTurnText), and is a delta, so a speech-out stage speaks the
-// completed Message, once. Text already released before the cut (clean text
-// before the blocked content) stays with the caller.
+// completed Message, once. A replacement is marked ReplacesText, whether or
+// not any of the reply was released before the cut: the message alone is the
+// turn's text, so a caller swaps any clean text it already showed for it.
 func (s *ProviderStage) emitCutText(
 	ctx context.Context, acc *streamAccumulator, text *heldText, output chan<- StreamElement, suppressText bool,
 ) error {
@@ -2647,7 +2648,9 @@ func (s *ProviderStage) emitCutText(
 		return nil
 	}
 	fr := types.FinishReasonSafety
-	return sendStreamElement(ctx, textDeltaElement(cut, &fr), output)
+	elem := textDeltaElement(cut, &fr)
+	elem.Meta.ReplacesText = acc.replaced
+	return sendStreamElement(ctx, elem, output)
 }
 
 // cutUsageWait bounds how long a round an output guardrail cut keeps reading

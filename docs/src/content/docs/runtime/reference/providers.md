@@ -882,7 +882,7 @@ func IsTransient(err error) bool
 IsTransient returns true if err represents a transient provider failure \(retryable HTTP status or connection\-level error\). Uses errors.As to traverse wrapped error chains. Context cancellation and deadline errors are never transient, and neither is a stream idle timeout.
 
 <a name="IsValidationAbort"></a>
-## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L208>)
+## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L214>)
 
 ```go
 func IsValidationAbort(err error) bool
@@ -4198,7 +4198,7 @@ type SendableContentProvider interface {
 ```
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L54-L139>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L54-L145>)
 
 StreamChunk represents a batch of tokens with metadata
 
@@ -4262,6 +4262,12 @@ type StreamChunk struct {
     // response from scratch.
     Reset bool `json:"reset,omitempty"`
 
+    // ReplacesText marks a chunk whose Delta replaces all the text the turn
+    // streamed before it: an output guardrail cut the reply, and Delta is its
+    // message, the turn's whole text from here on. A consumer that renders
+    // deltas must discard the turn's text so far and show Delta instead.
+    ReplacesText bool `json:"replaces_text,omitempty"`
+
     // Error is set if an error occurred during streaming
     Error error `json:"error,omitempty"`
 
@@ -4307,7 +4313,7 @@ type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<-
 ```
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L151-L164>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L157-L170>)
 
 StreamEvent is one observation of a provider stream, built by the stream relay in BaseProvider.RunStreamingRequest for each StreamObserver callback. An observer that also implements StreamEventObserver receives it.
 
@@ -4329,7 +4335,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamEventObserver"></a>
-## type [StreamEventObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L191-L193>)
+## type [StreamEventObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L197-L199>)
 
 StreamEventObserver is implemented by a StreamObserver that also wants each observation as a StreamEvent, carrying its timestamp. OnStreamEvent is called before the matching StreamObserver callback.
 
@@ -4781,7 +4787,7 @@ func (m *StreamMetrics) StreamsInFlightInc(provider string)
 StreamsInFlightInc increments the in\-flight stream gauge for a provider. Nil\-safe.
 
 <a name="StreamObserver"></a>
-## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L182-L186>)
+## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L188-L192>)
 
 StreamObserver receives the events of every stream a provider opens through BaseProvider.RunStreamingRequest, for monitoring. Install one with BaseProvider.SetStreamObserver or ProviderSpec.StreamObserver; with none installed, nothing is observed.
 
@@ -5464,7 +5470,7 @@ func (e *UnsupportedProviderPlatformError) Error() string
 Error returns the error message for this unsupported pair.
 
 <a name="ValidationAbortError"></a>
-## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L196-L199>)
+## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L202-L205>)
 
 ValidationAbortError is returned when a streaming validator aborts a stream
 
@@ -5476,7 +5482,7 @@ type ValidationAbortError struct {
 ```
 
 <a name="ValidationAbortError.Error"></a>
-### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L202>)
+### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L208>)
 
 ```go
 func (e *ValidationAbortError) Error() string

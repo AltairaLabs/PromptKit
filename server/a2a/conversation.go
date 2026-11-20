@@ -87,6 +87,12 @@ type StreamEvent struct {
 	// Text is the content of an EventText event, or the reason of an
 	// EventPending event.
 	Text string
+	// ReplacesText marks an EventText whose Text replaces all the text the
+	// turn streamed before it (an output guardrail cut the reply). The server
+	// restarts the text artifact with it: the update goes out with append
+	// false, so a client replaces the artifact's text, and the task keeps
+	// only Text.
+	ReplacesText bool
 	// Media is the content of an EventMedia event.
 	Media *types.MediaContent
 	// ClientTool describes the request of an EventClientTool event.

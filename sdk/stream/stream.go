@@ -29,6 +29,11 @@ type Chunk struct {
 	// Text content (for ChunkText type)
 	Text string
 
+	// ReplacesText marks a ChunkText whose Text replaces all the text streamed
+	// before it in this turn (sdk.StreamChunk.ReplacesText): discard what was
+	// shown and show Text instead.
+	ReplacesText bool
+
 	// Tool call (for ChunkToolCall type)
 	ToolCall *types.MessageToolCall
 
@@ -120,6 +125,9 @@ func CollectText(ctx context.Context, streamer Streamer, message any) (string, e
 
 	err := Process(ctx, streamer, message, func(chunk Chunk) error {
 		if chunk.Type == ChunkText {
+			if chunk.ReplacesText {
+				sb.Reset()
+			}
 			sb.WriteString(chunk.Text)
 		}
 		return nil

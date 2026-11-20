@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/stream"
+	a2aserver "github.com/AltairaLabs/PromptKit/server/a2a/v2"
 )
 
 // An output guardrail on a streamed reply judges each chunk before the caller
@@ -30,7 +33,10 @@ func noPineapple() Option {
 
 // streamedTurn is what a caller of Stream saw for one turn.
 type streamedTurn struct {
-	deltas    []string
+	deltas []string
+	// replaces is, per delta, whether it is marked as replacing the text
+	// streamed before it (StreamChunk.ReplacesText).
+	replaces  []bool
 	resp      *Response
 	completed []*events.ProviderCallCompletedData
 }
@@ -61,6 +67,7 @@ func streamChunks(t *testing.T, chunks []string, opts ...Option) streamedTurn {
 		switch c.Type {
 		case ChunkText:
 			got.deltas = append(got.deltas, c.Text)
+			got.replaces = append(got.replaces, c.ReplacesText)
 		case ChunkDone:
 			got.resp = c.Message
 		}
@@ -80,18 +87,21 @@ func TestStream_BlockedWordSplitAcrossChunksNeverReachesCaller(t *testing.T) {
 	got := streamChunks(t, []string{"P", "ine", "apple is the best topping."}, noPineapple())
 
 	assert.Equal(t, []string{noPineappleMessage}, got.deltas)
+	assert.Equal(t, []bool{true}, got.replaces, "the message replaces the reply, though none of it was shown")
 	assert.Equal(t, noPineappleMessage, got.resp.Text())
 	assert.Equal(t, got.resp.Text(), strings.Join(got.deltas, ""))
 	assert.Equal(t, types.FinishReasonSafety, got.resp.Message().FinishReason)
 }
 
 // Text before the banned word is released as it arrives; the chunk carrying
-// the word's start is held back to just before it, and the guardrail's message
-// follows.
+// the word's start is held back to just before it. The guardrail's message
+// follows, marked as replacing what was streamed: it alone is the reply's
+// text, so a client swaps the partial text for it.
 func TestStream_TextBeforeBlockedWordIsReleased(t *testing.T) {
 	got := streamChunks(t, []string{"Say P", "ine", "apple, please."}, noPineapple())
 
 	assert.Equal(t, []string{"Say ", noPineappleMessage}, got.deltas)
+	assert.Equal(t, []bool{false, true}, got.replaces)
 	assert.Equal(t, noPineappleMessage, got.resp.Text())
 }
 
@@ -103,6 +113,7 @@ func TestStream_HeldTextIsReleasedWhenItIsNotTheBannedWord(t *testing.T) {
 	got := streamChunks(t, []string{"Pine", " cones", " and Pine"}, noPineapple())
 
 	assert.Equal(t, []string{"Pine cones", " and ", "Pine"}, got.deltas)
+	assert.Equal(t, []bool{false, false, false}, got.replaces, "a clean stream replaces nothing")
 	assert.Equal(t, "Pine cones and Pine", got.resp.Text())
 }
 
@@ -149,4 +160,67 @@ func TestSend_BlockedReplyIsTheMessageAndReportsTheProvidersUsage(t *testing.T) 
 	assert.Equal(t, uncut.InputTokens(), blocked.InputTokens())
 	assert.Equal(t, uncut.OutputTokens(), blocked.OutputTokens())
 	assert.Positive(t, blocked.OutputTokens())
+}
+
+// openPineappleConv opens a conversation whose model streams chunks, guarded
+// against pineapple.
+func openPineappleConv(t *testing.T, chunks ...string) *Conversation {
+	t.Helper()
+	repo := &sequenceRepo{turns: []mock.Turn{{Type: "text", StreamChunks: chunks}}}
+	conv, err := Open(writeGatePack(t), "assist",
+		WithProvider(mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)),
+		WithSkipSchemaValidation(), noPineapple())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	return conv
+}
+
+// Every path that forwards a cut stream's deltas carries the replacement
+// marker, and the ones that join deltas into text join only the replacement.
+func TestStream_ReplacementMarkerReachesEveryDeltaConsumer(t *testing.T) {
+	chunks := []string{"Say P", "ine", "apple, please."}
+
+	t.Run("CollectText", func(t *testing.T) {
+		text, err := stream.CollectText(context.Background(), openPineappleConv(t, chunks...), "pizza?")
+		require.NoError(t, err)
+		assert.Equal(t, noPineappleMessage, text)
+	})
+
+	t.Run("StreamRaw", func(t *testing.T) {
+		ch, err := openPineappleConv(t, chunks...).StreamRaw(context.Background(), "pizza?")
+		require.NoError(t, err)
+		var got []string
+		for c := range ch {
+			require.NoError(t, c.Error)
+			if c.Type == stream.ChunkText && !c.Done {
+				got = append(got, fmt.Sprintf("%s|%v", c.Text, c.ReplacesText))
+			}
+		}
+		assert.Equal(t, []string{"Say |false", noPineappleMessage + "|true"}, got)
+	})
+
+	t.Run("OnStreamEvent", func(t *testing.T) {
+		conv := openPineappleConv(t, chunks...)
+		var got []string
+		conv.OnStreamEvent(func(e StreamEvent) {
+			if d, ok := e.(TextDeltaEvent); ok {
+				got = append(got, fmt.Sprintf("%s|%v", d.Delta, d.ReplacesText))
+			}
+		})
+		_, err := conv.StreamWithCallback(context.Background(), "pizza?")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"Say |false", noPineappleMessage + "|true"}, got)
+	})
+
+	t.Run("A2A server stream", func(t *testing.T) {
+		adapter := &streamConvAdapter{convAdapter: convAdapter{c: openPineappleConv(t, chunks...)}}
+		var got []string
+		for e := range adapter.Stream(context.Background(), "pizza?") {
+			require.NoError(t, e.Error)
+			if e.Kind == a2aserver.EventText {
+				got = append(got, fmt.Sprintf("%s|%v", e.Text, e.ReplacesText))
+			}
+		}
+		assert.Equal(t, []string{"Say |false", noPineappleMessage + "|true"}, got)
+	})
 }

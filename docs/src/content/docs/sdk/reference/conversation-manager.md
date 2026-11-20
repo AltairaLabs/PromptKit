@@ -1405,7 +1405,7 @@ type CapabilityContext struct {
 ```
 
 <a name="ChunkType"></a>
-## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L46>)
+## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L54>)
 
 ChunkType identifies the type of a streaming chunk.
 
@@ -1435,7 +1435,7 @@ const (
 ```
 
 <a name="ChunkType.String"></a>
-### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L66>)
+### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L74>)
 
 ```go
 func (t ChunkType) String() string
@@ -1487,7 +1487,7 @@ type ClientToolRequest struct {
 ```
 
 <a name="ClientToolRequestEvent"></a>
-## type [ClientToolRequestEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L21-L36>)
+## type [ClientToolRequestEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L25-L40>)
 
 ClientToolRequestEvent is emitted when the pipeline encounters a client tool that needs caller fulfillment.
 
@@ -2169,7 +2169,7 @@ conv.OnClientTools(map[string]sdk.ClientToolHandler{
 ```
 
 <a name="Conversation.OnStreamEvent"></a>
-### func \(\*Conversation\) [OnStreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L66>)
+### func \(\*Conversation\) [OnStreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L70>)
 
 ```go
 func (c *Conversation) OnStreamEvent(handler StreamEventHandler)
@@ -3137,7 +3137,7 @@ Start runs the bound audio session: it feeds every microphone source into the pi
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
 <a name="Conversation.Stream"></a>
-### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L125>)
+### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L133>)
 
 ```go
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
@@ -3247,7 +3247,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.StreamRaw"></a>
-### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L586>)
+### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L597>)
 
 ```go
 func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error)
@@ -3265,7 +3265,7 @@ err := stream.Process(ctx, conv, "Hello", func(chunk stream.Chunk) error {
 ```
 
 <a name="Conversation.StreamWithCallback"></a>
-### func \(\*Conversation\) [StreamWithCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L80>)
+### func \(\*Conversation\) [StreamWithCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L84>)
 
 ```go
 func (c *Conversation) StreamWithCallback(ctx context.Context, message any, opts ...SendOption) (*Response, error)
@@ -7551,7 +7551,7 @@ func (r *StaticMCPEndpointResolver) Resolve(_ string) MCPEndpoint
 Resolve returns the static endpoint for any server name.
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L43>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L51>)
 
 StreamChunk represents a single chunk in a streaming response.
 
@@ -7562,6 +7562,14 @@ type StreamChunk struct {
 
     // Text content (for ChunkText type)
     Text string
+
+    // ReplacesText marks a ChunkText whose Text replaces all the text streamed
+    // before it in this turn: an output guardrail cut the reply and Text is its
+    // message, the reply's whole text (the Text of the ChunkDone Response). A
+    // client that renders deltas must discard what it showed of the turn and
+    // show Text instead; concatenating would show the cut reply's partial text
+    // before the message.
+    ReplacesText bool
 
     // Tool call (for ChunkToolCall type)
     ToolCall *types.MessageToolCall
@@ -7584,7 +7592,7 @@ type StreamChunk struct {
 ```
 
 <a name="StreamDoneEvent"></a>
-## type [StreamDoneEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L41-L44>)
+## type [StreamDoneEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L45-L48>)
 
 StreamDoneEvent is emitted when the stream completes.
 
@@ -7607,7 +7615,7 @@ type StreamEvent interface {
 ```
 
 <a name="StreamEventHandler"></a>
-## type [StreamEventHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L49>)
+## type [StreamEventHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L53>)
 
 StreamEventHandler is called for each event during streaming.
 
@@ -7616,7 +7624,7 @@ type StreamEventHandler func(event StreamEvent)
 ```
 
 <a name="TextDeltaEvent"></a>
-## type [TextDeltaEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L12-L15>)
+## type [TextDeltaEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L12-L19>)
 
 TextDeltaEvent is emitted for each text delta during streaming.
 
@@ -7624,6 +7632,10 @@ TextDeltaEvent is emitted for each text delta during streaming.
 type TextDeltaEvent struct {
     // Delta is the new text content in this chunk.
     Delta string
+    // ReplacesText marks a Delta that replaces all the text streamed before it
+    // in this turn (StreamChunk.ReplacesText): discard what was shown and
+    // show Delta instead.
+    ReplacesText bool
 }
 ```
 

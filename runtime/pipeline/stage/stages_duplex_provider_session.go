@@ -236,6 +236,10 @@ type DuplexProviderStage struct {
 	// blockedLiveSpoken is set when blockedLive is a message to speak (a cue,
 	// cutReply). Response goroutine only.
 	blockedLiveSpoken bool
+	// blockedLiveReplaces is set when blockedLive replaces the text the turn
+	// already streamed rather than following it (StreamElement
+	// Meta.ReplacesText). Response goroutine only.
+	blockedLiveReplaces bool
 	// lastReplyGen is the latest generation of the session's replies the
 	// stage has handled, and chunkIsReply whether the chunk being handled is
 	// one of a reply's (not the caller's transcript). Response goroutine only.

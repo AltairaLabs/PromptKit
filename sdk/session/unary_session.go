@@ -401,8 +401,12 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 	}
 
 	if elem.Text != nil && *elem.Text != "" {
+		// A replacement is the turn's whole text from here on.
+		if elem.Meta.ReplacesText {
+			p.sb.Reset()
+		}
 		p.sb.WriteString(*elem.Text)
-		p.sendChunk(&providers.StreamChunk{Delta: *elem.Text})
+		p.sendChunk(&providers.StreamChunk{Delta: *elem.Text, ReplacesText: elem.Meta.ReplacesText})
 	}
 
 	if len(elem.Meta.PendingTools) > 0 {

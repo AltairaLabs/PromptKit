@@ -600,10 +600,10 @@ func (s *DuplexProviderStage) guardOutputChunk(
 			s.turnGuard.blockedText = &shown
 		}
 		if rest, kept := strings.CutPrefix(probe.Content, sent); !kept {
-			s.showBlockedText(probe.Content, replaced)
+			s.showBlockedText(probe.Content, replaced, true)
 		} else if rest != "" {
 			// What follows what was already sent.
-			s.showBlockedText(rest, replaced)
+			s.showBlockedText(rest, replaced, false)
 		}
 	} else {
 		s.blockTurnWithMessage(denied)
@@ -673,7 +673,7 @@ func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
 	s.turnGuard.replaced = true
 	s.turnGuard.spoken = true
 	s.blockTurn()
-	s.showBlockedText(blocked.Content, true)
+	s.showBlockedText(blocked.Content, true, true)
 }
 
 // blockedTurnMessage is blockedTurnMessage with its text chosen by the
@@ -707,10 +707,13 @@ func (s *DuplexProviderStage) chooseBlocked(
 
 // showBlockedText has a blocked turn's text sent as live output by the next
 // cutReply, and, with speak, spoken (a cue, guardrailCue): a message that
-// replaces the reply is, the rest of a truncated one is not.
-func (s *DuplexProviderStage) showBlockedText(text string, speak bool) {
+// replaces the reply is, the rest of a truncated one is not. With replaces the
+// text is marked as replacing what the turn already streamed
+// (Meta.ReplacesText); without, it follows it.
+func (s *DuplexProviderStage) showBlockedText(text string, speak, replaces bool) {
 	s.blockedLive = &text
 	s.blockedLiveSpoken = speak
+	s.blockedLiveReplaces = replaces
 }
 
 // cutReply cuts a reply a guardrail blocked, once per block: the session is
@@ -745,6 +748,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	fr := types.FinishReasonSafety
 	elem := StreamElement{Text: text, Timestamp: timeNow()}
 	elem.Meta.FinishReason = &fr
+	elem.Meta.ReplacesText = s.blockedLiveReplaces
 	if s.blockedLiveSpoken {
 		elem.Cue = s.guardrailCue(*text)
 	}
@@ -922,7 +926,7 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 			s.cutReplyOf(s.replyGeneration())
 		}
 		s.endedTurnCut = true
-		s.showBlockedText(msg.Content, true)
+		s.showBlockedText(msg.Content, true, true)
 	}
 	s.history.add(msg)
 	s.completeAssistantTurn()

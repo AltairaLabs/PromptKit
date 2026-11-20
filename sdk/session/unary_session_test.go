@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -741,4 +742,34 @@ func TestProcessStreamElements_CanceledNoReaderReturns(t *testing.T) {
 	chunkChan := make(chan providers.StreamChunk) // never read
 	processStreamElements(ctx, stageChan, chunkChan)
 	assert.Empty(t, stageChan, "input must be drained")
+}
+
+// A text element that replaces the turn's text streamed so far reaches the
+// caller marked as a replacement, and the stream's final Content is the
+// replacement alone, not the partial text joined to it.
+func TestProcessStreamElements_ReplacementRestartsTheText(t *testing.T) {
+	stageChan := make(chan stage.StreamElement, 3)
+	chunkChan := make(chan providers.StreamChunk, 8)
+	say, msg := "Say ", "Let's talk about something else."
+	stageChan <- stage.StreamElement{Text: &say}
+	replace := stage.StreamElement{Text: &msg}
+	replace.Meta.ReplacesText = true
+	stageChan <- replace
+	close(stageChan)
+
+	processStreamElements(context.Background(), stageChan, chunkChan)
+	close(chunkChan)
+
+	var deltas []string
+	var final string
+	for chunk := range chunkChan {
+		if chunk.Delta != "" {
+			deltas = append(deltas, fmt.Sprintf("%s|%v", chunk.Delta, chunk.ReplacesText))
+		}
+		if chunk.FinishReason != nil {
+			final = chunk.Content
+		}
+	}
+	assert.Equal(t, []string{"Say |false", msg + "|true"}, deltas)
+	assert.Equal(t, msg, final)
 }

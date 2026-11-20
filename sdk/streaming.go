@@ -23,6 +23,14 @@ type StreamChunk struct {
 	// Text content (for ChunkText type)
 	Text string
 
+	// ReplacesText marks a ChunkText whose Text replaces all the text streamed
+	// before it in this turn: an output guardrail cut the reply and Text is its
+	// message, the reply's whole text (the Text of the ChunkDone Response). A
+	// client that renders deltas must discard what it showed of the turn and
+	// show Text instead; concatenating would show the cut reply's partial text
+	// before the message.
+	ReplacesText bool
+
 	// Tool call (for ChunkToolCall type)
 	ToolCall *types.MessageToolCall
 
@@ -447,8 +455,11 @@ func (c *Conversation) emitStreamChunk(
 ) {
 	// Emit text delta
 	if chunk.Delta != "" {
+		if chunk.ReplacesText {
+			state.contentBuilder.Reset()
+		}
 		state.contentBuilder.WriteString(chunk.Delta)
-		sendChunk(ctx, outCh, StreamChunk{Type: ChunkText, Text: chunk.Delta})
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkText, Text: chunk.Delta, ReplacesText: chunk.ReplacesText})
 	}
 
 	// Emit media data
@@ -599,6 +610,7 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 			case ChunkText:
 				chunk.Type = streamPkg.ChunkText
 				chunk.Text = sdkChunk.Text
+				chunk.ReplacesText = sdkChunk.ReplacesText
 			case ChunkToolCall:
 				chunk.Type = streamPkg.ChunkToolCall
 				chunk.ToolCall = sdkChunk.ToolCall

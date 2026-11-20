@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -1204,5 +1205,94 @@ func TestServer_StreamMessage_ClientTool_ResumeStream(t *testing.T) {
 	defer mock.mu.Unlock()
 	if len(mock.toolResults) != 1 || mock.toolResults[0].CallID != "call-1" {
 		t.Errorf("tool results = %+v, want [{call-1 ...}]", mock.toolResults)
+	}
+}
+
+// A text event marked ReplacesText restarts the text artifact: its update goes
+// out without append, so a client replaces the text streamed before it, the
+// chunk still held back is dropped, and the task keeps only the replacement.
+func TestServer_StreamMessage_ReplacementRestartsTheTextArtifact(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 4)
+			ch <- StreamEvent{Kind: EventText, Text: "Say "}
+			ch <- StreamEvent{Kind: EventText, Text: "it "}
+			ch <- StreamEvent{Kind: EventText, Text: "Let's talk about something else.", ReplacesText: true}
+			ch <- StreamEvent{Kind: EventDone}
+			close(ch)
+			return ch
+		},
+	}
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{ContextID: "ctx-replace", Role: a2a.RoleUser, Parts: []a2a.Part{{Text: serverTextPtr("hi")}}},
+	})
+
+	var got []string
+	var ids []string
+	var taskID string
+	for _, e := range events {
+		if u := e.ArtifactUpdate; u != nil {
+			got = append(got, fmt.Sprintf("%s append=%v last=%v", *u.Artifact.Parts[0].Text, u.Append, u.LastChunk))
+			ids = append(ids, u.Artifact.ArtifactID)
+		}
+		if e.StatusUpdate != nil {
+			taskID = e.StatusUpdate.TaskID
+		}
+	}
+	want := []string{
+		"Say  append=false last=false",
+		"Let's talk about something else. append=false last=true",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("artifact updates = %q, want %q", got, want)
+	}
+	if ids[0] != ids[1] {
+		t.Errorf("the replacement must restart the same artifact: %q vs %q", ids[0], ids[1])
+	}
+	task := a2aRPCRequestTask(t, ts, a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: taskID})
+	if len(task.Artifacts) != 1 || *task.Artifacts[0].Parts[0].Text != "Let's talk about something else." {
+		t.Errorf("task artifacts = %+v, want only the replacement", task.Artifacts)
+	}
+}
+
+// A replacement that is the turn's first text opens the text artifact.
+func TestServer_StreamMessage_ReplacementAsFirstTextOpensTheArtifact(t *testing.T) {
+	mock := &mockStreamConv{
+		mockConv: mockConv{
+			sendFunc: func(context.Context, any) (SendResult, error) {
+				return nil, errors.New("should not call Send")
+			},
+		},
+		streamFunc: func(_ context.Context, _ any) <-chan StreamEvent {
+			ch := make(chan StreamEvent, 2)
+			ch <- StreamEvent{Kind: EventText, Text: "Let's talk about something else.", ReplacesText: true}
+			ch <- StreamEvent{Kind: EventDone}
+			close(ch)
+			return ch
+		},
+	}
+	_, ts := newTestServer(func(string) (Conversation, error) { return mock, nil })
+	defer ts.Close()
+
+	events := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{ContextID: "ctx-replace-first", Role: a2a.RoleUser, Parts: []a2a.Part{{Text: serverTextPtr("hi")}}},
+	})
+
+	var got []string
+	for _, e := range events {
+		if u := e.ArtifactUpdate; u != nil {
+			got = append(got, fmt.Sprintf("%s append=%v last=%v", *u.Artifact.Parts[0].Text, u.Append, u.LastChunk))
+		}
+	}
+	if want := []string{"Let's talk about something else. append=false last=true"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("artifact updates = %q, want %q", got, want)
 	}
 }

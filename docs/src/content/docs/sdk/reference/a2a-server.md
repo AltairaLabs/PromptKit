@@ -142,7 +142,7 @@ type Authenticator interface {
 ```
 
 <a name="CompletableConversation"></a>
-## type [CompletableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L112-L116>)
+## type [CompletableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L118-L122>)
 
 CompletableConversation is a Conversation the server can end rather than release. With WithCompleteOnEviction, the server calls Complete instead of Close when it evicts an idle conversation that implements it. An SDK conversation's Complete runs its on\_conversation\_complete evals.
 
@@ -155,7 +155,7 @@ type CompletableConversation interface {
 ```
 
 <a name="Conversation"></a>
-## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L99-L106>)
+## type [Conversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L105-L112>)
 
 Conversation is the non\-streaming conversation interface the server uses.
 
@@ -171,7 +171,7 @@ type Conversation interface {
 ```
 
 <a name="ConversationOpener"></a>
-## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L145>)
+## type [ConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L151>)
 
 ConversationOpener creates or retrieves a conversation for a given context ID. NewServer calls it once per context ID and caches the result.
 
@@ -657,7 +657,7 @@ type PendingClientToolInfo struct {
 ```
 
 <a name="RequestConversationOpener"></a>
-## type [RequestConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L153>)
+## type [RequestConversationOpener](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L159>)
 
 RequestConversationOpener is ConversationOpener given the HTTP request that opens the context. The A2A protocol carries no caller identity of its own: the host's authentication puts it on the request \(its context or headers\), so this is where a host reads who the conversation acts for. NewServerFor calls it once per context ID, with the request whose message first names that context, and caches the result.
 
@@ -666,7 +666,7 @@ type RequestConversationOpener func(r *http.Request, contextID string) (Conversa
 ```
 
 <a name="ResumableConversation"></a>
-## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L129-L141>)
+## type [ResumableConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L135-L147>)
 
 ResumableConversation extends Conversation with the ability to submit client\-side tool results and resume pipeline execution.
 
@@ -814,7 +814,7 @@ func (s *StaticCard) AgentCard(*http.Request) (*a2a.AgentCard, error)
 AgentCard returns the static card.
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L84-L96>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L84-L102>)
 
 StreamEvent is a single event on a streaming channel.
 
@@ -825,6 +825,12 @@ type StreamEvent struct {
     // Text is the content of an EventText event, or the reason of an
     // EventPending event.
     Text string
+    // ReplacesText marks an EventText whose Text replaces all the text the
+    // turn streamed before it (an output guardrail cut the reply). The server
+    // restarts the text artifact with it: the update goes out with append
+    // false, so a client replaces the artifact's text, and the task keeps
+    // only Text.
+    ReplacesText bool
     // Media is the content of an EventMedia event.
     Media *types.MediaContent
     // ClientTool describes the request of an EventClientTool event.
@@ -835,7 +841,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamingConversation"></a>
-## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L120-L125>)
+## type [StreamingConversation](<https://github.com/AltairaLabs/PromptKit/blob/main/server/a2a/conversation.go#L126-L131>)
 
 StreamingConversation extends Conversation with streaming support. A conversation that does not implement it is streamed from its Send result.
 
