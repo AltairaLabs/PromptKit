@@ -203,6 +203,8 @@ var eventDataRegistry = map[string]eventDataFactory{
 	"*events.StateLoadedData":         func() EventData { return &StateEventData{} },
 	"*events.StateSavedData":          func() EventData { return &StateEventData{} },
 	"*events.StreamInterruptedData":   func() EventData { return &StreamInterruptedData{} },
+	"*events.StreamHoldReleasedData":  func() EventData { return &StreamHoldReleasedData{} },
+	"*events.StreamHoldCutData":       func() EventData { return &StreamHoldCutData{} },
 	"*events.ReasoningDeltaData":      func() EventData { return &ReasoningDeltaData{} },
 	"*events.ReasoningCompletedData":  func() EventData { return &ReasoningCompletedData{} },
 	"*events.MessageTextDeltaData":    func() EventData { return &MessageTextDeltaData{} },

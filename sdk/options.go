@@ -418,6 +418,10 @@ type config struct {
 	// skipContentValidation turns off the provider stage's media-part check.
 	skipContentValidation bool
 
+	// streamHold sizes and bounds stream_hold: segment guardrails' judging
+	// (WithStreamHoldSegments, WithStreamHoldJudges).
+	streamHold stage.StreamHoldConfig
+
 	// toolPolicy is the caller tool policy (WithToolPolicy), merged per turn
 	// with the prompt's tool_policy. Nil: the prompt's alone.
 	toolPolicy *rtpipeline.ToolPolicy
@@ -1405,6 +1409,49 @@ func WithLogger(l *slog.Logger) Option {
 func WithoutContentValidation() Option {
 	return func(c *config) error {
 		c.skipContentValidation = true
+		return nil
+	}
+}
+
+// WithStreamHoldSegments sizes the segments an output guardrail with
+// stream_hold: segment judges a streamed reply in, in bytes of reply text:
+// sentences merge until a segment reaches minChars (firstMinChars for a
+// round's first segment, whose release latency a caller notices most), and a
+// segment with no sentence boundary by maxChars is cut at the last whitespace
+// before it. Larger segments mean fewer judge calls and later releases. Every
+// segment guardrail in the conversation judges the same segments. Zero keeps a
+// size's default (60, 24 and 600).
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//	    sdk.WithStreamHoldSegments(120, 40, 800),
+//	)
+func WithStreamHoldSegments(minChars, firstMinChars, maxChars int) Option {
+	return func(c *config) error {
+		if minChars < 0 || firstMinChars < 0 || maxChars < 0 {
+			return fmt.Errorf("WithStreamHoldSegments: sizes must be non-negative, got %d, %d, %d",
+				minChars, firstMinChars, maxChars)
+		}
+		c.streamHold.MinChars = minChars
+		c.streamHold.FirstMinChars = firstMinChars
+		c.streamHold.MaxChars = maxChars
+		return nil
+	}
+}
+
+// WithStreamHoldJudges bounds the judging of an output guardrail with
+// stream_hold: segment. maxPerRound caps its partial-reply judge calls per
+// model round (default 8); past it, the rest of the round is held and judged
+// once with the completed reply. timeout bounds each partial-reply judge call
+// (default 10s), unless the guardrail sets stream_hold_timeout; a call that
+// runs past it fails closed, so the caller gets the guardrail's message. Zero
+// keeps a default.
+func WithStreamHoldJudges(maxPerRound int, timeout time.Duration) Option {
+	return func(c *config) error {
+		if maxPerRound < 0 || timeout < 0 {
+			return fmt.Errorf("WithStreamHoldJudges: limits must be non-negative, got %d, %s", maxPerRound, timeout)
+		}
+		c.streamHold.MaxSegmentJudges = maxPerRound
+		c.streamHold.SegmentTimeout = timeout
 		return nil
 	}
 }

@@ -102,7 +102,7 @@ Every built-in check type lists the params it reads, and a param it does not rea
 eval "tone": unknown param "critera" for llm_judge; valid params: criteria, extra, provider, rubric, system_prompt
 ```
 
-The check is made after param defaults and aliases apply, so a legacy name such as `words` or `max_sentences` is accepted. `min_score` and `max_score` are never reported as unknown; the handlers that reject them do so with their own message. A guardrail also accepts `direction` and `message`. A custom handler is checked only when it implements `ParamNamer` (see [Extending the check system](#extending-the-check-system)), and an exec eval handler is never checked.
+The check is made after param defaults and aliases apply, so a legacy name such as `words` or `max_sentences` is accepted. `min_score` and `max_score` are never reported as unknown; the handlers that reject them do so with their own message. A guardrail also accepts `direction`, `message`, `stream_hold` and `stream_hold_timeout`. A custom handler is checked only when it implements `ParamNamer` (see [Extending the check system](#extending-the-check-system)), and an exec eval handler is never checked.
 
 `EvalTypeRegistry.ParamNames(type)` returns the params a registered type reads, sorted.
 
@@ -211,6 +211,47 @@ Applied when the param is absent.
 ### Streaming
 
 `content_excludes` (with its aliases) and `max_length` (with `length`) implement `StreamableEvalHandler`, so a guardrail evaluates them on each streaming chunk and can stop the stream early. While a response streams, `content_excludes` matches substrings whatever the `match_mode`, so a stream can stop on a word that the finished response would pass.
+
+### Stream hold
+
+An output guardrail's `stream_hold` param sets how much of a streamed reply it holds back from the caller until it has judged it. Text the caller receives has passed every guardrail whose mode holds it. The handler never sees the param.
+
+| `stream_hold` | Held | Released | When the guardrail fails the reply |
+|---|---|---|---|
+| `none` | Nothing. | As it arrives. | The guardrail judges the completed reply. Its message follows the streamed text as the last delta, marked `ReplacesText`. |
+| `tail` | The end of the reply that could start a match (`evals.PartialHolder`). | When a later chunk rules the match out, or the reply ends. | The message is the last delta. |
+| `segment` | Every byte after the last segment the guardrail passed. | When the guardrail passes the segment. The last segment is released when the completed reply passes. | The message is the last delta, marked `ReplacesText`. |
+| `turn` | The whole reply. | All at once, when the completed reply passes. | The message is the only delta. |
+
+The default depends on the handler:
+
+| Handler | Default |
+|---|---|
+| `topic_policy`, `pii_leakage`, `toxicity`, `bias`, `role_violation`, `text_toxicity` | `segment` |
+| `llm_judge` | `turn` |
+| `content_excludes` | `tail` |
+| Every other handler, and every input guardrail | `none` |
+
+`segment` needs a handler that can judge a reply still being written (`evals.PartialJudge`): its verdict on what the text says does not depend on what follows. Relevancy, completeness, session and tool-call judges are not partial judges. A free-form `llm_judge` defaults to `turn` because its criteria can need the whole reply ("answers the question"). Set `stream_hold: segment` on it when its criteria judge only what the reply says. `tail` needs a handler that judges chunks (`StreamableEvalHandler`). An unknown value, a mode the handler cannot honor, or a `stream_hold` other than `none` on an input guardrail fails `sdk.Open`.
+
+A segment ends at a sentence terminator followed by whitespace, a CJK terminator, a blank line, or a line end before a list item or table row. A terminator inside a code fence, inline code or a link does not end one. Sentences merge until a segment reaches 60 bytes (24 for a round's first segment), and a segment with no boundary by 600 bytes is cut at the last whitespace before it. `sdk.WithStreamHoldSegments` sets the three sizes for every segment guardrail in a conversation.
+
+Each segment guardrail judges the reply so far, up to the end of a segment, while the model writes the rest. The judge is told the reply may be incomplete (`EvalContext.Partial`). A guardrail runs one judgment at a time: segments that become ready while it judges join its next judgment, so the number of judge calls follows the judge's latency, not the sentence count. The last segment is judged by the guardrail's check of the completed reply. A guardrail makes at most 8 partial-reply judgments per model round; past that, the rest of the round is judged with the completed reply. Each judgment is bounded by 10 seconds, or by the guardrail's `stream_hold_timeout` (a duration such as `"2s"`, or a number of seconds). A judgment that errors or runs past its bound fails closed: the caller gets the guardrail's message. `sdk.WithStreamHoldJudges` sets the judgment cap and the default bound. When a `turn` guardrail holds the reply, `segment` guardrails make no partial-reply judgments, because nothing can be released before the completed reply passes.
+
+Every model round is held and judged on its own. Text a tool-calling round writes before its calls is released like any other, and the calls run only after the completed reply passes. A reply a guardrail fails keeps none of its tool calls. When the guardrail fails the reply, the stored reply is its message alone, with `FinishReasonSafety`.
+
+Stream hold applies to text streamed with `Stream`. `Send` returns the reply once its checks have judged it. A realtime (ASM) session holds only what a chunk check's `tail` holds.
+
+```yaml
+validators:
+  - type: llm_judge
+    message: "I can only talk about the weather."
+    params:
+      provider: judge
+      criteria: "The reply talks only about the weather."
+      stream_hold: segment
+      stream_hold_timeout: 5s
+```
 
 ### Examples
 

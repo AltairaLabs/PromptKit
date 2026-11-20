@@ -58,7 +58,7 @@ Event types are `events.EventType` constants in `runtime/events`. They group int
 | Pipeline and stage | `pipeline.started`, `stage.completed` |
 | Provider | `provider.call.started`, `provider.call.completed` |
 | Tool | `tool.call.started`, `tool.client.request` |
-| Validation | `validation.passed`, `validation.failed` |
+| Validation | `validation.passed`, `validation.failed`, `stream.hold.released`, `stream.hold.cut` |
 | Context and state | `context.built`, `context.compacted`, `state.saved` |
 | Message | `message.created`, `message.text.delta`, `reasoning.completed` |
 | Multimodal | `audio.input`, `image.output`, `video.frame` |

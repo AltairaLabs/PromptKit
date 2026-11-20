@@ -422,6 +422,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type StreamExecution](<#StreamExecution>)
   - [func \(e \*StreamExecution\) Err\(\) error](<#StreamExecution.Err>)
   - [func \(e \*StreamExecution\) Output\(\) \<\-chan StreamElement](<#StreamExecution.Output>)
+- [type StreamHoldConfig](<#StreamHoldConfig>)
 - [type StreamPipeline](<#StreamPipeline>)
   - [func \(p \*StreamPipeline\) Execute\(ctx context.Context, input \<\-chan StreamElement\) \(\<\-chan StreamElement, error\)](<#StreamPipeline.Execute>)
   - [func \(p \*StreamPipeline\) ExecuteSync\(ctx context.Context, input ...StreamElement\) \(\*ExecutionResult, error\)](<#StreamPipeline.ExecuteSync>)
@@ -570,6 +571,18 @@ const (
     // one message, so a frames message at the default is never refused for
     // carrying too many images.
     DefaultMaxFramesPerMessage = providers.MaxMediaItems
+)
+```
+
+<a name="DefaultStreamHoldMinChars"></a>Defaults for StreamHoldConfig.
+
+```go
+const (
+    DefaultStreamHoldMinChars         = 60
+    DefaultStreamHoldFirstMinChars    = 24
+    DefaultStreamHoldMaxChars         = 600
+    DefaultStreamHoldMaxSegmentJudges = 8
+    DefaultStreamHoldSegmentTimeout   = 10 * time.Second
 )
 ```
 
@@ -4615,7 +4628,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L317>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L322>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4757,11 +4770,16 @@ type ProviderConfig struct {
     // what it sends. Providers that do not implement
     // providers.MultimodalCapabilityProvider are never checked.
     SkipContentValidation bool
+
+    // StreamHold sizes the segments stream_hold: segment output guardrails
+    // judge a streamed reply in, and bounds their judging. Zero fields take
+    // the defaults.
+    StreamHold StreamHoldConfig
 }
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L330>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L335>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4770,7 +4788,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L320>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L325>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4795,7 +4813,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L377-L382>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L382-L387>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4804,7 +4822,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L389-L395>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L394-L400>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4813,7 +4831,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L402-L409>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L407-L414>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4822,7 +4840,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L416-L424>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L421-L429>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4831,7 +4849,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L683-L687>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L688-L692>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4840,7 +4858,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L374>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L379>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -6158,7 +6176,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3065>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3107>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6259,6 +6277,33 @@ func (e *StreamExecution) Output() <-chan StreamElement
 ```
 
 Output returns the execution's output, as Execute returns it.
+
+<a name="StreamHoldConfig"></a>
+## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L20-L38>)
+
+StreamHoldConfig sizes the segments a stream\_hold: segment output guardrail judges a streamed reply in, and bounds its judging. It is per conversation, not per guardrail: every segment guardrail judges the same segments. Zero fields take the defaults.
+
+```go
+type StreamHoldConfig struct {
+    // MinChars is the size, in bytes, sentences merge up to before a segment
+    // ends. Default 60.
+    MinChars int
+    // FirstMinChars is MinChars for a round's first segment, smaller because
+    // the first release is the latency a caller notices most. Default 24.
+    FirstMinChars int
+    // MaxChars cuts a segment with no boundary (a long code block, text
+    // without punctuation) at the last whitespace before it. Default 600.
+    MaxChars int
+    // MaxSegmentJudges caps the partial-reply judgments each guardrail makes
+    // per round. Past it, the rest of the round is judged once, with the
+    // completed reply. Default 8.
+    MaxSegmentJudges int
+    // SegmentTimeout bounds each partial-reply judgment, unless the guardrail
+    // sets stream_hold_timeout. A judgment that runs past it fails closed.
+    // Default 10s.
+    SegmentTimeout time.Duration
+}
+```
 
 <a name="StreamPipeline"></a>
 ## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L33-L78>)

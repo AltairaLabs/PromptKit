@@ -31,6 +31,11 @@ type lifecycle struct {
 	direction string
 	turnIndex int
 	validator *packspec.Validator
+	// segmentIndex and segmentEnd place a partial-reply judgment in the
+	// streamed reply (ValidationEventData.SegmentIndex); zero for a whole
+	// message.
+	segmentIndex int
+	segmentEnd   int
 }
 
 // start emits validation.started and returns the instant to measure from.
@@ -47,6 +52,8 @@ func (l lifecycle) start() time.Time {
 			Direction:     l.direction,
 			TurnIndex:     l.turnIndex,
 			Validator:     l.validator,
+			SegmentIndex:  l.segmentIndex,
+			SegmentEnd:    l.segmentEnd,
 		})
 	}
 	return time.Now()
@@ -65,6 +72,8 @@ func (l lifecycle) pass(since time.Time, score *float64) {
 		Duration:      time.Since(since),
 		TurnIndex:     l.turnIndex,
 		Validator:     l.validator,
+		SegmentIndex:  l.segmentIndex,
+		SegmentEnd:    l.segmentEnd,
 	}
 	if score != nil {
 		data.Score = *score

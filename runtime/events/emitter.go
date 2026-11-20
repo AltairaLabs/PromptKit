@@ -487,6 +487,22 @@ func (e *Emitter) GuardrailResult(data *ValidationEventData) {
 	}
 }
 
+// StreamHoldReleased emits stream.hold.released.
+func (e *Emitter) StreamHoldReleased(ctx context.Context, data *StreamHoldReleasedData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventStreamHoldReleased, data)
+}
+
+// StreamHoldCut emits stream.hold.cut.
+func (e *Emitter) StreamHoldCut(ctx context.Context, data *StreamHoldCutData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventStreamHoldCut, data)
+}
+
 // ContextBuilt emits the context.built event.
 func (e *Emitter) ContextBuilt(messageCount, tokenCount, tokenBudget int, truncated bool) {
 	e.emit(EventContextBuilt, &ContextBuiltData{

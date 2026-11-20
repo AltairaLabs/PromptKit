@@ -191,6 +191,10 @@ type Config struct {
 	// stage.ProviderConfig.SkipContentValidation). False validates.
 	SkipContentValidation bool
 
+	// StreamHold sizes and bounds stream_hold: segment guardrails' judging
+	// (stage.ProviderConfig.StreamHold).
+	StreamHold stage.StreamHoldConfig
+
 	// CompactionStrategy replaces the default compactor entirely.
 	// Mutually exclusive with CompactionRules.
 	CompactionStrategy stage.CompactionStrategy
@@ -939,6 +943,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			StructuredOutputMode:  cfg.StructuredOutputMode,
 			PromptDeclarations:    cfg.PromptDeclarations,
 			SkipContentValidation: cfg.SkipContentValidation,
+			StreamHold:            cfg.StreamHold,
 		}
 		// Configure compaction strategy
 		if cfg.CompactionEnabled == nil || *cfg.CompactionEnabled {

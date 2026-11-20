@@ -314,6 +314,11 @@ type ProviderConfig struct {
 	// what it sends. Providers that do not implement
 	// providers.MultimodalCapabilityProvider are never checked.
 	SkipContentValidation bool
+
+	// StreamHold sizes the segments stream_hold: segment output guardrails
+	// judge a streamed reply in, and bounds their judging. Zero fields take
+	// the defaults.
+	StreamHold StreamHoldConfig
 }
 
 // CallParams returns c's sampling fields as one value.
@@ -2306,7 +2311,11 @@ func (s *ProviderStage) executeStreamingRound(
 	}
 
 	// Process all chunks and collect response
-	got, err := s.processStreamChunks(ctx, streamChan, output, rr, s.withholdsSchema(params.providerTools))
+	suppressText := s.withholdsSchema(params.providerTools)
+	got, err := s.processHeldStreamChunks(ctx, streamChan, output, rr, suppressText,
+		func(text *holdController) *streamHold {
+			return s.newStreamHold(ctx, s.streamHoldRequest(params), rr, text, suppressText)
+		})
 	content, toolCalls, costInfo, reasoning, chunkValidations, finishReason :=
 		got.content, got.toolCalls, got.costInfo, got.reasoning, got.validations, got.finishReason
 	duration := time.Since(startTime)
@@ -2370,6 +2379,9 @@ func (s *ProviderStage) executeStreamingRound(
 		}); err != nil {
 			return responseMsg, false, err
 		}
+	}
+	if err := s.finishStreamedText(ctx, &got, &responseMsg, output, suppressText); err != nil {
+		return responseMsg, false, err
 	}
 
 	logger.Debug("Provider streaming round completed",
@@ -2530,6 +2542,12 @@ type streamedRound struct {
 	// cut is the verdict of the output guardrails that blocked the reply
 	// mid-stream (interceptChunk), nil when none did.
 	cut *outputVerdict
+	// released is the text the caller had of the round, for a round read
+	// without a stream_hold.
+	released string
+	// hold is the round read under a stream_hold, whose held text the
+	// completed reply's check decides (finishStreamedText); nil without one.
+	hold *roundStream
 	// lateUsage, when set, delivers the usage of a stream a chunk interceptor
 	// cut, which the provider sends after the round ended (awaitCutUsage).
 	lateUsage <-chan *types.CostInfo
@@ -2644,7 +2662,24 @@ func (s *ProviderStage) processStreamChunks(
 	rr roundRef,
 	suppressText bool,
 ) (streamedRound, error) {
+	return s.processHeldStreamChunks(ctx, streamChan, output, rr, suppressText, nil)
+}
+
+// processHeldStreamChunks is processStreamChunks for a round whose
+// stream_hold guardrails' hold hold builds (readHeldStream); a nil hold, or
+// one that returns nil, reads the round without one.
+func (s *ProviderStage) processHeldStreamChunks(
+	ctx context.Context,
+	streamChan <-chan providers.StreamChunk,
+	output chan<- StreamElement,
+	rr roundRef,
+	suppressText bool,
+	hold func(*holdController) *streamHold,
+) (streamedRound, error) {
 	rs := &roundStream{streamChan: streamChan, output: output, rr: rr, suppressText: suppressText}
+	if hold != nil {
+		rs.hold = hold(&rs.text)
+	}
 
 	// Every return before the provider closes the channel — a canceled emit,
 	// a guardrail abort or enforcement — leaves the provider (and the relay in
@@ -2653,6 +2688,9 @@ func (s *ProviderStage) processStreamChunks(
 	// the response body and stream slot.
 	defer drainIfAbandoned(streamChan, &rs.drained)
 
+	if rs.hold != nil {
+		return s.readHeldStream(ctx, rs)
+	}
 	for chunk := range streamChan {
 		if got, done, err := s.handleStreamChunk(ctx, rs, &chunk); done {
 			return got, err
@@ -2665,7 +2703,9 @@ func (s *ProviderStage) processStreamChunks(
 		return rs.acc.collected(), err
 	}
 
-	return rs.acc.collected(), canceledBeforeFinish(ctx, rs.acc.finishReason)
+	got := rs.acc.collected()
+	got.released = rs.text.sent.String()
+	return got, canceledBeforeFinish(ctx, rs.acc.finishReason)
 }
 
 // roundStream is one streamed round being read (processStreamChunks).
@@ -2676,6 +2716,8 @@ type roundStream struct {
 	suppressText bool
 	acc          streamAccumulator
 	text         holdController
+	// hold is the round's stream_hold guardrails' hold, nil when none holds.
+	hold *streamHold
 	// drained is set once the stream needs no further reading by the round.
 	drained bool
 }
@@ -3142,17 +3184,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 	// around handler.Eval.
 	defer keepIdleAlive(ctx)()
 
-	hookReq := &hooks.ProviderRequest{
-		ProviderID:   s.callProvider().ID(),
-		Model:        s.callProvider().Model(),
-		Messages:     p.messages,
-		SystemPrompt: p.systemPrompt,
-		Round:        p.round,
-		Metadata:     p.metadata,
-		TurnIndex:    s.turnIndex(),
-		Prompt:       s.promptDeclaration(),
-		Caller:       s.config.Caller,
-	}
+	hookReq := s.providerHookRequest(p.messages, p.systemPrompt, p.round, p.metadata)
 	v := s.guardrailOutcome().judgeResponse(ctx, hookReq, p.responseMsg, p.round, p.duration.Milliseconds(), true)
 	if !v.blocks() {
 		return nil
@@ -3169,6 +3201,24 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 	v.enforce(p.responseMsg)
 	*p.toolCalls = nil
 	return nil
+}
+
+// providerHookRequest is the request the provider hooks judge a round's call
+// by.
+func (s *ProviderStage) providerHookRequest(
+	messages []types.Message, systemPrompt string, round int, metadata map[string]interface{},
+) *hooks.ProviderRequest {
+	return &hooks.ProviderRequest{
+		ProviderID:   s.callProvider().ID(),
+		Model:        s.callProvider().Model(),
+		Messages:     messages,
+		SystemPrompt: systemPrompt,
+		Round:        round,
+		Metadata:     metadata,
+		TurnIndex:    s.turnIndex(),
+		Prompt:       s.promptDeclaration(),
+		Caller:       s.config.Caller,
+	}
 }
 
 // runBeforeCallHooks runs the BeforeCall hook chain. It is called BEFORE the
@@ -3338,6 +3388,8 @@ func recordGuardrailFiring(
 		TurnIndex:     turn,
 	}
 	data.Validator, _ = d.Metadata[hooks.MetadataKeyValidatorDeclaration].(*packspec.Validator)
+	data.SegmentIndex, _ = d.Metadata[hooks.MetadataKeySegmentIndex].(int)
+	data.SegmentEnd, _ = d.Metadata[hooks.MetadataKeySegmentEnd].(int)
 	if !d.Allow {
 		data.Violations = []string{d.Reason}
 	}

@@ -25,8 +25,10 @@ var ErrUnknownGuardrailType = errors.New("unknown guardrail type")
 
 // Params a guardrail reads itself, beside the handler's own.
 const (
-	guardrailParamDirection = "direction"
-	guardrailParamMessage   = "message"
+	guardrailParamDirection         = "direction"
+	guardrailParamMessage           = "message"
+	guardrailParamStreamHold        = "stream_hold"
+	guardrailParamStreamHoldTimeout = "stream_hold_timeout"
 )
 
 // ErrInvalidGuardrailParams is returned when the eval type IS registered and
@@ -130,6 +132,11 @@ func NewGuardrailHookFromRegistry(
 	normalized = evals.NormalizeParams(typeName, normalized)
 	normalized = evals.StripScoreThresholds(normalized)
 
+	// stream_hold and stream_hold_timeout belong to the guardrail: the
+	// handler never sees them.
+	holdParams := normalized
+	normalized = stripParams(normalized, guardrailParamStreamHold, guardrailParamStreamHoldTimeout)
+
 	// direction and message belong to the guardrail, not the handler: the
 	// adapter consumes direction, and a validator's blocked text may sit in
 	// params. Any other key the handler does not read is rejected.
@@ -141,11 +148,18 @@ func NewGuardrailHookFromRegistry(
 
 	direction := resolveDirection(typeName, normalized, params)
 
+	hold, holdTimeout, err := resolveStreamHold(typeName, handler, direction, holdParams)
+	if err != nil {
+		return nil, fmt.Errorf("guardrail %q: %w", typeName, &invalidParams{err})
+	}
+
 	adapter := &GuardrailHookAdapter{
-		handler:   handler,
-		evalType:  typeName,
-		params:    params,
-		direction: direction,
+		handler:           handler,
+		evalType:          typeName,
+		params:            params,
+		direction:         direction,
+		streamHold:        hold,
+		streamHoldTimeout: holdTimeout,
 	}
 	for _, opt := range opts {
 		opt(adapter)
