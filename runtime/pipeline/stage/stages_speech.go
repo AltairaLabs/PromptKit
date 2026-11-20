@@ -226,43 +226,48 @@ func (s *AudioTurnStage) Process(
 	state := newAudioTurnState()
 
 	for elem := range input {
-		// Inbound audio is activity, silence included: an open microphone is a
-		// live session. Without this a VAD session's idle timer sees only the
-		// model's calls, so a caller who listens to a reply, or thinks, for
-		// longer than the idle timeout loses the session. DuplexProviderStage
-		// does the same for ASM mode.
-		if elem.Audio != nil {
-			ResetIdleFromContext(ctx)
-		}
-
-		// Handle EndOfStream specially - emit any accumulated audio first
-		// This prevents EndOfStream from racing ahead of buffered audio
-		if elem.EndOfStream {
-			if err := s.handleEndOfStream(ctx, &elem, state, output); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// Pass through other non-audio elements immediately.
-		// Passthrough mode forwards audio immediately without accumulation too:
-		// this is used for selfplay/TTS audio that needs real-time streaming to
-		// the provider.
-		if elem.Audio == nil || elem.Meta.Passthrough {
-			if err := s.forwardElement(ctx, &elem, output); err != nil {
-				return err
-			}
-			continue
-		}
-
-		// Process audio chunk and handle turn completion
-		if err := s.processAudioElement(ctx, &elem, state, output); err != nil {
+		if err := s.handleElement(ctx, &elem, state, output); err != nil {
 			return err
 		}
 	}
 
 	// Stream closed - emit any remaining audio
 	return s.emitRemainingAudio(ctx, state, output)
+}
+
+// handleElement routes one input element: EndOfStream flushes the turn, a
+// non-audio or passthrough element is forwarded, and audio accumulates.
+func (s *AudioTurnStage) handleElement(
+	ctx context.Context,
+	elem *StreamElement,
+	state *audioTurnState,
+	output chan<- StreamElement,
+) error {
+	// Inbound audio is activity, silence included: an open microphone is a
+	// live session. Without this a VAD session's idle timer sees only the
+	// model's calls, so a caller who listens to a reply, or thinks, for
+	// longer than the idle timeout loses the session. DuplexProviderStage
+	// does the same for ASM mode.
+	if elem.Audio != nil {
+		ResetIdleFromContext(ctx)
+	}
+
+	// Handle EndOfStream specially - emit any accumulated audio first
+	// This prevents EndOfStream from racing ahead of buffered audio
+	if elem.EndOfStream {
+		return s.handleEndOfStream(ctx, elem, state, output)
+	}
+
+	// Pass through other non-audio elements immediately.
+	// Passthrough mode forwards audio immediately without accumulation too:
+	// this is used for selfplay/TTS audio that needs real-time streaming to
+	// the provider.
+	if elem.Audio == nil || elem.Meta.Passthrough {
+		return s.forwardElement(ctx, elem, output)
+	}
+
+	// Process audio chunk and handle turn completion
+	return s.processAudioElement(ctx, elem, state, output)
 }
 
 // handleEndOfStream emits any accumulated audio, resets the turn state, then
