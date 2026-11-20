@@ -3247,7 +3247,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.StreamRaw"></a>
-### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L597>)
+### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L604>)
 
 ```go
 func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error)
