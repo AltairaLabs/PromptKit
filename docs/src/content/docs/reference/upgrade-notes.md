@@ -147,6 +147,16 @@ Every turn index PromptKit hands a host now counts from 0: 0 for a conversation'
 
 ### Guardrails
 
+#### Topic, PII and safety output guardrails hold a streamed reply by segment
+
+An output guardrail now holds a streamed reply back from the caller until it has judged it, as its `stream_hold` param says. Without the param, `topic_policy`, `pii_leakage`, `toxicity`, `bias`, `role_violation` and `text_toxicity` hold per segment: `Stream` releases a sentence or a few at a time, each once the judge passed it. `llm_judge` holds the whole reply. When the guardrail fails the reply, its message replaces the text already streamed, marked `ReplacesText`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Stream replies under one of those output guardrails | text arrives later (the first segment after one judge call), and the judge is called up to 8 times per model round instead of once | set `stream_hold: none` on the guardrail to stream as before, or `stream_hold: turn` for one judge call per round; `sdk.WithStreamHold` tunes the segment size and the call cap |
+| Stream replies under an `llm_judge` output guardrail | nothing arrives until the judge passed the completed reply | set `stream_hold: none` to stream as before, or `stream_hold: segment` when its criteria judge only what the reply says |
+| Render streamed text | a guardrail that fails a streamed reply after it reached you ends it with a delta marked `ReplacesText` | replace the turn's text with that delta's text |
+
 #### A streamed chunk reaches the caller only after the output guardrails pass it
 
 `ProviderStage` sent each streamed chunk to the caller before the chunk interceptors (the streaming output guardrails) judged it, so a blocked reply reached the caller in pieces and the guardrail's message never arrived as text. A chunk now goes out only once every interceptor has passed it. An interceptor can hold back the end of a chunk that could be the start of a banned word (`hooks.Decision.Hold`; `content_excludes` implements `evals.PartialHolder`), and releases it when later text rules the word out or the reply ends. An unguarded stream holds nothing back. One output guard decides what a firing means on the text path and the realtime path alike.

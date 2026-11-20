@@ -31,7 +31,8 @@ import (
 // A boundary is declared only once the text after it shows that it is one, so
 // a segment never ends on text the next delta could continue.
 
-// segmentConfig sizes a segmenter's segments, in bytes of reply text.
+// segmentConfig sizes a segmenter's segments, in characters (runes) of reply
+// text.
 type segmentConfig struct {
 	// minChars is the size sentences are merged up to before a segment ends.
 	minChars int
@@ -119,7 +120,7 @@ func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, 
 	sc := segmentScanner{text: text, inFence: strings.Count(text[:from], codeFence)%2 == 1}
 	for i := from; i < len(text); {
 		end, size := sc.step(i)
-		if end > 0 && end-from >= max(minLen, 1) {
+		if end > 0 && utf8.RuneCountInString(text[from:end]) >= max(minLen, 1) {
 			return end, true
 		}
 		i += size
@@ -187,6 +188,7 @@ func (sc *segmentScanner) step(i int) (end, size int) {
 var abbreviations = map[string]bool{ //nolint:gochecknoglobals // a fixed lookup set
 	"mr": true, "mrs": true, "ms": true, "dr": true, "prof": true, "st": true,
 	"jr": true, "sr": true, "vs": true, "fig": true, "approx": true,
+	"inc": true, "ltd": true, "co": true, "mt": true,
 }
 
 // abbreviationBefore reports whether the period at i ends an abbreviation
@@ -246,14 +248,25 @@ func lineBoundary(text string, i int) int {
 	return 0
 }
 
-// capSegmentEnd cuts a segment that reached maxChars with no boundary: after
-// the last line end before the cap inside a code fence, else after the last
-// whitespace, else at the cap on a rune boundary.
+// capSegmentEnd cuts a segment that reached maxChars characters with no
+// boundary: after the last line end before the cap inside a code fence, else
+// after the last whitespace, else at the cap.
 func capSegmentEnd(text string, from int, fenceOpen bool, maxChars int) (int, bool) {
-	if maxChars <= 0 || len(text)-from < maxChars {
+	if maxChars <= 0 {
 		return 0, false
 	}
-	window := text[from : from+maxChars]
+	capEnd, n := len(text), 0
+	for i := range text[from:] {
+		if n == maxChars {
+			capEnd = from + i
+			break
+		}
+		n++
+	}
+	if n < maxChars {
+		return 0, false
+	}
+	window := text[from:capEnd]
 	inFence := fenceOpen || strings.Contains(window, codeFence)
 	cut := strings.LastIndexByte(window, '\n')
 	if !inFence {
@@ -263,12 +276,5 @@ func capSegmentEnd(text string, from int, fenceOpen bool, maxChars int) (int, bo
 		_, size := utf8.DecodeRuneInString(window[cut:])
 		return from + cut + size, true
 	}
-	end := from + maxChars
-	for end > from && !utf8.RuneStart(text[end]) {
-		end--
-	}
-	if end == from {
-		return 0, false
-	}
-	return end, true
+	return capEnd, true
 }

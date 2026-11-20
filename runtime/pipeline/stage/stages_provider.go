@@ -2770,8 +2770,12 @@ func (s *ProviderStage) handleStreamChunk(
 
 // cutStream ends a round an enforcing chunk interceptor cut: the text that
 // replaces the reply goes out (emitCutText) and the round waits briefly for
-// the provider's usage (awaitCutUsage).
+// the provider's usage (awaitCutUsage). A truncation in a round stream_hold
+// guardrails hold (holdTruncation) releases only what they have cleared.
 func (s *ProviderStage) cutStream(ctx context.Context, rs *roundStream) (streamedRound, error) {
+	if rs.hold != nil && !rs.acc.replaced {
+		return s.holdTruncation(ctx, rs)
+	}
 	if err := s.emitCutText(ctx, &rs.acc, &rs.text, rs.output, rs.suppressText); err != nil {
 		return rs.acc.collected(), err
 	}
@@ -2803,8 +2807,9 @@ func (s *ProviderStage) flushHeld(
 // emitCutText emits the text of a reply an enforcing chunk interceptor cut,
 // in place of the chunk it blocked: the guardrail's message when it replaced
 // the reply, or what the caller has not yet had of a truncated one. Every
-// interceptor has judged the cut text (hooks.Registry.JudgeChunk), so
-// none of it is held; media still waiting behind held text is dropped with the
+// interceptor has judged the cut text (hooks.Registry.JudgeChunk), and no
+// stream_hold guardrail holds it (a held round's truncation goes through
+// holdTruncation); media still waiting behind held text is dropped with the
 // blocked reply. The element carries types.FinishReasonSafety like a
 // blocked turn's (emitBlockedTurnText), and is a delta, so a speech-out stage
 // speaks the completed Message, once. A replacement is marked ReplacesText,
