@@ -2,6 +2,7 @@ package base_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -82,4 +83,87 @@ func TestResolveLLMPricing_NormalizeModelStripsVendorPrefix(t *testing.T) {
 	}
 	got := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "anthropic/claude-sonnet-4-5")
 	assert.Equal(t, 0.003, rateOf(got, base.UnitInputToken))
+}
+
+// A dated snapshot id ("<alias>-YYYY-MM-DD", or Anthropic's "<alias>-YYYYMMDD")
+// is a pinned version of the alias, so it prices like the alias when the table
+// carries no row of its own. A row for the snapshot itself still wins.
+func TestResolveLLMPricing_DatedSnapshotResolvesToAlias(t *testing.T) {
+	table := map[string]*base.PricingDescriptor{
+		"gpt-5.5":            {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.005}}},
+		"gpt-4o":             {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.0025}}},
+		"gpt-4o-2024-05-13":  {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.005}}},
+		"claude-sonnet-4-5":  {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.003}}},
+		"model-with-no-date": {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.7}}},
+	}
+	cases := []struct {
+		model string
+		want  float64
+	}{
+		{"gpt-5.5-2026-04-23", 0.005},
+		{"openai/gpt-5.5-2026-04-23", 0.005},
+		{"claude-sonnet-4-5-20250929", 0.003},
+		{"gpt-4o-2024-08-06", 0.0025},
+		{"gpt-4o-2024-05-13", 0.005}, // the snapshot's own row beats the alias
+	}
+	for _, c := range cases {
+		got := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, c.model)
+		assert.Equalf(t, c.want, rateOf(got, base.UnitInputToken), "model %s", c.model)
+	}
+}
+
+// Only a date is stripped. Any other suffix names a different model with its
+// own price ("-pro" bills 6x the base model), so it must not borrow a sibling's
+// row: it resolves to the empty descriptor and is reported as unpriced.
+func TestResolveLLMPricing_NonDateSuffixIsNotAFamilyMatch(t *testing.T) {
+	table := map[string]*base.PricingDescriptor{
+		"gpt-5.5": {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.005}}},
+	}
+	for _, model := range []string{
+		"gpt-5.5-pro", "gpt-5.5-mini", "gpt-5.5-0613", "gpt-5.5-2026-04", "gpt-5.5-1999-01-01x", "gpt-5.5-2026-13-45", "gpt-5.5-20261345", "gpt-5.5x2026-04-23",
+	} {
+		got := base.ResolveLLMPricing(nil, base.FlatPricing{}, table, model)
+		require.NotNilf(t, got, "model %s", model)
+		assert.Emptyf(t, got.Items, "model %s borrowed a sibling's price", model)
+	}
+}
+
+// A paid provider's table missing the model is reported by name, once per
+// model, so the operator knows which model needs a pricing: block — the
+// per-unit warning alone does not say which model it was.
+func TestResolveLLMPricing_UnknownModelWarnsOnceByName(t *testing.T) {
+	base.ResetUnpricedWarnings()
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	defer logger.SetOutput(nil)
+
+	table := map[string]*base.PricingDescriptor{
+		"known-model": {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.001}}},
+	}
+	base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "vendor/brand-new-model-x1")
+	base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "vendor/brand-new-model-x1")
+	base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "known-model")
+
+	out := buf.String()
+	assert.Equal(t, 1, strings.Count(out, "no built-in pricing for model"), out)
+	assert.Contains(t, out, "brand-new-model-x1")
+}
+
+// A model the table knows, a config descriptor, or a table-less provider
+// (self-hosted) is not "unknown", so none of them warn.
+func TestResolveLLMPricing_KnownOrUntabledModelDoesNotWarn(t *testing.T) {
+	base.ResetUnpricedWarnings()
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	defer logger.SetOutput(nil)
+
+	table := map[string]*base.PricingDescriptor{
+		"known-model": {Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.001}}},
+	}
+	cfg := &base.PricingDescriptor{Items: []base.PriceItem{{Unit: base.UnitInputToken, Rate: 0.009}}}
+	base.ResolveLLMPricing(nil, base.FlatPricing{}, table, "known-model-2025-01-01")
+	base.ResolveLLMPricing(cfg, base.FlatPricing{}, table, "configured-unknown-model")
+	base.ResolveLLMPricing(nil, base.FlatPricing{}, nil, "self-hosted-model")
+
+	assert.NotContains(t, buf.String(), "no built-in pricing for model")
 }

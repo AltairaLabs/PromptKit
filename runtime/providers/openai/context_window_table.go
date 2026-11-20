@@ -11,15 +11,17 @@ const (
 	contextWindow128K   = 128_000
 	contextWindow200K   = 200_000
 	maxInput272K        = 272_000
+	maxInput922K        = 922_000
 	contextWindow1M4pt1 = 1_047_576
 )
 
 // openaiContextWindows maps a model id to its context window in tokens, for the
-// same keys openaiPricingTable carries. Captured 2026-11-05 from the per-model
+// same keys openaiPricingTable carries. Captured 2026-11-05 (GPT-5.1 and later:
+// 2026-11-20) from the per-model
 // pages at https://developers.openai.com/api/docs/models/<model-id> (the
 // "context window" and, where stated, max input figures). It is a fallback: additional_config.context_window
 // overrides it. Keyed and resolved like the pricing table (vendor prefix
-// stripped, no substring fallback).
+// stripped, dated snapshot falls back to its alias, no other fallback).
 //
 // The compactor budgets the input side, so the table records the maximum input
 // tokens where the page states one separately (GPT-5, mini and nano: 272K of a
@@ -54,6 +56,31 @@ var openaiContextWindows = map[string]int{
 	modelGPT5:    maxInput272K,
 	"gpt-5-mini": maxInput272K,
 	"gpt-5-nano": maxInput272K,
+	"gpt-5-pro":  maxInput272K, // page gives 272K max output; GPT-5's input limit used
+	"o3-pro":     contextWindow200K,
+
+	// GPT-5.1 – 5.6 and 6.x, read 2026-11-20. 400K-window models: 272K input,
+	// as GPT-5. 1.05M-window models: 922K input, as the GPT-6.2 pages state
+	// (1.05M window less the 128K max output every one of them lists).
+	"gpt-5.1":       maxInput272K,
+	"gpt-5.2":       maxInput272K,
+	"gpt-5.2-pro":   maxInput272K,
+	"gpt-5.4-mini":  maxInput272K,
+	"gpt-5.4-nano":  maxInput272K,
+	"gpt-5.4":       maxInput922K,
+	"gpt-5.4-pro":   maxInput922K,
+	"gpt-5.5":       maxInput922K,
+	"gpt-5.5-pro":   maxInput922K,
+	"gpt-5.6-sol":   maxInput922K,
+	"gpt-5.6-terra": maxInput922K,
+	"gpt-5.6-luna":  maxInput922K,
+	"gpt-6-astra":   maxInput922K,
+	"gpt-6-sol":     maxInput922K,
+	"gpt-6-luna":    maxInput922K,
+	"gpt-6.1-sol":   maxInput922K,
+	"gpt-6.1-terra": maxInput922K,
+	"gpt-6.2-sol":   maxInput922K,
+	"gpt-6.2-astra": maxInput922K,
 }
 
 // MaxContextTokens returns the model's context window in tokens: the

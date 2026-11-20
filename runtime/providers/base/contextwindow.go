@@ -29,15 +29,24 @@ func ContextWindowFromConfig(additional map[string]any) int {
 
 // ResolveContextWindow selects a model's context window in tokens, in order:
 // a positive spec override > the provider's built-in table, keyed like the
-// pricing table (a vendor prefix such as "anthropic/" is stripped; there is no
-// substring fallback). It returns 0 when neither knows the model, which tells
-// the caller to use its own default; that case is logged at debug level.
+// pricing table (a vendor prefix such as "anthropic/" is stripped, and a dated
+// snapshot id falls back to its alias; there is no other family or substring
+// fallback). It returns 0 when neither knows the model, which tells the caller
+// to use its own default. A provider with a table warns once per such model,
+// since the table was expected to know it; one without a table (a self-hosted
+// server, configured through the override) logs at debug level.
 func ResolveContextWindow(providerID, model string, override int, table map[string]int) int {
 	if override > 0 {
 		return override
 	}
-	if n, ok := table[normalizeModel(model)]; ok && n > 0 {
+	if n, ok := lookupModel(table, model); ok && n > 0 {
 		return n
+	}
+	if table != nil {
+		warnUnknownModelOnce(&unknownWindowWarnOnce, model,
+			"context window: no built-in context window for model; compaction uses its default budget — "+
+				"set additional_config."+ContextWindowConfigKey+" in the provider config")
+		return 0
 	}
 	logger.Debug("context window unknown for model; caller falls back to its default",
 		"provider", providerID, "model", model)
