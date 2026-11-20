@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"unicode/utf8"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -237,19 +238,26 @@ func (m *Provider) handleStreamRequest(
 }
 
 // mockStreamChunkSize is how many bytes of a reply each simulated stream chunk
-// carries when the turn does not script its chunks.
+// carries when the turn does not script its chunks. A chunk runs on past it to
+// the end of a multi-byte character, so no delta carries half of one.
 const mockStreamChunkSize = 20
 
 // streamDeltas splits a streamed reply into text chunks, each carrying its
 // Delta and the reply so far as Content: turn's StreamChunks when it scripts
-// them, else mockStreamChunkSize bytes at a time.
+// them, else mockStreamChunkSize bytes at a time, each cut on a character
+// boundary.
 func streamDeltas(turn *Turn, content string) []providers.StreamChunk {
 	deltas := []string(nil)
 	if turn != nil && len(turn.StreamChunks) > 0 {
 		deltas = turn.StreamChunks
 	} else {
-		for i := 0; i < len(content); i += mockStreamChunkSize {
-			deltas = append(deltas, content[i:min(i+mockStreamChunkSize, len(content))])
+		for i := 0; i < len(content); {
+			end := min(i+mockStreamChunkSize, len(content))
+			for end < len(content) && !utf8.RuneStart(content[end]) {
+				end++
+			}
+			deltas = append(deltas, content[i:end])
+			i = end
 		}
 	}
 	chunks := make([]providers.StreamChunk, 0, len(deltas))
