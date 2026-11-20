@@ -118,7 +118,11 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
-### Hooks, validation events and eval results number turns from 0
+The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, caller identity, and providers.
+
+### Turn numbering
+
+#### Hooks, validation events and eval results number turns from 0
 
 Every turn index PromptKit hands a host now counts from 0: 0 for a conversation's first turn, 1 for its second.
 
@@ -136,19 +140,223 @@ Every turn index PromptKit hands a host now counts from 0: 0 for a conversation'
 
 `sdk.BlockedMessage.TurnIndex` was already 0-based on every path, and `sdk.Evaluate` passes on the `TurnIndex` you give it. `hooks.SessionEvent.TurnIndex` is still the number of completed turns.
 
-### OpenAI and Gemini speech and tool media no longer depend on the model's name
+### Guardrails
+
+#### A streamed chunk reaches the caller only after the output guardrails pass it
+
+`ProviderStage` sent each streamed chunk to the caller before the chunk interceptors (the streaming output guardrails) judged it, so a blocked reply reached the caller in pieces and the guardrail's message never arrived as text. A chunk now goes out only once every interceptor has passed it. An interceptor can hold back the end of a chunk that could be the start of a banned word (`hooks.Decision.Hold`; `content_excludes` implements `evals.PartialHolder`), and releases it when later text rules the word out or the reply ends. An unguarded stream holds nothing back. One output guard decides what a firing means on the text path and the realtime path alike.
+
+| If you | You will see | Change |
+|---|---|---|
+| Render streamed text (`Stream`, `StreamRaw`, `sdk.TextDeltaEvent`, `stream.Chunk`, the A2A server's stream) | a guardrail's cut ends the reply with one text chunk carrying its message and `ReplacesText` set, and finish reason `safety`. Text before the banned content may already have been shown | when `ReplacesText` is set, discard the text the turn has shown and show that chunk's text. `stream.CollectText` and the final `Content` do this. The A2A server sends the update with `append` false, so an A2A client replaces the artifact's text |
+| Read `providers.StreamChunk` from a session or provider yourself | `ReplacesText` on the chunk whose `Delta` replaces the turn's text | honor it as above |
+| Match `providers.ValidationAbortError` on a text stream | a chunk guardrail's deny, or a streaming check that errors, times out or returns no result, ends the reply with the guardrail's message, where the stream aborted with that error | detect a block by finish reason `safety` or the `validation.failed` event |
+| Count validation events | a streamed chunk's check reports `validation.failed` only when it fires; the completed reply's check reports `validation.started` and `validation.passed` | nothing |
+| Stream from a model that sends text and a tool call in one chunk, with a chunk guardrail that truncates or replaces the reply | the reply's tool calls do not run, as for a reply blocked after the call | nothing |
+| Read the finish reason of a streamed reply a chunk interceptor blocked | `safety` on the returned and stored message, where it kept the provider's `stop` | nothing |
+| Read the cost of a streamed call a guardrail cut | the turn ends at the cut. Usage that arrives within 250 ms is on the call's `provider.call.completed`; later usage is a `provider.call.usage` event with the call's `CallID`, where the call reported $0 | add `provider.call.usage` costs to the call's total, or use `hooks.OnProviderUsage` |
+| Write a chunk interceptor or provider hook that rewrites the chunk or message in place | it still works | return the text the enforcement leaves in `hooks.Decision.Content` |
+| Have two guardrails fire on one chunk | both firings are recorded | nothing |
+
+#### A blocked input stays in the transcript and out of the model's context
+
+When an input guardrail blocked a user turn, the blocked message and the canned reply were sent to the model on every later turn, so the model learned what had been refused. The transcript is unchanged: the state store, `Messages()`, recordings and events keep both messages. The provider request, summaries, memory extraction, the retrieval index and a workflow's carry-forward summary leave the pair out. Guardrail hooks and evals still see the full history. The canned reply is marked with `Meta[types.MetaBlockedInput]`, which the state store keeps. Output blocks are kept: their replacement stands in for the model's reply.
+
+| If you | You will see | Change |
+|---|---|---|
+| Have an input guardrail block a turn, then continue the conversation | later provider requests do not hold the blocked message or its reply | nothing |
+| Resume a conversation stored before the upgrade | a blocked pair is recognized by its input-direction guardrail validation and left out too | nothing |
+| Build model context from stored messages in your own pipeline | the blocked pairs, unless you filter them | pass the history through `stage.ExcludeFromModelContext` |
+
+#### Composition steps run their prompts' guardrails
+
+A composition opened no prompt of its own, so only the opened prompt's validators were compiled, and a step prompt's guardrails never ran. `Open` now compiles the validators of every prompt the composition's steps run, parallel branches included, and gives each step its prompt's validators ahead of the host's hooks (`CompositionExecutorDeps.StepHookRegistry`). Host hooks run once per step call.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a composition whose step prompts declare `validators:` | they run on each step, and block it as they do on a turn | review what they do to the composition |
+| Declare a step validator that cannot be built | `Open` fails, naming it | fix the validator |
+| Choose a blocked message's text with `sdk.WithBlockedMessage` | it applies to a step's block too, where the step used the guardrail's own message | nothing |
+
+### Realtime and voice sessions
+
+#### Realtime tool calls run through the tool runner
+
+A realtime (ASM) session ran each tool call itself against the tool registry, one at a time, with an approval check but no tool policy or tool hooks, and was offered only `StreamingInputConfig.Tools`. Its calls now run in the `DuplexProviderStage` through the runner a text turn uses. [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/#realtime-tool-calls) lists the rules.
+
+| If you | You will see | Change |
+|---|---|---|
+| Open a realtime session on a pack with tools | the session is offered the prompt's tools, capability tools and skill grants, merged with `StreamingInputConfig.Tools` (yours win on a name clash) | drop tools from `StreamingInputConfig.Tools` that only repeated the pack's |
+| Set a tool policy (`WithToolPolicy` or the prompt's `tool_policy`) | `Blocklist`, `MaxToolCallsPerTurn`, `MaxIdenticalToolCalls`, `MaxCallsPerMinute`, `MaxRounds` and `MaxParallelToolCalls` apply to realtime calls; a stopped call gets a refusal and `Response()` a chunk with `Error` set | check the limits suit voice turns |
+| Register tool hooks, `ToolResultRewriter` hooks or an approval check (`OnToolAsync`) | they run on realtime calls, and results reach the model formatted as on a text turn | nothing |
+| Have the model call a registered tool the turn did not offer | the result `Tool <name> was not run: it is not available this turn`; the handler does not run | offer the tool, or declare it in `StreamingInputConfig.Tools` |
+| Build a pipeline with a `DuplexProviderStage` given `SetToolExecution`, and give the session the same `ToolRegistry` | each call runs once: the session learns from the pipeline that a stage runs the calls | nothing |
+| Close a session while a tool call runs | the call is canceled and waited for up to the input grace period (100 ms by default); a call that never ran is stored with `Tool <name> not executed: the session closed before it ran` | nothing |
+
+#### Realtime guardrails cut the reply, play the message, and tell the model
+
+In a realtime session a guardrail that blocks a reply now cuts it: OpenAI Realtime cancels the response and truncates the model's copy to the heard audio, and `Response()` delivers a chunk with `Interrupted` set. Input guardrails run on the caller's spoken transcript. The guardrail's message arrives as text and plays as audio from the session's own out-of-band voice (OpenAI Realtime), the `sdk.WithCueVoice` service, or a short tone. After a block, a note is added to the model's conversation, reported as a `context.note_added` event. The note says a content rule blocked the turn and does not name the guardrail, because a guardrail named after what it blocks would bring the topic back. See [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/#guardrails-in-realtime-voice).
+
+| If you | You will see | Change |
+|---|---|---|
+| Play `Response()` audio yourself | a chunk with `Interrupted` set when a guardrail cuts a reply | flush your player on it; `conv.Start` on an `OpenVoice` session does |
+| Play `Response()` audio yourself | audio chunks with `Metadata["cue"]` set to `guardrail_message` after a cut: the guardrail's message, which the model never says | play them as reply audio; use the key to tell them apart |
+| Have a hook deny without enforcing, on typed text, spoken input or the reply | the turn ends with the default blocked message and finish reason `safety`; the session stays open, where it ended with a `HookDeniedError` | nothing |
+| Read a blocked spoken turn on OpenAI Realtime | the caller's turn and the cut reply are deleted from the server's conversation | nothing |
+| Read `context.note_added` | `Validator` names each guardrail that blocked the turn once, in firing order | read the names there, not from the note's text |
+| Count TTS spend | a `tts.call.completed` event with source `cue` for each rendered message, on the session that rendered it; a cached clip costs nothing | include it in cost reports |
+
+#### Voicing guardrail messages: `WithCueVoice` and `WithTTS`
+
+`sdk.WithTTS` is the VAD-mode reply voice only. A realtime session's guardrail messages are voiced by `sdk.WithCueVoice(svc, ...sdk.CueOption)`, with `sdk.CueClipCache(cache)` choosing the clip cache (by default one process-wide in-memory cache). `sdk.PrewarmCueClips(ctx, packPath, voice, opts...)` renders a pack's messages ahead of time with the service and cache from `WithCueVoice`. Clips live in a `cueclip.Cache` from `runtime/audio/cueclip` (`NewMemoryCache`, `NewDirCache`, `ReadOnly`).
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `WithTTS`, `WithTTSProvider` or a `role: tts` provider on a realtime session | it voices nothing there, and `Open` logs a warning once per process | pass the service to `WithCueVoice` |
+| Built against `main` between releases with `sdk.WithCueClipCache` | it is removed | pass `sdk.CueClipCache(cache)` to `WithCueVoice` |
+| Built against `main` with `PrewarmCueClips` taking a TTS service | it takes `(ctx, packPath, voice, opts...)` and reads the service and cache from `WithCueVoice` in `opts` | pass `WithCueVoice` |
+| Built against `main` with `stage.NewCueStage`, `NewCueStageFor`, `CueConfig`, `CueStage`, `EarconPCM` or `ClipKeyFor` | they are unexported; `CueBackchannel` and `CueClip.Video` are gone | build the stage with `stage.NewDuplexCueStage(duplex, stage.CueOptions{...})`, and use `cueclip.Cache`, `cueclip.KeyFor` and `cueclip.NewDirCache`. Clip keys are unchanged, so existing clip directories still play |
+
+#### A spoken reply is stored once its audio has played
+
+With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that takes streaming input), a realtime reply with audio reaches the state store, the recording, memory and `message.created` once its audio has played or been cut. A cut reply keeps its text and finish reason. `Close` and `Complete` wait for held replies before the evals run.
+
+| If you | You will see | Change |
+|---|---|---|
+| Follow `message.created` or the store during a voice session | a reply arrives when its audio ends, not when the model finishes it | read `Response()` for live text |
+| Read a reply the caller barged in on, or that a guardrail cut while it played | `Message.Meta` holds `types.MetaHeardMs`, `types.MetaAudioMs`, `types.MetaPlayedFraction` and `types.MetaPlayoutCut` (`types.PlayoutCutBargeIn`, `PlayoutCutSessionClosed` or `PlayoutCutGuardrail`) | nothing |
+| Play a realtime session's `Response()` audio to a listener yourself | nothing is held | pass `sdk.WithPlayoutTracking()` |
+| Pass `WithPlayoutTracking` to `Open`, or to a duplex session in VAD mode or with `WithIngestion` | an error: only a realtime session has playout | drop the option |
+| Built against `main` with the playout keys on `stage` (`stage.MetaHeardMs` and the rest) | they are in `runtime/types` | import them from `types` |
+
+#### Realtime events and cost
+
+| If you | You will see | Change |
+|---|---|---|
+| Follow `message.created` on a realtime conversation | the model's replies and tool-calling rounds, at the index each holds in the stored transcript, where only user turns were published | nothing |
+| Total cost from `provider.call.completed` | each call completes once. Gemini Live reports usage after a call ends, so its completion waits up to 300 ms for it (`providers.LateUsageReporter`); usage later still is a `provider.call.usage` event with the call's `CallID` | add `provider.call.usage` costs to the call, or use `hooks.OnProviderUsage` |
+| Count calls on `provider.call.completed` | a call that produced no message has `NoMessage` set | skip those when counting replies |
+| Read a realtime reply's text while it streams | text-only OpenAI Realtime replies stream as deltas, where they arrived in one chunk at the end | nothing |
+
+#### Duplex sessions end without hanging
+
+| If you | You will see | Change |
+|---|---|---|
+| Call `Close` on a duplex session | the turn in flight finishes and is saved; `Close` waits at most `session.DefaultDrainTimeout` (30 s) for the pipeline to take the end of input, then a short grace, then cancels. A `Response()` channel left unread no longer stalls it | nothing |
+| Cancel the context passed to `Start` | the session stops at once: a model call or TTS synthesis is canceled, queued audio is dropped, and `Done()` closes | call `Close` afterwards to run the session evals |
+| Send input after the session ended (idle timeout, provider error, provider closed it) | the error that ended it, wrapping `stage.ErrIdleTimeout`, or `sdk.ErrSessionClosed`, where the send returned nil and then blocked | handle the error; match with `errors.Is` |
+| Call `SessionError()` | the error that ended the session, where it returned nil | nothing |
+| Wait on `Done()` in VAD mode after the idle timeout | `Done()` closes on its own, and `SessionError()` wraps `stage.ErrIdleTimeout` | nothing |
+| Listen to a VAD reply longer than the idle timeout | caller audio, silence included, resets the idle timer, as in ASM mode | nothing |
+| Hear a long Gemini Live reply | the idle timer is held while a provider turn is open, up to 5 minutes | nothing |
+| Resume a realtime conversation with history on OpenAI Realtime (`ResumeDuplex`) | the new session is given the history, where it failed with "session cannot take the conversation's N prior messages" | nothing |
+
+#### VAD mode asks the TTS service for its own default voice
+
+`DefaultVADModeConfig().Voice` is `""`, where it was `"alloy"`. An empty voice asks the TTS service for its own default (`alloy` on OpenAI TTS). ElevenLabs, Cartesia and Gemini TTS refuse `alloy`, so a VAD session on them with no voice set spoke nothing. `stage.DefaultTTSStageWithInterruptionConfig()` still sets `"alloy"`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run VAD mode on ElevenLabs, Cartesia or Gemini TTS without a voice | replies in the service's default voice | nothing |
+| Read `DefaultVADModeConfig().Voice` | `""` | set `Voice` to name one |
+| Build a TTS stage from `stage.DefaultTTSStageWithInterruptionConfig()` with a non-OpenAI service | `alloy`, which that service refuses | set `Voice` |
+
+### Tools
+
+#### Settled tool results reach the model as in-turn results do
+
+| If you | You will see | Change |
+|---|---|---|
+| Approve a held call (`ResolveTool`, `ResolveToolWithArgs`) and `Continue` | the result formatted as a text turn formats it (strings unquoted, objects indented, capped at `MaxToolResultSize`), where `Continue` sent raw JSON | nothing |
+| Approve a call whose result does not match the tool's output schema | the model gets the validation error, and `ToolResolution.Error` carries it | fix the handler |
+| Match a failed approved call's text | `Tool execution failed: <error>`, where it was `Tool error: <error>` | match the new text |
+| Configure a `ToolResultRewriter` | it runs on results delivered by `Continue`, `ContinueDuplex` and `Resume` too; a rewriter error turns the result into a tool error | nothing |
+| Register an executor with `OnToolExecutor` or `WithToolExecutor` that implements `tools.MultimodalExecutor`, `tools.AsyncCallExecutor` or `tools.AsyncToolExecutor` | its content parts reach the model, and a pending result suspends the call | nothing |
+| Set `MaxCallsPerMinute` or a registry rate limit | a deferred client call counts when its answer is used, not when the model makes it | nothing |
+| Have the repeated-call breaker nudge a round | its other calls count toward `max_tool_calls_per_turn` and `termination.tool_called`, and a text turn whose last round is nudged ends with a `MaxRoundsError` | nothing |
+| Call `memory__recall` or `memory__list` with no match | `"memories": []`, where `null` failed the tool's own output schema | nothing |
+| Built against `main` with `Conversation.SettleClientTool`, `SettleClientToolRejection`, `HasToolResultRewriters` or `session.DuplexSessionConfig.PipelineRunsTools` | they are not exported | nothing; the AG-UI adapter uses them internally |
+
+### Caller identity
+
+#### The caller travels on the request, set by `WithCaller`
+
+`sdk.WithCaller(types.Caller{ID, Claims})` sets who a conversation acts for. Tool executors and hooks, provider hooks, guardrails, evals, memory stores and the workflow transition authorizer receive it on their request. PromptKit never reads a caller from a `context.Context`. `OpenDuplexContext`, `OpenVoiceContext` and `ResumeDuplexContext` take a context whose values the session's tool calls, session-start hooks and forks see; it bounds the open, not the session.
+
+| If you | You will see | Change |
+|---|---|---|
+| Put caller identity on the context of `Send` or `OpenDuplexContext` | it reaches no tool, hook or authorizer as the caller | pass `sdk.WithCaller` |
+| Compare `hooks.OutputRequest`, `workflow.TransitionRequest` or `providers.ToolResponse` with `==`, or use one as a map key | a compile error: `Caller.Claims` (a map) and `ToolResponse.Parts` (a slice) make them non-comparable | compare the fields you need |
+| Use exec hooks or exec evals with `Claims` | the caller in the stdin JSON; `Claims` must be JSON-encodable | keep `Claims` to plain data |
+
+### Providers
+
+#### OpenAI and Gemini speech and tool media no longer depend on the model's name
 
 Which request shape a model gets was read from its name. It now comes from the provider's configuration or from the API's own answer, so a snapshot, an alias such as `gemini-flash-latest`, or an Azure or Vertex deployment name behaves like the model it serves.
 
 | If you | You will see | Change |
 |---|---|---|
-| Resume a realtime conversation with history on OpenAI Realtime (`ResumeDuplex`) | the new session is given the history, where it failed with "session cannot take the conversation's N prior messages" | nothing |
 | Send a tool result's media to a Gemini model whose function responses take none (Gemini 2.x) | the first request carries the media in the function response and is refused; the provider sends it again with the media after the round, and sends later requests that way | set `additional_config.function_response_media: false` to skip the refused request |
 | Send a tool result's media to a Gemini model whose name carries no version (`gemini-flash-latest`) | the media in the function response, where it went in a user message after the round | nothing |
 | Run a Gemini 2.x Live model with tools that return images | the images go in the function response, which the model ignores, where they were described in the result's text | set `additional_config.function_response_media: false` |
 | Transcribe with `whisper-1` on OpenAI STT | the request asks for `json`, and the cost uses the billed seconds the response reports, where it asked for `verbose_json` and used the audio's exact length | nothing |
 | Use OpenAI TTS on `tts-1` or `tts-1-hd` with markup tags | the tags' directives are sent as `instructions`, which those models ignore, and `PersonaRubric` offers the markup rubric | set `additional_config.instructions: false`, or call `SetInstructions(false)`, to drop the directives and the rubric |
 | List voices with `SupportedVoices` on OpenAI TTS | all 13 voices on every model; the four `tts-1` lacks say so in their description | pick a voice the model has |
+| Transcribe with a `gpt-4o-*-transcribe` model on OpenAI STT | the call succeeds and is priced from the usage the response reports, where the `verbose_json` request failed | nothing |
+| Use OpenAI TTS on a `gpt-4o-mini-tts` snapshot or an Azure deployment | markup directives are sent as `instructions`, where only the exact name `gpt-4o-mini-tts` got them | nothing |
+| Want another realtime input transcription model on OpenAI Realtime | `whisper-1` by default | set the streaming config's `metadata["input_transcription_model"]` |
+
+#### OpenAI refuses a strict `response_format` strict mode cannot express
+
+A `json_schema` response format with `Strict` set was rewritten for strict mode whatever it held. A schema with a keyword strict mode refuses (`minProperties`, `oneOf`, ...) was refused by OpenAI, and a map-typed object was closed so the model could return no keys. The provider now refuses the request before building it, on Chat Completions, the Responses API and Azure OpenAI. Tools are decided per tool: a tool strict mode cannot express is sent non-strict, with its schema as written, and the tools beside it stay strict.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `Strict` on a response format whose schema strict mode cannot express | an error naming the keyword and its JSON path, such as `"minProperties" at $.properties.tags`, before any request | change the schema, or send it with `strict: false` |
+| Declare a tool whose schema strict mode cannot express | the request succeeds; that tool is sent non-strict | nothing |
+| Force a tool by name on the Responses API (`api_mode: responses`) | the choice is sent as a function object, where every request failed | nothing |
+
+#### Tool turns in history keep their linkage on every request path
+
+The plain request path (`Predict`, `PredictStream`) of OpenAI, Claude, Ollama and Gemini serialized a history holding tool turns without the link between a call and its result, and Claude's was refused outright. They now serialize history with their tool path's code.
+
+| If you | You will see | Change |
+|---|---|---|
+| Send a history with tool turns on the plain path | `tool_calls`/`tool_call_id` (OpenAI, Ollama), `tool_use`/`tool_result` (Claude) and `functionCall`/`functionResponse` (Gemini) | nothing |
+| Hold a Claude tool call with no result after it (held for approval, cut short) | the assistant's text is sent without the `tool_use`, where the request failed | nothing |
+| Run Gemini tool rounds followed by a user message | the function responses go in their own user turn | nothing |
+| Resume a voice conversation on an OpenAI text model or Claude | each spoken reply is sent as its transcript, where the request failed on its audio | nothing |
+| Declare no vision capability on an OpenAI provider | a tool result's image is described, not sent | declare vision on a model that has it |
+
+#### Claude learns the thinking shape from the API
+
+The thinking wire shape (adaptive, or enabled with `budget_tokens`) was chosen from the model's name, so a Bedrock model ID, inference profile, ARN or Azure deployment of a 4.5-or-older model got adaptive and every request failed. When the API refuses the shape, the provider now retries once with the other and keeps it.
+
+| If you | You will see | Change |
+|---|---|---|
+| Use thinking on Claude behind Bedrock, Vertex or Azure | requests succeed, the first after one refused attempt | set `additional_config.thinking_mode` to `adaptive` or `budget` to skip that attempt |
+| Set `thinking_mode` to another value | provider construction fails | use `adaptive` or `budget` |
+
+#### Gemini applies a response schema only to the answering round
+
+A response schema with tools was routed to the Interactions API, where the model called the tool on every round. The provider now sends a round that can call tools without the schema and, when that round answers, asks for the answer again with the schema and no tools, on whichever API `api_mode` chooses. A stream holds the tool round's chunks back, so the unconstrained draft is never delivered.
+
+| If you | You will see | Change |
+|---|---|---|
+| Use `response_format` with tools on Gemini | two billed calls for an answering round, with both calls' usage on the answer; `every_round` behaves as `final_turn` | budget for the second call |
+
+#### Speech services
+
+| If you | You will see | Change |
+|---|---|---|
+| Want speech-to-text from ElevenLabs or Cartesia | `stt.NewElevenLabs` (model `scribe_v3`) and `stt.NewCartesia` (model `ink-whisper`), registered as `elevenlabs` and `cartesia` for `role: stt` | nothing |
+| Want Gemini TTS | `tts.NewGemini` and `tts.NewGeminiOnVertex`, registered as `gemini`; the model defaults to `tts.GeminiModelFlashTTS` | nothing |
+| Create a Cartesia TTS service without a voice | "Katie - Friendly Fixer" (`f786b574-daa5-4673-aa0c-cbe3e8534c02`), where the withdrawn default spoke nothing | nothing |
+| Pass Cartesia a voice it rejects | an error naming the voice, `tts.ErrInvalidVoice` on the websocket too | nothing |
+| Set a Gemini Live voice | the streaming config's `metadata["voice"]` picks it; unset keeps `Puck` | nothing |
+| Front Gemini Live with a gateway | Live stays on Google whatever `base_url` says | set `additional_config.live_url` (`ws://` or `wss://`) |
+| Built against `main` with `tts.DefaultGeminiTTSModel`, `tts.GeminiDefaultVoice` or `gemini.DefaultLiveVoice` | the first is `tts.GeminiModelFlashTTS`; the voices are unexported | rename, or drop the reference |
 
 ## v2.21.0
 
