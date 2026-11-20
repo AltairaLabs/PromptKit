@@ -1830,7 +1830,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1727>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1732>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1842,10 +1842,12 @@ After Close is called, Send and Stream will return [ErrConversationClosed](<#Err
 
 Close cancels the session context; it does not drain work already in flight. On the streaming ingestion path in particular, turns are processed asynchronously after the last chunk is queued, so calling Close immediately can cancel a turn mid\-pipeline and drop its response. Wait for the responses you expect before closing.
 
+On a duplex session Close stops the pipeline at once: a model call or TTS synthesis in flight is canceled, queued audio is dropped, and a reply cut short is stored with what was said of it. Done has closed by the time Close returns.
+
 An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to one second for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
 
 <a name="Conversation.Complete"></a>
-### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1746>)
+### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1751>)
 
 ```go
 func (c *Conversation) Complete() error
@@ -1931,7 +1933,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2046>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2070>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -2100,7 +2102,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2032>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2056>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2542,7 +2544,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2056>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2080>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -3096,13 +3098,13 @@ conv.SetVarsFromEnv("PROMPTKIT_")
 ```
 
 <a name="Conversation.Start"></a>
-### func \(\*Conversation\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L109>)
+### func \(\*Conversation\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L112>)
 
 ```go
 func (c *Conversation) Start(ctx context.Context) error
 ```
 
-Start runs the bound audio session: it feeds every microphone source into the pipeline and plays the pipeline's audio replies back to the speaker sinks, flushing them on barge\-in. It blocks until ctx is canceled or the session ends \(a source closes or the response stream finishes\), then tears the session down. A context\-cancel shutdown returns nil.
+Start runs the bound audio session: it feeds every microphone source into the pipeline and plays the pipeline's audio replies back to the speaker sinks, flushing them on barge\-in. It blocks until ctx is canceled or the session ends \(a source closes or the response stream finishes\), then tears the session down: the audio session closes and the pipeline stops at once, canceling a model or TTS call in flight and dropping queued audio, so Done closes promptly. The conversation itself stays open; call Close to run its session evals and release it. A context\-cancel shutdown returns nil.
 
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 

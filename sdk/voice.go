@@ -102,7 +102,10 @@ type audioChunkSender interface {
 // pipeline and plays the pipeline's audio replies back to the speaker sinks,
 // flushing them on barge-in. It blocks until ctx is canceled or the session
 // ends (a source closes or the response stream finishes), then tears the session
-// down. A context-cancel shutdown returns nil.
+// down: the audio session closes and the pipeline stops at once, canceling a
+// model or TTS call in flight and dropping queued audio, so Done closes
+// promptly. The conversation itself stays open; call Close to run its session
+// evals and release it. A context-cancel shutdown returns nil.
 //
 // Start owns the response stream — do not also read Response() while it runs.
 // Requires a session bound via OpenVoice / WithAudioSession.
@@ -170,6 +173,13 @@ func (c *Conversation) Start(ctx context.Context) error {
 
 	wg.Wait()
 	_ = sess.Close()
+	// The pumps stopping does not stop the pipeline: a model or TTS call in
+	// flight, and the audio queued behind it, would run on until they ended
+	// or the idle timeout fired (#2847). Stop the session with them; Close
+	// still runs the session evals and releases the rest.
+	c.mu.Lock()
+	_ = c.stopDuplexSession()
+	c.mu.Unlock()
 
 	select {
 	case err = <-errCh:

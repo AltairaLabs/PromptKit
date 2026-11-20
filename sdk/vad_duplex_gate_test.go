@@ -155,9 +155,7 @@ func pcmSilence(d time.Duration, sampleRate int) []byte {
 // through the real AudioTurn → STT → LLM path and asserts the model received
 // the STT transcript as a user message.
 //
-// The assertion is made after Close only because that is the weakest claim
-// that proves the gate: the transcript reached the model at all. Whether it
-// arrives per turn *during* the session — it does, since #1644 — is covered by
+// That the turn fires the model per turn, before Close, is covered by
 // TestVADModeFiresLLMDuringSessionNotAtClose in vad_mode_per_turn_test.go.
 func TestOpenDuplexVADModeDeliversTranscriptToTextProvider(t *testing.T) {
 	if testing.Short() {
@@ -209,13 +207,10 @@ func TestOpenDuplexVADModeDeliversTranscriptToTextProvider(t *testing.T) {
 		send(pcmSilence(frame, sampleRate))
 	}
 
-	// Close both flushes the turn and, today, reports a drain timeout on this
-	// path (tracked separately as #1638). The drain outcome is logged rather
-	// than asserted: what this test is about is whether the transcript reached
-	// the model, which it does regardless.
-	if err := conv.Close(); err != nil {
-		t.Logf("Close reported: %v (see #1638)", err)
-	}
+	// The turn reaches the model during the session. Close stops the
+	// pipeline at once and cancels work still in flight (#2847), so it is not
+	// what delivers the turn.
 	assert.True(t, provider.waitForUserText("hello", 5*time.Second),
 		"model must receive the STT transcript as a user message; got %v", provider.userTexts())
+	require.NoError(t, conv.Close())
 }

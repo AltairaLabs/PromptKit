@@ -1718,6 +1718,11 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // can cancel a turn mid-pipeline and drop its response. Wait for the
 // responses you expect before closing.
 //
+// On a duplex session Close stops the pipeline at once: a model call or TTS
+// synthesis in flight is canceled, queued audio is dropped, and a reply cut
+// short is stored with what was said of it. Done has closed by the time
+// Close returns.
+//
 // An event bus the SDK created is closed last, once this conversation and
 // any forks of it are all closed. Before closing it, Close waits up to one
 // second for pipeline executions still in flight, so the events
@@ -1888,9 +1893,9 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	}
 	c.finishSession(convID)
 	evalMW := c.evalMW
-	// A realtime session is drained before the evals run, so the replies it
+	// A realtime session is stopped before the evals run, so the replies it
 	// still holds (a reply still playing) reach the transcript they score.
-	drainErr := c.drainDuplexSession()
+	stopErr := c.stopDuplexSession()
 	c.mu.Unlock()
 
 	runCloseEvals(evalMW, complete)
@@ -1898,7 +1903,7 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Collect all errors and always execute all cleanup steps.
-	errs := drainErr
+	errs := stopErr
 	errs = append(errs, c.releaseResources()...)
 
 	// State is automatically persisted by the StateStore middleware in the pipeline
@@ -1942,25 +1947,44 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 	evalMW.close()
 }
 
-// drainDuplexSession drains the duplex session, if any (graceful shutdown
-// with a timeout), returning its error. Draining a session already drained or
-// closed is a no-op. Caller must hold c.mu.
-func (c *Conversation) drainDuplexSession() []error {
+// stopDuplexSession stops the duplex session, if any, and waits for its
+// pipeline to wind down. Closing the session cancels its pipeline at once:
+// a model or TTS call in flight is canceled, queued audio is dropped, and a
+// reply still held for playout is released, with what was heard, into the
+// transcript before Done closes. Waiting for Done is what lets the session
+// evals that follow see that reply. The wait is bounded by the session's own
+// teardown timeout. Stopping a session already stopped is a no-op. Caller
+// must hold c.mu.
+//
+// Close used to drain instead: it sent the pipeline an end-of-stream and
+// waited for it, so a model or TTS call in flight held Close for as long as
+// it ran, and a pipeline that had stopped reading input held it until the
+// idle timeout (#2847).
+func (c *Conversation) stopDuplexSession() []error {
 	if c.mode != DuplexMode || c.duplexSession == nil {
 		return nil
 	}
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
-	defer drainCancel()
-	if err := c.duplexSession.Drain(drainCtx); err != nil {
-		return []error{fmt.Errorf("failed to drain duplex session: %w", err)}
+	if err := c.duplexSession.Close(); err != nil {
+		return []error{fmt.Errorf("failed to close duplex session: %w", err)}
+	}
+	timer := time.NewTimer(duplexStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-c.duplexSession.Done():
+	case <-timer.C:
+		logger.Warn("duplex session did not end after Close; not waiting for it", "timeout", duplexStopTimeout)
 	}
 	return nil
 }
 
+// duplexStopTimeout is a backstop on stopDuplexSession's wait, above the
+// session's own teardown bound, for a session that never reports Done.
+const duplexStopTimeout = 2 * time.Second
+
 // releaseResources closes everything the conversation holds except the event
 // bus, attempting every step and returning the errors. Caller must hold c.mu.
 func (c *Conversation) releaseResources() []error {
-	errs := c.drainDuplexSession() // drained already on close; a no-op then
+	errs := c.stopDuplexSession() // stopped already on close; a no-op then
 
 	// Close capabilities
 	for _, cap := range c.capabilities {
