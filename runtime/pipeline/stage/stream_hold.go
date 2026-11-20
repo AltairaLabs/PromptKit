@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,15 +19,13 @@ import (
 // not per guardrail: every segment guardrail judges the same segments. Zero
 // fields take the defaults.
 type StreamHoldConfig struct {
-	// MinChars is the size, in bytes, sentences merge up to before a segment
-	// ends. Default 60.
+	// MinChars is the size, in characters, sentences merge up to before a
+	// segment ends. Default 60. A round's first segment ends at 24 characters
+	// (or MinChars, when smaller), because the first release is the latency a
+	// caller notices most. A segment with no boundary (a long code block,
+	// text without punctuation) is cut at the last whitespace before 600
+	// characters, or 10 times MinChars when that is larger.
 	MinChars int
-	// FirstMinChars is MinChars for a round's first segment, smaller because
-	// the first release is the latency a caller notices most. Default 24.
-	FirstMinChars int
-	// MaxChars cuts a segment with no boundary (a long code block, text
-	// without punctuation) at the last whitespace before it. Default 600.
-	MaxChars int
 	// MaxSegmentJudges caps the partial-reply judgments each guardrail makes
 	// per round. Past it, the rest of the round is judged once, with the
 	// completed reply. Default 8.
@@ -35,6 +34,16 @@ type StreamHoldConfig struct {
 	// sets stream_hold_timeout. A judgment that runs past it fails closed.
 	// Default 10s.
 	SegmentTimeout time.Duration
+
+	// firstMinChars and maxChars override the sizes MinChars derives, for
+	// tests.
+	firstMinChars, maxChars int
+}
+
+// segmentConfig is the segment sizing c sets, defaults applied.
+func (c StreamHoldConfig) segmentConfig() segmentConfig {
+	c = c.withDefaults()
+	return segmentConfig{minChars: c.MinChars, firstMinChars: c.firstMinChars, maxChars: c.maxChars}
 }
 
 // Defaults for StreamHoldConfig.
@@ -46,17 +55,20 @@ const (
 	defaultStreamHoldSegmentTimeout   = 10 * time.Second
 )
 
+// maxCharsPerMinChar scales the segment cap with a large MinChars.
+const maxCharsPerMinChar = 10
+
 // withDefaults returns c with every unset field defaulted.
 func (c StreamHoldConfig) withDefaults() StreamHoldConfig {
 	seg := defaultSegmentConfig()
 	if c.MinChars <= 0 {
 		c.MinChars = seg.minChars
 	}
-	if c.FirstMinChars <= 0 {
-		c.FirstMinChars = min(seg.firstMinChars, c.MinChars)
+	if c.firstMinChars <= 0 {
+		c.firstMinChars = min(seg.firstMinChars, c.MinChars)
 	}
-	if c.MaxChars <= 0 {
-		c.MaxChars = seg.maxChars
+	if c.maxChars <= 0 {
+		c.maxChars = max(seg.maxChars, maxCharsPerMinChar*c.MinChars)
 	}
 	if c.MaxSegmentJudges <= 0 {
 		c.MaxSegmentJudges = defaultStreamHoldMaxSegmentJudges
@@ -133,7 +145,7 @@ func (s *ProviderStage) newStreamHold(
 	cfg := s.config.StreamHold.withDefaults()
 	h := &streamHold{
 		stage: s, req: req, cfg: cfg, rr: rr, judging: true,
-		seg: newSegmenter(segmentConfig{minChars: cfg.MinChars, firstMinChars: cfg.FirstMinChars, maxChars: cfg.MaxChars}),
+		seg: newSegmenter(cfg.segmentConfig()),
 	}
 	for i, hook := range holders {
 		g := &heldGuardrail{hook: hook, index: i, segment: hook.StreamHold() == hooks.StreamHoldSegment}
@@ -279,7 +291,7 @@ func (s *ProviderStage) readHeldStream(ctx context.Context, rs *roundStream) (st
 	// Nothing can complete what the chunk checks held; what the stream_hold
 	// guardrails hold waits for the completed reply's check.
 	rs.text.clearAll()
-	if err := s.releaseHeld(ctx, rs, nil); err != nil {
+	if err := s.releaseHeld(ctx, rs, nil, false); err != nil {
 		return rs.text.withoutHeld(&rs.acc), err
 	}
 	got := rs.acc.collected()
@@ -339,7 +351,7 @@ func (s *ProviderStage) applyPartialVerdict(
 	}
 	if v.d.Allow {
 		rs.text.clearHeld(v.g.index, len(v.text))
-		if relErr := s.releaseHeld(ctx, rs, nil); relErr != nil {
+		if relErr := s.releaseHeld(ctx, rs, nil, false); relErr != nil {
 			return rs.text.withoutHeld(&rs.acc), true, relErr
 		}
 		return streamedRound{}, false, nil
@@ -364,18 +376,46 @@ func (s *ProviderStage) applyPartialVerdict(
 	return got, true, err
 }
 
+// holdTruncation ends a held round a chunk check truncated: the truncated
+// reply is the round's text, the chunk checks hold none of it, and what the
+// stream_hold guardrails have cleared is released. The rest stays held for
+// the completed reply's check (finishStreamedText), which judges the
+// truncated reply. The partial-reply judgments still running are canceled.
+func (s *ProviderStage) holdTruncation(ctx context.Context, rs *roundStream) (streamedRound, error) {
+	rs.hold.stop()
+	rest, ok := strings.CutPrefix(rs.acc.content, rs.text.sent.String())
+	if !ok {
+		rest = ""
+	}
+	rs.text.pending = rest
+	rs.text.clearAll()
+	if err := s.releaseHeld(ctx, rs, nil, false); err != nil {
+		return rs.text.withoutHeld(&rs.acc), err
+	}
+	var late <-chan *types.CostInfo
+	rs.drained, late = s.awaitCutUsage(ctx, rs.streamChan, &rs.acc)
+	got := rs.acc.collected()
+	got.lateUsage = late
+	got.hold = rs
+	return got, nil
+}
+
 // metadataKeyValidatorType is the decision metadata key naming the eval type
 // that fired.
 const metadataKeyValidatorType = "validator_type"
 
 // releaseHeld emits the text every guardrail has cleared and not yet
 // released, ending the reply with finish when it is set, then the media that
-// waited behind it, and reports the release (stream.hold.released).
-func (s *ProviderStage) releaseHeld(ctx context.Context, rs *roundStream, finish *string) error {
+// waited behind it, and reports the release (stream.hold.released). The
+// delta is marked SegmentEnd when it ends a segment, or ends the reply
+// (last).
+func (s *ProviderStage) releaseHeld(ctx context.Context, rs *roundStream, finish *string, last bool) error {
 	from := rs.text.sent.Len()
 	text := rs.text.release()
 	if text != "" && !rs.suppressText {
-		if err := sendStreamElement(ctx, textDeltaElement(text, finish), rs.output); err != nil {
+		elem := textDeltaElement(text, finish)
+		elem.Meta.SegmentEnd = last || slices.Contains(rs.hold.seg.segments(), rs.text.sent.Len())
+		if err := sendStreamElement(ctx, elem, rs.output); err != nil {
 			return err
 		}
 		if s.emitter != nil {
@@ -416,7 +456,7 @@ func (s *ProviderStage) finishStreamedText(
 		if msg.FinishReason != "" {
 			finish = &msg.FinishReason
 		}
-		return s.releaseHeld(ctx, rs, finish)
+		return s.releaseHeld(ctx, rs, finish, true)
 	}
 	released := got.released
 	if rs != nil {

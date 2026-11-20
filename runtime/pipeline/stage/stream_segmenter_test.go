@@ -49,6 +49,14 @@ func TestNextSegmentEnd(t *testing.T) {
 			want: len("Ask Dr. Who now."), wantOK: true},
 		{name: "parenthesized initialism", text: "Go (i.e. now). Then", cfg: small,
 			want: len("Go (i.e. now)."), wantOK: true},
+		{name: "company abbreviations", text: "Acme Inc. and Foo Ltd. and Bar Co. sold it. Then", cfg: small,
+			want: len("Acme Inc. and Foo Ltd. and Bar Co. sold it."), wantOK: true},
+		{name: "mount abbreviation", text: "Climb Mt. Fuji now. Then", cfg: small,
+			want: len("Climb Mt. Fuji now."), wantOK: true},
+		{name: "i.e. is not a boundary", text: "Rain, i.e. water. Then", cfg: small,
+			want: len("Rain, i.e. water."), wantOK: true},
+		{name: "a year ends a sentence", text: "It began in 1990. Then", cfg: small,
+			want: len("It began in 1990."), wantOK: true},
 		{name: "a digit before the period ends a sentence", text: "It was 1999. Then", cfg: small,
 			want: len("It was 1999."), wantOK: true},
 		{name: "scan starts at from", text: "One. Two. Three", from: 4, cfg: small, want: 9, wantOK: true},
@@ -92,8 +100,16 @@ func TestNextSegmentEnd(t *testing.T) {
 			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12}, want: len("aaaa bbbb "), wantOK: true,
 		},
 		{
-			name: "cap with no space cuts on a rune boundary", text: strings.Repeat("中", 10),
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10}, want: 9, wantOK: true,
+			name: "cap counts characters, not bytes", text: strings.Repeat("中", 12),
+			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10}, want: len(strings.Repeat("中", 10)), wantOK: true,
+		},
+		{
+			name: "under the cap in characters waits", text: strings.Repeat("中", 9),
+			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10},
+		},
+		{
+			name: "min_chars counts characters", text: "Ça été. Fini. Encore",
+			cfg: segmentConfig{minChars: 9, firstMinChars: 9, maxChars: 600}, want: len("Ça été. Fini."), wantOK: true,
 		},
 		{
 			name: "cap inside a code fence cuts at a line end", text: "```\nab cd\nef gh ij",

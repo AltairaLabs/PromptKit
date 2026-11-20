@@ -118,6 +118,16 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
+### Topic, PII and safety output guardrails hold a streamed reply by segment
+
+An output guardrail now holds a streamed reply back from the caller until it has judged it, as its `stream_hold` param says. Without the param, `topic_policy`, `pii_leakage`, `toxicity`, `bias`, `role_violation` and `text_toxicity` hold per segment: `Stream` releases a sentence or a few at a time, each once the judge passed it. `llm_judge` holds the whole reply. When the guardrail fails the reply, its message replaces the text already streamed, marked `ReplacesText`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Stream replies under one of those output guardrails | text arrives later (the first segment after one judge call), and the judge is called up to 8 times per model round instead of once | set `stream_hold: none` on the guardrail to stream as before, or `stream_hold: turn` for one judge call per round; `sdk.WithStreamHold` tunes the segment size and the call cap |
+| Stream replies under an `llm_judge` output guardrail | nothing arrives until the judge passed the completed reply | set `stream_hold: none` to stream as before, or `stream_hold: segment` when its criteria judge only what the reply says |
+| Render streamed text | a guardrail that fails a streamed reply after it reached you ends it with a delta marked `ReplacesText` | replace the turn's text with that delta's text |
+
 ### Hooks, validation events and eval results number turns from 0
 
 Every turn index PromptKit hands a host now counts from 0: 0 for a conversation's first turn, 1 for its second.

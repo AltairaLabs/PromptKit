@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -75,7 +76,7 @@ func holdStage(t *testing.T, hook hooks.ProviderHook, cfg StreamHoldConfig, delt
 		hooks.NewRegistry(hooks.WithProviderHook(hook)))
 }
 
-var smallHold = StreamHoldConfig{MinChars: 1, FirstMinChars: 1}
+var smallHold = StreamHoldConfig{MinChars: 1}
 
 // A reply a segment fails ends with the guardrail's message, marked as
 // replacing what was released; the stored reply is the message, its tool calls
@@ -135,7 +136,7 @@ func TestStreamHold_SegmentDenyCutsWithTheBlockedMessage(t *testing.T) {
 // Past MaxSegmentJudges a guardrail judges no more partial replies that round.
 func TestStreamHold_MaxSegmentJudges(t *testing.T) {
 	hook := &holdingHook{mode: hooks.StreamHoldSegment, decide: failOn("never")}
-	cfg := StreamHoldConfig{MinChars: 1, FirstMinChars: 1, MaxSegmentJudges: 1}
+	cfg := StreamHoldConfig{MinChars: 1, MaxSegmentJudges: 1}
 	elems, err := runProviderStage(t, holdStage(t, hook, cfg, "One. ", "Two. ", "Three."), "weather?")
 	require.NoError(t, err)
 	assert.Equal(t, "One. Two. Three.", strings.Join(liveText(elems), ""))
@@ -228,17 +229,21 @@ func TestStreamHold_ReportsReleasesAndCuts(t *testing.T) {
 		defer mu.Unlock()
 		return len(got) == 2
 	}, time.Second, time.Millisecond)
-	assert.Equal(t, []string{"released", "cut:holding"}, got)
+	// The bus delivers asynchronously, so the two runs' events may arrive in
+	// either order.
+	assert.ElementsMatch(t, []string{"released", "cut:holding"}, got)
 }
 
 // Unset limits take the defaults; set ones stand.
 func TestStreamHoldConfig_WithDefaults(t *testing.T) {
 	assert.Equal(t, StreamHoldConfig{
-		MinChars: 60, FirstMinChars: 24, MaxChars: 600, MaxSegmentJudges: 8, SegmentTimeout: 10 * time.Second,
+		MinChars: 60, firstMinChars: 24, maxChars: 600, MaxSegmentJudges: 8, SegmentTimeout: 10 * time.Second,
 	}, StreamHoldConfig{}.withDefaults())
 	assert.Equal(t, StreamHoldConfig{
-		MinChars: 10, FirstMinChars: 10, MaxChars: 50, MaxSegmentJudges: 2, SegmentTimeout: time.Second,
-	}, StreamHoldConfig{MinChars: 10, MaxChars: 50, MaxSegmentJudges: 2, SegmentTimeout: time.Second}.withDefaults())
+		MinChars: 10, firstMinChars: 10, maxChars: 600, MaxSegmentJudges: 2, SegmentTimeout: time.Second,
+	}, StreamHoldConfig{MinChars: 10, MaxSegmentJudges: 2, SegmentTimeout: time.Second}.withDefaults())
+	assert.Equal(t, segmentConfig{minChars: 100, firstMinChars: 24, maxChars: 1000},
+		StreamHoldConfig{MinChars: 100}.segmentConfig(), "the cap grows with a large minimum")
 }
 
 // liveHoldRun is a stage reading a stream the test feeds chunk by chunk, its
@@ -306,7 +311,7 @@ func (r *liveHoldRun) rest(t *testing.T) []StreamElement {
 // that follow wait for the completed reply's check.
 func TestStreamHold_MaxSegmentJudgesStopsJudging(t *testing.T) {
 	hook := &holdingHook{mode: hooks.StreamHoldSegment, decide: failOn("never")}
-	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 1, FirstMinChars: 1, MaxSegmentJudges: 1})
+	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 1, MaxSegmentJudges: 1})
 	r.send("One. ")
 	assert.Equal(t, "One.", *r.nextText(t).Text)
 	r.send("Two. ")
@@ -319,7 +324,7 @@ func TestStreamHold_MaxSegmentJudgesStopsJudging(t *testing.T) {
 // A guardrail with judgments left judges the segments that follow.
 func TestStreamHold_JudgesEachSegmentWhileTheModelWrites(t *testing.T) {
 	hook := &holdingHook{mode: hooks.StreamHoldSegment, decide: failOn("never")}
-	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 1, FirstMinChars: 1, MaxSegmentJudges: 2})
+	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 1, MaxSegmentJudges: 2})
 	r.send("One. ")
 	assert.Equal(t, "One.", *r.nextText(t).Text)
 	r.send("Two. ")
@@ -335,7 +340,7 @@ func TestStreamHold_JudgesEachSegmentWhileTheModelWrites(t *testing.T) {
 // wait for the full minimum.
 func TestStreamHold_FirstSegmentUsesTheSmallerMinimum(t *testing.T) {
 	hook := &holdingHook{mode: hooks.StreamHoldSegment, decide: failOn("never")}
-	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 40, FirstMinChars: 5})
+	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 40, firstMinChars: 5})
 	r.send("Hi there. ")
 	assert.Equal(t, "Hi there.", *r.nextText(t).Text)
 	r.send("And more. ")
@@ -439,4 +444,25 @@ func TestStreamHold_HeldSinceTheChunkArrived(t *testing.T) {
 	assert.Equal(t, first, h.heldSince(4))
 	assert.Equal(t, second, h.heldSince(5))
 	assert.Equal(t, second, h.heldSince(9))
+}
+
+// A released delta that ends a segment, or the reply, is marked SegmentEnd,
+// so a consumer that works a segment at a time can take it at once, without
+// waiting for the text after it.
+func TestStreamHold_ReleasedSegmentsAreMarkedAtTheirEnd(t *testing.T) {
+	hook := &holdingHook{mode: hooks.StreamHoldSegment, decide: failOn("never")}
+	r := startHoldRun(t, hook, StreamHoldConfig{MinChars: 1})
+	r.send("One. ")
+	first := r.nextText(t)
+	assert.Equal(t, "One.", *first.Text)
+	assert.True(t, first.Meta.SegmentEnd)
+	r.send("Two")
+	r.end()
+	var marks []string
+	for _, e := range r.rest(t) {
+		if e.Text != nil && e.Message == nil {
+			marks = append(marks, fmt.Sprintf("%s|%v", *e.Text, e.Meta.SegmentEnd))
+		}
+	}
+	assert.Equal(t, []string{" Two|true"}, marks, "the reply's end ends its last segment")
 }

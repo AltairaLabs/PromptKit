@@ -1418,12 +1418,11 @@ type StreamHoldConfig = stage.StreamHoldConfig
 // streamed reply, for every such guardrail in the conversation: they judge the
 // same segments.
 //
-//   - MinChars, FirstMinChars, MaxChars size the segments in bytes of reply
-//     text: sentences merge until a segment reaches MinChars (FirstMinChars
-//     for a round's first segment, whose release latency a caller notices
-//     most), and a segment with no sentence boundary by MaxChars is cut at
-//     the last whitespace before it. Defaults 60, 24 and 600. Larger segments
-//     mean fewer judge calls and later releases.
+//   - MinChars is the size, in characters of reply text, sentences merge up
+//     to before a segment ends (default 60). Larger segments mean fewer
+//     judge calls and later releases. A round's first segment ends sooner,
+//     at 24 characters, because its release latency is what a caller
+//     notices most.
 //
 //   - MaxSegmentJudges caps a guardrail's partial-reply judge calls per model
 //     round (default 8). Past it, the rest of the round is held and judged
@@ -1438,8 +1437,7 @@ type StreamHoldConfig = stage.StreamHoldConfig
 //     )
 func WithStreamHold(cfg StreamHoldConfig) Option {
 	return func(c *config) error {
-		if cfg.MinChars < 0 || cfg.FirstMinChars < 0 || cfg.MaxChars < 0 ||
-			cfg.MaxSegmentJudges < 0 || cfg.SegmentTimeout < 0 {
+		if cfg.MinChars < 0 || cfg.MaxSegmentJudges < 0 || cfg.SegmentTimeout < 0 {
 			return fmt.Errorf("WithStreamHold: limits must be non-negative, got %+v", cfg)
 		}
 		c.streamHold = cfg

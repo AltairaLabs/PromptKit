@@ -2414,7 +2414,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L194-L349>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L194-L356>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2466,6 +2466,13 @@ type ElementMetadata struct {
     // text is its message, the turn's whole text. A consumer rendering deltas
     // swaps what it showed for it (providers.StreamChunk.ReplacesText).
     ReplacesText bool
+
+    // SegmentEnd marks a text delta whose text ends a segment of the reply
+    // (a sentence or a few), or the reply itself, as a stream_hold releases
+    // it: the provider stage has released the segment whole, so a consumer
+    // that works a segment at a time (speech output) can take it at once,
+    // without waiting for the text after it.
+    SegmentEnd bool
 
     // InterruptedTurnComplete marks the element that closes an
     // interrupted turn (downstream cleanup signal).
@@ -3642,7 +3649,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L352-L363>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L359-L370>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -5969,7 +5976,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3026>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3031>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6072,21 +6079,19 @@ func (e *StreamExecution) Output() <-chan StreamElement
 Output returns the execution's output, as Execute returns it.
 
 <a name="StreamHoldConfig"></a>
-## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L20-L38>)
+## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L21-L41>)
 
 StreamHoldConfig sizes the segments a stream\_hold: segment output guardrail judges a streamed reply in, and bounds its judging. It is per conversation, not per guardrail: every segment guardrail judges the same segments. Zero fields take the defaults.
 
 ```go
 type StreamHoldConfig struct {
-    // MinChars is the size, in bytes, sentences merge up to before a segment
-    // ends. Default 60.
+    // MinChars is the size, in characters, sentences merge up to before a
+    // segment ends. Default 60. A round's first segment ends at 24 characters
+    // (or MinChars, when smaller), because the first release is the latency a
+    // caller notices most. A segment with no boundary (a long code block,
+    // text without punctuation) is cut at the last whitespace before 600
+    // characters, or 10 times MinChars when that is larger.
     MinChars int
-    // FirstMinChars is MinChars for a round's first segment, smaller because
-    // the first release is the latency a caller notices most. Default 24.
-    FirstMinChars int
-    // MaxChars cuts a segment with no boundary (a long code block, text
-    // without punctuation) at the last whitespace before it. Default 600.
-    MaxChars int
     // MaxSegmentJudges caps the partial-reply judgments each guardrail makes
     // per round. Past it, the rest of the round is judged once, with the
     // completed reply. Default 8.
@@ -6095,6 +6100,7 @@ type StreamHoldConfig struct {
     // sets stream_hold_timeout. A judgment that runs past it fails closed.
     // Default 10s.
     SegmentTimeout time.Duration
+    // contains filtered or unexported fields
 }
 ```
 
@@ -6575,7 +6581,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L379-L382>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L386-L389>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -6870,7 +6876,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L366-L375>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L373-L382>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

@@ -334,7 +334,7 @@ func lastAssistant(t *testing.T, conv *Conversation) types.Message {
 var weatherChunks = []string{"The weather is mild today. ", "Expect light rain later. ", "Bring a coat."}
 
 // smallSegments makes every sentence a segment of its own.
-func smallSegments() Option { return WithStreamHold(StreamHoldConfig{MinChars: 1, FirstMinChars: 1}) }
+func smallSegments() Option { return WithStreamHold(StreamHoldConfig{MinChars: 1}) }
 
 // Each segment reaches the caller only after the judge passed it, while the
 // model goes on writing; the last is judged by the completed-reply check,
@@ -584,7 +584,7 @@ func TestStreamHold_SegmentJudgeTimeoutFailsClosed(t *testing.T) {
 	judge.gate = make(chan struct{}) // never opened: the judge never answers
 	model := newPacedModel(false, mock.Turn{Type: "text", StreamChunks: weatherChunks})
 	s := openHold(t, model, judge, map[string]any{"stream_hold": "segment"},
-		WithStreamHold(StreamHoldConfig{MinChars: 1, FirstMinChars: 1, SegmentTimeout: 20 * time.Millisecond}))
+		WithStreamHold(StreamHoldConfig{MinChars: 1, SegmentTimeout: 20 * time.Millisecond}))
 	turn := s.stream(t)
 	turn.finish(t)
 
@@ -603,7 +603,7 @@ func TestStreamHold_MaxSegmentJudgesHandsTheRestToTheFinalCheck(t *testing.T) {
 	judge.gate = make(chan struct{})
 	model := newPacedModel(true, mock.Turn{Type: "text", StreamChunks: weatherChunks})
 	s := openHold(t, model, judge, map[string]any{"stream_hold": "segment"},
-		WithStreamHold(StreamHoldConfig{MinChars: 1, FirstMinChars: 1, MaxSegmentJudges: 1}))
+		WithStreamHold(StreamHoldConfig{MinChars: 1, MaxSegmentJudges: 1}))
 	turn := s.stream(t)
 
 	model.next(t)
@@ -694,7 +694,32 @@ func TestStreamHold_InvalidModeIsAConstructionError(t *testing.T) {
 func TestWithStreamHold_RejectsNegativeLimits(t *testing.T) {
 	_, err := Open(writeGatePack(t), "assist",
 		WithProvider(mock.NewToolProviderWithRepository("mock", "mock-model", false, &sequenceRepo{})),
-		WithSkipSchemaValidation(), WithStreamHold(StreamHoldConfig{MaxChars: -1}))
+		WithSkipSchemaValidation(), WithStreamHold(StreamHoldConfig{MinChars: -1}))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "WithStreamHold: limits must be non-negative")
+}
+
+// A length check that truncates a reply a turn guardrail holds releases
+// nothing the judge has not passed: the truncated reply waits for the
+// completed-reply check, and a reply it fails reaches the caller as the
+// message only.
+func TestStreamHold_TruncationWaitsForTheHoldingJudge(t *testing.T) {
+	maxLen := WithGuardrail(guardrails.Output("max_length", map[string]any{"max_characters": 20}))
+
+	log := &holdLog{}
+	judge := newHoldJudge(log, true)
+	model := newPacedModel(false, mock.Turn{Type: "text", StreamChunks: weatherChunks})
+	s := openHold(t, model, judge, map[string]any{"stream_hold": "turn"}, maxLen)
+	turn := s.stream(t)
+	turn.finish(t)
+	assert.Equal(t, []string{"judge 1: The weather is mild ", "verdict 1", "delta: The weather is mild "}, log.list())
+
+	failLog := &holdLog{}
+	failing := newHoldJudge(failLog, false)
+	model = newPacedModel(false, mock.Turn{Type: "text", StreamChunks: weatherChunks})
+	s = openHold(t, model, failing, map[string]any{"stream_hold": "turn"}, maxLen)
+	turn = s.stream(t)
+	turn.finish(t)
+	assert.Equal(t, []string{holdMessage}, turn.deltas, "none of the truncated reply reached the caller")
+	assert.Equal(t, holdMessage, turn.resp.Text())
 }
