@@ -262,6 +262,14 @@ func deriveTurnIndex(ctx context.Context, store statestore.Store, convID string)
 	return countUserTurns(state.Messages), nil
 }
 
+// CountUserTurns counts the caller's turns in a transcript: its user
+// messages. It is how the pipeline places a turn against the stored
+// transcript (the turn index), so anything reporting a turn index from a
+// transcript reads it here.
+func CountUserTurns(messages []types.Message) int {
+	return countUserTurns(messages)
+}
+
 // countUserTurns counts the user turns in a transcript.
 func countUserTurns(messages []types.Message) int {
 	n := 0

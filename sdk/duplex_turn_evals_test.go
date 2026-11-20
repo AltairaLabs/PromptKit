@@ -224,8 +224,8 @@ func TestDuplexTurnEvals_ToolRoundIsOneTurn(t *testing.T) {
 		ToolCalls:    []types.MessageToolCall{{ID: "call-1", Name: "lookup", Args: json.RawMessage(`{"who":"ada"}`)}},
 		FinishReason: &toolUse,
 	})
-	assert.Equal(t, []int{1}, h.turnEvals(t, 1),
-		"the turn is placed after the tool round, as the guardrails on its reply place it")
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1),
+		"a tool round does not advance the caller's turn")
 	require.Len(t, h.hook.seen(), 1)
 	assert.Equal(t, 1, h.hook.seen()[0].TurnIndex)
 	seen := h.turnEval.transcripts()
@@ -372,6 +372,16 @@ func TestDuplexTurnEvals_IngestionRunsPerTurn(t *testing.T) {
 
 	assert.Equal(t, [][]string{{"one", "reply-1"}, {"one", "reply-1", "two", "reply-2"}},
 		sortedTranscripts(turnEval))
+	var idx []int
+	for _, e := range col.byTrigger(evals.TriggerEveryTurn) {
+		idx = append(idx, e.TurnIndex)
+	}
+	sort.Ints(idx)
+	assert.Equal(t, []int{0, 1}, idx)
+	require.NoError(t, conv.Close())
+	require.Eventually(t, func() bool { return len(col.byTrigger(evals.TriggerOnSessionComplete)) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, 1, col.byTrigger(evals.TriggerOnSessionComplete)[0].TurnIndex)
 }
 
 // The session evals score the whole stored transcript, including what was
@@ -425,7 +435,10 @@ func TestDuplexTurnEvals_CloseReportsTheTurnStillPlaying(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	assert.Empty(t, h.hook.seen(), "the reply is still playing")
 
+	start := time.Now()
 	require.NoError(t, h.conv.Close())
+	assert.Less(t, time.Since(start), duplexTurnReportTimeout,
+		"Close waits for the last report, not for its bound")
 	assert.Equal(t, []string{"update", "end"}, h.hook.calls())
 	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
 	assert.Equal(t, [][]string{{"tell me a story", "Once upon a time."}}, h.turnEval.transcripts())
@@ -497,4 +510,157 @@ func TestDuplexTurnEvals_ReleasedTogetherEachSeesItsOwnTurn(t *testing.T) {
 	require.Len(t, updates, 2)
 	assert.Equal(t, []string{"tell me a story", "Once upon a time."}, updates[0].Transcript)
 	assert.Equal(t, []string{"tell me a story", "Once upon a time.", "and then?", "The end."}, updates[1].Transcript)
+}
+
+// Closing while a reply still streams stores the partial reply as the turn's
+// reply: its turn evals run, and the session evals report the same turn.
+func TestDuplexTurnEvals_CloseMidReplyAgreesWithSessionEvals(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+
+	h.say(t, "hi", 1)
+	h.reply("Hello there.")
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
+	h.say(t, "tell me more", 2)
+	h.sess.EmitChunk(&providers.StreamChunk{Content: "Well, once", Delta: "Well, once"})
+	require.Eventually(t, func() bool {
+		return len(h.sess.GetTexts()) == 2
+	}, 2*time.Second, 2*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+
+	require.NoError(t, h.conv.Close())
+	require.Eventually(t, func() bool { return len(h.col.byTrigger(evals.TriggerOnSessionComplete)) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, []int{0, 1}, h.turnEvals(t, 2))
+	assert.Equal(t, 1, h.col.byTrigger(evals.TriggerOnSessionComplete)[0].TurnIndex,
+		"the session evals report the last turn the turn evals ran for")
+}
+
+// blockingUpdateHook's OnSessionUpdate waits for release before returning,
+// and may touch the conversation it reports on first.
+type blockingUpdateHook struct {
+	updateRecordingHook
+	release chan struct{}
+	conv    func() *Conversation
+}
+
+func (h *blockingUpdateHook) OnSessionUpdate(ctx context.Context, e hooks.SessionEvent) error {
+	if h.conv != nil {
+		if c := h.conv(); c != nil {
+			c.SetVar("last_turn", "x")
+		}
+	}
+	<-h.release
+	return h.updateRecordingHook.OnSessionUpdate(ctx, e)
+}
+
+// A slow OnSessionUpdate on the turn Close releases, one that also touches the
+// conversation, still runs before OnSessionEnd, and that turn's evals run.
+func TestDuplexTurnEvals_CloseWaitsForASlowUpdate(t *testing.T) {
+	hook := &blockingUpdateHook{release: make(chan struct{})}
+	h := openDuplexTurnHarness(t, WithPlayoutTracking(), WithSessionHook(hook))
+	hook.conv = func() *Conversation { return h.conv }
+	convDrain(t, h.conv)
+
+	h.say(t, "tell me a story", 1)
+	h.sess.EmitChunk(&providers.StreamChunk{Delta: "Once upon a time.",
+		Metadata: map[string]any{"type": "output_transcription"}})
+	h.sess.EmitChunk(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
+		Data: make([]byte, 5*24000*2), MIMEType: "audio/pcm", SampleRate: 24000, Channels: 1}})
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+	time.Sleep(100 * time.Millisecond)
+
+	go func() {
+		// Longer than the session takes to stop: its drain grace, teardown
+		// bound and Close's wait for it together.
+		time.Sleep(2500 * time.Millisecond)
+		close(hook.release)
+	}()
+	require.NoError(t, h.conv.Close())
+	assert.Equal(t, []string{"update", "end"}, hook.calls())
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1), "the turn Close released is scored")
+}
+
+// A session hook that never returns does not hold Close past its bound.
+func TestDuplexTurnEvals_CloseDoesNotHangOnAStuckUpdate(t *testing.T) {
+	prev := duplexTurnReportTimeout
+	duplexTurnReportTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { duplexTurnReportTimeout = prev })
+	hook := &blockingUpdateHook{release: make(chan struct{})}
+	t.Cleanup(func() { close(hook.release) })
+	h := openDuplexTurnHarness(t, WithPlayoutTracking(), WithSessionHook(hook))
+	convDrain(t, h.conv)
+
+	h.say(t, "tell me a story", 1)
+	h.sess.EmitChunk(&providers.StreamChunk{Delta: "Once upon a time.",
+		Metadata: map[string]any{"type": "output_transcription"}})
+	h.sess.EmitChunk(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
+		Data: make([]byte, 5*24000*2), MIMEType: "audio/pcm", SampleRate: 24000, Channels: 1}})
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+	time.Sleep(100 * time.Millisecond)
+
+	start := time.Now()
+	require.NoError(t, h.conv.Close())
+	assert.Less(t, time.Since(start), 5*time.Second, "Close waited past its bound")
+}
+
+// With the provider's own transcript order (no reordering), the caller's
+// transcript arrives after the reply to it. The turn's evals and
+// OnSessionUpdate wait for it, so they see the caller's words and the reply.
+func TestDuplexTurnEvals_WaitForALateCallerTranscript(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+
+	require.NoError(t, h.conv.SendChunk(context.Background(), &providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{Data: make([]byte, 320), MIMEType: "audio/pcm"}}))
+	require.Eventually(t, func() bool { return len(h.sess.GetChunks()) == 1 }, 2*time.Second, 2*time.Millisecond)
+	h.sess.EmitChunk(&providers.StreamChunk{Delta: "Sure.", Metadata: map[string]any{"type": "output_transcription"}})
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+	time.Sleep(50 * time.Millisecond)
+	h.sess.EmitChunk(&providers.StreamChunk{Metadata: map[string]any{
+		"type": "input_transcription", "transcription": "hello there", "transcription_final": true}})
+
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
+	seen := h.turnEval.transcripts()
+	require.Len(t, seen, 1)
+	assert.ElementsMatch(t, []string{"hello there", "Sure."}, seen[0])
+	require.Len(t, h.hook.seen(), 1)
+	assert.ElementsMatch(t, []string{"hello there", "Sure."}, h.hook.seen()[0].Transcript)
+}
+
+// A reply the provider reports cut short by an interruption on the chunk
+// carrying its partial text (Gemini Live's shape) ends its turn on Response(),
+// as a reply the provider ends with an interrupted finish (OpenAI Realtime's)
+// does.
+func TestDuplexTurnEvals_InterruptedReplyEndsItsTurnOnResponse(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	ch, err := h.conv.Response()
+	require.NoError(t, err)
+	ends := make(chan string, 4)
+	go func() {
+		for c := range ch {
+			if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
+				fr, _ := c.Metadata["finish_reason"].(string)
+				ends <- fr
+			}
+		}
+	}()
+
+	h.say(t, "tell me a story", 1)
+	h.sess.EmitChunk(&providers.StreamChunk{Content: "Once upon", Delta: "Once upon"})
+	h.sess.EmitChunk(&providers.StreamChunk{Interrupted: true})
+	select {
+	case fr := <-ends:
+		assert.Equal(t, "interrupted", fr)
+	case <-time.After(3 * time.Second):
+		require.FailNow(t, "the interrupted reply never ended its turn")
+	}
+	select {
+	case fr := <-ends:
+		assert.Failf(t, "a second turn end", "finish %q", fr)
+	case <-time.After(100 * time.Millisecond):
+	}
 }

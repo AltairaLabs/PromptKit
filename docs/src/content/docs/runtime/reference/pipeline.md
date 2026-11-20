@@ -36,6 +36,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func BatchEmbeddingTexts\(texts \[\]string, batchSize int\) \[\]\[\]string](<#BatchEmbeddingTexts>)
 - [func BudgetTokensFor\(p providers.Provider\) int](<#BudgetTokensFor>)
 - [func CosineSimilarity\(a, b \[\]float32\) float64](<#CosineSimilarity>)
+- [func CountUserTurns\(messages \[\]types.Message\) int](<#CountUserTurns>)
 - [func DescribeCapabilities\(stage Stage\) string](<#DescribeCapabilities>)
 - [func ExcludeFromModelContext\(msgs \[\]types.Message\) \[\]types.Message](<#ExcludeFromModelContext>)
 - [func IsTranscriptMessage\(elem \*StreamElement\) bool](<#IsTranscriptMessage>)
@@ -780,6 +781,15 @@ For text embeddings, values typically range from 0.0 to 1.0, with higher values 
 
 Returns 0.0 if vectors have different lengths, are empty, or have zero magnitude.
 
+<a name="CountUserTurns"></a>
+## func [CountUserTurns](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_core.go#L269>)
+
+```go
+func CountUserTurns(messages []types.Message) int
+```
+
+CountUserTurns counts the caller's turns in a transcript: its user messages. It is how the pipeline places a turn against the stored transcript \(the turn index\), so anything reporting a turn index from a transcript reads it here.
+
 <a name="DescribeCapabilities"></a>
 ## func [DescribeCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/capabilities_validation.go#L190>)
 
@@ -799,7 +809,7 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="IsTranscriptMessage"></a>
-## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L258>)
+## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L260>)
 
 ```go
 func IsTranscriptMessage(elem *StreamElement) bool

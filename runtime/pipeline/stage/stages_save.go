@@ -228,8 +228,10 @@ func (s *IncrementalSaveStage) collectAndForward(
 		// The turn is stored before its assistant message goes on, so what
 		// follows this stage (the caller, the conversation's per-turn evals and
 		// session hooks) finds the turn in the transcript when the message
-		// reaches it.
-		if newMessage && s.config.FlushEachTurn && elem.Message.Role == roleAssistant {
+		// reaches it. A caller transcript that arrives after the reply to it
+		// (LateTranscript) completes that turn: it is stored the same way.
+		if newMessage && s.config.FlushEachTurn &&
+			(elem.Message.Role == roleAssistant || elem.Meta.LateTranscript) {
 			s.flushTurn(ctx, collected)
 		}
 

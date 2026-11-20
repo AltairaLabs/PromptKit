@@ -214,6 +214,24 @@ func TestPlayoutHold_BargedInPartialReplyIsATurnEnd(t *testing.T) {
 	require.NoError(t, <-r.done)
 }
 
+// A late caller transcript held behind a playing reply keeps its mark when it
+// is released, so a stage after the hold can tell it answers that reply.
+func TestPlayoutHold_ReleasedLateTranscriptKeepsItsMark(t *testing.T) {
+	r := startHold(t)
+	late := StreamElement{Message: &types.Message{Role: roleUser, Content: "hello"}}
+	late.Meta.LateTranscript = true
+	got := r.pass(t, replyAudio(150*time.Millisecond), replyEnd("Sure."), late)
+	assert.True(t, got[2].Meta.PlayoutHeld, "held behind the reply")
+	r.clock.advance(150 * time.Millisecond)
+	first, second := r.next(t), r.next(t)
+	assert.Equal(t, "Sure.", first.Message.Content)
+	assert.False(t, first.Meta.LateTranscript)
+	assert.Equal(t, "hello", second.Message.Content)
+	assert.True(t, second.Meta.LateTranscript, "the release keeps the late-transcript mark")
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
 // A session that ends while a reply plays releases it with what was heard so
 // far.
 func TestPlayoutHold_InputCloseReleasesWhatWasHeard(t *testing.T) {

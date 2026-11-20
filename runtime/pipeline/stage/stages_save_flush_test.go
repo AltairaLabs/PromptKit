@@ -104,6 +104,32 @@ func TestIncrementalSaveStage_FlushStoresTheTurnBeforeForwardingIt(t *testing.T)
 	assert.Equal(t, []string{"user:hi", "assistant:hello"}, storedRoles(t, store, "c"))
 }
 
+// A caller transcript that arrives after the reply to it (Meta.LateTranscript)
+// completes that turn, so it is stored when it passes, not with the next turn.
+func TestIncrementalSaveStage_FlushStoresALateTranscript(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+		FlushEachTurn:    true,
+	})
+	input := make(chan StreamElement)
+	output := make(chan StreamElement)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	input <- newTestMsgElement("assistant", "Sure.")
+	<-output
+	late := newTestMsgElement("user", "hello")
+	late.Meta.LateTranscript = true
+	input <- late
+	<-output
+	assert.Equal(t, []string{"assistant:Sure.", "user:hello"}, storedRoles(t, store, "c"),
+		"the late transcript is stored when it passes")
+	close(input)
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"assistant:Sure.", "user:hello"}, storedRoles(t, store, "c"))
+}
+
 // A mid-session write that fails keeps the messages for the final save.
 func TestIncrementalSaveStage_FlushFailureIsRetriedAtTheEnd(t *testing.T) {
 	store := &flakyAppendStore{MemoryStore: statestore.NewMemoryStore()}
