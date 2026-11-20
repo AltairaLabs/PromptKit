@@ -147,6 +147,36 @@ func TestNextSegmentEnd(t *testing.T) {
 
 // A segmenter fed a reply delta by delta reports each segment as the text
 // that completes it arrives.
+// A bare list marker is not a segment: the period after "1." at the start of
+// a line joins the item's text, so speech does not say "one." and pause, and a
+// judge is never given a segment that is only the marker.
+func TestNextSegmentEnd_ListMarkerJoinsItsItem(t *testing.T) {
+	small := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600}
+	cases := []struct {
+		name   string
+		text   string
+		from   int
+		want   int
+		wantOK bool
+	}{
+		{name: "numbered item", text: "1. Open it. Next", want: len("1. Open it."), wantOK: true},
+		{name: "numbered item after a line", text: "Steps:\n1. Open it. Next", from: len("Steps:\n"),
+			want: len("Steps:\n1. Open it."), wantOK: true},
+		{name: "two-digit item", text: "12. Close it. Next", want: len("12. Close it."), wantOK: true},
+		{name: "indented item", text: "  3. Wait. Next", want: len("  3. Wait."), wantOK: true},
+		{name: "lettered item", text: "a. Pick one. Next", want: len("a. Pick one."), wantOK: true},
+		{name: "marker with nothing after it yet", text: "1. ", wantOK: false},
+		{name: "a number ending a sentence mid-line", text: "It was 1999. Then", want: len("It was 1999."), wantOK: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := nextSegmentEnd(tc.text, tc.from, false, small)
+			assert.Equal(t, tc.wantOK, ok)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestSegmenter_Feed(t *testing.T) {
 	seg := newSegmenter(segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600})
 	assert.Empty(t, feedWithin(t, seg, "Hello there."))
