@@ -150,29 +150,32 @@ speech before then would barge in.
 
 What you hear differs from ASM mode:
 
-- **A reply is spoken only once it is complete.** The TTS service speaks a
-  reply after the model has finished it and the output guardrails have passed
-  it. When `no-pineapple` blocks a reply, the whole reply is replaced by
-  "Sorry, I can't say that word." and that is all you hear: no part of the
-  blocked reply is ever spoken, and there is nothing to cut, so no
-  `interrupt` or `playout` line. In ASM mode you hear the reply until the
-  guardrail cuts it.
+- **A reply is spoken a sentence at a time as the model writes it.** The TTS
+  service speaks each sentence as soon as the model has streamed it and the
+  output guardrails have cleared it, so a long story starts playing after its
+  first sentence. When `no-pineapple` blocks a reply, the text it held back is
+  never spoken: what follows is "Sorry, I can't say that word." In ASM mode
+  you hear the reply until the guardrail cuts it.
 - **Your words are checked before the model sees them.** An input guardrail
   judges the STT transcript before the text model is called, so "Tell me
   about my friend Bruno." never reaches the model, and the model has no
   blocked turn to remember.
 - **The guardrail's message is a reply.** The same TTS service speaks it, in
-  the same voice as every other reply. The log's `speech` line shows the
-  words the TTS service spoke and how long they play.
+  the same voice as every other reply. The log's `speech` lines show the
+  words the TTS service speaks, one line per sentence.
 - **Speech costs are on the log.** Besides each model call, a `cost` line
   gives each STT call (`STT for #N`, priced on seconds of audio) and each TTS
   call (`TTS for #N`, priced on characters), and the session total includes
   them.
 - **Latency.** A reply starts only after the silence that ends your turn
-  (800 ms), the transcription, the whole model reply and its synthesis, so it
-  comes later than in ASM mode, and a long reply waits longest.
-- **Barge-in.** In voice mode, talking over a reply stops it, as in ASM mode:
-  the log prints an `interrupt` line.
+  (800 ms), the transcription, the model's first sentence and its synthesis,
+  so it comes later than in ASM mode, but a long reply does not wait longer.
+  The log's `timing` line gives when the reply's first audio arrived; the
+  model call's `cost` line is when the model finished.
+- **Barge-in.** In voice mode, talking over a reply stops it, as in ASM mode,
+  whether the model is still writing it, its sentences are being synthesized,
+  or it is playing: the log prints an `interrupt` line, and what you said is
+  the next turn.
 
 ## What is in the pack
 

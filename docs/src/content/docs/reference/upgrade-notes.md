@@ -518,6 +518,19 @@ The server records task history, evicts tasks left waiting for the caller, and k
 | Serve a stateless handler to several tenants | tasks are partitioned by tenant, but contexts are the handler's: two tenants may send the same `contextId` | key sessions by `MessageRequest.Tenant` and `ContextID` together |
 | Construct a server with every TTL but the new one set to `0` | a background eviction goroutine runs for waiting tasks | call `Shutdown`, or set `WithInterruptedTaskTTL(0)` |
 
+### VAD mode speaks a reply sentence by sentence as it streams
+
+A VAD session used to synthesize a reply only once the model had finished it, so the caller's wait grew with the length of the reply. It now speaks each sentence as soon as the model has streamed it.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read the reply audio from `Response()` in VAD mode | the audio of each sentence, in pieces of about 100ms, where one chunk carried the whole reply | nothing, unless your player expects one chunk per reply |
+| Read `Metadata["spoken_text"]` | it on the first chunk of each sentence, with that sentence's text, where it came once with the whole reply's | join the values to get the whole reply |
+| Guard VAD replies with an output guardrail that judges only the complete reply (an `AfterCall` hook, or a validator with no streaming evaluation) | the caller hears each sentence before that guardrail runs, as a text caller already sees it. If the guardrail then replaces the reply, the rest is not spoken and its message is | use a guardrail that judges streamed chunks; text it holds back is not spoken until it clears it |
+| Read the stored reply of a VAD turn an output guardrail cut after some of it was spoken | the sentences the caller heard, then the guardrail's message, where it was the message alone | nothing |
+| Use `ElevenLabsService` | requests go to `/text-to-speech/{voice}/stream`, which returns the audio as it is generated | nothing |
+| Speak a short turn while a VAD reply is pending or playing | the turn barges in on the reply, where an utterance the voice activity detector never reported as speech was queued after it | nothing |
+
 ## v2.21.0
 
 ### Voice runs on Azure, and Gemini Live on Vertex

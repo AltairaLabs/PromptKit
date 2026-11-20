@@ -2467,7 +2467,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L406>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L408>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2630,10 +2630,12 @@ type ElementMetadata struct {
 
     // StreamingDelta marks an incremental content Text element emitted by a
     // streaming provider mid-generation (see ProviderStage.emitChunkElement).
-    // These are the live-text feed for UI consumers; the same reply also arrives
-    // as a complete assistant Message. A speech-out stage must skip the deltas
-    // and speak the Message: the TTS provider takes a complete string, so
-    // synthesizing per fragment would be one request per token and choppy audio.
+    // These are the live-text feed for UI consumers, and the text the provider
+    // stage has released to the caller (output guardrails have cleared it); the
+    // same reply also arrives as a complete assistant Message. A speech-out
+    // stage speaks either the deltas, gathered into sentence-sized segments
+    // (TTSStageWithInterruption: one request per token would be choppy audio),
+    // or the Message (TTSStage), never both.
     StreamingDelta bool
 
     // TokenCount is the per-chunk token count emitted by streaming providers.
@@ -3728,7 +3730,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L409-L420>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L411-L422>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -5319,7 +5321,7 @@ type Response struct {
 ```
 
 <a name="ResponseVADConfig"></a>
-## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1354-L1372>)
+## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1412-L1430>)
 
 ResponseVADConfig configures the ResponseVADStage.
 
@@ -5346,7 +5348,7 @@ type ResponseVADConfig struct {
 ```
 
 <a name="DefaultResponseVADConfig"></a>
-### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1384>)
+### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1442>)
 
 ```go
 func DefaultResponseVADConfig() ResponseVADConfig
@@ -5355,7 +5357,7 @@ func DefaultResponseVADConfig() ResponseVADConfig
 DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
 
 <a name="ResponseVADStage"></a>
-## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1404-L1411>)
+## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1462-L1469>)
 
 ResponseVADStage monitors response audio for silence and delays EndOfStream until actual silence is detected. This decouples turn completion from provider signaling \(e.g., Gemini's turnComplete\) which may arrive before all audio chunks have been received.
 
@@ -5371,7 +5373,7 @@ type ResponseVADStage struct {
 ```
 
 <a name="NewResponseVADStage"></a>
-### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1414>)
+### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1472>)
 
 ```go
 func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
@@ -5380,7 +5382,7 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
 NewResponseVADStage creates a new response VAD stage.
 
 <a name="ResponseVADStage.Process"></a>
-### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1469-L1473>)
+### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1527-L1531>)
 
 ```go
 func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5521,7 +5523,7 @@ func RouteWhen(output string, predicate func(StreamElement) bool) RoutingRule
 RouteWhen creates a routing rule with the given predicate.
 
 <a name="STTStage"></a>
-## type [STTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L747-L754>)
+## type [STTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L773-L780>)
 
 STTStage transcribes audio to text using a speech\-to\-text service.
 
@@ -5535,7 +5537,7 @@ type STTStage struct {
 ```
 
 <a name="NewSTTStage"></a>
-### func [NewSTTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L760>)
+### func [NewSTTStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L786>)
 
 ```go
 func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
@@ -5544,7 +5546,7 @@ func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage
 NewSTTStage creates a new STT stage. The service parameter accepts any base.STTProvider implementation. The legacy stt.Service interface embeds base.STTProvider, so existing callers that pass an stt.Service remain compatible without changes.
 
 <a name="NewSTTStageWithEmitter"></a>
-### func [NewSTTStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L779-L783>)
+### func [NewSTTStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L805-L809>)
 
 ```go
 func NewSTTStageWithEmitter(service base.STTProvider, config STTStageConfig, emitter *events.Emitter) *STTStage
@@ -5557,7 +5559,7 @@ The event type and its payload \(events.AudioTranscriptionData\) were declared a
 The emitter is optional; NewSTTStage remains the no\-events constructor.
 
 <a name="STTStage.Process"></a>
-### func \(\*STTStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L791-L795>)
+### func \(\*STTStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L817-L821>)
 
 ```go
 func (s *STTStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5566,7 +5568,7 @@ func (s *STTStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Transcribes audio elements to text.
 
 <a name="STTStageConfig"></a>
-## type [STTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L713-L732>)
+## type [STTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L739-L758>)
 
 STTStageConfig configures the STTStage.
 
@@ -5594,7 +5596,7 @@ type STTStageConfig struct {
 ```
 
 <a name="DefaultSTTStageConfig"></a>
-### func [DefaultSTTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L735>)
+### func [DefaultSTTStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L761>)
 
 ```go
 func DefaultSTTStageConfig() STTStageConfig
@@ -6237,7 +6239,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3155>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3158>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6570,11 +6572,11 @@ func (s *TTSStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Synthesizes audio for each text element and adds it to the element.
 
 <a name="TTSStageWithInterruption"></a>
-## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L964-L971>)
+## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L994-L1001>)
 
 TTSStageWithInterruption synthesizes text to audio with interruption support. When the user starts speaking \(detected via shared InterruptionHandler\), synthesis is stopped and pending output is discarded.
 
-This is a Transform stage: text element → audio element \(1:1\)
+A reply that streams is spoken as it streams: its released text deltas are split into sentences \(speechSegmenter\), each synthesized as soon as it is complete, its audio handed on as the service delivers it \(replySpeech\). A text or Message that did not stream is synthesized whole, into one audio element.
 
 ```go
 type TTSStageWithInterruption struct {
@@ -6584,7 +6586,7 @@ type TTSStageWithInterruption struct {
 ```
 
 <a name="NewTTSStageWithInterruption"></a>
-### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L974-L977>)
+### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1004-L1007>)
 
 ```go
 func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterruptionConfig) *TTSStageWithInterruption
@@ -6593,16 +6595,16 @@ func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterru
 NewTTSStageWithInterruption creates a new TTS stage with interruption support.
 
 <a name="TTSStageWithInterruption.Process"></a>
-### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1005-L1009>)
+### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1038-L1042>)
 
 ```go
 func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 ```
 
-Process implements the Stage interface. Synthesizes audio for text elements with interruption support. A concurrent reader cancels in\-flight synthesis the instant a barge\-in Interrupt arrives, so a long synthesis call cannot swallow the interrupt; queued text behind the interrupt is dropped too, and synthesis resumes on the next turn.
+Process implements the Stage interface. Synthesizes audio for text elements with interruption support. A reply that streams \(the provider stage's text deltas\) is spoken a segment at a time as it arrives \(replySpeech\); a complete text or Message that did not stream is spoken whole. A concurrent reader cancels in\-flight synthesis the instant a barge\-in Interrupt arrives, so a long synthesis call cannot swallow the interrupt; queued text behind the interrupt is dropped too, and synthesis resumes on the next turn.
 
 <a name="TTSStageWithInterruptionConfig"></a>
-## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L921-L946>)
+## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L947-L972>)
 
 TTSStageWithInterruptionConfig configures TTSStageWithInterruption.
 
@@ -6636,7 +6638,7 @@ type TTSStageWithInterruptionConfig struct {
 ```
 
 <a name="DefaultTTSStageWithInterruptionConfig"></a>
-### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L949>)
+### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L975>)
 
 ```go
 func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig
@@ -6857,7 +6859,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L436-L439>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L438-L441>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -7161,7 +7163,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L423-L432>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L425-L434>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

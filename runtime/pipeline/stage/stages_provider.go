@@ -2848,8 +2848,10 @@ func (s *ProviderStage) flushHeld(
 // stream_hold guardrail holds it (a held round's truncation goes through
 // holdTruncation); media still waiting behind held text is dropped with the
 // blocked reply. The element carries types.FinishReasonSafety like a
-// blocked turn's (emitBlockedTurnText), and is a delta, so a speech-out stage
-// speaks the completed Message, once. A replacement is marked ReplacesText,
+// blocked turn's (emitBlockedTurnText), and is a delta, so it is spoken once:
+// TTSStage speaks the completed Message, and TTSStageWithInterruption, which
+// speaks released deltas as they arrive, drops what it has not yet spoken of
+// the reply and speaks this instead. A replacement is marked ReplacesText,
 // whether or not any of the reply was released before the cut: the message
 // alone is the turn's text, so a caller swaps any clean text it already showed
 // for it.
@@ -3083,8 +3085,9 @@ func textDeltaElement(text string, finishReason *string) StreamElement {
 	elem.Timestamp = timeNow()
 	elem.Priority = PriorityNormal
 
-	// Mark as an incremental delta so a downstream speech-out stage speaks
-	// the complete assistant Message instead of each fragment (see
+	// Mark as an incremental delta: the released text of the reply, which
+	// TTSStageWithInterruption speaks a segment at a time and TTSStage skips
+	// for the complete assistant Message (see
 	// ElementMetadata.StreamingDelta).
 	elem.Meta.StreamingDelta = true
 	if finishReason != nil {
@@ -3347,9 +3350,10 @@ func (s *ProviderStage) runBeforeCallHooks(
 // The element is shaped exactly like the element a real final chunk produces
 // (emitChunkElement), which is what keeps the reply delivered exactly once:
 //
-//   - Meta.StreamingDelta marks it as the live-text feed. A speech-out stage
-//     skips deltas and speaks the complete Message (stages_speech.go,
-//     stages_tts.go), so the canned reply is synthesized once; and
+//   - Meta.StreamingDelta marks it as the live-text feed. TTSStage skips
+//     deltas and speaks the complete Message; TTSStageWithInterruption speaks
+//     the deltas and matches the Message to them (replySpeech). Either way the
+//     canned reply is synthesized once; and
 //     accumulateResult only folds text that arrives after the assistant message,
 //     which this element precedes. Consumers that render deltas concatenate them
 //     to exactly the Message content, as on any other turn.

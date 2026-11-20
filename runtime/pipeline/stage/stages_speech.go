@@ -330,25 +330,39 @@ func (s *AudioTurnStage) processAudioElement(
 		}
 	}
 
-	// Check if turn is complete
 	if s.shouldCompleteTurn(state) {
-		// The bot owes this turn a reply from now until that reply ends, and
-		// speech in that window interrupts it. Marked before the audio leaves,
-		// so a downstream stage that finds there will be no reply (the STT
-		// stage, on an empty transcript) always ends it after it began.
-		s.beginResponse()
-		if err := s.emitTurnAudio(ctx, state, output); err != nil {
+		return s.completeTurn(ctx, state, output)
+	}
+	return nil
+}
+
+// completeTurn emits the turn the caller has finished: an Interrupt first when
+// it talks over a reply, then its audio, then its EndOfTurn boundary.
+func (s *AudioTurnStage) completeTurn(ctx context.Context, state *audioTurnState, output chan<- StreamElement) error {
+	// A turn the caller completes while the bot is engaged in a reply
+	// interrupts it, even when the VAD never called the utterance Speaking: a
+	// short one ("That's that.") can end while the VAD still reports
+	// Starting, and it used to be queued as the next turn and answered only
+	// after the whole reply had played.
+	if s.interruptOnTurn(ctx) {
+		if err := s.emitInterrupt(ctx, output); err != nil {
 			return err
 		}
-		s.resetState(state)
-		// Mark the conversational turn boundary so the streaming provider stage
-		// fires this turn. The trailing turn at stream close is fired by the
-		// EndOfStream that follows, so it is not marked here.
-		if s.config.EmitEndOfTurn {
-			if err := s.emitEndOfTurn(ctx, output); err != nil {
-				return err
-			}
-		}
+	}
+	// The bot owes this turn a reply from now until that reply ends, and
+	// speech in that window interrupts it. Marked before the audio leaves,
+	// so a downstream stage that finds there will be no reply (the STT
+	// stage, on an empty transcript) always ends it after it began.
+	s.beginResponse()
+	if err := s.emitTurnAudio(ctx, state, output); err != nil {
+		return err
+	}
+	s.resetState(state)
+	// Mark the conversational turn boundary so the streaming provider stage
+	// fires this turn. The trailing turn at stream close is fired by the
+	// EndOfStream that follows, so it is not marked here.
+	if s.config.EmitEndOfTurn {
+		return s.emitEndOfTurn(ctx, output)
 	}
 	return nil
 }
@@ -390,6 +404,18 @@ func (s *AudioTurnStage) checkInterruption(ctx context.Context) bool {
 	if interrupted {
 		logger.Debug("AudioTurnStage: user interrupted the bot")
 	}
+	return interrupted
+}
+
+// interruptOnTurn reports whether a turn completing now interrupts the bot: an
+// utterance long enough to be a turn is speech, whatever state the VAD reached.
+// The handler decides as it does for speech mid-utterance (engaged, strategy,
+// not already interrupted), so a barge-in already fired is not fired twice.
+func (s *AudioTurnStage) interruptOnTurn(ctx context.Context) bool {
+	if s.interruption == nil || !s.config.EmitEndOfTurn {
+		return false
+	}
+	interrupted, _ := s.interruption.ProcessVADState(ctx, audio.VADStateSpeaking)
 	return interrupted
 }
 
@@ -960,7 +986,11 @@ func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig {
 // When the user starts speaking (detected via shared InterruptionHandler),
 // synthesis is stopped and pending output is discarded.
 //
-// This is a Transform stage: text element → audio element (1:1)
+// A reply that streams is spoken as it streams: its released text deltas are
+// split into sentences (speechSegmenter), each synthesized as soon as it is
+// complete, its audio handed on as the service delivers it (replySpeech). A
+// text or Message that did not stream is synthesized whole, into one audio
+// element.
 type TTSStageWithInterruption struct {
 	BaseStage
 	service      tts.Service
@@ -998,10 +1028,13 @@ func pcmSampleRate(service tts.Service) int {
 }
 
 // Process implements the Stage interface.
-// Synthesizes audio for text elements with interruption support. A concurrent
-// reader cancels in-flight synthesis the instant a barge-in Interrupt arrives,
-// so a long synthesis call cannot swallow the interrupt; queued text behind the
-// interrupt is dropped too, and synthesis resumes on the next turn.
+// Synthesizes audio for text elements with interruption support. A reply that
+// streams (the provider stage's text deltas) is spoken a segment at a time as
+// it arrives (replySpeech); a complete text or Message that did not stream is
+// spoken whole. A concurrent reader cancels in-flight synthesis the instant a
+// barge-in Interrupt arrives, so a long synthesis call cannot swallow the
+// interrupt; queued text behind the interrupt is dropped too, and synthesis
+// resumes on the next turn.
 func (s *TTSStageWithInterruption) Process(
 	ctx context.Context,
 	input <-chan StreamElement,
@@ -1012,17 +1045,20 @@ func (s *TTSStageWithInterruption) Process(
 	canceller := newTurnCanceller(ctx)
 	defer canceller.stop()
 
-	work := make(chan StreamElement, interruptWorkBuffer)
-	go drainCancelingOnInterrupt(input, work, canceller)
+	work := make(chan StreamElement)
+	go queueCancelingOnInterrupt(ctx, input, work, canceller)
 
+	reply := &replySpeech{}
 	for elem := range work {
 		if elem.Interrupt {
 			// In-flight synthesis was already canceled out of band by the
-			// reader. Roll a fresh context for the next turn, reset the shared
-			// handler so its interrupted flag does not carry over and block the
-			// next turn's synthesis, then forward the Interrupt downstream so
-			// playback can flush too.
+			// reader. Roll a fresh context for the next turn, drop what was
+			// left of the interrupted reply, reset the shared handler so its
+			// interrupted flag does not carry over and block the next turn's
+			// synthesis, then forward the Interrupt downstream so playback
+			// can flush too.
 			canceller.refresh()
+			reply.reset()
 			if s.interruption != nil {
 				s.interruption.Reset()
 			}
@@ -1031,7 +1067,7 @@ func (s *TTSStageWithInterruption) Process(
 			}
 			continue
 		}
-		if err := s.processTurnElement(ctx, canceller.context(), &elem, output); err != nil {
+		if err := s.processTurnElement(ctx, canceller.context(), reply, &elem, output); err != nil {
 			return err
 		}
 	}
@@ -1040,19 +1076,29 @@ func (s *TTSStageWithInterruption) Process(
 }
 
 // processTurnElement handles one non-interrupt element and ends the reply at
-// the right point. A turn boundary or a failed turn ends the reply before it is
-// passed on, so the caller never sees the boundary while the bot still counts
-// as responding. An EndOfStream may still carry text to speak, so it ends the
+// the right point. A turn boundary first speaks what is left of a streamed
+// reply. A turn boundary or a failed turn ends the reply before it is passed
+// on, so the caller never sees the boundary while the bot still counts as
+// responding. An EndOfStream may still carry text to speak, so it ends the
 // reply once that is done.
 func (s *TTSStageWithInterruption) processTurnElement(
 	forwardCtx, synthCtx context.Context,
+	reply *replySpeech,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
+	if elem.EndOfTurn || elem.EndOfStream {
+		if err := s.endReply(forwardCtx, synthCtx, reply, output); err != nil {
+			return err
+		}
+	}
+	if elem.Error != nil {
+		reply.reset()
+	}
 	if elem.EndOfTurn || elem.Error != nil {
 		s.endResponse()
 	}
-	if err := s.processElement(forwardCtx, synthCtx, elem, output); err != nil {
+	if err := s.processElement(forwardCtx, synthCtx, reply, elem, output); err != nil {
 		return err
 	}
 	if elem.EndOfStream {
@@ -1061,16 +1107,26 @@ func (s *TTSStageWithInterruption) processTurnElement(
 	return nil
 }
 
-// processElement handles a single element in the TTS pipeline. forwardCtx (the
+// processElement handles a single element in the TTS pipeline: a streaming
+// delta and, once a reply has streamed, its completed Message go to the
+// segment path (replySpeech); anything else with text is spoken whole. forwardCtx (the
 // pipeline context) carries pass-through of non-synthesizable elements; synthCtx
 // (cancelable per turn) governs synthesis so a barge-in can abort it. They
 // differ only in the window after an interrupt cancels synthCtx but before the
 // loop refreshes it — forwarding a queued control element must not fail then.
 func (s *TTSStageWithInterruption) processElement(
 	forwardCtx, synthCtx context.Context,
+	reply *replySpeech,
 	elem *StreamElement,
 	output chan<- StreamElement,
 ) error {
+	if elem.Meta.StreamingDelta {
+		return s.speakDelta(forwardCtx, synthCtx, reply, elem, output)
+	}
+	if reply.active && isAssistantMessage(elem) {
+		return s.speakStreamedMessage(forwardCtx, synthCtx, reply, elem, output)
+	}
+
 	text := s.extractText(elem)
 	if text == "" {
 		return s.forwardElement(forwardCtx, *elem, output)
@@ -1173,11 +1229,7 @@ func (s *TTSStageWithInterruption) synthesizeAndEmit(
 // returns (nil, nil) when synthesis was canceled or reading the audio failed,
 // and a non-nil error only for a synthesis failure the caller must surface.
 func (s *TTSStageWithInterruption) performSynthesis(ctx context.Context, text string) ([]byte, error) {
-	reader, err := tts.SynthesizeWithRetry(ctx, s.service, text, tts.SynthesisConfig{
-		Voice:  s.config.Voice,
-		Speed:  s.config.Speed,
-		Format: tts.FormatPCM16,
-	}, s.config.Retry)
+	reader, err := tts.SynthesizeWithRetry(ctx, s.service, text, s.synthesisConfig(), s.config.Retry)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
@@ -1254,11 +1306,7 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 	// report it, so a consumer can caption exactly what was said. Uses the
 	// same config as synthesis; empty when the provider doesn't implement it.
 	if reporter, ok := s.service.(tts.SpokenTextReporter); ok {
-		outElem.Meta.SpokenText = reporter.SpokenText(text, tts.SynthesisConfig{
-			Voice:  s.config.Voice,
-			Speed:  s.config.Speed,
-			Format: tts.FormatPCM16,
-		})
+		outElem.Meta.SpokenText = reporter.SpokenText(text, s.synthesisConfig())
 	}
 
 	// The caller plays this audio after it is handed over, so the bot is still
@@ -1316,11 +1364,21 @@ func withTTSCost(msg *types.Message, cost *types.CostInfo) *types.Message {
 	return &stamped
 }
 
+// synthesisConfig is the request every synthesis call makes: the configured
+// voice and speed, as 16-bit PCM.
+func (s *TTSStageWithInterruption) synthesisConfig() tts.SynthesisConfig {
+	return tts.SynthesisConfig{Voice: s.config.Voice, Speed: s.config.Speed, Format: tts.FormatPCM16}
+}
+
+// isAssistantMessage reports whether elem carries an assistant Message.
+func isAssistantMessage(elem *StreamElement) bool {
+	return elem.Message != nil && elem.Message.Role == roleAssistant
+}
+
 // extractText extracts text content from an element.
 func (s *TTSStageWithInterruption) extractText(elem *StreamElement) string {
-	// Skip incremental streaming deltas: the same reply arrives as a complete
-	// assistant Message below, and the TTS provider needs the whole utterance in
-	// one call (see ElementMetadata.StreamingDelta).
+	// Streaming deltas are spoken a segment at a time (speakDelta), never
+	// whole here.
 	if elem.Meta.StreamingDelta {
 		return ""
 	}

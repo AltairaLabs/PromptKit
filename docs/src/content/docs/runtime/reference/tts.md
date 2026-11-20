@@ -745,7 +745,7 @@ func (s *ElevenLabsService) SetInlineTags(on bool)
 SetInlineTags declares whether the service's configured model takes inline markup tags such as "\[whispers\]". On, the tags are sent as written and PersonaRubric offers the markup rubric; off, they are stripped from the text and no rubric is offered. It wins over the model ID, which otherwise decides \(eleven\_v3\* takes tags\). A request for another model \(SynthesisConfig.Model\) is decided by that model's ID. The declarative form is additional\_config.inline\_tags.
 
 <a name="ElevenLabsService.SpokenText"></a>
-### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L210>)
+### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L213>)
 
 ```go
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
@@ -754,7 +754,7 @@ func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) stri
 SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: a model that takes inline tags \(SetInlineTags, else eleven\_v3\) keeps them, other models strip them. Implements tts.SpokenTextReporter.
 
 <a name="ElevenLabsService.SupportedFormats"></a>
-### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L301>)
+### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L304>)
 
 ```go
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat
@@ -763,7 +763,7 @@ func (s *ElevenLabsService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by ElevenLabs.
 
 <a name="ElevenLabsService.SupportedVoices"></a>
-### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L286>)
+### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L289>)
 
 ```go
 func (s *ElevenLabsService) SupportedVoices() []Voice
