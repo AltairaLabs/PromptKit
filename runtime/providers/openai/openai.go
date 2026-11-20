@@ -578,18 +578,9 @@ func (p *Provider) isBedrock() bool {
 	return p.platform == bedrockPlatform
 }
 
-// azureAPIVersion returns the api-version query parameter for Azure OpenAI.
-func (p *Provider) azureAPIVersion() string {
-	if p.platformConfig != nil {
-		if v, ok := p.platformConfig.AdditionalConfig["api_version"].(string); ok && v != "" {
-			return v
-		}
-	}
-	return credentials.DefaultAzureAPIVersion
-}
-
 // chatCompletionsURL returns the Chat Completions API endpoint.
 // Azure:   {baseURL}/chat/completions?api-version={version}
+// (a Foundry project's v1 route gets no api-version; see base.AzureAPIVersion)
 // Bedrock: {baseURL}/model/{model}/invoke   (Bedrock InvokeModel; the
 //
 //	response body is standard OpenAI Chat Completions JSON.)
@@ -601,7 +592,9 @@ func (p *Provider) chatCompletionsURL() string {
 	}
 	url := p.baseURL + openAIPredictCompletionsPath
 	if p.isAzure() {
-		url += "?api-version=" + p.azureAPIVersion()
+		if v := base.AzureAPIVersion(p.platformConfig); v != "" {
+			url += "?api-version=" + v
+		}
 	}
 	return url
 }

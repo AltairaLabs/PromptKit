@@ -7,6 +7,7 @@ verified:
   commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/credentials/aws_integration.go
+    - runtime/credentials/azure.go
     - runtime/credentials/azure_integration.go
     - runtime/credentials/gcp_integration.go
     - sdk/options.go
@@ -43,7 +44,7 @@ if err != nil {
 defer conv.Close()
 ```
 
-The Azure endpoint is your account host, such as `https://my-resource.openai.azure.com`.
+The Azure endpoint is your account host, such as `https://my-resource.openai.azure.com`, or a Microsoft Foundry project endpoint, such as `https://my-account.services.ai.azure.com/api/projects/my-project`. The model is the deployment name.
 
 ### 2. Override the credential
 
@@ -71,7 +72,7 @@ When you set more than one override for a platform, one wins:
 
 ### 3. Adjust region, project or endpoint
 
-`sdk.WithPlatformRegion`, `sdk.WithPlatformProject` and `sdk.WithPlatformEndpoint` set the same values the constructor takes. For Bedrock and Vertex, an endpoint replaces the derived base URL. For Azure, the endpoint stays the account host and the `openai` provider builds the deployment path under it.
+`sdk.WithPlatformRegion`, `sdk.WithPlatformProject` and `sdk.WithPlatformEndpoint` set the same values the constructor takes. For Bedrock and Vertex, an endpoint replaces the derived base URL. For Azure, the endpoint stays the account host or project endpoint, and the `openai` provider builds the route under it.
 
 ## Verify
 
@@ -81,6 +82,7 @@ When you set more than one override for a platform, one wins:
 
 - On Bedrock, a model name that appears in the SDK's Bedrock model mapping is replaced with the Bedrock model ID.
 - Vertex derives a different base URL for `claude`, `gemini` and other provider types.
+- On Azure, the endpoint's path decides the token and the route. An endpoint whose path is `/api/projects/<project>` is a Foundry project: the token is for `https://ai.azure.com/.default`, requests go to `<project endpoint>/openai/v1/...` with the deployment as the request's `model`, and no `api-version` is sent unless the platform config sets `api_version`. Every other endpoint gets a token for `https://cognitiveservices.azure.com/.default`, the `/openai/deployments/<deployment>` route and an `api-version`.
 
 ## Related
 

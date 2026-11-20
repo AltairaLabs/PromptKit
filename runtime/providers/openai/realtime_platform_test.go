@@ -190,6 +190,27 @@ func TestRealtime_AzurePlatformHonorsTheBaseURL(t *testing.T) {
 	assert.Equal(t, "/openai/v1/realtime", got[0].Path)
 }
 
+// A realtime session on a Foundry project endpoint stays under the project,
+// as its chat requests do, and keeps the GA route's query: the deployment as
+// ?model= and no api-version (#2818).
+func TestRealtime_AzureFoundryProjectStaysUnderTheProject(t *testing.T) {
+	project, handshakes := newHandshakeServer(t)
+	p := NewProviderFromConfig(&ProviderConfig{
+		ID: "foundry-realtime", Model: "my-realtime", Credential: &tokenCredential{}, Platform: "azure",
+		PlatformConfig: &providers.PlatformConfig{Type: "azure", Endpoint: project.URL + "/api/projects/my-proj"},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := p.CreateStreamSession(ctx, audioStreamRequest())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = session.Close() })
+
+	got := handshakes()
+	require.Len(t, got, 1)
+	assert.Equal(t, "/api/projects/my-proj/openai/v1/realtime", got[0].Path)
+	assert.Equal(t, url.Values{"model": {"my-realtime"}}, got[0].Query)
+}
+
 // Stream input is advertised exactly where a realtime session can open.
 func TestRealtime_StreamInputFollowsThePlatform(t *testing.T) {
 	azure := NewProviderFromConfig(&ProviderConfig{ID: "a", Model: "gpt-realtime", Credential: &tokenCredential{},

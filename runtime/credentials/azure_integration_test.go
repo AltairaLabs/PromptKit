@@ -24,12 +24,15 @@ type mockAzureTokenCredential struct {
 	// fetch's number, so a test can tell which fetch a request's header came
 	// from.
 	numbered bool
+	// scopes records the scopes of each fetch.
+	scopes [][]string
 }
 
-func (m *mockAzureTokenCredential) GetToken(_ context.Context, _ policy.TokenRequestOptions) (azcore.AccessToken, error) {
+func (m *mockAzureTokenCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls++
+	m.scopes = append(m.scopes, opts.Scopes)
 	token := m.token
 	if m.numbered {
 		token.Token = fmt.Sprintf("%s-%d", token.Token, m.calls)
@@ -198,6 +201,40 @@ func TestAzureOpenAIEndpoint(t *testing.T) {
 			deployment: "gpt-4-1-mini",
 			expected:   "https://my-resource.openai.azure.com/openai/deployments/gpt-4o",
 		},
+		{
+			// A Foundry account host without a project is an account
+			// endpoint: it keeps the deployment route.
+			name:       "foundry account host",
+			endpoint:   "https://acct.services.ai.azure.com",
+			deployment: "gpt-4o",
+			expected:   "https://acct.services.ai.azure.com/openai/deployments/gpt-4o",
+		},
+		{
+			name:       "foundry project",
+			endpoint:   "https://acct.services.ai.azure.com/api/projects/proj",
+			deployment: "gpt-4o",
+			expected:   "https://acct.services.ai.azure.com/api/projects/proj/openai/v1",
+		},
+		{
+			name:       "foundry project with a trailing slash",
+			endpoint:   "https://acct.services.ai.azure.com/api/projects/proj/",
+			deployment: "gpt-4o",
+			expected:   "https://acct.services.ai.azure.com/api/projects/proj/openai/v1",
+		},
+		{
+			// A project endpoint that already names its v1 route gets it once.
+			name:       "foundry project already on the v1 route",
+			endpoint:   "https://acct.services.ai.azure.com/api/projects/proj/openai/v1",
+			deployment: "gpt-4o",
+			expected:   "https://acct.services.ai.azure.com/api/projects/proj/openai/v1",
+		},
+		{
+			// An empty project name addresses no project.
+			name:       "empty project name",
+			endpoint:   "https://acct.services.ai.azure.com/api/projects/",
+			deployment: "gpt-4o",
+			expected:   "https://acct.services.ai.azure.com/api/projects/openai/deployments/gpt-4o",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,6 +243,32 @@ func TestAzureOpenAIEndpoint(t *testing.T) {
 				t.Errorf("AzureOpenAIEndpoint(%q, %q) = %q, want %q",
 					tt.endpoint, tt.deployment, got, tt.expected)
 			}
+		})
+	}
+}
+
+// The token's scope follows the endpoint: a Foundry project takes Foundry
+// tokens, every account endpoint keeps Cognitive Services tokens (#2818).
+func TestAzureCredential_ScopeFollowsTheEndpoint(t *testing.T) {
+	cases := map[string]string{
+		"https://my-resource.openai.azure.com":                        "https://cognitiveservices.azure.com/.default",
+		"https://my-resource.cognitiveservices.azure.com/":            "https://cognitiveservices.azure.com/.default",
+		"https://acct.services.ai.azure.com":                          "https://cognitiveservices.azure.com/.default",
+		"https://acct.services.ai.azure.com/api/projects/":            "https://cognitiveservices.azure.com/.default",
+		"https://acct.services.ai.azure.com/api/projects/proj":        "https://ai.azure.com/.default",
+		"https://acct.services.ai.azure.com/api/projects/proj/openai": "https://ai.azure.com/.default",
+		"https://10.0.0.4/api/projects/proj":                          "https://ai.azure.com/.default",
+		// Without a scheme there is no host, so no project is addressed.
+		"acct.services.ai.azure.com/api/projects/proj": "https://cognitiveservices.azure.com/.default",
+	}
+	for endpoint, want := range cases {
+		t.Run(endpoint, func(t *testing.T) {
+			mock := &mockAzureTokenCredential{token: azcore.AccessToken{Token: "t", ExpiresOn: time.Now().Add(time.Hour)}}
+			cred := &AzureCredential{endpoint: endpoint, cred: mock}
+			req, err := http.NewRequest("POST", "https://example.com", nil)
+			require.NoError(t, err)
+			require.NoError(t, cred.Apply(context.Background(), req))
+			assert.Equal(t, [][]string{{want}}, mock.scopes)
 		})
 	}
 }

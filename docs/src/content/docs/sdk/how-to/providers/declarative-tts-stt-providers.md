@@ -146,6 +146,8 @@ spec:
 
 `model` is the deployment name, and `platform.endpoint` is required. Requests go to `<endpoint>/openai/deployments/<model>`, under `/audio/speech` for `tts` and `/audio/transcriptions` for `stt`. The Azure credential chain authenticates each request, and no API key is sent; a `credential` block has no effect on a platform-hosted entry. `additional_config.api_version` sets the `api-version` query parameter and defaults to `2024-12-01-preview`. `base_url` overrides the deployment URL.
 
+A Microsoft Foundry project endpoint, `https://<account>.services.ai.azure.com/api/projects/<project>`, takes the project's route instead: requests go to `<endpoint>/openai/v1/audio/speech` or `/audio/transcriptions` with the deployment as `model`, with a token for `https://ai.azure.com/.default`, and no `api-version` unless `additional_config.api_version` sets one.
+
 Only `openai` (azure) and `gemini` (vertex) declare a platform. For `elevenlabs` and `cartesia`, the platform is ignored with a warning and the provider calls its own API with its own key.
 
 ### 3. Open the conversation

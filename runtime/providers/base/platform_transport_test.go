@@ -103,6 +103,42 @@ func TestAzureOpenAIServiceOptions_BaseURLOverrideAndDefaultAPIVersion(t *testin
 	assert.Equal(t, "pinned", (*seen)[1].Query.Get("api-version"))
 }
 
+// An empty api_version is no setting: an account endpoint still gets the
+// default.
+func TestAzureAPIVersion_EmptySettingKeepsTheDefault(t *testing.T) {
+	pc := &credentials.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com",
+		AdditionalConfig: map[string]any{"api_version": ""}}
+	assert.Equal(t, credentials.DefaultAzureAPIVersion, base.AzureAPIVersion(pc))
+}
+
+// A Foundry project's v1 route takes no api-version, unless the platform sets
+// one explicitly, which is then sent as configured (#2818).
+func TestAzureOpenAIServiceOptions_FoundryProjectAPIVersion(t *testing.T) {
+	cases := map[string]struct {
+		additional map[string]any
+		want       url.Values
+	}{
+		"none by default": {nil, url.Values{}},
+		"explicit kept":   {map[string]any{"api_version": "preview"}, url.Values{"api-version": {"preview"}}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv, seen := recordingServer(t)
+			f := buildAzureService(t, &base.CapabilitySpec{
+				ID: "voice", Type: "openai", Model: "my-tts", Credential: &countingToken{},
+				Platform: &credentials.PlatformConfig{
+					Type: "azure", Endpoint: srv.URL + "/api/projects/proj", AdditionalConfig: tc.additional,
+				},
+			})
+			send(t, f, "/audio/speech")
+
+			require.Len(t, *seen, 1)
+			assert.Equal(t, "/api/projects/proj/openai/v1/audio/speech", (*seen)[0].Path)
+			assert.Equal(t, tc.want, (*seen)[0].Query)
+		})
+	}
+}
+
 func TestAzureOpenAIServiceOptions_RefusesAnIncompleteSpec(t *testing.T) {
 	azure := &credentials.PlatformConfig{Type: "azure", Endpoint: "https://res.openai.azure.com"}
 	cases := map[string]struct {

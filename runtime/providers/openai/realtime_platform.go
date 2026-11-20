@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/internal/streaming"
 )
 
@@ -61,7 +62,9 @@ func (p *Provider) azureRealtimeDial() (realtimeDial, error) {
 }
 
 // azureRealtimeEndpoint maps a resource endpoint (https://<res>.openai.azure.com,
-// optionally with a deployment path) to its WebSocket realtime route.
+// optionally with a deployment path) to its WebSocket realtime route. A
+// Foundry project endpoint keeps its project path, so the session is
+// authorized by the project, as chat is.
 func azureRealtimeEndpoint(resource string) (string, error) {
 	u, err := url.Parse(resource)
 	if err != nil || u.Host == "" {
@@ -71,5 +74,11 @@ func azureRealtimeEndpoint(resource string) (string, error) {
 	if u.Scheme == "http" || u.Scheme == "ws" {
 		scheme = "ws"
 	}
-	return (&url.URL{Scheme: scheme, Host: u.Host, Path: azureRealtimePath}).String(), nil
+	path := azureRealtimePath
+	if project, ok := credentials.AzureFoundryProject(resource); ok {
+		if pu, perr := url.Parse(project); perr == nil {
+			path = pu.Path + azureRealtimePath
+		}
+	}
+	return (&url.URL{Scheme: scheme, Host: u.Host, Path: path}).String(), nil
 }
