@@ -52,13 +52,8 @@ func TestRealtimeContextNote_AddsASystemItemAndAsksForNoResponse(t *testing.T) {
 	}
 }
 
-// A closed session takes no note, and the wrapper over a session that cannot
-// take one says so.
+// A closed session takes no note.
 func TestRealtimeContextNote_RefusedWhereItCannotBeAdded(t *testing.T) {
 	closed := &RealtimeSession{closed: true}
 	assert.EqualError(t, closed.AddContextNote(context.Background(), "note"), errSessionClosed)
-
-	plain := &realtimeSessionBookkeeping{StreamInputSession: newFakeStreamSession(), release: func() {}}
-	assert.EqualError(t, plain.AddContextNote(context.Background(), "note"),
-		"realtime session cannot add a note to the conversation")
 }

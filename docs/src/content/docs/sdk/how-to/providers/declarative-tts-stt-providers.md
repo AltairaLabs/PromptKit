@@ -94,9 +94,13 @@ spec:
 
 Cartesia reads `additional_config.ws_url` as its websocket streaming endpoint.
 
+An `openai` TTS entry sends the directives of the text's markup tags in the request's `instructions` field, on any model. `tts-1` and `tts-1-hd` accept the field and ignore it. To spend no persona tokens on tags such a model cannot act on, set `additional_config.instructions: false`: the service then offers no markup rubric and strips the tags. Programmatically, call `SetInstructions(false)` on the `tts.OpenAIService`.
+
+An `openai` STT entry asks every model for the `json` response format. Its usage reports the billed seconds on `whisper-1` and the billed tokens on the `gpt-4o-*-transcribe` models.
+
 An `elevenlabs` or `cartesia` entry reads no default environment variable: name its key with `credential`. Without `model`, an `elevenlabs` STT entry uses `stt.ElevenLabsModelScribeV3` and a `cartesia` one `stt.CartesiaModelInkWhisper`. Both transcribe each finished turn with the vendor's batch endpoint.
 
-A `gemini` entry reads its key from `GEMINI_API_KEY` or `GOOGLE_API_KEY` when it has no `credential` block. Without `model` it uses `tts.DefaultGeminiTTSModel`. It returns PCM and speaks Gemini Live's prebuilt voices:
+A `gemini` entry reads its key from `GEMINI_API_KEY` or `GOOGLE_API_KEY` when it has no `credential` block. Without `model` it uses `tts.GeminiModelFlashTTS`. It returns PCM and speaks Gemini Live's prebuilt voices:
 
 ```yaml
     - id: cue-voice

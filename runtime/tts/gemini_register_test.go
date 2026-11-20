@@ -42,7 +42,7 @@ func TestCreateFromSpec_Gemini(t *testing.T) {
 
 	bare, err := CreateFromSpec(ProviderSpec{Type: "gemini"})
 	require.NoError(t, err)
-	assert.Equal(t, DefaultGeminiTTSModel, bare.(*GeminiService).Model)
+	assert.Equal(t, GeminiModelFlashTTS, bare.(*GeminiService).Model)
 	assert.Equal(t, geminiBaseURL, bare.(*GeminiService).BaseURL)
 	assert.Nil(t, bare.(*GeminiService).Pricing())
 }

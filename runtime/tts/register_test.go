@@ -57,6 +57,26 @@ func TestTTSRegister_OpenAI_AllOptions(t *testing.T) {
 	}
 }
 
+// additional_config.instructions: false declares a model that takes no
+// instructions, so the service offers no markup rubric; a value that is not a
+// boolean is refused.
+func TestTTSRegister_OpenAI_Instructions(t *testing.T) {
+	svc, err := tts.CreateFromSpec(tts.ProviderSpec{Type: "openai",
+		AdditionalConfig: map[string]any{"instructions": false}})
+	if err != nil {
+		t.Fatalf("factory: %v", err)
+	}
+	if got := svc.(tts.PersonaRubricProvider).PersonaRubric(); got != "" {
+		t.Errorf("rubric = %q, want none", got)
+	}
+	_, err = tts.CreateFromSpec(tts.ProviderSpec{Type: "openai", ID: "voice",
+		AdditionalConfig: map[string]any{"instructions": "no"}})
+	if want := `openai tts provider "voice": additional_config.instructions must be true or false, got "no"`; err == nil ||
+		err.Error() != want {
+		t.Errorf("err = %v, want %q", err, want)
+	}
+}
+
 func TestTTSRegister_OpenAI_Defaults(t *testing.T) {
 	if _, err := tts.CreateFromSpec(tts.ProviderSpec{Type: "openai"}); err != nil {
 		t.Fatalf("factory: %v", err)

@@ -139,6 +139,7 @@ The package includes implementations for:
   - [func \(s \*OpenAIService\) Init\(\_ context.Context\) error](<#OpenAIService.Init>)
   - [func \(s \*OpenAIService\) ModelName\(\) string](<#OpenAIService.ModelName>)
   - [func \(s \*OpenAIService\) PersonaRubric\(\) string](<#OpenAIService.PersonaRubric>)
+  - [func \(s \*OpenAIService\) SetInstructions\(on bool\)](<#OpenAIService.SetInstructions>)
   - [func \(s \*OpenAIService\) SpokenText\(text string, config SynthesisConfig\) string](<#OpenAIService.SpokenText>)
   - [func \(s \*OpenAIService\) SupportedFormats\(\) \[\]AudioFormat](<#OpenAIService.SupportedFormats>)
   - [func \(s \*OpenAIService\) SupportedVoices\(\) \[\]Voice](<#OpenAIService.SupportedVoices>)
@@ -186,41 +187,22 @@ const (
 )
 ```
 
-<a name="DefaultGeminiTTSModel"></a>
-
-```go
-const (
-
-    // DefaultGeminiTTSModel is the Gemini TTS model a service uses when its
-    // configuration names none (a provider spec's model, base.WithModel, or
-    // SynthesisConfig.Model).
-    DefaultGeminiTTSModel = "gemini-3.8-flash-tts"
-
-    // GeminiDefaultVoice is the prebuilt voice spoken when SynthesisConfig.Voice
-    // is empty: Gemini Live's default voice, so a cue and an unconfigured Live
-    // session sound alike.
-    GeminiDefaultVoice = "Puck"
-)
-```
-
 <a name="ModelTTS1"></a>
 
 ```go
 const (
 
-    // ModelTTS1 is the OpenAI TTS model optimized for speed. Does not
-    // support the `instructions` field — characterization tags supplied
-    // to this model are stripped from the spoken text and the LLM
-    // directives are dropped (with a debug log).
+    // ModelTTS1 is the OpenAI TTS model optimized for speed. It accepts
+    // the `instructions` field and ignores it, so characterization tags
+    // change nothing in its speech; a service on it can be declared not to
+    // send them (SetInstructions).
     ModelTTS1 = "tts-1"
-    // ModelTTS1HD is the OpenAI TTS model optimized for quality. Also
-    // has no `instructions` support; same behavior as ModelTTS1 for
-    // characterization tags.
+    // ModelTTS1HD is the OpenAI TTS model optimized for quality. Same
+    // behavior as ModelTTS1 for characterization tags.
     ModelTTS1HD = "tts-1-hd"
     // ModelGPT4oMiniTTS is the expressive OpenAI TTS model. Honors the
     // `instructions` request field, which the adapter populates from
-    // markup tags in the input text (see runtime/tts/markup). So do its
-    // dated snapshots and every other model outside the tts-1 family.
+    // markup tags in the input text (see runtime/tts/markup).
     ModelGPT4oMiniTTS = "gpt-4o-mini-tts"
 )
 ```
@@ -252,6 +234,18 @@ const (
 
     // CartesiaModelSonic is the Sonic model ID that CartesiaService uses by default.
     CartesiaModelSonic = "sonic-3"
+)
+```
+
+<a name="GeminiModelFlashTTS"></a>
+
+```go
+const (
+
+    // GeminiModelFlashTTS is Gemini's flash speech model, the one a service
+    // uses when its configuration names none (a provider spec's model,
+    // base.WithModel, or SynthesisConfig.Model).
+    GeminiModelFlashTTS = "gemini-3.8-flash-tts"
 )
 ```
 
@@ -906,7 +900,7 @@ func (s *GeminiService) SynthesizeTTS(ctx context.Context, req base.TTSRequest) 
 SynthesizeTTS implements base.TTSProvider for GeminiService. Gemini TTS produces PCM only, so that is the default format.
 
 <a name="OpenAIOption"></a>
-## type [OpenAIOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L102>)
+## type [OpenAIOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L111>)
 
 OpenAIOption configures the OpenAI TTS service. It is a type alias for base.HTTPServiceOption so callers can pass base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
 
@@ -915,7 +909,7 @@ type OpenAIOption = base.HTTPServiceOption
 ```
 
 <a name="OpenAIService"></a>
-## type [OpenAIService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L94-L97>)
+## type [OpenAIService](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L91-L97>)
 
 OpenAIService implements TTS using OpenAI's text\-to\-speech API.
 
@@ -923,11 +917,12 @@ OpenAIService implements TTS using OpenAI's text\-to\-speech API.
 type OpenAIService struct {
     *base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
     *base.HTTPServiceFields // APIKey, BaseURL, Model, Client
+    // contains filtered or unexported fields
 }
 ```
 
 <a name="NewOpenAI"></a>
-### func [NewOpenAI](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L105>)
+### func [NewOpenAI](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L114>)
 
 ```go
 func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService
@@ -954,7 +949,7 @@ func (s *OpenAIService) HealthCheck(_ context.Context) error
 HealthCheck reports liveness \(no\-op for TTS services\).
 
 <a name="OpenAIService.ImplName"></a>
-### func \(\*OpenAIService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L118>)
+### func \(\*OpenAIService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L127>)
 
 ```go
 func (s *OpenAIService) ImplName() string
@@ -972,7 +967,7 @@ func (s *OpenAIService) Init(_ context.Context) error
 Init performs asynchronous setup \(no\-op for TTS services\).
 
 <a name="OpenAIService.ModelName"></a>
-### func \(\*OpenAIService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L121>)
+### func \(\*OpenAIService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L130>)
 
 ```go
 func (s *OpenAIService) ModelName() string
@@ -981,25 +976,34 @@ func (s *OpenAIService) ModelName() string
 ModelName returns the configured model name for cost tracking.
 
 <a name="OpenAIService.PersonaRubric"></a>
-### func \(\*OpenAIService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L127>)
+### func \(\*OpenAIService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L135>)
 
 ```go
 func (s *OpenAIService) PersonaRubric() string
 ```
 
-PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on a model that honors the request's instructions field. The tts\-1 family does not, so it gets the empty string — emitting tags would only waste persona tokens.
+PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric, or the empty string on a service declared not to send instructions \(SetInstructions\), whose tags would only waste persona tokens.
+
+<a name="OpenAIService.SetInstructions"></a>
+### func \(\*OpenAIService\) [SetInstructions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L106>)
+
+```go
+func (s *OpenAIService) SetInstructions(on bool)
+```
+
+SetInstructions declares whether the service's model honors the request's instructions field, which carries the directives of the markup tags in the text \(see runtime/tts/markup\). It is on by default: the API takes the field on every speech model, and tts\-1 and tts\-1\-hd ignore it. Off, the tags are stripped from the spoken text, their directives are not sent, and PersonaRubric offers no rubric, so a persona spends no tokens on tags the model cannot act on. The declarative form is additional\_config.instructions.
 
 <a name="OpenAIService.SpokenText"></a>
-### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L251>)
+### func \(\*OpenAIService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L245>)
 
 ```go
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string
 ```
 
-SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: on an expressive model the bracket tags become the \`instructions\` field so the spoken text is the stripped remainder; other models strip tags entirely. Implements tts.SpokenTextReporter.
+SpokenText reports the text OpenAI will actually speak for the given input, after markup lowering: the bracket tags become the \`instructions\` field, or are dropped on a service that sends none, so the spoken text is the stripped remainder. Implements tts.SpokenTextReporter.
 
 <a name="OpenAIService.SupportedFormats"></a>
-### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L392>)
+### func \(\*OpenAIService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L372>)
 
 ```go
 func (s *OpenAIService) SupportedFormats() []AudioFormat
@@ -1008,16 +1012,16 @@ func (s *OpenAIService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by OpenAI TTS.
 
 <a name="OpenAIService.SupportedVoices"></a>
-### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L363>)
+### func \(\*OpenAIService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L353>)
 
 ```go
 func (s *OpenAIService) SupportedVoices() []Voice
 ```
 
-SupportedVoices returns the OpenAI voices the configured model can speak with: the tts\-1 family lacks ballad, verse, marin and cedar.
+SupportedVoices returns the OpenAI voices. tts\-1 and tts\-1\-hd lack ballad, verse, marin and cedar, which their descriptions say.
 
 <a name="OpenAIService.Synthesize"></a>
-### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L159-L161>)
+### func \(\*OpenAIService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/openai.go#L156-L158>)
 
 ```go
 func (s *OpenAIService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)

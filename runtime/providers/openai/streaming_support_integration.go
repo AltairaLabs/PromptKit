@@ -3,7 +3,6 @@ package openai
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -106,7 +105,7 @@ func (p *Provider) CreateStreamSession(
 	metricsReleased = true
 
 	wrapper := &realtimeSessionBookkeeping{
-		StreamInputSession: session,
+		RealtimeSession: session,
 		release: func() {
 			metrics.StreamsInFlightDec(providerID)
 			metrics.ProviderCallsInFlightDec(providerID)
@@ -126,13 +125,14 @@ func (p *Provider) CreateStreamSession(
 }
 
 // realtimeSessionBookkeeping wraps a RealtimeSession with a
-// release-exactly-once callback that decrements the in-flight gauges
-// and returns a slot to the concurrent-stream semaphore. It is
-// transparent to callers: all non-Close methods are promoted from the
-// embedded StreamInputSession interface; only Close is intercepted so
-// the release runs at the first of {explicit Close, session Done}.
+// release-exactly-once callback that decrements the in-flight gauges and
+// returns a slot to the concurrent-stream semaphore. It embeds the concrete
+// *RealtimeSession, so every method of the session, and with them every
+// optional interface the pipeline type-asserts, is promoted; only Close is
+// intercepted, so the release runs at the first of {explicit Close, session
+// Done}.
 type realtimeSessionBookkeeping struct {
-	providers.StreamInputSession
+	*RealtimeSession
 	release     func()
 	releaseOnce sync.Once
 }
@@ -144,93 +144,5 @@ type realtimeSessionBookkeeping struct {
 // goroutine started in CreateStreamSession.
 func (s *realtimeSessionBookkeeping) Close() error {
 	s.releaseOnce.Do(s.release)
-	return s.StreamInputSession.Close()
+	return s.RealtimeSession.Close()
 }
-
-// EndInput forwards to the underlying session if it implements
-// EndInputter. This is critical for pre-recorded audio where the
-// pipeline must explicitly signal end-of-turn to trigger a response.
-// Without this, the bookkeeping wrapper hides EndInput() from
-// DuplexProviderStage's type assertion.
-func (s *realtimeSessionBookkeeping) EndInput() {
-	if ei, ok := s.StreamInputSession.(interface{ EndInput() }); ok {
-		ei.EndInput()
-	}
-}
-
-// SendToolResponse forwards to the underlying session if it implements
-// providers.ToolResponseSupport. The wrapper embeds the StreamInputSession
-// interface (not the concrete *RealtimeSession), so methods outside that
-// interface aren't promoted automatically — this forward keeps tool-call
-// responses working when the pipeline holds the wrapper type.
-func (s *realtimeSessionBookkeeping) SendToolResponse(ctx context.Context, toolCallID, result string) error {
-	if trs, ok := s.StreamInputSession.(providers.ToolResponseSupport); ok {
-		return trs.SendToolResponse(ctx, toolCallID, result)
-	}
-	return errors.New("realtime session does not support tool responses")
-}
-
-// SendToolResponses is the multi-tool variant of SendToolResponse — same
-// reason for the explicit forward.
-func (s *realtimeSessionBookkeeping) SendToolResponses(ctx context.Context, responses []providers.ToolResponse) error {
-	if trs, ok := s.StreamInputSession.(providers.ToolResponseSupport); ok {
-		return trs.SendToolResponses(ctx, responses)
-	}
-	return errors.New("realtime session does not support tool responses")
-}
-
-// SupportsToolResponseParts forwards to the underlying session if it
-// implements providers.ToolResponsePartsSupport — same reason for the
-// explicit forward: hidden, the stage would send a tool round's text only.
-func (s *realtimeSessionBookkeeping) SupportsToolResponseParts() bool {
-	if ps, ok := s.StreamInputSession.(providers.ToolResponsePartsSupport); ok {
-		return ps.SupportsToolResponseParts()
-	}
-	return false
-}
-
-// UpdateTools forwards to the underlying session if it implements
-// providers.StreamToolUpdater — same reason for the explicit forward.
-func (s *realtimeSessionBookkeeping) UpdateTools(
-	ctx context.Context, tools []providers.StreamingToolDefinition,
-) error {
-	if u, ok := s.StreamInputSession.(providers.StreamToolUpdater); ok {
-		return u.UpdateTools(ctx, tools)
-	}
-	return errors.New("realtime session does not support tool updates")
-}
-
-// InterruptResponse forwards to the underlying session if it implements
-// providers.ResponseInterrupter — same reason for the explicit forward:
-// hidden, a guardrail's cut would leave the provider generating the blocked
-// reply and keeping all of it.
-func (s *realtimeSessionBookkeeping) InterruptResponse(ctx context.Context, generation int64) error {
-	if ri, ok := s.StreamInputSession.(providers.ResponseInterrupter); ok {
-		return ri.InterruptResponse(ctx, generation)
-	}
-	return errors.New("realtime session cannot interrupt a response")
-}
-
-// OutputAudio forwards to the underlying session if it implements
-// providers.OutputAudioReporter — same reason for the explicit forward:
-// hidden, a cue would not play in the session's voice and format.
-func (s *realtimeSessionBookkeeping) OutputAudio() (providers.OutputAudio, bool) {
-	if r, ok := s.StreamInputSession.(providers.OutputAudioReporter); ok {
-		return r.OutputAudio()
-	}
-	return providers.OutputAudio{}, false
-}
-
-// ForgetTurn forwards to the underlying session if it implements
-// providers.TurnForgetter — same reason for the explicit forward: hidden, a
-// spoken turn an input guardrail blocked would stay in the model's context.
-func (s *realtimeSessionBookkeeping) ForgetTurn(ctx context.Context, inputID string) error {
-	if f, ok := s.StreamInputSession.(providers.TurnForgetter); ok {
-		return f.ForgetTurn(ctx, inputID)
-	}
-	return errors.New("realtime session cannot forget a turn")
-}
-
-// BargeIn() is promoted from the embedded StreamInputSession (which now includes
-// it as a required method), so the wrapper forwards it automatically — no
-// explicit override needed.

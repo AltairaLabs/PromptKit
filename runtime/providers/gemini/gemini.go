@@ -87,6 +87,10 @@ type Provider struct {
 	// overrides it, and the session falls back to ["TEXT"] when neither is set.
 	// See gemini_streaming.go / streaming_support.go (#1667).
 	responseModalities []string
+	// toolMedia is whether the model's function responses take a tool
+	// result's media: declared in additional_config.function_response_media,
+	// else learned from the API's refusal. Shared by WithMediaSettings views.
+	toolMedia *functionResponseMedia
 	// contextWindow, when positive, overrides the built-in context-window table.
 	// Set from additional_config.context_window.
 	contextWindow int
@@ -114,6 +118,7 @@ func NewProvider(id, model, baseURL string, defaults providers.ProviderDefaults,
 		baseURL:      baseURL,
 		apiKey:       apiKey,
 		defaults:     defaults,
+		toolMedia:    &functionResponseMedia{},
 	}
 	p.SetCredential(p.authCredential())
 	return p
@@ -147,6 +152,7 @@ func NewProviderWithCredential(
 		defaults:       defaults,
 		platform:       platform,
 		platformConfig: platformConfig,
+		toolMedia:      &functionResponseMedia{},
 	}
 	p.SetCredential(p.authCredential())
 	return p
@@ -884,7 +890,9 @@ func inlineDataToContentPart(data *geminiInlineData) (types.ContentPart, bool) {
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	return providers.RetryCall(&p.BaseProvider, req,
 		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
-			return p.predictOnce(ctx, r)
+			return withToolMediaFallback(p, func() (providers.PredictionResponse, error) {
+				return p.predictOnce(ctx, r)
+			})
 		})
 }
 

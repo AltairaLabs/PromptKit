@@ -3,31 +3,27 @@ package gemini
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// A Live tool response is a list of function responses. On Gemini 3 and
-// later Live models a function response takes images in its parts, as
-// inline data (Gemini's multimodal function responses: PNG, JPEG and WebP),
-// and the model sees them. Nothing else a tool returns can go there: audio
-// in a function response closes the session (websocket 1007), and Gemini 2.x
-// Live models ignore any media in one (observed live; a client_content turn
-// or a realtime video frame carrying the image is not seen either). Media a
-// function response cannot take, or that cannot be loaded, is described in
-// its response instead (providers.UnsentToolMedia).
+// A Live tool response is a list of function responses. A function response
+// takes images in its parts, as inline data (Gemini's multimodal function
+// responses: PNG, JPEG and WebP), and the model sees them. Nothing else a
+// tool returns can go there: audio in a function response closes the session
+// (websocket 1007). Gemini 2.x Live models ignore any media in one, without
+// an error (observed live; a client_content turn or a realtime video frame
+// carrying the image is not seen either), so the session cannot learn it: a
+// provider on such a model is configured with
+// additional_config.function_response_media: false
+// (StreamSessionConfig.NoFunctionResponseMedia), and the media is described
+// instead. Media a function response cannot take, or that cannot be loaded,
+// is described in its response too (providers.UnsentToolMedia).
 
 // apiNameLive names the API in a note about media a tool result could not
 // send.
 const apiNameLive = "Gemini Live"
-
-// firstToolMediaMajor is the first Gemini major version whose Live models
-// take media in a function response.
-const firstToolMediaMajor = 3
 
 // liveToolImageCaps is what a Live function response's parts take.
 var liveToolImageCaps = providers.MultimodalCapabilities{
@@ -99,9 +95,9 @@ func (s *StreamSession) liveToolPart(
 	if part.Media == nil {
 		return nil, whyNoMediaContent
 	}
-	if !takesToolMedia(s.config.Model) {
-		return nil, fmt.Sprintf("%s does not accept media in a Live tool result (Gemini 3 and later do)",
-			baseModelName(s.config.Model))
+	if s.config.NoFunctionResponseMedia {
+		return nil, fmt.Sprintf("%s is configured to take no media in a tool result (additional_config.%s)",
+			apiNameLive, functionResponseMediaKey)
 	}
 	if part.Type != types.ContentTypeImage {
 		return nil, fmt.Sprintf("%s does not accept %s in a tool result", apiNameLive, part.Type)
@@ -120,27 +116,4 @@ func (s *StreamSession) liveToolPart(
 		wireKeyMimeType: part.Media.MIMEType,
 		wireKeyData:     data,
 	}}, ""
-}
-
-// modelMajorVersion matches the major version in a Gemini model name, dotted
-// or not: "gemini-3.8-flash", "gemini-3-flash-preview", "gemini-live-2.5-flash".
-var modelMajorVersion = regexp.MustCompile(`(?:^|-)(\d+)(?:\.\d+)?(?:-|$)`)
-
-// takesToolMedia reports whether a model takes media in a function
-// response: Gemini 3 and later, Live or not. A model whose name carries no
-// version (an alias such as "gemini-flash-latest", a tuned model) is not
-// known to, so its tool media is described or sent after the round instead.
-func takesToolMedia(model string) bool {
-	m := modelMajorVersion.FindStringSubmatch(baseModelName(model))
-	if m == nil {
-		return false
-	}
-	major, _ := strconv.Atoi(m[1]) // digits only: an overflow reads as the largest int
-	return major >= firstToolMediaMajor
-}
-
-// baseModelName is a model's name without a resource path
-// ("projects/p/locations/l/publishers/google/models/gemini-3.8-live").
-func baseModelName(model string) string {
-	return model[strings.LastIndex(model, "/")+1:]
 }

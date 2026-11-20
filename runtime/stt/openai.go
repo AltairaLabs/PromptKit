@@ -9,7 +9,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -44,9 +43,9 @@ const (
 	unitSecond = "second"
 
 	// responseFormatJSON is the response format every transcription model
-	// accepts; responseFormatVerbose is whisper-only.
-	responseFormatJSON    = "json"
-	responseFormatVerbose = "verbose_json"
+	// accepts, and whose usage reports what the call billed: seconds on
+	// whisper, tokens on the gpt-4o-*-transcribe models.
+	responseFormatJSON = "json"
 	// usageTypeDuration and usageTypeTokens are the json response's two
 	// usage shapes.
 	usageTypeDuration = "duration"
@@ -90,12 +89,11 @@ func NewOpenAI(apiKey string, opts ...OpenAIOption) *OpenAIService {
 // --- base.STTProvider ---
 
 // Transcribe implements base.STTProvider. It converts audio to text and
-// returns the transcript with cost metadata. A whisper model is asked for
-// verbose_json, whose duration prices any audio format; every other model
-// for json, the only format the gpt-4o-*-transcribe models accept (#2689).
-// Cost quantities come from the response's usage — seconds for
-// duration-billed models, tokens for token-billed ones — or its verbose
-// duration, or, when it has neither, the audio length of PCM/WAV input.
+// returns the transcript with cost metadata. Every model is asked for json,
+// the only format the gpt-4o-*-transcribe models accept. Cost quantities come
+// from the response's usage — seconds for duration-billed models (whisper),
+// tokens for token-billed ones — or, when it has none, the audio length of
+// PCM/WAV input.
 func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (base.STTResponse, error) {
 	if len(req.Audio) == 0 {
 		return base.STTResponse{}, ErrEmptyAudio
@@ -109,7 +107,7 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 
 	audioData, filename := s.prepareAudio(req.Audio, nc)
 
-	formData, contentType, err := s.buildMultipartForm(audioData, filename, nc, &cfg, responseFormatFor(nc.model))
+	formData, contentType, err := s.buildMultipartForm(audioData, filename, nc, &cfg, responseFormatJSON)
 	if err != nil {
 		return base.STTResponse{}, err
 	}
@@ -143,17 +141,6 @@ func (s *OpenAIService) Transcribe(ctx context.Context, req base.STTRequest) (ba
 	}
 
 	return resp, nil
-}
-
-// responseFormatFor picks the response format for a model. Only whisper
-// accepts verbose_json. The name test is safe when it misses: a whisper
-// deployment named otherwise (on Azure the model is the deployment name) is
-// asked for json, which still transcribes; only its duration can go missing.
-func responseFormatFor(model string) string {
-	if strings.Contains(model, "whisper") {
-		return responseFormatVerbose
-	}
-	return responseFormatJSON
 }
 
 // transcriptionConfigFromRequest converts a base.STTRequest to a TranscriptionConfig
@@ -424,12 +411,10 @@ func (s *OpenAIService) executeRequest(
 	return result.Text, nil
 }
 
-// jsonResponse is the json or verbose_json transcription body. Usage is
-// optional; Duration is verbose_json's.
+// jsonResponse is the json transcription body. Usage is optional.
 type jsonResponse struct {
-	Text     string              `json:"text"`
-	Duration float64             `json:"duration"`
-	Usage    *transcriptionUsage `json:"usage"`
+	Text  string              `json:"text"`
+	Usage *transcriptionUsage `json:"usage"`
 }
 
 // transcriptionUsage is the response's usage, in one of two shapes told
@@ -447,15 +432,12 @@ type transcriptionUsage struct {
 	} `json:"input_token_details"`
 }
 
-// quantities returns the billed quantities the response reports, keyed by
-// cost unit — from usage when present, else verbose_json's duration — or nil
-// when it reports none.
+// quantities returns the billed quantities the response's usage reports,
+// keyed by cost unit, or nil when it reports none.
 func (r *jsonResponse) quantities() map[string]float64 {
 	q := map[string]float64{}
 	if u := r.Usage; u != nil {
 		u.addTo(q)
-	} else {
-		addQuantity(q, unitSecond, r.Duration)
 	}
 	if len(q) == 0 {
 		return nil

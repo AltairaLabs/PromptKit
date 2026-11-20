@@ -157,7 +157,15 @@ func (p *ToolProvider) PredictWithTools(
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	return providers.RetryToolCall(&p.BaseProvider, req,
 		func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
-			return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+			type round struct {
+				resp  providers.PredictionResponse
+				calls []types.MessageToolCall
+			}
+			out, err := withToolMediaFallback(p.Provider, func() (round, error) {
+				resp, calls, err := p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+				return round{resp, calls}, err
+			})
+			return out.resp, out.calls, err
 		})
 }
 
@@ -894,7 +902,9 @@ func (p *ToolProvider) PredictStreamWithTools(
 ) (<-chan providers.StreamChunk, error) {
 	return providers.RetryCall(&p.BaseProvider, req,
 		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-			return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+			return withToolMediaFallback(p.Provider, func() (<-chan providers.StreamChunk, error) {
+				return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+			})
 		})
 }
 
@@ -1009,6 +1019,9 @@ func init() {
 				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {
 					return nil, err
 				}
+				if err := applyFunctionResponseMediaConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				return tp, nil
 			},
 			func(spec providers.ProviderSpec) (providers.Provider, error) {
@@ -1023,6 +1036,9 @@ func init() {
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
 				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
+				if err := applyFunctionResponseMediaConfig(tp.Provider, spec); err != nil {
 					return nil, err
 				}
 				return tp, nil

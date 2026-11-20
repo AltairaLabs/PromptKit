@@ -192,36 +192,45 @@ func TestOpenAIService_Synthesize_LowersMarkupToInstructions_GPT4oMiniTTS(t *tes
 	}
 }
 
-func TestOpenAIService_Synthesize_StripsMarkup_TTS1(t *testing.T) {
-	// On tts-1, tags should still be stripped from `input` (so the model
-	// doesn't literally speak "[whispers]"), but `instructions` MUST be
-	// omitted because the model doesn't support it.
+// synthesizeRequest synthesizes text on service against a stand-in for the
+// speech API and returns the request it received.
+func synthesizeRequest(t *testing.T, service *OpenAIService, text string, config SynthesisConfig) openAIRequest {
+	t.Helper()
 	var got openAIRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatalf("decode: %v", err)
+			t.Errorf("decode: %v", err)
 		}
 		w.Header().Set("Content-Type", "audio/mpeg")
 		_, _ = w.Write([]byte("audio"))
 	}))
 	defer server.Close()
-
-	service := NewOpenAI("k", base.WithBaseURL(server.URL))
-	reader, err := service.Synthesize(context.Background(),
-		"[excited]Surprise!",
-		SynthesisConfig{Voice: VoiceAlloy, Model: ModelTTS1},
-	)
+	service.BaseURL = server.URL
+	reader, err := service.Synthesize(context.Background(), text, config)
 	if err != nil {
 		t.Fatalf("Synthesize: %v", err)
 	}
-	defer reader.Close()
 	_, _ = io.ReadAll(reader)
+	reader.Close()
+	return got
+}
+
+// A service declared not to send instructions strips the tags from the
+// spoken text and sends no instructions, on any model.
+func TestOpenAIService_Synthesize_WithoutInstructionsStripsMarkup(t *testing.T) {
+	service := NewOpenAI("k")
+	service.SetInstructions(false)
+	got := synthesizeRequest(t, service, "[excited]Surprise!",
+		SynthesisConfig{Voice: VoiceAlloy, Model: ModelGPT4oMiniTTS})
 
 	if got.Input != "Surprise!" {
 		t.Errorf("Input = %q, want stripped %q", got.Input, "Surprise!")
 	}
 	if got.Instructions != "" {
-		t.Errorf("Instructions should be empty on tts-1, got %q", got.Instructions)
+		t.Errorf("Instructions = %q, want none", got.Instructions)
+	}
+	if spoken := service.SpokenText("[excited]Surprise!", SynthesisConfig{}); spoken != "Surprise!" {
+		t.Errorf("SpokenText = %q, want %q", spoken, "Surprise!")
 	}
 }
 
@@ -252,59 +261,30 @@ func TestOpenAIService_Synthesize_PlainTextUnchanged(t *testing.T) {
 	}
 }
 
-func TestOpenAIService_PersonaRubric_PerModel(t *testing.T) {
-	// Every speech model except tts-1 / tts-1-hd honors `instructions`, so
-	// only those get no rubric. An unrecognized name is expressive: on Azure
-	// the model is the deployment name, which can be anything (#2691).
-	cases := map[string]bool{
-		ModelGPT4oMiniTTS:            true,
-		"gpt-4o-mini-tts-2025-12-15": true,
-		"gpt-4o-mini-tts-2025-03-20": true,
-		"my-azure-voice-deployment":  true,
-		ModelTTS1:                    false,
-		ModelTTS1HD:                  false,
-		"tts-1-1106":                 false,
-		"tts-1-hd-1106":              false,
-	}
-	for model, wantRubric := range cases {
-		s := NewOpenAI("k", base.WithModel(model))
-		got := s.PersonaRubric()
-		if wantRubric {
-			if got != markup.RubricExpressiveFull {
-				t.Errorf("model=%s: rubric = %q, want RubricExpressiveFull", model, got)
-			}
-		} else if got != "" {
-			t.Errorf("model=%s: expected empty rubric, got %q", model, got)
+// The rubric is offered whatever the model's name, and not by a service
+// declared not to send instructions, which would only drop the tags.
+func TestOpenAIService_PersonaRubric(t *testing.T) {
+	for _, model := range []string{ModelGPT4oMiniTTS, "my-azure-voice-deployment", ModelTTS1, ModelTTS1HD} {
+		if got := NewOpenAI("k", base.WithModel(model)).PersonaRubric(); got != markup.RubricExpressiveFull {
+			t.Errorf("model=%s: rubric = %q, want RubricExpressiveFull", model, got)
 		}
+	}
+	plain := NewOpenAI("k", base.WithModel(ModelGPT4oMiniTTS))
+	plain.SetInstructions(false)
+	if got := plain.PersonaRubric(); got != "" {
+		t.Errorf("without instructions: rubric = %q, want none", got)
 	}
 }
 
-func TestOpenAIService_Synthesize_InstructionsOnSnapshotAndDeploymentNames(t *testing.T) {
-	cases := map[string]string{
-		"gpt-4o-mini-tts-2025-12-15": "whisper",
-		"my-azure-voice-deployment":  "whisper",
-		ModelTTS1HD:                  "",
-	}
-	for model, wantInstructions := range cases {
-		var got openAIRequest
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-				t.Errorf("decode: %v", err)
-			}
-			w.Header().Set("Content-Type", "audio/mpeg")
-			_, _ = w.Write([]byte("audio"))
-		}))
-		service := NewOpenAI("k", base.WithBaseURL(server.URL), base.WithModel(model))
-		reader, err := service.Synthesize(context.Background(), "[whispers]Come here[/]", SynthesisConfig{})
-		if err != nil {
-			t.Fatalf("model=%s: Synthesize: %v", model, err)
-		}
-		_, _ = io.ReadAll(reader)
-		reader.Close()
-		server.Close()
-
-		if got.Instructions != wantInstructions {
-			t.Errorf("model=%s: Instructions = %q, want %q", model, got.Instructions, wantInstructions)
+// The tags become instructions whatever the model's name: the API takes the
+// field on every speech model (tts-1 and tts-1-hd answer 200 and ignore it,
+// observed live), so a snapshot or an Azure deployment name loses nothing.
+func TestOpenAIService_Synthesize_InstructionsWhateverTheModelName(t *testing.T) {
+	for _, model := range []string{"gpt-4o-mini-tts-2025-12-15", "my-azure-voice-deployment", ModelTTS1, ModelTTS1HD} {
+		service := NewOpenAI("k", base.WithModel(model))
+		got := synthesizeRequest(t, service, "[whispers]Come here[/]", SynthesisConfig{})
+		if got.Instructions != "whisper" {
+			t.Errorf("model=%s: Instructions = %q, want %q", model, got.Instructions, "whisper")
 		}
 		if got.Input != "Come here" {
 			t.Errorf("model=%s: Input = %q, want %q", model, got.Input, "Come here")
@@ -315,28 +295,28 @@ func TestOpenAIService_Synthesize_InstructionsOnSnapshotAndDeploymentNames(t *te
 	}
 }
 
+// Every voice is listed, whatever the model's name; the ones tts-1 and
+// tts-1-hd lack say so.
 func TestOpenAIService_SupportedVoices(t *testing.T) {
-	all := "alloy,ash,ballad,coral,echo,fable,onyx,nova,sage,shimmer,verse,marin,cedar"
-	tts1 := "alloy,ash,coral,echo,fable,onyx,nova,sage,shimmer"
-	cases := map[string]string{
-		"":                ModelTTS1 + "|" + tts1, // default model is tts-1
-		ModelTTS1HD:       ModelTTS1HD + "|" + tts1,
-		ModelGPT4oMiniTTS: ModelGPT4oMiniTTS + "|" + all,
-		"my-deployment":   "my-deployment|" + all,
-	}
-	for model, want := range cases {
+	const all = "alloy,ash,ballad,coral,echo,fable,onyx,nova,sage,shimmer,verse,marin,cedar"
+	for _, model := range []string{"", ModelTTS1HD, ModelGPT4oMiniTTS, "my-deployment"} {
 		opts := []OpenAIOption{}
 		if model != "" {
 			opts = append(opts, base.WithModel(model))
 		}
-		service := NewOpenAI("test-key", opts...)
 		ids := make([]string, 0)
-		for _, v := range service.SupportedVoices() {
+		var ballad Voice
+		for _, v := range NewOpenAI("test-key", opts...).SupportedVoices() {
 			ids = append(ids, v.ID)
+			if v.ID == VoiceBallad {
+				ballad = v
+			}
 		}
-		wantModel, wantIDs, _ := strings.Cut(want, "|")
-		if got := strings.Join(ids, ","); got != wantIDs {
-			t.Errorf("model=%s: SupportedVoices() = %s, want %s", wantModel, got, wantIDs)
+		if got := strings.Join(ids, ","); got != all {
+			t.Errorf("model=%q: SupportedVoices() = %s, want %s", model, got, all)
+		}
+		if ballad.Description != voiceNotOnTTS1 {
+			t.Errorf("model=%q: ballad's description = %q, want %q", model, ballad.Description, voiceNotOnTTS1)
 		}
 	}
 }

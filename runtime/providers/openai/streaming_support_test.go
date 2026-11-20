@@ -3,15 +3,18 @@ package openai
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProvider_SupportsStreamInput(t *testing.T) {
@@ -338,11 +341,6 @@ var _ providers.StreamInputSupport = (*Provider)(nil)
 // acquire happens BEFORE NewRealtimeSession is called, so we can test
 // the rejection path cleanly by pre-draining a small semaphore and
 // asserting CreateStreamSession fails on acquire.
-//
-// The bookkeeping wrapper (realtimeSessionBookkeeping) is tested
-// directly with a fake StreamInputSession because constructing a real
-// session requires a live WebSocket handshake (covered by the
-// integration-tag tests in realtime_integration_test.go).
 
 // When the concurrent-stream semaphore is pre-drained, CreateStreamSession
 // must return an acquire error before any WebSocket dial. The test uses a
@@ -397,173 +395,98 @@ func TestCreateStreamSession_SemaphoreRejectsBeforeDial(t *testing.T) {
 // use Provider.baseURL), so any test that reaches NewRealtimeSession
 // would have to touch real OpenAI infrastructure — fragile for CI.
 
-// --- realtimeSessionBookkeeping wrapper tests ---
+// --- the session's stream-slot release ---
 
-// fakeStreamInputSession is a minimal StreamInputSession implementation
-// for unit-testing the bookkeeping wrapper without a live WebSocket.
-// Both Close() and signalDoneExternal() close the shared done channel
-// via a single sync.Once so either path can be called first without
-// panicking on a double close.
-type fakeStreamInputSession struct {
-	done     chan struct{}
-	doneOnce sync.Once
-	closed   atomic.Bool
-	closeErr error
+// slotLimitedProvider is an Azure-platform provider dialing srv whose
+// concurrent-stream semaphore holds one slot.
+func slotLimitedProvider(srv *httptest.Server) *Provider {
+	p := NewProviderFromConfig(&ProviderConfig{
+		ID: "azure-realtime", Model: "dep", Credential: &tokenCredential{}, Platform: "azure",
+		PlatformConfig: &providers.PlatformConfig{Type: "azure", Endpoint: srv.URL + "/"},
+	})
+	p.SetStreamSemaphore(providers.NewStreamSemaphore(1))
+	return p
 }
 
-func newFakeStreamSession() *fakeStreamInputSession {
-	return &fakeStreamInputSession{done: make(chan struct{})}
-}
-
-func (f *fakeStreamInputSession) SendChunk(_ context.Context, _ *types.MediaChunk) error {
-	return nil
-}
-
-func (f *fakeStreamInputSession) SendText(_ context.Context, _ string) error {
-	return nil
-}
-
-func (f *fakeStreamInputSession) SendSystemContext(_ context.Context, _ string) error {
-	return nil
-}
-
-func (f *fakeStreamInputSession) Response() <-chan providers.StreamChunk {
-	return make(chan providers.StreamChunk)
-}
-
-func (f *fakeStreamInputSession) Close() error {
-	f.closed.Store(true)
-	f.doneOnce.Do(func() { close(f.done) })
-	return f.closeErr
-}
-
-func (f *fakeStreamInputSession) Error() error          { return nil }
-func (f *fakeStreamInputSession) Done() <-chan struct{} { return f.done }
-
-// BargeIn satisfies StreamInputSession; this fake never signals barge-in.
-func (f *fakeStreamInputSession) BargeIn() <-chan struct{} { return nil }
-
-// signalDoneExternal simulates the session's done channel closing from
-// its internal lifecycle (e.g. ctx cancellation in the receive loop)
-// without the caller having called Close. Safe to call alongside
-// Close — doneOnce ensures the channel is closed exactly once.
-func (f *fakeStreamInputSession) signalDoneExternal() {
-	f.doneOnce.Do(func() { close(f.done) })
-}
-
-// The wrapper's Close must be idempotent under repeated calls — the
-// StreamInputSession contract explicitly permits multiple Close calls,
-// and the release callback must fire exactly once.
-func TestRealtimeSessionBookkeeping_CloseIsIdempotent(t *testing.T) {
-	fake := newFakeStreamSession()
-	var releases atomic.Int32
-	wrapper := &realtimeSessionBookkeeping{
-		StreamInputSession: fake,
-		release:            func() { releases.Add(1) },
+// slotHeld reports whether p's only stream slot is taken: a session cannot
+// be opened within a short wait.
+func slotHeld(t *testing.T, p *Provider) bool {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	session, err := p.CreateStreamSession(ctx, audioStreamRequest())
+	if err != nil {
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		return true
 	}
-
-	// First Close: release fires, fake.Close runs.
-	if err := wrapper.Close(); err != nil {
-		t.Errorf("first Close: %v", err)
-	}
-	// Second Close: release must NOT fire again.
-	if err := wrapper.Close(); err != nil {
-		t.Errorf("second Close: %v", err)
-	}
-	// Third, for good measure.
-	if err := wrapper.Close(); err != nil {
-		t.Errorf("third Close: %v", err)
-	}
-
-	if got := releases.Load(); got != 1 {
-		t.Errorf("release fired %d times, want exactly 1", got)
-	}
-	if !fake.closed.Load() {
-		t.Error("underlying session was not closed")
-	}
+	_ = session.Close()
+	return false
 }
 
-// When a caller forgets to call Close() but the session signals Done()
-// (e.g. because its ctx was cancelled), the release callback must still
-// fire exactly once — via the Done-watching goroutine installed in
-// CreateStreamSession. This guarantees no slot leaks on abandoned
-// sessions.
-//
-// We simulate the goroutine manually here because the wrapper itself
-// doesn't start the watcher; CreateStreamSession does. The test
-// mirrors that goroutine's logic.
-func TestRealtimeSessionBookkeeping_DoneTriggersReleaseExactlyOnce(t *testing.T) {
-	fake := newFakeStreamSession()
-	var releases atomic.Int32
-	wrapper := &realtimeSessionBookkeeping{
-		StreamInputSession: fake,
-		release:            func() { releases.Add(1) },
+// A session holds its stream slot until it is closed, and returns it exactly
+// once however often it is closed: closing it again neither releases a slot
+// another session holds nor panics on an over-release.
+func TestRealtimeSession_CloseReturnsTheStreamSlotOnce(t *testing.T) {
+	srv := newClientEventServer(t, make(chan map[string]any, 64))
+	p := slotLimitedProvider(srv)
+	first, err := p.CreateStreamSession(context.Background(), audioStreamRequest())
+	require.NoError(t, err)
+	require.True(t, slotHeld(t, p), "an open session holds the slot")
+
+	for range 3 {
+		require.NoError(t, first.Close())
 	}
+	second, err := p.CreateStreamSession(context.Background(), audioStreamRequest())
+	require.NoError(t, err, "closing the session returned its slot")
+	t.Cleanup(func() { _ = second.Close() })
+	assert.True(t, slotHeld(t, p), "closing the first session again released the second's slot")
+}
 
-	// Simulate the watcher goroutine CreateStreamSession starts.
-	done := make(chan struct{})
-	go func() {
-		<-fake.Done()
-		wrapper.releaseOnce.Do(wrapper.release)
-		close(done)
-	}()
+// A session whose connection ends returns its slot without being closed, and
+// a later Close does not return it again.
+func TestRealtimeSession_EndedSessionReturnsTheStreamSlotOnce(t *testing.T) {
+	drop := make(chan struct{})
+	var conns atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		first := conns.Add(1) == 1
+		if conn.WriteJSON(map[string]any{"type": "session.created",
+			"session": map[string]any{"id": "sess_test", "model": "gpt-realtime"}}) != nil {
+			return
+		}
+		if first {
+			<-drop // the first connection ends when the test says
+			return
+		}
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	p := slotLimitedProvider(srv)
+	first, err := p.CreateStreamSession(context.Background(), audioStreamRequest())
+	require.NoError(t, err)
 
-	// Signal Done externally (as if the session's ctx was cancelled).
-	fake.signalDoneExternal()
-
+	close(drop)
 	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("watcher goroutine did not run after Done signal")
+	case <-first.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session did not end when its connection did")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	second, err := p.CreateStreamSession(ctx, audioStreamRequest())
+	require.NoError(t, err, "an ended session returns its slot")
+	t.Cleanup(func() { _ = second.Close() })
 
-	// Caller then tries to Close anyway. Release must still only have
-	// fired once total.
-	if err := wrapper.Close(); err != nil {
-		t.Errorf("Close after Done: %v", err)
-	}
-
-	if got := releases.Load(); got != 1 {
-		t.Errorf("release fired %d times, want exactly 1 "+
-			"(Done signal + explicit Close must be idempotent)", got)
-	}
-}
-
-// Concurrent Close and Done-watcher race test — sync.Once must make
-// the release exactly-once even under -race with both paths firing
-// simultaneously.
-func TestRealtimeSessionBookkeeping_ConcurrentCloseAndDone(t *testing.T) {
-	for iter := 0; iter < 100; iter++ {
-		fake := newFakeStreamSession()
-		var releases atomic.Int32
-		wrapper := &realtimeSessionBookkeeping{
-			StreamInputSession: fake,
-			release:            func() { releases.Add(1) },
-		}
-
-		var wg sync.WaitGroup
-
-		// Watcher goroutine.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-fake.Done()
-			wrapper.releaseOnce.Do(wrapper.release)
-		}()
-
-		// Caller goroutine that races the watcher.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = wrapper.Close()
-		}()
-
-		wg.Wait()
-
-		if got := releases.Load(); got != 1 {
-			t.Fatalf("iter %d: release fired %d times, want exactly 1", iter, got)
-		}
-	}
+	require.NoError(t, first.Close())
+	assert.True(t, slotHeld(t, p), "closing the ended session released a slot it no longer held")
 }
 
 // The session runs the configured model, whatever its name. A model without

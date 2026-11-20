@@ -343,14 +343,4 @@ func (s *RealtimeSession) configRejected(e *ErrorEvent) bool {
 	return true
 }
 
-// SpeakOutOfBand forwards to the underlying session if it implements
-// providers.OutOfBandSpeaker — the pipeline type-asserts the wrapper, so
-// hidden, cues would not be spoken in the session's voice.
-func (s *realtimeSessionBookkeeping) SpeakOutOfBand(ctx context.Context, text string) (providers.OutOfBandSpeech, error) {
-	if sp, ok := s.StreamInputSession.(providers.OutOfBandSpeaker); ok {
-		return sp.SpeakOutOfBand(ctx, text)
-	}
-	return providers.OutOfBandSpeech{}, errors.New("realtime session cannot speak out of band")
-}
-
 var _ providers.OutOfBandSpeaker = (*RealtimeSession)(nil)

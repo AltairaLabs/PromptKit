@@ -136,6 +136,20 @@ Every turn index PromptKit hands a host now counts from 0: 0 for a conversation'
 
 `sdk.BlockedMessage.TurnIndex` was already 0-based on every path, and `sdk.Evaluate` passes on the `TurnIndex` you give it. `hooks.SessionEvent.TurnIndex` is still the number of completed turns.
 
+### OpenAI and Gemini speech and tool media no longer depend on the model's name
+
+Which request shape a model gets was read from its name. It now comes from the provider's configuration or from the API's own answer, so a snapshot, an alias such as `gemini-flash-latest`, or an Azure or Vertex deployment name behaves like the model it serves.
+
+| If you | You will see | Change |
+|---|---|---|
+| Resume a realtime conversation with history on OpenAI Realtime (`ResumeDuplex`) | the new session is given the history, where it failed with "session cannot take the conversation's N prior messages" | nothing |
+| Send a tool result's media to a Gemini model whose function responses take none (Gemini 2.x) | the first request carries the media in the function response and is refused; the provider sends it again with the media after the round, and sends later requests that way | set `additional_config.function_response_media: false` to skip the refused request |
+| Send a tool result's media to a Gemini model whose name carries no version (`gemini-flash-latest`) | the media in the function response, where it went in a user message after the round | nothing |
+| Run a Gemini 2.x Live model with tools that return images | the images go in the function response, which the model ignores, where they were described in the result's text | set `additional_config.function_response_media: false` |
+| Transcribe with `whisper-1` on OpenAI STT | the request asks for `json`, and the cost uses the billed seconds the response reports, where it asked for `verbose_json` and used the audio's exact length | nothing |
+| Use OpenAI TTS on `tts-1` or `tts-1-hd` with markup tags | the tags' directives are sent as `instructions`, which those models ignore, and `PersonaRubric` offers the markup rubric | set `additional_config.instructions: false`, or call `SetInstructions(false)`, to drop the directives and the rubric |
+| List voices with `SupportedVoices` on OpenAI TTS | all 13 voices on every model; the four `tts-1` lacks say so in their description | pick a voice the model has |
+
 ## v2.21.0
 
 ### Voice runs on Azure, and Gemini Live on Vertex

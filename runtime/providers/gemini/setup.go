@@ -96,7 +96,7 @@ func addSamplingConfig(generationConfig map[string]interface{}, s *providers.Str
 }
 
 // buildGenerationConfig creates the generation configuration. An AUDIO
-// session speaks with voice, or DefaultLiveVoice when voice is empty.
+// session speaks with voice, or defaultLiveVoice when voice is empty.
 func buildGenerationConfig(modalities []string, voice string) map[string]interface{} {
 	config := map[string]interface{}{
 		"responseModalities": modalities,
@@ -104,7 +104,7 @@ func buildGenerationConfig(modalities []string, voice string) map[string]interfa
 
 	if sliceContains(modalities, "AUDIO") {
 		if voice == "" {
-			voice = DefaultLiveVoice
+			voice = defaultLiveVoice
 		}
 		config["speechConfig"] = map[string]interface{}{
 			"voiceConfig": map[string]interface{}{

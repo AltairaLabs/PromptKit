@@ -144,7 +144,7 @@ type StreamSessionConfig struct {
 	Model              string   // Model name (will be prefixed with "models/" automatically)
 	ResponseModalities []string // "TEXT" or "AUDIO" - NOT both! See package doc for details.
 	SystemInstruction  string   // System prompt/instruction for the model
-	Voice              string   // Prebuilt voice AUDIO responses speak with; DefaultLiveVoice when empty
+	Voice              string   // Prebuilt voice AUDIO responses speak with; defaultLiveVoice when empty
 	InputCostPer1K     float64  // Cost per 1K input tokens (for USD calculation)
 	OutputCostPer1K    float64  // Cost per 1K output tokens (for USD calculation)
 
@@ -167,6 +167,12 @@ type StreamSessionConfig struct {
 	// responses. Note: conversation context may be lost on reconnection.
 	AutoReconnect     bool
 	MaxReconnectTries int // Maximum reconnection attempts (default: 3)
+
+	// NoFunctionResponseMedia, when true, describes a tool result's media in
+	// its function response instead of sending it there: for a Live model
+	// whose function responses take none (Gemini 2.x Live models ignore it).
+	// False sends images in the function response's parts.
+	NoFunctionResponseMedia bool
 
 	// Sampling is the prompt's sampling parameters, sent in the setup
 	// message's generationConfig (except the penalties, which Gemini rejects).

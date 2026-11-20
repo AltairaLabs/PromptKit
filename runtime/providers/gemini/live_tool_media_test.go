@@ -24,11 +24,26 @@ import (
 // toolResponse message the server received.
 func liveToolResponseWire(t *testing.T, model string, responses []providers.ToolResponse) map[string]any {
 	t.Helper()
+	return liveToolResponseWireWith(t, model, nil, responses)
+}
+
+// liveToolResponseWireWith is liveToolResponseWire for a provider built from
+// its spec with additional_config additional.
+func liveToolResponseWireWith(
+	t *testing.T, model string, additional map[string]any, responses []providers.ToolResponse,
+) map[string]any {
+	t.Helper()
 	url, msgs := recordLiveToolClient(t)
-	p := NewProvider("live", model, "", providers.ProviderDefaults{}, false)
-	p.newStreamSessionFn = func(ctx context.Context, _, key string, cfg *StreamSessionConfig) (*StreamSession, error) {
-		return NewStreamSession(ctx, url, key, cfg)
+	config := map[string]any{"live_url": url}
+	for k, v := range additional {
+		config[k] = v
 	}
+	t.Setenv("GEMINI_API_KEY", "k")
+	built, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "live", Type: "gemini", Model: model, AdditionalConfig: config,
+	})
+	require.NoError(t, err)
+	p := built.(*ToolProvider)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	session, err := p.CreateStreamSession(ctx, liveAudioRequest())
@@ -167,19 +182,37 @@ func TestLiveToolResponse_UnsendableMediaIsDescribed(t *testing.T) {
 	}), got)
 }
 
-// Gemini 2.x Live models take no media in a function response (an image sent
-// there is never seen by the model): every part is described instead.
-func TestLiveToolResponse_Gemini2ModelDescribesItsMedia(t *testing.T) {
+// A Live model's name does not decide whether a tool's image is sent: with
+// nothing configured it goes in the function response's parts, on any model.
+func TestLiveToolResponse_ImageIsSentWhateverTheModelName(t *testing.T) {
 	got := liveToolResponseWire(t, "gemini-2.5-flash-native-audio-preview-12-2025", []providers.ToolResponse{{
 		ToolCallID: "call_img",
 		Parts:      []types.ContentPart{types.NewImagePartFromData("iVBORw0KGgo=", types.MIMETypeImagePNG, nil)},
 	}})
 
 	assert.Equal(t, toolResponseOf(map[string]any{
+		"id":       "call_img",
+		"response": map[string]any{"result": ""},
+		"parts":    []any{inlinePart("image/png", "iVBORw0KGgo=")},
+	}), got)
+}
+
+// A Live model whose function responses take no media (Gemini 2.x Live
+// models ignore it without an error, so the provider cannot learn it) is
+// configured with additional_config.function_response_media: false, and every
+// part is described instead.
+func TestLiveToolResponse_ConfiguredWithoutMediaDescribesIt(t *testing.T) {
+	got := liveToolResponseWireWith(t, "gemini-2.5-flash-native-audio-preview-12-2025",
+		map[string]any{"function_response_media": false}, []providers.ToolResponse{{
+			ToolCallID: "call_img",
+			Parts:      []types.ContentPart{types.NewImagePartFromData("iVBORw0KGgo=", types.MIMETypeImagePNG, nil)},
+		}})
+
+	assert.Equal(t, toolResponseOf(map[string]any{
 		"id": "call_img",
 		"response": map[string]any{"result": "[This tool returned an image (image/png) that was not sent: " +
-			"gemini-2.5-flash-native-audio-preview-12-2025 does not accept media in a Live tool result " +
-			"(Gemini 3 and later do).]"},
+			"Gemini Live is configured to take no media in a tool result " +
+			"(additional_config.function_response_media).]"},
 	}), got)
 }
 
@@ -198,26 +231,6 @@ func TestLiveToolResponse_UnloadableMediaIsDescribed(t *testing.T) {
 			"that was not sent: it could not be loaded: storage service not configured but storage reference " +
 			"provided: media/abc.]"},
 	}), got)
-}
-
-// Whether a Live model takes media in a function response is read from its
-// version, also when it is named by a Vertex resource; a name without a
-// version is not known to take it.
-func TestTakesToolMedia_ByModelVersion(t *testing.T) {
-	cases := map[string]bool{
-		"gemini-3.8-live":               true,
-		"gemini-3.1-flash-live-preview": true,
-		"projects/p1/locations/us-central1/publishers/google/models/gemini-3.8-live":       true,
-		"projects/p1/locations/us-central1/publishers/google/models/gemini-live-2.5-flash": false,
-		"gemini-2.5-flash-native-audio-preview-12-2025":                                    false,
-		"gemini-live-latest":     false,
-		"tunedModels/my-model":   false,
-		"gemini-3-flash-preview": true,
-		"gemini-flash-latest":    false,
-	}
-	for model, want := range cases {
-		assert.Equal(t, want, takesToolMedia(model), model)
-	}
 }
 
 // An image whose format is not stated is described, not sent.

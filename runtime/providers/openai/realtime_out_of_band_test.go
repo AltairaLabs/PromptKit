@@ -545,33 +545,3 @@ func assertNoResponseChunk(t *testing.T, session *RealtimeSession) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
-
-// oobFakeSession is a fake session that speaks out of band.
-type oobFakeSession struct {
-	*fakeStreamInputSession
-	spoken []string
-}
-
-func (f *oobFakeSession) SpeakOutOfBand(_ context.Context, text string) (providers.OutOfBandSpeech, error) {
-	f.spoken = append(f.spoken, text)
-	return providers.OutOfBandSpeech{Audio: []byte{1, 2}, SampleRate: 24000, Transcript: text}, nil
-}
-
-// The bookkeeping wrapper CreateStreamSession returns must not hide
-// SpeakOutOfBand: the pipeline type-asserts the wrapper, so hidden, cues
-// would not be spoken in the session's voice.
-func TestRealtimeSessionBookkeeping_ForwardsSpeakOutOfBand(t *testing.T) {
-	inner := &oobFakeSession{fakeStreamInputSession: newFakeStreamSession()}
-	var wrapped providers.StreamInputSession = &realtimeSessionBookkeeping{StreamInputSession: inner, release: func() {}}
-
-	sp, ok := wrapped.(providers.OutOfBandSpeaker)
-	require.True(t, ok, "the wrapper hides SpeakOutOfBand")
-	got, err := sp.SpeakOutOfBand(context.Background(), brunoLine)
-	require.NoError(t, err)
-	assert.Equal(t, providers.OutOfBandSpeech{Audio: []byte{1, 2}, SampleRate: 24000, Transcript: brunoLine}, got)
-	assert.Equal(t, []string{brunoLine}, inner.spoken)
-
-	plain := &realtimeSessionBookkeeping{StreamInputSession: newFakeStreamSession(), release: func() {}}
-	_, err = plain.SpeakOutOfBand(context.Background(), brunoLine)
-	require.EqualError(t, err, "realtime session cannot speak out of band")
-}
