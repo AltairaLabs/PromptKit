@@ -565,8 +565,12 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	probe := &providers.StreamChunk{Content: original, Delta: text}
 	d := s.hookRegistry.RunOnChunkRequest(ctx, hooks.ChunkRequest{Chunk: probe, Caller: s.caller})
 	if d.Allow {
+		s.liveHold = d.Hold
 		return
 	}
+	// What the caller has of the turn's text: the held end never went out.
+	sent := strings.TrimSuffix(s.accumulatedText.String(), s.liveHeld.pending)
+	s.liveHeld.reset()
 	// The blocked text is chosen before the firing is recorded, which records
 	// the choice: a replacement's (not a truncation's), or a deny's message.
 	var denied types.Message
@@ -584,14 +588,13 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		// The interceptor rewrote probe.Content (truncated or replaced): that
 		// is the turn's text from here on. The caller already has what was
 		// forwarded: a truncation sends only what follows it.
-		sent := s.accumulatedText.String()
 		s.accumulatedText.Reset()
 		s.accumulatedText.WriteString(probe.Content)
 		s.blockTurn()
 		// A truncation keeps a prefix of the model's own text: it is shown,
 		// not spoken, and the completed turn is still judged. Anything else
 		// replaced the text with the guardrail's own.
-		replaced := !strings.HasPrefix(sent+text, probe.Content)
+		replaced := !strings.HasPrefix(original, probe.Content)
 		s.turnGuard.replaced = replaced
 		s.turnGuard.spoken = replaced
 		if replaced {
@@ -870,6 +873,34 @@ func (s *DuplexProviderStage) turnText() string {
 		return *t
 	}
 	return s.accumulatedText.String()
+}
+
+// holdLiveText keeps from what a chunk forwards the end of the turn's text the
+// streaming guardrails have not cleared (hooks.Decision.Hold): text that could
+// be the start of a word they block. It is released when a later chunk clears
+// it or the turn ends, and dropped when the turn is blocked or cut short. The
+// turn's text (accumulatedText) keeps all of it; only the live text waits. The
+// audio of it cannot wait: it has already been generated and plays as it is.
+func (s *DuplexProviderStage) holdLiveText(chunk *providers.StreamChunk, isOutputTranscription bool) {
+	if !s.hookRegistry.HasChunkInterceptors() {
+		return
+	}
+	if chunk.Interrupted {
+		s.liveHeld.reset()
+		return
+	}
+	text := assistantChunkText(chunk, isOutputTranscription)
+	s.liveHeld.add(text)
+	hold := s.liveHold
+	if chunk.FinishReason != nil {
+		hold = 0
+	}
+	out := s.liveHeld.release(hold)
+	if isOutputTranscription {
+		chunk.Delta = out
+		return
+	}
+	chunk.Content = out
 }
 
 // assistantChunkText returns the assistant text a chunk adds to the turn,

@@ -123,29 +123,33 @@ func (s *ProviderStage) roundResponseFormat(providerTools interface{}) *provider
 // with no text chunks at all, and a caller rendering the stream sees nothing.
 // Unit tests could not see this: asserting "no loop text leaked" is satisfied
 // just as well by a stream that carries nothing whatsoever.
+//
+// late, when set, delivers usage a cut stream reports after the call ended
+// (streamedRound.lateUsage); the caller reports it once the call completes.
 func (tl *toolLoop) reaskCall(
 	ctx context.Context, req providers.PredictionRequest, rr roundRef,
-) (providers.PredictionResponse, error) {
+) (resp providers.PredictionResponse, late <-chan *types.CostInfo, err error) {
 	if tl.output == nil {
-		return tl.reaskPredict(ctx, req)
+		resp, err = tl.reaskPredict(ctx, req)
+		return resp, nil, err
 	}
 
 	// suppressText is false here: this IS the answer, and it is the only text
 	// the consumer is going to get.
 	streamChan, err := tl.stage.startStreamingRequest(ctx, req, nil, "")
 	if err != nil {
-		return providers.PredictionResponse{}, err
+		return providers.PredictionResponse{}, nil, err
 	}
 	got, err := tl.stage.processStreamChunks(ctx, streamChan, tl.output, rr, false)
 	if err != nil {
-		return providers.PredictionResponse{}, err
+		return providers.PredictionResponse{}, nil, err
 	}
 	return providers.PredictionResponse{
 		Content:      got.content,
 		CostInfo:     got.costInfo,
 		Reasoning:    got.reasoning,
 		FinishReason: got.finishReason,
-	}, nil
+	}, got.lateUsage, nil
 }
 
 // reaskPredict issues a non-streaming re-ask, choosing the same request path
@@ -233,7 +237,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	}
 
 	started := timeNow()
-	resp, err := tl.reaskCall(ctx, req, rr)
+	resp, late, err := tl.reaskCall(ctx, req, rr)
 	if err != nil {
 		if tl.stage.emitter != nil {
 			tl.stage.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
@@ -293,6 +297,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		}
 		tl.stage.emitter.ProviderCallCompletedCtx(ctx, completed)
 	}
+	tl.stage.reportLateUsage(ctx, late, prov, roundRef{round: rr.round, providerCallID: callID})
 
 	constrained := types.Message{
 		Role:         roleAssistant,

@@ -91,3 +91,39 @@ func TestRegistry_RunOnChunk_HoldsTheMostAnyInterceptorHolds(t *testing.T) {
 	assert.True(t, d.Allow)
 	assert.Equal(t, 5, d.Hold)
 }
+
+// enforcingChunkHook replaces the chunk's Content with its own text.
+type enforcingChunkHook struct {
+	plainChunkHook
+	replacement string
+}
+
+func (h *enforcingChunkHook) OnChunk(_ context.Context, c *providers.StreamChunk) Decision {
+	h.chunks = append(h.chunks, c.Content)
+	c.Content = h.replacement
+	return Enforced("rewrote "+h.replacement, nil)
+}
+
+// An interceptor after one that enforces judges the rewritten chunk, and the
+// decision whose rewrite stands is returned; a deny after it short-circuits.
+func TestRegistry_RunOnChunk_LaterInterceptorsJudgeAnEnforcedRewrite(t *testing.T) {
+	first := &enforcingChunkHook{replacement: "cut"}
+	second := &enforcingChunkHook{replacement: "replaced"}
+	after := &plainChunkHook{}
+	r := NewRegistry(WithProviderHook(first), WithProviderHook(second), WithProviderHook(after))
+	chunk := &providers.StreamChunk{Content: "original text"}
+
+	d := r.RunOnChunk(context.Background(), chunk)
+
+	assert.Equal(t, []string{"original text"}, first.chunks)
+	assert.Equal(t, []string{"cut"}, second.chunks)
+	assert.Equal(t, []string{"replaced"}, after.chunks)
+	assert.Equal(t, "replaced", chunk.Content)
+	assert.Equal(t, []any{false, true, "rewrote replaced"}, []any{d.Allow, d.Enforced, d.Reason})
+
+	denying := NewRegistry(WithProviderHook(&enforcingChunkHook{replacement: "cut"}),
+		WithProviderHook(&requestChunkHook{deny: true}), WithProviderHook(after))
+	d = denying.RunOnChunk(context.Background(), &providers.StreamChunk{Content: "x"})
+	assert.Equal(t, []any{false, false, "tenant blocked"}, []any{d.Allow, d.Enforced, d.Reason})
+	assert.Equal(t, []string{"replaced"}, after.chunks, "nothing runs after a deny")
+}
