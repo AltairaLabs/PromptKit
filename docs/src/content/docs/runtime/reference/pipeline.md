@@ -156,6 +156,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewDuplexProviderStageWithEmitter\(provider providers.StreamInputSupport, baseConfig \*providers.StreamingInputConfig, emitter \*events.Emitter\) \*DuplexProviderStage](<#NewDuplexProviderStageWithEmitter>)
   - [func NewDuplexProviderStageWithTurnState\(provider providers.StreamInputSupport, baseConfig \*providers.StreamingInputConfig, emitter \*events.Emitter, turnState \*TurnState\) \*DuplexProviderStage](<#NewDuplexProviderStageWithTurnState>)
   - [func \(s \*DuplexProviderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DuplexProviderStage.Process>)
+  - [func \(s \*DuplexProviderStage\) RunsToolCalls\(\) bool](<#DuplexProviderStage.RunsToolCalls>)
   - [func \(s \*DuplexProviderStage\) SetBlockedMessage\(fn BlockedMessageFunc\)](<#DuplexProviderStage.SetBlockedMessage>)
   - [func \(s \*DuplexProviderStage\) SetCaller\(caller types.Caller\)](<#DuplexProviderStage.SetCaller>)
   - [func \(s \*DuplexProviderStage\) SetHookRegistry\(r \*hooks.Registry\)](<#DuplexProviderStage.SetHookRegistry>)
@@ -319,6 +320,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewProviderStageWithHooks\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter, hookRegistry \*hooks.Registry\) \*ProviderStage](<#NewProviderStageWithHooks>)
   - [func NewProviderStageWithTurnState\(provider providers.Provider, toolRegistry \*tools.Registry, toolPolicy \*pipeline.ToolPolicy, config \*ProviderConfig, emitter \*events.Emitter, hookRegistry \*hooks.Registry, turnState \*TurnState\) \*ProviderStage](<#NewProviderStageWithTurnState>)
   - [func \(s \*ProviderStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#ProviderStage.Process>)
+  - [func \(s \*ProviderStage\) RunsToolCalls\(\) bool](<#ProviderStage.RunsToolCalls>)
   - [func \(s \*ProviderStage\) SetWorkflowStateResolver\(r WorkflowStateResolver\)](<#ProviderStage.SetWorkflowStateResolver>)
 - [type QuerySourceType](<#QuerySourceType>)
 - [type RandomRouter](<#RandomRouter>)
@@ -418,6 +420,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type StreamPipeline](<#StreamPipeline>)
   - [func \(p \*StreamPipeline\) Execute\(ctx context.Context, input \<\-chan StreamElement\) \(\<\-chan StreamElement, error\)](<#StreamPipeline.Execute>)
   - [func \(p \*StreamPipeline\) ExecuteSync\(ctx context.Context, input ...StreamElement\) \(\*ExecutionResult, error\)](<#StreamPipeline.ExecuteSync>)
+  - [func \(p \*StreamPipeline\) RunsToolCalls\(\) bool](<#StreamPipeline.RunsToolCalls>)
   - [func \(p \*StreamPipeline\) Shutdown\(ctx context.Context\) error](<#StreamPipeline.Shutdown>)
   - [func \(p \*StreamPipeline\) Start\(ctx context.Context, input \<\-chan StreamElement\) \(\*StreamExecution, error\)](<#StreamPipeline.Start>)
 - [type StructuredOutputMode](<#StructuredOutputMode>)
@@ -445,6 +448,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewTokenBudgetStageWithTurnState\(config \*TokenBudgetConfig, turnState \*TurnState\) \*TokenBudgetStage](<#NewTokenBudgetStageWithTurnState>)
   - [func \(s \*TokenBudgetStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TokenBudgetStage.Process>)
 - [type ToolCallRecorder](<#ToolCallRecorder>)
+- [type ToolCallRunner](<#ToolCallRunner>)
 - [type TranscriptReorderStage](<#TranscriptReorderStage>)
   - [func NewTranscriptReorderStage\(placeholder string\) \*TranscriptReorderStage](<#NewTranscriptReorderStage>)
   - [func NewTranscriptReorderStageWithTimeout\(placeholder string, holdTimeout time.Duration\) \*TranscriptReorderStage](<#NewTranscriptReorderStageWithTimeout>)
@@ -794,7 +798,7 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L132>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L143>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1560,7 +1564,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L128>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L139>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -1575,8 +1579,14 @@ type CompositionExecutorDeps struct {
     ResolveProvider func(step *composition.Step) (providers.Provider, error)
     ToolRegistry    *tools.Registry
     Emitter         *events.Emitter
-    HookRegistry    *hooks.Registry
-    BaseVariables   map[string]string
+    // HookRegistry holds the hooks every step runs, unless StepHookRegistry
+    // gives a step its own.
+    HookRegistry *hooks.Registry
+    // StepHookRegistry, when set, gives the hooks a prompt or agent step runs
+    // for its prompt task: the host's hooks with that prompt's own validators,
+    // as an opened prompt runs them. A nil return means HookRegistry.
+    StepHookRegistry func(promptTask string) *hooks.Registry
+    BaseVariables    map[string]string
     // PromptDeclarations maps prompt tasks to their pack declarations, for
     // provider hooks inside each step (see ProviderConfig.PromptDeclarations).
     PromptDeclarations map[string]*packspec.Prompt
@@ -1629,6 +1639,11 @@ type CompositionExecutorDeps struct {
     // provider stage puts it on its tool calls and tool hook requests. The
     // zero value means none was set.
     Caller types.Caller
+
+    // BlockedMessage chooses the text a guardrail's block replaces a prompt or
+    // agent step's reply with (ProviderConfig.BlockedMessage). Nil keeps the
+    // guardrail's message.
+    BlockedMessage BlockedMessageFunc
 }
 ```
 
@@ -2304,6 +2319,15 @@ If no session is pre\-configured, the session is created lazily when the first e
 
 With tool execution \(SetToolExecution\), a tool call still running when the session ends is canceled and waited for up to the input grace period, and before output closes each tool call message it carries is followed by a result for each of its calls, but a call held for approval, which the caller answers.
 
+<a name="DuplexProviderStage.RunsToolCalls"></a>
+### func \(\*DuplexProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L117>)
+
+```go
+func (s *DuplexProviderStage) RunsToolCalls() bool
+```
+
+RunsToolCalls reports whether the stage runs the session's tool calls itself, which SetToolExecution with a registry turns on \(ToolCallRunner\).
+
 <a name="DuplexProviderStage.SetBlockedMessage"></a>
 ### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L92>)
 
@@ -2566,7 +2590,7 @@ type EndInputter interface {
 ```
 
 <a name="ExecutionResult"></a>
-## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1470-L1477>)
+## type [ExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1490-L1497>)
 
 ExecutionResult represents the final result of a pipeline execution. This matches the existing pipeline.ExecutionResult for compatibility.
 
@@ -2582,7 +2606,7 @@ type ExecutionResult struct {
 ```
 
 <a name="ExecutionTrace"></a>
-## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1489-L1493>)
+## type [ExecutionTrace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1509-L1513>)
 
 ExecutionTrace captures execution history \(for compatibility\).
 
@@ -2709,7 +2733,7 @@ func DefaultFrameRateLimitConfig() FrameRateLimitConfig
 DefaultFrameRateLimitConfig returns sensible defaults for frame rate limiting.
 
 <a name="FrameRateLimitStage"></a>
-## type [FrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L85-L98>)
+## type [FrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L85-L99>)
 
 FrameRateLimitStage drops frames to maintain a target frame rate. This is useful for high\-FPS video feeds \(e.g., 30fps webcam\) that need to be reduced to a rate suitable for LLM processing \(e.g., 1fps\).
 
@@ -2723,7 +2747,7 @@ type FrameRateLimitStage struct {
 ```
 
 <a name="NewFrameRateLimitStage"></a>
-### func [NewFrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L101>)
+### func [NewFrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L111>)
 
 ```go
 func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage
@@ -2732,7 +2756,7 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage
 NewFrameRateLimitStage creates a new frame rate limiting stage.
 
 <a name="FrameRateLimitStage.GetConfig"></a>
-### func \(\*FrameRateLimitStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L220>)
+### func \(\*FrameRateLimitStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L230>)
 
 ```go
 func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig
@@ -2741,7 +2765,7 @@ func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig
 GetConfig returns the stage configuration.
 
 <a name="FrameRateLimitStage.GetStats"></a>
-### func \(\*FrameRateLimitStage\) [GetStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L225>)
+### func \(\*FrameRateLimitStage\) [GetStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L235>)
 
 ```go
 func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64)
@@ -2750,7 +2774,7 @@ func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64)
 GetStats returns the current frame statistics.
 
 <a name="FrameRateLimitStage.Process"></a>
-### func \(\*FrameRateLimitStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L117-L121>)
+### func \(\*FrameRateLimitStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L127-L131>)
 
 ```go
 func (s *FrameRateLimitStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4720,7 +4744,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L349-L354>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L353-L358>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4729,7 +4753,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L361-L367>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L365-L371>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4738,7 +4762,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L374-L381>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L378-L385>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4747,7 +4771,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L388-L396>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L392-L400>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4756,13 +4780,22 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L655-L659>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L659-L663>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
 ```
 
 Process executes the LLM provider call and handles tool execution.
+
+<a name="ProviderStage.RunsToolCalls"></a>
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L350>)
+
+```go
+func (s *ProviderStage) RunsToolCalls() bool
+```
+
+RunsToolCalls reports whether the stage runs the model's tool calls itself: it does whenever it has a tool registry \(ToolCallRunner\).
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
 ### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L151>)
@@ -5019,7 +5052,7 @@ type RelevanceConfig struct {
 ```
 
 <a name="Response"></a>
-## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1480-L1486>)
+## type [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1500-L1506>)
 
 Response represents a response message \(for compatibility with existing pipeline\).
 
@@ -5930,7 +5963,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2980>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L2984>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6002,7 +6035,7 @@ func (e *StreamElement) WithSource(source string) *StreamElement
 WithSource sets the source stage name for this element.
 
 <a name="StreamExecution"></a>
-## type [StreamExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L106-L108>)
+## type [StreamExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L126-L128>)
 
 StreamExecution is one running execution of a StreamPipeline, started by Start: its output, and the error that ended it once the output has closed.
 
@@ -6013,7 +6046,7 @@ type StreamExecution struct {
 ```
 
 <a name="StreamExecution.Err"></a>
-### func \(\*StreamExecution\) [Err](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L128>)
+### func \(\*StreamExecution\) [Err](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L148>)
 
 ```go
 func (e *StreamExecution) Err() error
@@ -6024,7 +6057,7 @@ Err returns the error that ended the execution: the error of the stage that fail
 Err does not block. It is nil while the execution runs, and from the moment the execution ends and closes Output it returns the end error, which never changes after that. Output is buffered, so the execution can end, and Err become non\-nil, before the reader has taken the elements still buffered on Output. Read Output to its close first to see every element before the error that ended the execution.
 
 <a name="StreamExecution.Output"></a>
-### func \(\*StreamExecution\) [Output](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L111>)
+### func \(\*StreamExecution\) [Output](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L131>)
 
 ```go
 func (e *StreamExecution) Output() <-chan StreamElement
@@ -6033,7 +6066,7 @@ func (e *StreamExecution) Output() <-chan StreamElement
 Output returns the execution's output, as Execute returns it.
 
 <a name="StreamPipeline"></a>
-## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L25-L70>)
+## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L33-L78>)
 
 StreamPipeline represents an executable pipeline of stages. It manages the DAG of stages, creates channels between them, and orchestrates execution.
 
@@ -6044,7 +6077,7 @@ type StreamPipeline struct {
 ```
 
 <a name="StreamPipeline.Execute"></a>
-### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L99>)
+### func \(\*StreamPipeline\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L119>)
 
 ```go
 func (p *StreamPipeline) Execute(ctx context.Context, input <-chan StreamElement) (<-chan StreamElement, error)
@@ -6059,7 +6092,7 @@ Execute returns ErrPipelineShuttingDown if the pipeline is shutting down. When P
 When Shutdown has abandoned the execution and output had to be dropped because the reader fell behind \(see Shutdown\), the stream still ends in an error: one wrapping ErrOutputTruncated, and the turn's own error when the turn failed. It is delivered with one last bounded wait for the reader.
 
 <a name="StreamPipeline.ExecuteSync"></a>
-### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1438>)
+### func \(\*StreamPipeline\) [ExecuteSync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1458>)
 
 ```go
 func (p *StreamPipeline) ExecuteSync(ctx context.Context, input ...StreamElement) (*ExecutionResult, error)
@@ -6069,8 +6102,17 @@ ExecuteSync runs the pipeline synchronously and returns the accumulated result. 
 
 The returned error is the last error element on the output. When a stage failed the turn, that is the failure \(see Execute for its form\). The result is non\-nil alongside the error and holds whatever the pipeline produced. When Shutdown abandoned the execution and output was dropped, the error wraps ErrOutputTruncated \(see Shutdown\).
 
+<a name="StreamPipeline.RunsToolCalls"></a>
+### func \(\*StreamPipeline\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L83>)
+
+```go
+func (p *StreamPipeline) RunsToolCalls() bool
+```
+
+RunsToolCalls reports whether a stage of the pipeline runs the model's tool calls \(ToolCallRunner\), so that whatever drives the pipeline, such as a duplex session, must not run them again.
+
 <a name="StreamPipeline.Shutdown"></a>
-### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1565>)
+### func \(\*StreamPipeline\) [Shutdown](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L1585>)
 
 ```go
 func (p *StreamPipeline) Shutdown(ctx context.Context) error
@@ -6079,7 +6121,7 @@ func (p *StreamPipeline) Shutdown(ctx context.Context) error
 Shutdown gracefully shuts down the pipeline, waiting for in\-flight executions to complete. When GracefulShutdownTimeout \(or ctx\) ends first it returns ErrShutdownTimeout. The executions still running carry on, and a consumer still reading their output gets all of it, the turn's error included. An execution whose consumer has stopped reading, so that a send waits a further GracefulShutdownTimeout \(at least 100ms\) with nothing taken, drops the rest of its output and returns. Its output still ends in an error wrapping ErrOutputTruncated \(and the turn's error, if the turn failed\), offered with one last wait of the same length; ExecuteSync returns that error even when its element was not taken.
 
 <a name="StreamPipeline.Start"></a>
-### func \(\*StreamPipeline\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L141>)
+### func \(\*StreamPipeline\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L161>)
 
 ```go
 func (p *StreamPipeline) Start(ctx context.Context, input <-chan StreamElement) (*StreamExecution, error)
@@ -6437,6 +6479,18 @@ type ToolCallRecorder interface {
     // not run yet and are reported when they execute on resume, so counting
     // them here would charge a gated call twice.
     RecordToolCalls(n int)
+}
+```
+
+<a name="ToolCallRunner"></a>
+## type [ToolCallRunner](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L25-L28>)
+
+ToolCallRunner is implemented by a stage that can run the model's tool calls itself: a DuplexProviderStage given SetToolExecution, or a ProviderStage with a tool registry.
+
+```go
+type ToolCallRunner interface {
+    // RunsToolCalls reports whether the stage runs the tool calls it sees.
+    RunsToolCalls() bool
 }
 ```
 
