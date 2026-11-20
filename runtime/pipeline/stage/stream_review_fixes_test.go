@@ -105,11 +105,21 @@ func TestProviderStage_CutTurnEndsAtOnceAndItsUsageFollows(t *testing.T) {
 	stream <- providers.StreamChunk{CostInfo: &types.CostInfo{InputTokens: 12, OutputTokens: 40, TotalCost: 0.5}}
 	close(stream)
 
+	// The bus delivers through a worker pool, so delivery order is not publish
+	// order: find each event by type.
 	got := waitForEvents(t, snapshot, 2)
-	completed, ok := got[0].Data.(*events.ProviderCallCompletedData)
-	require.True(t, ok, "first event %T", got[0].Data)
-	usage, ok := got[1].Data.(*events.ProviderCallUsageData)
-	require.True(t, ok, "second event %T", got[1].Data)
+	var completed *events.ProviderCallCompletedData
+	var usage *events.ProviderCallUsageData
+	for _, e := range got {
+		switch d := e.Data.(type) {
+		case *events.ProviderCallCompletedData:
+			completed = d
+		case *events.ProviderCallUsageData:
+			usage = d
+		}
+	}
+	require.NotNil(t, completed, "no provider.call.completed")
+	require.NotNil(t, usage, "no provider.call.usage")
 	assert.Equal(t, completed.CallID, usage.CallID)
 	assert.NotEmpty(t, usage.CallID)
 	assert.Equal(t, []any{12, 40, 0.5, "p", "m"},
