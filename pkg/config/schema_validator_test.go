@@ -158,7 +158,7 @@ func TestSchemaValidationError_Error(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "with value",
+			name: "without value",
 			err: SchemaValidationError{
 				Field:       "metadata.name",
 				Description: "is required",
@@ -167,22 +167,53 @@ func TestSchemaValidationError_Error(t *testing.T) {
 			expected: "metadata.name: is required",
 		},
 		{
-			name: "without value",
+			name: "with value is not printed",
 			err: SchemaValidationError{
 				Field:       "spec.providers",
 				Description: "must be array",
 				Value:       "string",
 			},
-			expected: "spec.providers: must be array (value: string)",
+			expected: "spec.providers: must be array",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.err.Error()
-			assert.Contains(t, got, tt.expected)
+			assert.Equal(t, tt.expected, tt.err.Error())
 		})
 	}
+}
+
+// A config missing one required field produces a "required" error whose
+// Value is the whole parent object. Error() must not print it, since that
+// object can hold tokens and env values (#2813). Value keeps it for callers.
+func TestValidateWithLocalSchema_ErrorOmitsValidatedValue(t *testing.T) {
+	schemaDir := writeSchemaFixture(t, `{
+		"$schema":"http://json-schema.org/draft-07/schema#",
+		"type":"object",
+		"properties":{
+			"spec":{
+				"type":"object",
+				"required":["target"],
+				"properties":{
+					"target":{"type":"string"},
+					"env":{"type":"object"}
+				}
+			}
+		}
+	}`)
+
+	yamlData := []byte("spec:\n  env:\n    API_TOKEN: sk-secret-123\n")
+
+	result, err := ValidateWithLocalSchema(yamlData, ConfigTypeArena, schemaDir)
+	require.NoError(t, err)
+	require.Len(t, result.Errors, 1)
+
+	got := result.Errors[0]
+	assert.Equal(t, "spec: target is required", got.Error())
+	assert.Equal(t, map[string]any{
+		"env": map[string]any{"API_TOKEN": "sk-secret-123"},
+	}, got.Value)
 }
 
 func TestDetectConfigType_Eval(t *testing.T) {
