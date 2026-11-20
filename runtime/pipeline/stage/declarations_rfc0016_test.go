@@ -188,20 +188,20 @@ func TestValidatorDeclarationStaysOutOfMessageMeta(t *testing.T) {
 		hooks.MetadataKeyValidatorDeclaration: &packspec.Validator{ID: "no-cards", Type: "banned_words"},
 	})
 
-	blocked := (&ProviderStage{}).blockedMessage(nil, d)
+	blocked := blockedTurnMessage(nil, d)
 	require.NotContains(t, blocked.Meta, hooks.MetadataKeyValidatorDeclaration)
 	require.Equal(t, "banned_words", blocked.Meta["validator_type"])
 
 	msg := types.Message{}
-	var calls []types.MessageToolCall
-	applyEnforcedResponse(&msg, &calls, &hooks.ProviderResponse{}, d, 0)
+	v := outputVerdict{kind: verdictReplace, decision: d}
+	v.enforce(&msg)
 	require.NotContains(t, msg.Meta, hooks.MetadataKeyValidatorDeclaration)
 	require.Equal(t, "banned_words", msg.Meta["validator_type"])
 
 	onlyDecl := hooks.Enforced("blocked", map[string]any{
 		hooks.MetadataKeyValidatorDeclaration: &packspec.Validator{Type: "banned_words"},
 	})
-	require.Nil(t, (&ProviderStage{}).blockedMessage(nil, onlyDecl).Meta)
+	require.Nil(t, blockedTurnMessage(nil, onlyDecl).Meta)
 }
 
 // TestPromptTaskResetsWhenNoTemplateLoaded — a stage reused across executions

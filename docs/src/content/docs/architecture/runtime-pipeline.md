@@ -155,7 +155,7 @@ sequenceDiagram
 
 ### Hooks
 
-Hooks intercept the provider and its tools without being stages. A `ProviderHook` has `BeforeCall` and `AfterCall`. It can also implement `ChunkInterceptor` to inspect each streamed chunk and abort early with a `HookDeniedError`. A `ToolHook` wraps tool execution with `BeforeExecution` and `AfterExecution`, and can implement `ToolResultRewriter` to rewrite a result before the model sees it.
+Hooks intercept the provider and its tools without being stages. A `ProviderHook` has `BeforeCall` and `AfterCall`. It can also implement `ChunkInterceptor` to judge each streamed chunk before the caller gets it, and cut the reply. A `ToolHook` wraps tool execution with `BeforeExecution` and `AfterExecution`, and can implement `ToolResultRewriter` to rewrite a result before the model sees it.
 
 Every hook lives on one `hooks.Registry`, whether it came from a pack `validators` block, an eval handler wrapped by `GuardrailHookAdapter`, or a `WithProviderHook` or `WithToolHook` option.
 

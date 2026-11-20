@@ -72,7 +72,7 @@ conv, _ := sdk.Open("./app.pack.json", "chat",
 
 ## ProviderHook + ChunkInterceptor
 
-If your hook also implements `ChunkInterceptor`, the registry routes streaming chunks to it, so you can abort a response mid-stream.
+If your hook also implements `ChunkInterceptor`, the registry routes streaming chunks to it, so you can cut a response mid-stream.
 
 ```go
 type StreamingPIIHook struct {
@@ -100,7 +100,7 @@ func (h *StreamingPIIHook) OnChunk(_ context.Context, chunk *providers.StreamChu
 }
 ```
 
-A streaming denial surfaces as `*providers.ValidationAbortError` rather than `*hooks.HookDeniedError`, because the chunk loop has already started by the time it fires. Handle both in your error path if you care which one tripped.
+A streaming denial does not fail the turn. The reply ends with the default blocked message, marked `FinishReasonSafety`, and its tool calls do not run. To choose the text instead, return `hooks.Enforced(...)` with `Decision.Content` set to it. A hook that names itself in `Decision.Metadata["validator_type"]` (`hooks.DenyWithMetadata`) is recorded in `resp.Validations()`.
 
 ## ToolHook
 
@@ -228,7 +228,7 @@ if err != nil {
 }
 ```
 
-`HookType` is `"provider_before"` or `"provider_after"`, which tells you which phase fired. Only provider hooks produce a `HookDeniedError`: streaming denials return `*providers.ValidationAbortError`, and tool hook denials reach the model as an error tool result.
+`HookType` is `"provider_before"` or `"provider_after"`, which tells you which phase fired. Only provider hooks produce a `HookDeniedError`: a streaming denial ends the reply with the blocked message, and tool hook denials reach the model as an error tool result.
 
 ## Verify
 

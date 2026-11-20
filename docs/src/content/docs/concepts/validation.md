@@ -60,7 +60,7 @@ You write a check once and deploy it wherever you need it. A `content_excludes` 
 
 To test LLM behavior in CI, use an assertion. Define checks in your scenario YAML under `assertions:`. They run only in Arena. Use `when:` for conditional checks and `pass_threshold` for statistical testing across multiple runs.
 
-To enforce policies at runtime, use a guardrail. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks can abort early to save tokens. Guardrails always enforce: a triggered validator rewrites or blocks the message, and the `fail_on_violation` field has no effect. To switch a validator off, use `enabled: false`. For observe-only behavior, declare an eval and assert on it instead. Guardrails run before the LLM call, after it, or both, according to `direction`.
+To enforce policies at runtime, use a guardrail. Define checks in your pack YAML under `validators:`. They run during every LLM call in production. Streaming-capable checks judge a streamed reply before the caller receives it. Guardrails always enforce: a triggered validator rewrites or blocks the message, and the `fail_on_violation` field has no effect. To switch a validator off, use `enabled: false`. For observe-only behavior, declare an eval and assert on it instead. Guardrails run before the LLM call, after it, or both, according to `direction`.
 
 To monitor quality in production, use an eval. Define checks in your pack file under `evals:`. They travel with the pack and run based on configurable triggers. Results are exported as Prometheus metrics and trace events.
 

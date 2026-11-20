@@ -198,7 +198,10 @@ type StreamEventObserver interface {
 	OnStreamEvent(event StreamEvent)
 }
 
-// ValidationAbortError is returned when a streaming validator aborts a stream
+// ValidationAbortError reports a stream a validator aborted. PromptKit's own
+// stages do not return it: an output guardrail or chunk hook that blocks a
+// streamed reply ends it with the guardrail's message instead. It remains for
+// hosts that return it from their own stages.
 type ValidationAbortError struct {
 	Reason string
 	Chunk  StreamChunk

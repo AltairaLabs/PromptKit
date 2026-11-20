@@ -95,8 +95,9 @@ func (e *sentinelError) Unwrap() []error { return []error{e.sentinel, e.err} }
 // ValidationError represents a validation failure. Send, Stream and their
 // Resume and Continue counterparts return one when a hook or guardrail denies
 // the turn: it wraps the runtime's *hooks.HookDeniedError (a provider hook
-// denied the call) or *providers.ValidationAbortError (a chunk hook aborted
-// the stream), so errors.As still finds those.
+// denied the call), or a *providers.ValidationAbortError a host's own stage
+// returned, so errors.As still finds those. A chunk hook's denial is not an
+// error: it ends the streamed reply with the blocked message.
 type ValidationError struct {
 	// ValidatorType is the type of validator that failed (e.g., "banned_words").
 	ValidatorType string

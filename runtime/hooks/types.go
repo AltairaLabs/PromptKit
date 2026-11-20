@@ -26,6 +26,14 @@ type Decision struct {
 	// bytes from the caller until a later chunk clears them, completes what it
 	// blocks, or the reply ends. Zero holds nothing back.
 	Hold int
+
+	// Content is set by an output hook (AfterCall or a chunk interceptor)
+	// that returns Enforced: the text its enforcement leaves in place of the
+	// text it judged, a truncation's prefix or a replacement. A hook that sets
+	// it need not rewrite the chunk or message it was given. When it is nil,
+	// the Registry reads what the hook rewrote in place instead, so a hook
+	// written either way works.
+	Content *string
 }
 
 // Allow is the zero-cost approval decision.
@@ -102,7 +110,8 @@ type ProviderRequest struct {
 // ChunkRequestInterceptor, with who the call acts for.
 type ChunkRequest struct {
 	// Chunk is the chunk being judged. An interceptor that returns Enforced
-	// rewrites Chunk.Content in place, as OnChunk does.
+	// gives the text it leaves in Decision.Content, or rewrites Chunk.Content
+	// in place, as OnChunk does.
 	Chunk *providers.StreamChunk
 
 	// Caller is who the conversation acts for, as the host set it with
@@ -110,6 +119,10 @@ type ChunkRequest struct {
 	// the host's interceptor and otherwise never reads, persists, logs or
 	// emits it.
 	Caller types.Caller
+
+	// TurnIndex is the 0-based turn the chunk's reply belongs to, as
+	// ProviderRequest.TurnIndex counts it.
+	TurnIndex int
 }
 
 // ProviderResponse describes a completed LLM call.

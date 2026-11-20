@@ -49,7 +49,7 @@ if err != nil {
 fmt.Println(resp.Text())
 ```
 
-`ValidatorType` is the `validator_type` the guardrail names in its decision metadata, and the hook type when it names none. A stream abort reports `provider_chunk`.
+`ValidatorType` is the `validator_type` the guardrail names in its decision metadata, and the hook type when it names none. A chunk interceptor's denial is not an error: it ends the streamed reply with the blocked message.
 
 `ProviderError.StatusCode` is zero for a connection failure. `Provider` falls back to the conversation's provider ID when the runtime error does not name one. `Cause` holds the runtime error, so `providers.IsTransient(err)` still decides whether a retry is sensible.
 

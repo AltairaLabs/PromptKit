@@ -178,10 +178,26 @@ func (r *Registry) RunAfterProviderCall(ctx context.Context, req *ProviderReques
 	for _, h := range r.providerHooks {
 		if d := h.AfterCall(ctx, req, resp); !d.Allow {
 			logProviderHookDecision(h, d, msgEnforcedAfterCall, msgDeniedAfterCall)
+			if d.Enforced && resp != nil {
+				d.Content = enforcedContent(d, &resp.Message.Content)
+			}
 			return d
 		}
 	}
 	return Allow
+}
+
+// enforcedContent reconciles the two ways an enforcing hook gives the text it
+// leaves: its Decision.Content, which is then also written to target for
+// callers that read the rewritten value, or else what it rewrote target to.
+// It returns a copy, so a hook holding the pointer it returned cannot change a
+// decision already acted on.
+func enforcedContent(d Decision, target *string) *string {
+	if d.Content != nil {
+		*target = *d.Content
+	}
+	text := *target
+	return &text
 }
 
 // chunkInterceptor is a provider hook's chunk entry point: InterceptChunk
@@ -222,36 +238,88 @@ func (r *Registry) RunOnChunk(ctx context.Context, chunk *providers.StreamChunk)
 }
 
 // RunOnChunkRequest executes all chunk interceptors in order: InterceptChunk
-// for one that implements ChunkRequestInterceptor, OnChunk otherwise.
+// for one that implements ChunkRequestInterceptor, OnChunk otherwise. It is
+// JudgeChunk reduced to one decision, for callers that want the chunk
+// rewritten in place.
 //
-// Every interceptor judges every chunk. One that enforces rewrites the chunk's
-// Content in place (a truncation, a replacement), and the interceptors after
-// it judge the rewritten Content, so a truncation cannot pass on text a later
-// interceptor blocks. The decision returned is the last enforcing one: the
-// one whose Content stands. A deny (not enforced) short-circuits and is
-// returned. When every interceptor allows the chunk, the decision holds back
-// the most any of them holds (Decision.Hold).
+// The decision returned is the last firing (ChunkJudgment.Firings): the deny
+// that stopped the chain, or else the last enforcing interceptor, whose
+// Content stands and is written to req.Chunk.Content. When every interceptor
+// allows the chunk, the decision holds back the most any of them holds
+// (Decision.Hold).
 func (r *Registry) RunOnChunkRequest(ctx context.Context, req ChunkRequest) Decision {
-	if r == nil {
-		return Allow
+	j := r.JudgeChunk(ctx, req)
+	if len(j.Firings) == 0 {
+		return Decision{Allow: true, Hold: j.MaxHold()}
 	}
-	result := Allow
+	d := j.Firings[len(j.Firings)-1]
+	if d.Content != nil && req.Chunk != nil {
+		req.Chunk.Content = *d.Content
+	}
+	return d
+}
+
+// ChunkJudgment is what the chunk interceptors decided about one chunk
+// (Registry.JudgeChunk).
+type ChunkJudgment struct {
+	// Firings are the decisions of the interceptors that did not allow the
+	// chunk, in order: every one is a guardrail firing to record. Each
+	// enforcing one carries the text it left in Content. A deny ends the
+	// list: no interceptor runs after it.
+	Firings []Decision
+	// Holds, when nothing fired, is each interceptor's Decision.Hold, in
+	// registration order: how many bytes at the end of the chunk's Content it
+	// has not cleared.
+	Holds []int
+}
+
+// MaxHold is the most any interceptor holds back (Holds).
+func (j ChunkJudgment) MaxHold() int {
+	most := 0
+	for _, h := range j.Holds {
+		most = max(most, h)
+	}
+	return most
+}
+
+// JudgeChunk runs every chunk interceptor on req.Chunk and reports each one's
+// decision, without changing req.Chunk: each interceptor is given its own copy.
+//
+// Every interceptor judges every chunk. One that enforces leaves its text
+// (Decision.Content, or what it rewrote its copy to; a truncation or a
+// replacement), and the interceptors after it judge that text, so a
+// truncation cannot pass on text a later interceptor blocks. A deny (not
+// enforced) ends the chain.
+func (r *Registry) JudgeChunk(ctx context.Context, req ChunkRequest) ChunkJudgment {
+	var j ChunkJudgment
+	if r == nil || req.Chunk == nil {
+		return j
+	}
+	content := req.Chunk.Content
 	for _, ci := range r.chunkInterceptors {
-		d := ci.run(ctx, req)
+		chunk := *req.Chunk
+		chunk.Content = content
+		d := ci.run(ctx, ChunkRequest{Chunk: &chunk, Caller: req.Caller, TurnIndex: req.TurnIndex})
 		switch {
 		case !d.Allow && !d.Enforced:
 			logger.Warn("chunk interceptor denied",
 				"interceptor", fmt.Sprintf("%T", ci.hook), "reason", d.Reason)
-			return d
+			j.Firings = append(j.Firings, d)
+			return j
 		case !d.Allow:
 			logger.Warn("chunk interceptor enforced",
 				"interceptor", fmt.Sprintf("%T", ci.hook), "reason", d.Reason)
-			result = d
-		case result.Allow:
-			result.Hold = max(result.Hold, d.Hold)
+			d.Content = enforcedContent(d, &chunk.Content)
+			content = *d.Content
+			j.Firings = append(j.Firings, d)
+		default:
+			j.Holds = append(j.Holds, d.Hold)
 		}
 	}
-	return result
+	if len(j.Firings) > 0 {
+		j.Holds = nil
+	}
+	return j
 }
 
 // --- Tool hooks ---

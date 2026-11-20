@@ -76,10 +76,12 @@ func turnIndexOf(evalCtx *evals.EvalContext) int {
 // This bridges the unified eval system to the pipeline's hook infrastructure,
 // allowing any registered eval handler to be used as a guardrail.
 //
-// Guardrails always enforce: on a hit the adapter mutates the response
-// (truncate or replace) and returns an Enforced decision so the pipeline
-// continues. If you want observe-only behavior, declare an eval — not a
-// guardrail — and assert on it in scenarios.
+// Guardrails always enforce: on a hit the adapter returns an Enforced decision
+// carrying the text that replaces the judged text (truncated or replaced) in
+// Decision.Content, so the pipeline continues. AfterCall and OnChunk also
+// rewrite the response or chunk they were given, for callers that read it.
+// If you want observe-only behavior, declare an eval — not a guardrail — and
+// assert on it in scenarios.
 type GuardrailHookAdapter struct {
 	handler   evals.EvalTypeHandler
 	evalType  string
@@ -386,7 +388,7 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 			// round 1).
 			enforceTarget.Content = a.failureMessage()
 		}
-		return a.enforcedFailure(err)
+		return withContent(a.enforcedFailure(err), enforceTarget)
 	}
 
 	if thresholds.Triggered(result) {
@@ -397,7 +399,7 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 		if timedOut {
 			d.Metadata["reason"] = reasonTimeout
 		}
-		return d
+		return withContent(d, enforceTarget)
 	}
 
 	var score *float64
@@ -408,10 +410,20 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 	return hooks.Allow
 }
 
-// OnChunk evaluates streaming chunks via StreamableEvalHandler.EvalPartial.
-// When a guardrail triggers, it truncates the chunk content and returns
-// an Enforced decision so the provider stage can stop reading but continue
-// the pipeline.
+// withContent gives an enforcing decision the text enforcement left in
+// target (hooks.Decision.Content), when there is a target.
+func withContent(d hooks.Decision, target *types.Message) hooks.Decision {
+	if target != nil {
+		text := target.Content
+		d.Content = &text
+	}
+	return d
+}
+
+// OnChunk evaluates streaming chunks via StreamableEvalHandler.EvalPartial
+// (InterceptChunk). When a guardrail triggers, it returns an Enforced decision
+// so the provider stage can stop reading but continue the pipeline, and
+// rewrites the chunk's content to the decision's Content.
 //
 // A chunk is assistant output, so this is the streaming half of AfterCall and
 // gates on direction identically. Without that gate a guardrail declared
@@ -422,27 +434,53 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 func (a *GuardrailHookAdapter) OnChunk(
 	ctx context.Context, chunk *providers.StreamChunk,
 ) hooks.Decision {
-	return a.InterceptChunk(ctx, hooks.ChunkRequest{Chunk: chunk})
+	d := a.InterceptChunk(ctx, hooks.ChunkRequest{Chunk: chunk})
+	if d.Content != nil {
+		chunk.Content = *d.Content
+	}
+	return d
 }
 
 // InterceptChunk is OnChunk with the caller: a handler that implements
 // evals.StreamableRequestEvalHandler judges the chunk through
 // EvalPartialRequest, given req.Caller; one that implements only
-// evals.StreamableEvalHandler through EvalPartial.
+// evals.StreamableEvalHandler through EvalPartial. It does not rewrite the
+// chunk: an Enforced decision carries the text that replaces it in Content.
+//
+// The judgment is bounded as a completed reply's is (evaluateMessage): the
+// guardrail timeout applies, a handler that errors or runs out of time
+// without a verdict fails closed with the validator's message, and a verdict
+// it returned past the timeout stands (tagged "timeout" when it fires). A
+// chunk judged as the caller cancels is held back whole and is not a firing.
+// It emits no validation.started or validation.passed: a reply has many
+// chunks, and those events would multiply by them. A firing is reported by the stage (validation.failed),
+// and the completed reply's check reports the turn's started and passed.
 func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.ChunkRequest) hooks.Decision {
-	if a.direction == DirectionInput {
+	if a.direction == DirectionInput || !a.judgesPartial() {
 		return hooks.Allow
 	}
-	chunk := req.Chunk
-
+	content := req.Chunk.Content
 	params, thresholds := a.evalParams()
 
-	result, ok, err := a.evalPartial(ctx, chunk.Content, params, req.Caller)
-	if !ok {
-		return hooks.Allow
+	handlerCtx, cancel := context.WithTimeout(ctx, a.evalTimeoutOrDefault())
+	defer cancel()
+	result, err := a.evalPartial(handlerCtx, content, params, req.Caller)
+	if ctx.Err() != nil {
+		// The caller ended the stream: nothing was judged, so nothing of the
+		// chunk is released, and no guardrail fired.
+		return hooks.Decision{Allow: true, Hold: len(content)}
+	}
+	// A verdict the handler returned stands, as evaluateMessage keeps one;
+	// the timeout is the failure only when there is none.
+	timedOut := errors.Is(handlerCtx.Err(), context.DeadlineExceeded)
+	if timedOut && errors.Is(err, errNoPartialResult) {
+		err = handlerCtx.Err()
 	}
 	if err != nil {
-		return hooks.Deny("guardrail streaming error: " + err.Error())
+		d := a.enforcedFailure(err)
+		msg := a.failureMessage()
+		d.Content = &msg
+		return d
 	}
 
 	if thresholds.Triggered(result) {
@@ -454,11 +492,25 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 		// The provider stage forwards a chunk only once this has passed it,
 		// and holds back the tail PartialHold names, so the caller has had
 		// none of the text this replaces.
-		chunk.Content = a.enforcedContent(chunk.Content, params, evals.ResultReplacement(result))
-		return a.enforced(result)
+		d := a.enforced(result)
+		if timedOut {
+			d.Metadata["reason"] = reasonTimeout
+		}
+		text := a.enforcedContent(content, params, evals.ResultReplacement(result))
+		d.Content = &text
+		return d
 	}
 
-	return hooks.Decision{Allow: true, Hold: a.partialHold(chunk.Content, params)}
+	return hooks.Decision{Allow: true, Hold: a.partialHold(content, params)}
+}
+
+// judgesPartial reports whether the handler evaluates partial content.
+func (a *GuardrailHookAdapter) judgesPartial() bool {
+	switch a.handler.(type) {
+	case evals.StreamableRequestEvalHandler, evals.StreamableEvalHandler:
+		return true
+	}
+	return false
 }
 
 // partialHold is how much of the end of content the handler has not cleared
@@ -471,23 +523,28 @@ func (a *GuardrailHookAdapter) partialHold(content string, params map[string]any
 }
 
 // evalPartial runs the handler's streaming entry point on content, the one
-// that takes the caller when it implements it. ok is false when the handler
-// does not evaluate partial content.
+// that takes the caller when it implements it (judgesPartial). A nil result
+// with no error is an error: there is no verdict to act on.
 func (a *GuardrailHookAdapter) evalPartial(
 	ctx context.Context, content string, params map[string]any, caller types.Caller,
-) (result *evals.EvalResult, ok bool, err error) {
-	if h, isReq := a.handler.(evals.StreamableRequestEvalHandler); isReq {
+) (result *evals.EvalResult, err error) {
+	switch h := a.handler.(type) {
+	case evals.StreamableRequestEvalHandler:
 		result, err = h.EvalPartialRequest(ctx, evals.PartialEvalRequest{
 			Content: content, Params: params, Caller: caller,
 		})
-		return result, true, err
-	}
-	if h, isStream := a.handler.(evals.StreamableEvalHandler); isStream {
+	case evals.StreamableEvalHandler:
 		result, err = h.EvalPartial(ctx, content, params)
-		return result, true, err
 	}
-	return nil, false, nil
+	if err == nil && result == nil {
+		err = errNoPartialResult
+	}
+	return result, err
 }
+
+// errNoPartialResult is the failure of a streaming handler that returned
+// neither a result nor an error.
+var errNoPartialResult = errors.New("the streaming check returned no result")
 
 // enforce modifies the message content based on the validator type.
 // replacement is the check's own replacement text, or "" for none.

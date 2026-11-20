@@ -40,22 +40,25 @@ func TestRunAfterCallHooks_EnforcedKeepsEachValidationOnce(t *testing.T) {
 }
 
 // A hook that records its own validation on the response it was handed still
-// has that validation folded into the message.
-func TestApplyEnforcedResponse_KeepsValidationsTheHookAdded(t *testing.T) {
+// has that validation in the verdict, after the firing's, while the message
+// it judged is left as it was.
+func TestOutputGuard_KeepsValidationsTheHookAdded(t *testing.T) {
 	prior := types.ValidationResult{ValidatorType: "prior"}
-	msg := types.Message{Validations: []types.ValidationResult{prior}}
-	resp := &hooks.ProviderResponse{Message: msg}
-	resp.Message.Validations = append(resp.Message.Validations,
-		types.ValidationResult{ValidatorType: "hook_added"})
-	var toolCalls []types.MessageToolCall
+	msg := types.Message{Content: "original", Validations: []types.ValidationResult{prior}}
+	g := guardrailOutcome{
+		registry: hooks.NewRegistry(hooks.WithProviderHook(appendingEnforceHook{})),
+		choose:   func(_ context.Context, _ *hooks.Decision, _, text string) string { return text },
+	}
 
-	applyEnforcedResponse(&msg, &toolCalls, resp, hooks.Enforced("x", nil), 1)
+	v := g.judgeResponse(context.Background(), &hooks.ProviderRequest{}, &msg, 1, 0, false)
 
 	var got []string
-	for _, v := range msg.Validations {
-		got = append(got, v.ValidatorType)
+	for _, val := range v.validations {
+		got = append(got, val.ValidatorType)
 	}
-	assert.Equal(t, []string{"prior", "hook_added"}, got)
+	assert.Equal(t, []string{"firing", "hook_added"}, got)
+	assert.Equal(t, []types.ValidationResult{prior}, msg.Validations)
+	assert.Equal(t, verdictTruncate, v.kind, "a hook that left the text unchanged did not replace it")
 }
 
 // appendingEnforceHook records its own validation on the response it is handed,
@@ -94,4 +97,47 @@ func TestRunAfterCallHooks_HookValidationsDoNotAliasTheMessage(t *testing.T) {
 		got = append(got, v.ValidatorType)
 	}
 	assert.Equal(t, []string{"prior", "firing", "hook_added"}, got)
+}
+
+// denyAfterCallHook denies every reply without enforcing.
+type denyAfterCallHook struct{ appendingEnforceHook }
+
+func (denyAfterCallHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.DenyWithMetadata("no", map[string]any{"validator_type": "deny"})
+}
+
+// denyOutcome judges a reply its deny hook denies, counting the blocked
+// messages it is asked to choose.
+func denyOutcome(t *testing.T, denyIsError bool) (outputVerdict, int) {
+	t.Helper()
+	asked := 0
+	g := guardrailOutcome{
+		registry: hooks.NewRegistry(hooks.WithProviderHook(denyAfterCallHook{})),
+		choose: func(_ context.Context, _ *hooks.Decision, _, _ string) string {
+			asked++
+			return "chosen"
+		},
+	}
+	msg := types.Message{Content: "original"}
+	v := g.judgeResponse(context.Background(), &hooks.ProviderRequest{}, &msg, 1, 0, denyIsError)
+	return v, asked
+}
+
+// A deny the stage returns as an error has no blocked message, so none is
+// chosen.
+func TestGuardrailOutcome_ChoosesNoMessageForADenyThatIsAnError(t *testing.T) {
+	v, asked := denyOutcome(t, true)
+
+	assert.Equal(t, verdictDeny, v.kind)
+	assert.Equal(t, "", v.text)
+	assert.Equal(t, 0, asked)
+}
+
+// A deny the stage replaces the reply for gets the stage's choice of message.
+func TestGuardrailOutcome_ChoosesTheMessageForADenyThatReplacesTheReply(t *testing.T) {
+	v, asked := denyOutcome(t, false)
+
+	assert.Equal(t, verdictDeny, v.kind)
+	assert.Equal(t, "chosen", v.text)
+	assert.Equal(t, 1, asked)
 }
