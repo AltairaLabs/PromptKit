@@ -90,6 +90,14 @@ const (
 	// EventStreamInterrupted marks a stream interruption.
 	EventStreamInterrupted EventType = "stream.interrupted"
 
+	// EventStreamHoldReleased marks reply text an output guardrail held back
+	// (stream_hold) reaching the caller, once every holding guardrail cleared
+	// it (StreamHoldReleasedData).
+	EventStreamHoldReleased EventType = "stream.hold.released"
+	// EventStreamHoldCut marks a streamed reply a holding output guardrail cut
+	// while it streamed: its message replaced the reply (StreamHoldCutData).
+	EventStreamHoldCut EventType = "stream.hold.cut"
+
 	// EventReasoningDelta carries an incremental chunk of model reasoning
 	// ("thinking") for live display. It is explicitly NOT conversational content
 	// — subscribers (incl. external conversation stores) must not treat it as a
@@ -496,6 +504,52 @@ type ValidationEventData struct {
 	// copy, shared by every event the validator emits. Nil for a guardrail not declared in
 	// the pack. PromptKit never reads it.
 	Validator *packspec.Validator
+
+	// SegmentIndex is the 1-based segment of a streamed reply a
+	// stream_hold: segment guardrail judged, the last of the segments the
+	// call covered. 0 when the validation judged a whole message.
+	SegmentIndex int
+	// SegmentEnd is the byte offset in the round's reply text where the
+	// judged segment ends: the guardrail judged the reply up to it. 0 when
+	// the validation judged a whole message.
+	SegmentEnd int
+}
+
+// StreamHoldReleasedData describes reply text released to the caller after
+// output guardrails held it back (stream_hold).
+type StreamHoldReleasedData struct {
+	baseEventData
+	// Round is the 1-based tool-loop round whose reply text was released.
+	Round int
+	// ProviderCallID is the provider call that produced the text.
+	ProviderCallID string
+	// From and To are the byte offsets of the released text in the round's
+	// reply.
+	From, To int
+	// Held is how long the first released byte waited between arriving from
+	// the provider and reaching the caller.
+	Held time.Duration
+}
+
+// StreamHoldCutData describes a streamed reply a holding output guardrail
+// cut: its message replaced the reply, marked as replacing the text streamed
+// before it.
+type StreamHoldCutData struct {
+	baseEventData
+	// Round is the 1-based tool-loop round that was cut.
+	Round int
+	// ProviderCallID is the provider call that produced the cut reply.
+	ProviderCallID string
+	// Guardrail is the eval type of the guardrail that cut the reply.
+	Guardrail string
+	// SegmentIndex is the 1-based segment whose verdict cut the reply.
+	SegmentIndex int
+	// ReleasedBytes is how much of the round's reply reached the caller
+	// before the cut.
+	ReleasedBytes int
+	// CanceledJudges is how many other in-flight segment judges were
+	// canceled by the cut; their results are discarded.
+	CanceledJudges int
 }
 
 type (

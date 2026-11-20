@@ -237,6 +237,8 @@ pipe, err := stage.NewPipelineBuilder().
     Build()
 ```
 
+With `Streaming` set and a provider that streams, `TTSStageWithInterruption` speaks the reply's text deltas as they arrive. It synthesizes one sentence at a time and passes on each sentence's audio as the service returns it. `TTSStage` waits for the complete reply instead.
+
 For a native duplex model such as Gemini Live, replace the audio, STT, provider and TTS stages with a duplex provider stage. The provider must implement `providers.StreamInputSupport`:
 
 ```go

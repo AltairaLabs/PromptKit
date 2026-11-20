@@ -118,6 +118,16 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
+### Topic, PII and safety output guardrails hold a streamed reply by segment
+
+An output guardrail now holds a streamed reply back from the caller until it has judged it, as its `stream_hold` param says. Without the param, `topic_policy`, `pii_leakage`, `toxicity`, `bias`, `role_violation` and `text_toxicity` hold per segment: `Stream` releases a sentence or a few at a time, each once the judge passed it. `llm_judge` holds the whole reply. When the guardrail fails the reply, its message replaces the text already streamed, marked `ReplacesText`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Stream replies under one of those output guardrails | text arrives later (the first segment after one judge call), and the judge is called up to 8 times per model round instead of once | set `stream_hold: none` on the guardrail to stream as before, or `stream_hold: turn` for one judge call per round; `sdk.WithStreamHold` tunes the segment size and the call cap |
+| Stream replies under an `llm_judge` output guardrail | nothing arrives until the judge passed the completed reply | set `stream_hold: none` to stream as before, or `stream_hold: segment` when its criteria judge only what the reply says |
+| Render streamed text | a guardrail that fails a streamed reply after it reached you ends it with a delta marked `ReplacesText` | replace the turn's text with that delta's text |
+
 ### Hooks, validation events and eval results number turns from 0
 
 Every turn index PromptKit hands a host now counts from 0: 0 for a conversation's first turn, 1 for its second.
@@ -149,6 +159,19 @@ Which request shape a model gets was read from its name. It now comes from the p
 | Transcribe with `whisper-1` on OpenAI STT | the request asks for `json`, and the cost uses the billed seconds the response reports, where it asked for `verbose_json` and used the audio's exact length | nothing |
 | Use OpenAI TTS on `tts-1` or `tts-1-hd` with markup tags | the tags' directives are sent as `instructions`, which those models ignore, and `PersonaRubric` offers the markup rubric | set `additional_config.instructions: false`, or call `SetInstructions(false)`, to drop the directives and the rubric |
 | List voices with `SupportedVoices` on OpenAI TTS | all 13 voices on every model; the four `tts-1` lacks say so in their description | pick a voice the model has |
+
+### VAD mode speaks a reply sentence by sentence as it streams
+
+A VAD session used to synthesize a reply only once the model had finished it, so the caller's wait grew with the length of the reply. It now speaks each sentence as soon as the model has streamed it.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read the reply audio from `Response()` in VAD mode | the audio of each sentence, in pieces of about 100ms, where one chunk carried the whole reply | nothing, unless your player expects one chunk per reply |
+| Read `Metadata["spoken_text"]` | it on the first chunk of each sentence, with that sentence's text, where it came once with the whole reply's | join the values to get the whole reply |
+| Guard VAD replies with an output guardrail that judges only the complete reply (an `AfterCall` hook, or a validator with no streaming evaluation) | the caller hears each sentence before that guardrail runs, as a text caller already sees it. If the guardrail then replaces the reply, the rest is not spoken and its message is | use a guardrail that judges streamed chunks; text it holds back is not spoken until it clears it |
+| Read the stored reply of a VAD turn an output guardrail cut after some of it was spoken | the sentences the caller heard, then the guardrail's message, where it was the message alone | nothing |
+| Use `ElevenLabsService` | requests go to `/text-to-speech/{voice}/stream`, which returns the audio as it is generated | nothing |
+| Speak a short turn while a VAD reply is pending or playing | the turn barges in on the reply, where an utterance the voice activity detector never reported as speech was queued after it | nothing |
 
 ## v2.21.0
 

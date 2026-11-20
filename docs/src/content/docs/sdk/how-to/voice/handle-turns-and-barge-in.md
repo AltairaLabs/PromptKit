@@ -88,8 +88,11 @@ if err != nil {
 In VAD mode, speech counts as barge-in from the moment the user's turn ends until
 the reply's audio would have finished playing. That covers the model generating
 the reply, synthesis, and playback, where the session assumes your player starts
-each audio chunk as it arrives. The pipeline cancels whatever is still in flight
-and drops the reply's remaining audio. Audio already delivered is in your
+each audio chunk as it arrives. A turn the user finishes in that window is
+barge-in too, even when it was too short for the voice activity detector to call
+it speech. The pipeline cancels whatever is still in flight: the model call, the
+sentence being synthesized, and the sentences after it. It drops the
+reply's remaining audio. Audio already delivered is in your
 player's buffer, so the session tells you to flush it: a chunk on `Response()`
 arrives with `Interrupted` set.
 

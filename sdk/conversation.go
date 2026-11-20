@@ -793,6 +793,7 @@ func (c *Conversation) buildPipelineConfig(
 		BlockedMessage:        c.blockedMessageFunc(),
 		CallRate:              c.callRateWindow(),
 		SkipContentValidation: c.config.skipContentValidation,
+		StreamHold:            c.config.streamHold,
 		ToolPolicy:            c.config.toolPolicy,
 		InferenceRegistry:     c.config.inferenceRegistry,
 		ProviderBinding:       newHostBinding(c.config),

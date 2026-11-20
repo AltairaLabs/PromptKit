@@ -237,6 +237,13 @@ type ElementMetadata struct {
 	// swaps what it showed for it (providers.StreamChunk.ReplacesText).
 	ReplacesText bool
 
+	// SegmentEnd marks a text delta whose text ends a segment of the reply
+	// (a sentence or a few), or the reply itself, as a stream_hold releases
+	// it: the provider stage has released the segment whole, so a consumer
+	// that works a segment at a time (speech output) can take it at once,
+	// without waiting for the text after it.
+	SegmentEnd bool
+
 	// InterruptedTurnComplete marks the element that closes an
 	// interrupted turn (downstream cleanup signal).
 	InterruptedTurnComplete bool
@@ -314,10 +321,12 @@ type ElementMetadata struct {
 
 	// StreamingDelta marks an incremental content Text element emitted by a
 	// streaming provider mid-generation (see ProviderStage.emitChunkElement).
-	// These are the live-text feed for UI consumers; the same reply also arrives
-	// as a complete assistant Message. A speech-out stage must skip the deltas
-	// and speak the Message: the TTS provider takes a complete string, so
-	// synthesizing per fragment would be one request per token and choppy audio.
+	// These are the live-text feed for UI consumers, and the text the provider
+	// stage has released to the caller (output guardrails have cleared it); the
+	// same reply also arrives as a complete assistant Message. A speech-out
+	// stage speaks either the deltas, gathered into sentence-sized segments
+	// (TTSStageWithInterruption: one request per token would be choppy audio),
+	// or the Message (TTSStage), never both.
 	StreamingDelta bool
 
 	// TokenCount is the per-chunk token count emitted by streaming providers.
