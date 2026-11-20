@@ -6,8 +6,32 @@ import (
 	"unicode/utf8"
 )
 
-// segmentConfig sizes the segments a stream_hold: segment guardrail judges
-// (StreamHoldConfig). Sizes are in bytes of the reply text.
+// The segmenter splits a reply still being written into segments: whole
+// sentences, merged up to a minimum size and cut at a maximum. It is shared by
+// every stage that works on a reply a segment at a time: the provider stage's
+// stream_hold (segments judged before release) and speech output (segments
+// synthesized as they complete). Use a segmenter per reply:
+//
+//	seg := newSegmenter(defaultSegmentConfig())
+//	for delta := range deltas {
+//		for _, end := range seg.feed(delta) {
+//			use(seg.text()[start:end]) // a complete segment
+//			start = end
+//		}
+//	}
+//	if start < len(seg.text()) {
+//		use(seg.text()[start:]) // the reply ended: the rest is the last segment
+//	}
+//
+// Boundaries are a sentence terminator (. ! ? …) followed by whitespace, a CJK
+// terminator (。！？), a blank line, and a line end before a list item or table
+// row. A terminator is not a boundary inside a number (3.14), after a
+// single-letter word or an initialism (e.g., U.S.), after a common title or
+// abbreviation (Mr., Dr., vs.), or inside a code fence, inline code or a link.
+// A boundary is declared only once the text after it shows that it is one, so
+// a segment never ends on text the next delta could continue.
+
+// segmentConfig sizes a segmenter's segments, in bytes of reply text.
 type segmentConfig struct {
 	// minChars is the size sentences are merged up to before a segment ends.
 	minChars int
@@ -20,6 +44,61 @@ type segmentConfig struct {
 }
 
 const codeFence = "```"
+
+// defaultSegmentConfig is the segment sizing stream_hold uses by default.
+func defaultSegmentConfig() segmentConfig {
+	return segmentConfig{
+		minChars:      defaultStreamHoldMinChars,
+		firstMinChars: defaultStreamHoldFirstMinChars,
+		maxChars:      defaultStreamHoldMaxChars,
+	}
+}
+
+// segmenter finds the segment boundaries of a reply as its text arrives.
+type segmenter struct {
+	cfg  segmentConfig
+	buf  strings.Builder
+	ends []int // the end offsets of the segments found so far
+}
+
+// newSegmenter returns a segmenter for one reply.
+func newSegmenter(cfg segmentConfig) *segmenter { return &segmenter{cfg: cfg} }
+
+// feed adds delta to the reply and returns the end offsets, into text(), of
+// the segments it completed, in order. Most deltas complete none.
+func (g *segmenter) feed(delta string) []int {
+	g.buf.WriteString(delta)
+	text := g.buf.String()
+	var found []int
+	for {
+		end, ok := nextSegmentEnd(text, g.last(), len(g.ends) == 0, g.cfg)
+		if !ok {
+			return found
+		}
+		g.ends = append(g.ends, end)
+		found = append(found, end)
+	}
+}
+
+// text is the reply so far.
+func (g *segmenter) text() string { return g.buf.String() }
+
+// segments is the end offsets of the segments found so far.
+func (g *segmenter) segments() []int { return g.ends }
+
+// last is the end of the last segment found, where the next one starts.
+func (g *segmenter) last() int {
+	if len(g.ends) == 0 {
+		return 0
+	}
+	return g.ends[len(g.ends)-1]
+}
+
+// reset discards the reply, for a reply that restarts.
+func (g *segmenter) reset() {
+	g.buf.Reset()
+	g.ends = nil
+}
 
 // nextSegmentEnd finds where the segment that starts at from ends in text, a
 // reply still being written. ok is false while no boundary is known yet: a
@@ -92,10 +171,39 @@ func (sc *segmentScanner) step(i int) (end, size int) {
 	switch r {
 	case '。', '！', '？':
 		return i + size, size
-	case '.', '!', '?', '…':
+	case '.':
+		if abbreviationBefore(text, i) {
+			return 0, size
+		}
+		return sentenceEnd(text, i+size), size
+	case '!', '?', '…':
 		return sentenceEnd(text, i+size), size
 	}
 	return 0, size
+}
+
+// abbreviations are the common titles and abbreviations whose period does not
+// end a sentence. Lower case; matched against the word before the period.
+var abbreviations = map[string]bool{ //nolint:gochecknoglobals // a fixed lookup set
+	"mr": true, "mrs": true, "ms": true, "dr": true, "prof": true, "st": true,
+	"jr": true, "sr": true, "vs": true, "fig": true, "approx": true,
+}
+
+// abbreviationBefore reports whether the period at i ends an abbreviation
+// rather than a sentence: the word before it is one letter (an initial), holds
+// another period (an initialism such as e.g or U.S), or is a common title or
+// abbreviation.
+func abbreviationBefore(text string, i int) bool {
+	start := strings.LastIndexFunc(text[:i], func(r rune) bool { return unicode.IsSpace(r) || r == '(' }) + 1
+	word := text[start:i]
+	if word == "" {
+		return false
+	}
+	if utf8.RuneCountInString(word) == 1 || strings.Contains(word, ".") {
+		r, _ := utf8.DecodeRuneInString(word)
+		return unicode.IsLetter(r)
+	}
+	return abbreviations[strings.ToLower(word)]
 }
 
 // sentenceEnd returns where a sentence whose terminator ends at after ends:

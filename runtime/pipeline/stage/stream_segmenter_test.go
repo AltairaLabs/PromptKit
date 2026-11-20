@@ -41,6 +41,16 @@ func TestNextSegmentEnd(t *testing.T) {
 		{name: "inline code", text: "Run `a. b` now. Then", cfg: small, want: len("Run `a. b` now."), wantOK: true},
 		{name: "link text", text: "See [a. b](http://x) here. Then", cfg: small,
 			want: len("See [a. b](http://x) here."), wantOK: true},
+		{name: "initial is not a boundary", text: "Ask J. Smith. Then", cfg: small,
+			want: len("Ask J. Smith."), wantOK: true},
+		{name: "initialism is not a boundary", text: "Fruit, e.g. apples. Then", cfg: small,
+			want: len("Fruit, e.g. apples."), wantOK: true},
+		{name: "title is not a boundary", text: "Ask Dr. Who now. Then", cfg: small,
+			want: len("Ask Dr. Who now."), wantOK: true},
+		{name: "parenthesized initialism", text: "Go (i.e. now). Then", cfg: small,
+			want: len("Go (i.e. now)."), wantOK: true},
+		{name: "a digit before the period ends a sentence", text: "It was 1999. Then", cfg: small,
+			want: len("It was 1999."), wantOK: true},
 		{name: "scan starts at from", text: "One. Two. Three", from: 4, cfg: small, want: 9, wantOK: true},
 		{name: "a segment of exactly min_chars ends", text: "Hello. More",
 			cfg: segmentConfig{minChars: 6, firstMinChars: 6, maxChars: 600}, want: 6, wantOK: true},
@@ -101,4 +111,26 @@ func TestNextSegmentEnd(t *testing.T) {
 			assert.Equal(t, tc.want, end)
 		})
 	}
+}
+
+// A segmenter fed a reply delta by delta reports each segment as the text
+// that completes it arrives.
+func TestSegmenter_Feed(t *testing.T) {
+	seg := newSegmenter(segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600})
+	assert.Empty(t, seg.feed("Hello there."))
+	assert.Equal(t, []int{12, 25}, seg.feed(" How are you? I am"))
+	assert.Equal(t, []int{12, 25}, seg.segments())
+	assert.Empty(t, seg.feed(" fine"))
+	assert.Equal(t, "Hello there. How are you? I am fine", seg.text())
+	assert.Equal(t, 25, seg.last())
+
+	seg.reset()
+	assert.Empty(t, seg.text())
+	assert.Empty(t, seg.segments())
+	assert.Equal(t, 0, seg.last())
+}
+
+// The default sizing is stream_hold's.
+func TestDefaultSegmentConfig(t *testing.T) {
+	assert.Equal(t, segmentConfig{minChars: 60, firstMinChars: 24, maxChars: 600}, defaultSegmentConfig())
 }

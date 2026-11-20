@@ -419,7 +419,7 @@ type config struct {
 	skipContentValidation bool
 
 	// streamHold sizes and bounds stream_hold: segment guardrails' judging
-	// (WithStreamHoldSegments, WithStreamHoldJudges).
+	// (WithStreamHold).
 	streamHold stage.StreamHoldConfig
 
 	// toolPolicy is the caller tool policy (WithToolPolicy), merged per turn
@@ -1413,45 +1413,40 @@ func WithoutContentValidation() Option {
 	}
 }
 
-// WithStreamHoldSegments sizes the segments an output guardrail with
-// stream_hold: segment judges a streamed reply in, in bytes of reply text:
-// sentences merge until a segment reaches minChars (firstMinChars for a
-// round's first segment, whose release latency a caller notices most), and a
-// segment with no sentence boundary by maxChars is cut at the last whitespace
-// before it. Larger segments mean fewer judge calls and later releases. Every
-// segment guardrail in the conversation judges the same segments. Zero keeps a
-// size's default (60, 24 and 600).
-//
-//	conv, _ := sdk.Open("./chat.pack.json", "assistant",
-//	    sdk.WithStreamHoldSegments(120, 40, 800),
-//	)
-func WithStreamHoldSegments(minChars, firstMinChars, maxChars int) Option {
-	return func(c *config) error {
-		if minChars < 0 || firstMinChars < 0 || maxChars < 0 {
-			return fmt.Errorf("WithStreamHoldSegments: sizes must be non-negative, got %d, %d, %d",
-				minChars, firstMinChars, maxChars)
-		}
-		c.streamHold.MinChars = minChars
-		c.streamHold.FirstMinChars = firstMinChars
-		c.streamHold.MaxChars = maxChars
-		return nil
-	}
-}
+// StreamHoldConfig sizes the segments an output guardrail with
+// stream_hold: segment judges a streamed reply in, and bounds its judging
+// (WithStreamHold). Zero fields keep their defaults.
+type StreamHoldConfig = stage.StreamHoldConfig
 
-// WithStreamHoldJudges bounds the judging of an output guardrail with
-// stream_hold: segment. maxPerRound caps its partial-reply judge calls per
-// model round (default 8); past it, the rest of the round is held and judged
-// once with the completed reply. timeout bounds each partial-reply judge call
-// (default 10s), unless the guardrail sets stream_hold_timeout; a call that
-// runs past it fails closed, so the caller gets the guardrail's message. Zero
-// keeps a default.
-func WithStreamHoldJudges(maxPerRound int, timeout time.Duration) Option {
+// WithStreamHold sets how output guardrails with stream_hold: segment judge a
+// streamed reply, for every such guardrail in the conversation: they judge the
+// same segments.
+//
+//   - MinChars, FirstMinChars, MaxChars size the segments in bytes of reply
+//     text: sentences merge until a segment reaches MinChars (FirstMinChars
+//     for a round's first segment, whose release latency a caller notices
+//     most), and a segment with no sentence boundary by MaxChars is cut at
+//     the last whitespace before it. Defaults 60, 24 and 600. Larger segments
+//     mean fewer judge calls and later releases.
+//
+//   - MaxSegmentJudges caps a guardrail's partial-reply judge calls per model
+//     round (default 8). Past it, the rest of the round is held and judged
+//     once with the completed reply.
+//
+//   - SegmentTimeout bounds each partial-reply judge call (default 10s),
+//     unless the guardrail sets stream_hold_timeout. A call that runs past it
+//     fails closed: the caller gets the guardrail's message.
+//
+//     conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//     sdk.WithStreamHold(sdk.StreamHoldConfig{MinChars: 120, MaxSegmentJudges: 4}),
+//     )
+func WithStreamHold(cfg StreamHoldConfig) Option {
 	return func(c *config) error {
-		if maxPerRound < 0 || timeout < 0 {
-			return fmt.Errorf("WithStreamHoldJudges: limits must be non-negative, got %d, %s", maxPerRound, timeout)
+		if cfg.MinChars < 0 || cfg.FirstMinChars < 0 || cfg.MaxChars < 0 ||
+			cfg.MaxSegmentJudges < 0 || cfg.SegmentTimeout < 0 {
+			return fmt.Errorf("WithStreamHold: limits must be non-negative, got %+v", cfg)
 		}
-		c.streamHold.MaxSegmentJudges = maxPerRound
-		c.streamHold.SegmentTimeout = timeout
+		c.streamHold = cfg
 		return nil
 	}
 }

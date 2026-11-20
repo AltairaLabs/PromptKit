@@ -30,7 +30,7 @@ type holdingHook struct {
 	partial []string
 }
 
-func (h *holdingHook) Name() string                      { return "holding" }
+func (h *holdingHook) Name() string                     { return "holding" }
 func (h *holdingHook) StreamHold() hooks.StreamHoldMode { return h.mode }
 func (h *holdingHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
 	return hooks.Allow

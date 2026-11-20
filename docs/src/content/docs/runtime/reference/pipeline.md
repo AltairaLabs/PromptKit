@@ -574,18 +574,6 @@ const (
 )
 ```
 
-<a name="DefaultStreamHoldMinChars"></a>Defaults for StreamHoldConfig.
-
-```go
-const (
-    DefaultStreamHoldMinChars         = 60
-    DefaultStreamHoldFirstMinChars    = 24
-    DefaultStreamHoldMaxChars         = 600
-    DefaultStreamHoldMaxSegmentJudges = 8
-    DefaultStreamHoldSegmentTimeout   = 10 * time.Second
-)
-```
-
 <a name="BlockedMessageDetail"></a>BlockedMessageDetail is the ValidationResult.Details key that records the text a BlockedMessageFunc chose for a firing, when it chose one. The guardrail's own replacement, if any, stays under its own key.
 
 ```go

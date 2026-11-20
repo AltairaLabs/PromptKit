@@ -96,12 +96,15 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 }
 ```
 
-A judge guardrail can hold the reply back until it has judged it, per segment or whole (its `stream_hold` param; see [Stream hold](/reference/checks/#stream-hold)). With `stream_hold: segment`, text arrives a sentence or a few at a time, each part once the judge has passed it. With `stream_hold: turn`, the whole reply arrives as one chunk once it passed. When the guardrail fails a segment after earlier ones arrived, its message arrives with `ReplacesText` set, as above. Tune the segments and the judging with `sdk.WithStreamHoldSegments` and `sdk.WithStreamHoldJudges`:
+A judge guardrail can hold the reply back until it has judged it, per segment or whole (its `stream_hold` param; see [Stream hold](/reference/checks/#stream-hold)). With `stream_hold: segment`, text arrives a sentence or a few at a time, each part once the judge has passed it. With `stream_hold: turn`, the whole reply arrives as one chunk once it passed. When the guardrail fails a segment after earlier ones arrived, its message arrives with `ReplacesText` set, as above. Tune the segments and the judging with `sdk.WithStreamHold`:
 
 ```go
 conv, err := sdk.Open("./chat.pack.json", "assistant",
-    sdk.WithStreamHoldSegments(120, 40, 800), // larger segments: fewer judge calls
-    sdk.WithStreamHoldJudges(4, 3*time.Second),
+    sdk.WithStreamHold(sdk.StreamHoldConfig{
+        MinChars:         120, // larger segments: fewer judge calls
+        MaxSegmentJudges: 4,
+        SegmentTimeout:   3 * time.Second,
+    }),
 )
 ```
 
