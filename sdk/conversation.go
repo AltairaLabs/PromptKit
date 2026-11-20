@@ -1712,16 +1712,17 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // After Close is called, Send and Stream will return [ErrConversationClosed].
 // It's safe to call Close multiple times.
 //
-// Close cancels the session context; it does not drain work already in
-// flight. On the streaming ingestion path in particular, turns are processed
-// asynchronously after the last chunk is queued, so calling Close immediately
-// can cancel a turn mid-pipeline and drop its response. Wait for the
-// responses you expect before closing.
-//
-// On a duplex session Close stops the pipeline at once: a model call or TTS
-// synthesis in flight is canceled, queued audio is dropped, and a reply cut
-// short is stored with what was said of it. Done has closed by the time
-// Close returns.
+// On a duplex session Close drains: it ends the session's input, lets the
+// turn in flight finish and be saved, then closes. It waits at most
+// [session.DefaultDrainTimeout] for the pipeline to take the end of input,
+// then at most a short playout grace for it to finish, and cancels what is
+// still running after that. A Response() channel left unread does not hold
+// it: while Close runs, a chunk that finds Response() full is dropped. A
+// turn still in the pipeline when the grace ends is canceled and its
+// response dropped (on the streaming ingestion path, turns are processed
+// after the last chunk is queued), so wait for the responses you expect
+// before closing. To stop a voice session at once, cancel the context passed
+// to [Conversation.Start].
 //
 // An event bus the SDK created is closed last, once this conversation and
 // any forks of it are all closed. Before closing it, Close waits up to one
@@ -1893,9 +1894,9 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	}
 	c.finishSession(convID)
 	evalMW := c.evalMW
-	// A realtime session is stopped before the evals run, so the replies it
+	// A realtime session is drained before the evals run, so the replies it
 	// still holds (a reply still playing) reach the transcript they score.
-	stopErr := c.stopDuplexSession()
+	drainErr := c.drainDuplexSession()
 	c.mu.Unlock()
 
 	runCloseEvals(evalMW, complete)
@@ -1903,7 +1904,7 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Collect all errors and always execute all cleanup steps.
-	errs := stopErr
+	errs := drainErr
 	errs = append(errs, c.releaseResources()...)
 
 	// State is automatically persisted by the StateStore middleware in the pipeline
@@ -1947,19 +1948,28 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 	evalMW.close()
 }
 
-// stopDuplexSession stops the duplex session, if any, and waits for its
-// pipeline to wind down. Closing the session cancels its pipeline at once:
-// a model or TTS call in flight is canceled, queued audio is dropped, and a
-// reply still held for playout is released, with what was heard, into the
-// transcript before Done closes. Waiting for Done is what lets the session
-// evals that follow see that reply. The wait is bounded by the session's own
-// teardown timeout. Stopping a session already stopped is a no-op. Caller
+// drainDuplexSession drains the duplex session, if any (graceful shutdown
+// bounded by session.DefaultDrainTimeout), returning its error. Draining a
+// session already drained or closed is a no-op. Caller must hold c.mu.
+func (c *Conversation) drainDuplexSession() []error {
+	if c.mode != DuplexMode || c.duplexSession == nil {
+		return nil
+	}
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
+	defer drainCancel()
+	if err := c.duplexSession.Drain(drainCtx); err != nil {
+		return []error{fmt.Errorf("failed to drain duplex session: %w", err)}
+	}
+	return nil
+}
+
+// stopDuplexSession stops the duplex session, if any, at once, and waits for
+// its pipeline to wind down: a model or TTS call in flight is canceled,
+// queued audio is dropped, and a reply still held for playout is released,
+// with what was heard, into the transcript before Done closes. The wait is
+// bounded by the session's own teardown timeout. Stopping a session already
+// stopped is a no-op. Start uses it when its context is canceled. Caller
 // must hold c.mu.
-//
-// Close used to drain instead: it sent the pipeline an end-of-stream and
-// waited for it, so a model or TTS call in flight held Close for as long as
-// it ran, and a pipeline that had stopped reading input held it until the
-// idle timeout (#2847).
 func (c *Conversation) stopDuplexSession() []error {
 	if c.mode != DuplexMode || c.duplexSession == nil {
 		return nil
@@ -1984,7 +1994,7 @@ const duplexStopTimeout = 2 * time.Second
 // releaseResources closes everything the conversation holds except the event
 // bus, attempting every step and returning the errors. Caller must hold c.mu.
 func (c *Conversation) releaseResources() []error {
-	errs := c.stopDuplexSession() // stopped already on close; a no-op then
+	errs := c.drainDuplexSession() // drained already on close; a no-op then
 
 	// Close capabilities
 	for _, cap := range c.capabilities {

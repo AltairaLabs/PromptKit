@@ -153,9 +153,12 @@ func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, err
 // or policy from ctx: who the session acts for is [WithCaller]'s, and a
 // caller put on ctx reaches no tool, hook or authorizer as one.
 //
-// The session owns its own cancellation: canceling ctx does not end it; Close
-// does. The open itself (state store seeding, pipeline build) runs on ctx, so
-// a deadline on ctx bounds the open. The session holds ctx's values for its
+// ctx supplies values; it does not set the session's lifetime. The open
+// itself (state store seeding, pipeline build) runs on ctx, so a deadline on
+// ctx bounds the open, but canceling ctx later does not end the session.
+// [Conversation.Close] ends it, gracefully: the turn in flight finishes and is
+// saved. For a voice session, canceling the context passed to
+// [Conversation.Start] ends it at once. The session holds ctx's values for its
 // whole life, so pass a context carrying what tool calls need, not a
 // request-scoped one whose span, logger or transaction ends with the request.
 func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error) {

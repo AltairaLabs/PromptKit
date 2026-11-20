@@ -15,12 +15,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
-// closeBound is how long Close, or canceling the context given to Start, may
-// take to stop a session whose model or TTS call is still in flight (#2847).
-// The session used to wait for that call, then for the pipeline idle timeout.
+// closeBound is how long canceling the context given to Start may take to
+// stop a session whose model or TTS call is still in flight (#2847). The
+// session used to wait for that call, then for the pipeline idle timeout.
 const closeBound = 300 * time.Millisecond
 
 // blockingCall records that a provider call started and how it ended: it
@@ -269,36 +270,6 @@ func requireClosedBy(t *testing.T, ch <-chan struct{}, deadline time.Time, what 
 	}
 }
 
-// Close on a voice session with work in flight and the microphone still
-// streaming cancels that work and returns at once, with Done closed and
-// Start returned.
-func TestVoice_CloseCancelsInFlightWork(t *testing.T) {
-	if testing.Short() {
-		t.Skip("drives a real voice turn")
-	}
-	for _, sc := range voiceScenarios() {
-		t.Run(sc.name, func(t *testing.T) {
-			before := goroutineSet()
-			v := sc.start(t, context.Background())
-			done, err := v.conv.Done()
-			require.NoError(t, err)
-
-			start := time.Now()
-			require.NoError(t, v.conv.Close())
-			assert.Less(t, time.Since(start), closeBound, "Close waited on the work in flight")
-			requireClosedBy(t, done, start, "Done()")
-			v.requireCanceledBy(t, start.Add(closeBound))
-			select {
-			case <-v.startErr:
-			case <-time.After(time.Until(start.Add(closeBound))):
-				t.Fatal("Start did not return after Close")
-			}
-			v.mic.unplug()
-			assertNoGoroutineLeak(t, before)
-		})
-	}
-}
-
 // Canceling the context given to Start tears the session down on its own,
 // as the showcase's Ctrl+C does: the work in flight is canceled and Done
 // closes, before any Close. Close then returns at once.
@@ -335,27 +306,71 @@ func TestVoice_StartContextCancelTearsDown(t *testing.T) {
 	}
 }
 
-// Close on a realtime session driven by text, whose reply is still
-// streaming, closes the provider session and returns at once, with Done
-// closed.
-func TestTextDuplex_CloseCancelsInFlightReply(t *testing.T) {
-	before := goroutineSet()
-	prov := mock.NewStreamingProvider("rt", "rt-model", false)
+// longReplyLLM streams a long reply, one word per chunk: more chunks than
+// the session's Response() buffer holds.
+type longReplyLLM struct {
+	turnRecordingProvider
+	words int
+}
+
+func (p *longReplyLLM) PredictStream(
+	_ context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	p.record(req)
+	ch := make(chan providers.StreamChunk)
+	go func() {
+		defer close(ch)
+		content := ""
+		for i := 0; i < p.words; i++ {
+			content += "word "
+			ch <- providers.StreamChunk{Content: content, Delta: "word "}
+		}
+		stop := "stop"
+		ch <- providers.StreamChunk{Content: content, FinishReason: &stop}
+	}()
+	return ch, nil
+}
+
+// Close on a VAD session whose caller took Response() and stopped reading
+// it, with a long reply under way and the microphone's input backed up
+// behind it, finishes the turn, saves it, and returns. It used to wait out
+// the 30s drain timeout: the unread output blocked the pipeline, the pipeline
+// left its input unread, and the drain signal waited on that input (#2847).
+func TestDuplexClose_FinishesABusyTurnWhoseReaderHasStopped(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real VAD turn")
+	}
+	const words = 300
+	store := statestore.NewMemoryStore()
+	provider := &longReplyLLM{words: words}
+	// The reply's speech: more chunks than the Response() buffer holds.
+	speech := newConvMockStreamingTTSService()
+	speech.streamChunks = make([]audio.Chunk, 3*words)
+	for i := range speech.streamChunks {
+		speech.streamChunks[i] = audio.Chunk{Data: pcmSilence(20*time.Millisecond, perTurnTestSampleRate), Index: i}
+	}
+	speech.streamChunks[len(speech.streamChunks)-1].Final = true
 	conv, err := OpenDuplex(writeIngestionTestPack(t), "main",
-		WithProvider(prov), WithSkipSchemaValidation(), WithStreamingConfig(convDuplexAudio))
+		WithProvider(provider), WithSkipSchemaValidation(),
+		WithVADMode(newScriptedSTT("tell me a long story"), speech, vadModeTestConfig()),
+		WithStateStore(store), WithConversationID("busy-close"))
 	require.NoError(t, err)
-	convDrain(t, conv)
-	require.NoError(t, conv.SendText(context.Background(), "tell me a long story"))
-	require.Eventually(t, func() bool { return prov.GetSession() != nil }, 5*time.Second, time.Millisecond)
-	sess := prov.GetSession()
-	sess.EmitChunk(&providers.StreamChunk{Content: "once upon", Delta: "once upon"})
-	done, err := conv.Done()
+	respCh, err := conv.Response() // taken; the caller stops reading it
 	require.NoError(t, err)
+
+	speakOneUtterance(t, conv)
+	require.True(t, provider.waitForTurns(1, 8*time.Second), "the utterance must start a turn")
+	require.Eventually(t, func() bool { return len(respCh) == cap(respCh) }, 5*time.Second, time.Millisecond,
+		"the reply fills the unread Response() and stalls the pipeline")
 
 	start := time.Now()
 	require.NoError(t, conv.Close())
-	assert.Less(t, time.Since(start), closeBound, "Close waited on the reply in flight")
-	requireClosedBy(t, done, start, "Done()")
-	requireClosedBy(t, sess.Done(), start.Add(closeBound), "the provider session")
-	assertNoGoroutineLeak(t, before)
+	assert.Less(t, time.Since(start), drainBound, "Close waited on a reader that had stopped reading")
+	assert.Equal(t, map[int]string{
+		0: "user:tell me a long story",
+		1: "assistant:" + strings.Repeat("word ", words),
+	}, persistedTranscript(t, store, "busy-close"), "the turn in flight is finished and saved")
 }
+
+// drainBound is well under the drain timeout (30s) Close used to wait out.
+const drainBound = 2 * time.Second

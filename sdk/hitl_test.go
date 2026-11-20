@@ -502,7 +502,7 @@ func (f *fakeDuplexSession) SendVideoChunk(_ context.Context, _ *session.VideoCh
 func (f *fakeDuplexSession) Response() <-chan providers.StreamChunk { return nil }
 func (f *fakeDuplexSession) Close() error                           { return nil }
 func (f *fakeDuplexSession) Drain(_ context.Context) error          { return nil }
-func (f *fakeDuplexSession) Done() <-chan struct{}                  { return closedDone }
+func (f *fakeDuplexSession) Done() <-chan struct{}                  { return nil }
 func (f *fakeDuplexSession) Error() error                           { return nil }
 func (f *fakeDuplexSession) SubmitToolResults(_ context.Context, r []providers.ToolResponse) error {
 	f.submitted = append(f.submitted, r)
@@ -552,7 +552,3 @@ func TestForkWithAsyncHandlers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, origPending, 1)
 }
-
-// closedDone is a Done channel that has already closed: a fake session has
-// nothing to wind down when it is closed.
-var closedDone = func() chan struct{} { ch := make(chan struct{}); close(ch); return ch }()
