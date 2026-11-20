@@ -38,6 +38,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func CosineSimilarity\(a, b \[\]float32\) float64](<#CosineSimilarity>)
 - [func DescribeCapabilities\(stage Stage\) string](<#DescribeCapabilities>)
 - [func ExcludeFromModelContext\(msgs \[\]types.Message\) \[\]types.Message](<#ExcludeFromModelContext>)
+- [func IsTranscriptMessage\(elem \*StreamElement\) bool](<#IsTranscriptMessage>)
 - [func NewCompositionStepExecutor\(deps CompositionExecutorDeps\) engine.StepExecutor](<#NewCompositionStepExecutor>)
 - [func NewFileSchemaResolver\(configDir string\) func\(path string\) \(json.RawMessage, error\)](<#NewFileSchemaResolver>)
 - [func NormalizeEmbedding\(embedding \[\]float32\) \[\]float32](<#NormalizeEmbedding>)
@@ -796,6 +797,15 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ```
 
 ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
+
+<a name="IsTranscriptMessage"></a>
+## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L258>)
+
+```go
+func IsTranscriptMessage(elem *StreamElement) bool
+```
+
+IsTranscriptMessage reports whether the save stage stores elem's Message in the transcript: a message this pipeline produced \(not history loaded from the store, a summary or a retrieved message\) that is not held for playout. A held Message is stored from its PlayoutRelease element instead. A stage after the save stage counts these to know how far the transcript reaches.
 
 <a name="NewCompositionStepExecutor"></a>
 ## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L143>)

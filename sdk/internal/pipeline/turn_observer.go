@@ -6,11 +6,22 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 )
 
+// TurnRecord is one reply of a duplex session that has entered the transcript.
+type TurnRecord struct {
+	// Continues reports that the reply called tools whose results the model
+	// answers in a further reply, so the caller's turn is not over yet.
+	Continues bool
+	// Stored is how many messages the pipeline had stored in the transcript
+	// when the reply's turn ended, the reply's own included: the transcript
+	// the session opened on plus Stored is the turn's transcript, even when
+	// later messages are stored before the turn is reported.
+	Stored int
+}
+
 // TurnRecordedFunc is told each time an assistant reply of a duplex session has
-// entered the transcript. continues reports that the reply called tools whose
-// results the model answers in a further reply, so the caller's turn is not
-// over yet. It runs on the pipeline's goroutine, so it must not block for long.
-type TurnRecordedFunc func(ctx context.Context, continues bool)
+// entered the transcript. It runs on the pipeline's goroutine, so it must not
+// block for long.
+type TurnRecordedFunc func(ctx context.Context, turn TurnRecord)
 
 // turnObserverStage is a passthrough stage, placed after the state store save
 // stage, that reports each reply the save stage has stored (TurnRecordedFunc)
@@ -43,9 +54,14 @@ func newTurnObserverStage(recorded TurnRecordedFunc) *turnObserverStage {
 func (s *turnObserverStage) Process(ctx context.Context, input <-chan stage.StreamElement,
 	output chan<- stage.StreamElement) error {
 	defer close(output)
+	stored := 0
 	for elem := range input {
+		// The save stage before this one stored exactly these, in this order.
+		if stage.IsTranscriptMessage(&elem) {
+			stored++
+		}
 		if ends, continues := endsRecordedTurn(&elem); ends {
-			s.recorded(ctx, continues)
+			s.recorded(ctx, TurnRecord{Continues: continues, Stored: stored})
 		}
 		select {
 		case output <- elem:

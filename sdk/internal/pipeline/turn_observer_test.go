@@ -15,7 +15,7 @@ import (
 // reported (each report's continues) and what it forwarded.
 func observeTurns(t *testing.T, elems ...stage.StreamElement) (reports []bool, forwarded int) {
 	t.Helper()
-	s := newTurnObserverStage(func(_ context.Context, continues bool) { reports = append(reports, continues) })
+	s := newTurnObserverStage(func(_ context.Context, turn TurnRecord) { reports = append(reports, turn.Continues) })
 	in := make(chan stage.StreamElement, len(elems))
 	out := make(chan stage.StreamElement, len(elems))
 	for _, e := range elems {

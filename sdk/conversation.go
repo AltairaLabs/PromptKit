@@ -1002,7 +1002,12 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	pipelineCfg.CueClipCache = c.config.cueCache
 	// Each reply the transcript takes runs the per-turn work a text turn runs
 	// after Send: the session update hooks and the turn evals.
-	pipelineCfg.TurnRecorded = c.duplexTurnRecorded
+	// The transcript the session opens on: what the store holds for it now,
+	// before its pipeline has stored anything.
+	priorMessages := storedMessageCount(store, conversationID)
+	pipelineCfg.TurnRecorded = func(ctx context.Context, turn intpipeline.TurnRecord) {
+		c.duplexTurnRecorded(ctx, turn.Continues, priorMessages+turn.Stored)
+	}
 
 	// Add VAD mode configuration if present (duplex-only)
 	if c.config.vadModeConfig != nil && c.config.sttService != nil && c.config.ttsService != nil {
@@ -1065,14 +1070,16 @@ func (c *Conversation) buildStreamPipelineWithParams(
 // stage counts every reply as a session turn, and the turn evals report the
 // turn index the guardrails on the same reply reported. That is the turns the
 // transcript held when the session opened (TurnState.TurnIndex, which a duplex
-// pipeline does not advance) plus the replies before this one.
+// pipeline does not advance) plus the replies before this one. The hooks and
+// the evals see the transcript's first upTo messages, the turn's transcript:
+// the store may already hold later messages (a reply released with it).
 //
 // A reply barge-in cut short is a completed turn: its evals see it as stored.
 // Cut while it still arrived, it holds the text the provider sent before the
 // cut; cut while it played (playout tracked), it keeps its full text, with
 // what the caller heard of it in Meta (heard_ms, played_fraction,
 // playout_cut). It runs on the pipeline's goroutine, after the save stage.
-func (c *Conversation) duplexTurnRecorded(ctx context.Context, continues bool) {
+func (c *Conversation) duplexTurnRecorded(ctx context.Context, continues bool, upTo int) {
 	reply := int(c.duplexReplies.Add(1))
 	if continues {
 		return
@@ -1081,8 +1088,21 @@ func (c *Conversation) duplexTurnRecorded(ctx context.Context, continues bool) {
 	// session is winding down: the turn is already stored.
 	ctx = context.WithoutCancel(ctx)
 	c.sessionHooks.IncrementTurn()
-	c.sessionHooks.SessionUpdate(ctx)
-	c.evalMW.dispatchTurnEvalsAt(ctx, c.turnState.TurnIndex()+reply-1)
+	c.sessionHooks.SessionUpdateUpTo(ctx, upTo)
+	c.evalMW.dispatchTurnEvalsAt(ctx, c.turnState.TurnIndex()+reply-1, upTo)
+}
+
+// storedMessageCount is how many messages store holds for conversationID,
+// 0 when it holds none or cannot be read.
+func storedMessageCount(store statestore.Store, conversationID string) int {
+	if store == nil {
+		return 0
+	}
+	state, err := store.Load(context.Background(), conversationID)
+	if err != nil || state == nil {
+		return 0
+	}
+	return len(state.Messages)
 }
 
 // executePipeline builds and executes the LLM pipeline.

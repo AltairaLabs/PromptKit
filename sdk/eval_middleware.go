@@ -389,15 +389,16 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 }
 
 // dispatchTurnEvalsAt is dispatchTurnEvals for a turn whose 0-based index the
-// caller knows: a duplex reply, which the pipeline's turn state may already
-// have counted past by the time the reply reaches the transcript.
+// caller knows, against the first upTo messages of the transcript: a duplex
+// reply, which the pipeline's turn state, and the store, may already have
+// gone past by the time the reply's turn is reported.
 // Nil-safe: no-op if middleware is nil.
-func (em *evalMiddleware) dispatchTurnEvalsAt(ctx context.Context, turn int) {
+func (em *evalMiddleware) dispatchTurnEvalsAt(ctx context.Context, turn, upTo int) {
 	if em == nil {
 		return
 	}
 	em.turnIndex.Add(1)
-	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals, func(int32) int { return turn })
+	em.dispatchAsyncUpTo(ctx, "turn", em.runner.RunTurnEvals, func(int32) int { return turn }, upTo)
 }
 
 // recordWorkflowStep notes that a workflow state transition committed during
@@ -440,11 +441,23 @@ func (em *evalMiddleware) dispatchAsync(
 	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
 	turn func(dispatchCount int32) int,
 ) {
+	em.dispatchAsyncUpTo(ctx, kind, run, turn, -1)
+}
+
+// dispatchAsyncUpTo is dispatchAsync against the first upTo messages of the
+// transcript; a negative upTo is the whole transcript.
+func (em *evalMiddleware) dispatchAsyncUpTo(
+	ctx context.Context,
+	kind string,
+	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
+	turn func(dispatchCount int32) int,
+	upTo int,
+) {
 	if !em.startDispatch(kind) {
 		return
 	}
 
-	evalCtx := em.buildEvalContextAt(ctx, turn)
+	evalCtx := em.buildEvalContextAt(ctx, turn, upTo)
 
 	// Use the middleware's lifecycle context so that close() can cancel
 	// in-flight evals. The middleware context is derived from
@@ -582,7 +595,7 @@ func (em *evalMiddleware) evalContextWithBinding(base context.Context) context.C
 }
 
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
-	return em.buildEvalContextAt(ctx, em.reportedTurn)
+	return em.buildEvalContextAt(ctx, em.reportedTurn, -1)
 }
 
 // buildFreshEvalContext is buildEvalContext reading the transcript anew. The
@@ -598,9 +611,10 @@ func (em *evalMiddleware) buildFreshEvalContext(ctx context.Context) *evals.Eval
 }
 
 // buildEvalContextAt is buildEvalContext with the turn it reports given by
-// turn, from the dispatch count.
+// turn, from the dispatch count, over the first upTo messages of the
+// transcript (all of it when upTo is negative).
 func (em *evalMiddleware) buildEvalContextAt(
-	ctx context.Context, turn func(dispatchCount int32) int,
+	ctx context.Context, turn func(dispatchCount int32) int, upTo int,
 ) *evals.EvalContext {
 	em.cacheMu.Lock()
 	defer em.cacheMu.Unlock()
@@ -640,7 +654,7 @@ func (em *evalMiddleware) buildEvalContextAt(
 	// EvalContext now reaches this path automatically instead of needing a
 	// second edit nobody remembers to make.
 	evalCtx := evals.BuildEvalContext(
-		em.cachedMessages,
+		firstMessages(em.cachedMessages, upTo),
 		reported,
 		em.cachedSessionID,
 		em.conv.promptName,

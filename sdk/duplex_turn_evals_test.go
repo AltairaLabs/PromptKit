@@ -430,3 +430,71 @@ func TestDuplexTurnEvals_CloseReportsTheTurnStillPlaying(t *testing.T) {
 	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
 	assert.Equal(t, [][]string{{"tell me a story", "Once upon a time."}}, h.turnEval.transcripts())
 }
+
+// slowFirstUpdateHook is an updateRecordingHook whose first OnSessionUpdate
+// takes a while, so the pipeline stores what follows the first turn before
+// that turn's evals read the transcript.
+type slowFirstUpdateHook struct {
+	updateRecordingHook
+	slowed bool
+}
+
+func (h *slowFirstUpdateHook) OnSessionUpdate(ctx context.Context, e hooks.SessionEvent) error {
+	h.mu.Lock()
+	first := !h.slowed
+	h.slowed = true
+	h.mu.Unlock()
+	err := h.updateRecordingHook.OnSessionUpdate(ctx, e)
+	if first {
+		time.Sleep(300 * time.Millisecond)
+	}
+	return err
+}
+
+// Two replies held while they play are released into the transcript
+// together when the caller barges in. Each turn's evals and OnSessionUpdate
+// see the transcript up to and including its own reply, never the later one.
+func TestDuplexTurnEvals_ReleasedTogetherEachSeesItsOwnTurn(t *testing.T) {
+	hook := &slowFirstUpdateHook{}
+	h := openDuplexTurnHarness(t, WithPlayoutTracking(), WithSessionHook(hook))
+	ch, err := h.conv.Response()
+	require.NoError(t, err)
+	turns := make(chan struct{}, 4)
+	go func() {
+		for c := range ch {
+			if done, _ := c.Metadata["assistant_turn_complete"].(bool); done {
+				turns <- struct{}{}
+			}
+		}
+	}()
+	spokenReply := func(text string) {
+		h.sess.EmitChunk(&providers.StreamChunk{Delta: text, Metadata: map[string]any{"type": "output_transcription"}})
+		h.sess.EmitChunk(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
+			Data: make([]byte, 5*24000*2), MIMEType: "audio/pcm", SampleRate: 24000, Channels: 1}})
+		stop := "stop"
+		h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+		select {
+		case <-turns:
+		case <-time.After(3 * time.Second):
+			require.FailNow(t, "the reply never completed")
+		}
+	}
+
+	h.say(t, "tell me a story", 1)
+	spokenReply("Once upon a time.")
+	h.say(t, "and then?", 2)
+	spokenReply("The end.")
+	time.Sleep(100 * time.Millisecond)
+	assert.Empty(t, h.col.byTrigger(evals.TriggerEveryTurn), "both replies are still playing")
+
+	h.sess.EmitChunk(&providers.StreamChunk{Interrupted: true})
+	assert.Equal(t, []int{0, 1}, h.turnEvals(t, 2))
+	assert.Equal(t, [][]string{
+		{"tell me a story", "Once upon a time."},
+		{"tell me a story", "Once upon a time.", "and then?", "The end."},
+	}, sortedTranscripts(h.turnEval))
+	updates := hook.seen()
+	require.Len(t, updates, 2)
+	assert.Equal(t, []string{"tell me a story", "Once upon a time."}, updates[0].Transcript)
+	assert.Equal(t, []string{"tell me a story", "Once upon a time.", "and then?", "The end."}, updates[1].Transcript)
+}
