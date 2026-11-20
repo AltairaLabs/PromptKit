@@ -177,8 +177,8 @@ type Config struct {
 	Caller types.Caller
 
 	// BlockedMessage chooses the text of a blocked message on the text, VAD
-	// and realtime provider stages (sdk.WithBlockedMessage); nil keeps the
-	// guardrail's.
+	// and realtime provider stages and in every composition step
+	// (sdk.WithBlockedMessage); nil keeps the guardrail's.
 	BlockedMessage stage.BlockedMessageFunc
 
 	// CallRate is the window the provider stage counts calls in for
@@ -791,6 +791,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			CallRate:              cfg.CallRate,
 			ApprovalGate:          cfg.ApprovalGate,
 			Caller:                cfg.Caller,
+			BlockedMessage:        cfg.BlockedMessage,
 		}
 		name := cfg.CompositionName
 		if name == "" {

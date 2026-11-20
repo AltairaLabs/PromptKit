@@ -60,7 +60,7 @@ The callback runs wherever a guardrail replaces a turn with a message, with the 
 - When a streaming check (`banned_words`) cuts a reply part-way.
 - When a check on the completed reply blocks it.
 
-It runs on `Send`, `Stream`, VAD mode and realtime sessions. A guardrail that truncates a reply, or enforces without changing it, blocks it with no message, so it is not called for that. On `Send`, `Stream` and VAD mode it runs on the turn's goroutine: a slow callback delays the blocked turn. In a realtime session it gets at most the cue stage's on-demand budget (1.5 seconds); then its `ctx` is canceled and `b.Text` is used, so the session's output never waits longer.
+It runs on `Send`, `Stream`, each prompt and agent step of a composition, VAD mode and realtime sessions. In a composition the blocked step's output is your text. A guardrail that truncates a reply, or enforces without changing it, blocks it with no message, so it is not called for that. On `Send`, `Stream` and VAD mode it runs on the turn's goroutine: a slow callback delays the blocked turn. In a realtime session it gets at most the cue stage's on-demand budget (1.5 seconds); then its `ctx` is canceled and `b.Text` is used, so the session's output never waits longer.
 
 ## Realtime voice
 

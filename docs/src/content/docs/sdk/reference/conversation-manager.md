@@ -4307,7 +4307,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithBlockedMessage"></a>
-### func [WithBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/blocked_message.go#L56>)
+### func [WithBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/blocked_message.go#L57>)
 
 ```go
 func WithBlockedMessage(fn func(ctx context.Context, b BlockedMessage) string) Option
@@ -4315,7 +4315,7 @@ func WithBlockedMessage(fn func(ctx context.Context, b BlockedMessage) string) O
 
 WithBlockedMessage sets a callback that chooses the text of a blocked message: a localized string, one that includes the firing's Reason, or b.Text unchanged. The text it returns replaces the blocked turn: the caller sees it, the conversation stores it, and in a realtime voice session the cue stage speaks it. An empty return keeps b.Text.
 
-It is called on the text path \(Send, Stream\), in VAD mode and in a realtime session, wherever a guardrail blocks a turn with a message: an input block, a streamed reply cut part\-way, and a completed reply. A length guardrail that truncates a reply, or enforces without changing it, blocks with no message and does not call it. A callback that panics keeps b.Text. On the text path and in VAD mode it runs on the turn's goroutine, so a slow callback holds the turn; in a realtime session it is given at most the cue stage's on\-demand budget \(1.5s\), after which its ctx is canceled and b.Text is used. The firing's validation records the text it chose in Details under "blocked\_message" \(stage.BlockedMessageDetail\). A spoken text that differs from the pack's messages is rendered when first needed, within the cue stage's on\-demand budget; past it the earcon plays, with the text shown, and the clip is kept for the next time.
+It is called on the text path \(Send, Stream\), in each prompt and agent step of a composition, in VAD mode and in a realtime session, wherever a guardrail blocks a turn with a message: an input block, a streamed reply cut part\-way, and a completed reply. A length guardrail that truncates a reply, or enforces without changing it, blocks with no message and does not call it. A callback that panics keeps b.Text. On the text path and in VAD mode it runs on the turn's goroutine, so a slow callback holds the turn; in a realtime session it is given at most the cue stage's on\-demand budget \(1.5s\), after which its ctx is canceled and b.Text is used. The firing's validation records the text it chose in Details under "blocked\_message" \(stage.BlockedMessageDetail\). A spoken text that differs from the pack's messages is rendered when first needed, within the cue stage's on\-demand budget; past it the earcon plays, with the text shown, and the clip is kept for the next time.
 
 <a name="WithCaller"></a>
 ### func [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/options.go#L2187>)

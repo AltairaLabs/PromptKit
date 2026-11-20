@@ -125,6 +125,11 @@ type CompositionExecutorDeps struct {
 	// provider stage puts it on its tool calls and tool hook requests. The
 	// zero value means none was set.
 	Caller types.Caller
+
+	// BlockedMessage chooses the text a guardrail's block replaces a prompt or
+	// agent step's reply with (ProviderConfig.BlockedMessage). Nil keeps the
+	// guardrail's message.
+	BlockedMessage BlockedMessageFunc
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -217,6 +222,7 @@ func (deps CompositionExecutorDeps) stepProviderConfig(
 		ApprovalChecker:       deps.ApprovalChecker,
 		ApprovalGate:          deps.ApprovalGate,
 		Caller:                deps.Caller,
+		BlockedMessage:        deps.BlockedMessage,
 	}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.
