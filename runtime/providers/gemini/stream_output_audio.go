@@ -7,7 +7,7 @@ import "github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 const liveFamily = "gemini-live"
 
 // OutputAudio implements providers.OutputAudioReporter: the session's voice
-// (its configured voice, or DefaultLiveVoice) at its output rate. ok is false
+// (its configured voice, or defaultLiveVoice) at its output rate. ok is false
 // unless AUDIO is a response modality.
 func (s *StreamSession) OutputAudio() (providers.OutputAudio, bool) {
 	if !sliceContains(getResponseModalities(s.config.ResponseModalities), modalityAudio) {
@@ -15,7 +15,7 @@ func (s *StreamSession) OutputAudio() (providers.OutputAudio, bool) {
 	}
 	voice := s.config.Voice
 	if voice == "" {
-		voice = DefaultLiveVoice
+		voice = defaultLiveVoice
 	}
 	return providers.OutputAudio{Voice: voice, SampleRate: s.outputSampleRate(), Family: liveFamily}, true
 }

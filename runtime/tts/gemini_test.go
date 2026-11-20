@@ -126,7 +126,7 @@ func TestGeminiService_Synthesize_Defaults(t *testing.T) {
 	assert.Equal(t, testPCM, readAllAudio(t, rc))
 
 	call := <-calls
-	assert.Equal(t, "/models/"+DefaultGeminiTTSModel+":generateContent", call.path)
+	assert.Equal(t, "/models/"+GeminiModelFlashTTS+":generateContent", call.path)
 	assert.JSONEq(t, `{
 		"contents":[{"parts":[{"text":"Hi"}]}],
 		"generationConfig":{"responseModalities":["AUDIO"],
@@ -269,7 +269,7 @@ func TestGeminiService_SupportedVoicesAndFormats(t *testing.T) {
 		svc.SupportedFormats())
 	assert.Equal(t, "gemini", svc.Name())
 	assert.Equal(t, "gemini", svc.ImplName())
-	assert.Equal(t, DefaultGeminiTTSModel, svc.ModelName())
+	assert.Equal(t, GeminiModelFlashTTS, svc.ModelName())
 }
 
 // On Vertex the request goes to the location's Google publisher model with

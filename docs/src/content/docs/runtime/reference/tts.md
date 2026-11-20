@@ -187,23 +187,6 @@ const (
 )
 ```
 
-<a name="DefaultGeminiTTSModel"></a>
-
-```go
-const (
-
-    // DefaultGeminiTTSModel is the Gemini TTS model a service uses when its
-    // configuration names none (a provider spec's model, base.WithModel, or
-    // SynthesisConfig.Model).
-    DefaultGeminiTTSModel = "gemini-3.8-flash-tts"
-
-    // GeminiDefaultVoice is the prebuilt voice spoken when SynthesisConfig.Voice
-    // is empty: Gemini Live's default voice, so a cue and an unconfigured Live
-    // session sound alike.
-    GeminiDefaultVoice = "Puck"
-)
-```
-
 <a name="ModelTTS1"></a>
 
 ```go
@@ -251,6 +234,18 @@ const (
 
     // CartesiaModelSonic is the Sonic model ID that CartesiaService uses by default.
     CartesiaModelSonic = "sonic-3"
+)
+```
+
+<a name="GeminiModelFlashTTS"></a>
+
+```go
+const (
+
+    // GeminiModelFlashTTS is Gemini's flash speech model, the one a service
+    // uses when its configuration names none (a provider spec's model,
+    // base.WithModel, or SynthesisConfig.Model).
+    GeminiModelFlashTTS = "gemini-3.8-flash-tts"
 )
 ```
 

@@ -25,15 +25,15 @@ var _ base.TTSProvider = (*GeminiService)(nil)
 const (
 	geminiBaseURL = "https://generativelanguage.googleapis.com/v1beta"
 
-	// DefaultGeminiTTSModel is the Gemini TTS model a service uses when its
-	// configuration names none (a provider spec's model, base.WithModel, or
-	// SynthesisConfig.Model).
-	DefaultGeminiTTSModel = "gemini-3.8-flash-tts"
+	// GeminiModelFlashTTS is Gemini's flash speech model, the one a service
+	// uses when its configuration names none (a provider spec's model,
+	// base.WithModel, or SynthesisConfig.Model).
+	GeminiModelFlashTTS = "gemini-3.8-flash-tts"
 
-	// GeminiDefaultVoice is the prebuilt voice spoken when SynthesisConfig.Voice
+	// geminiDefaultVoice is the prebuilt voice spoken when SynthesisConfig.Voice
 	// is empty: Gemini Live's default voice, so a cue and an unconfigured Live
 	// session sound alike.
-	GeminiDefaultVoice = "Puck"
+	geminiDefaultVoice = "Puck"
 
 	// defaultGeminiTimeout bounds a synthesis request. The whole utterance
 	// comes back in one response, so it is longer than the streaming services'.
@@ -70,7 +70,7 @@ func NewGemini(apiKey string, opts ...GeminiOption) *GeminiService {
 		Name:    providerGemini,
 		Type:    base.ProviderTypeTTS,
 		BaseURL: geminiBaseURL,
-		Model:   DefaultGeminiTTSModel,
+		Model:   GeminiModelFlashTTS,
 		Timeout: defaultGeminiTimeout,
 	}, opts...)
 	return &GeminiService{Implementation: impl, HTTPServiceFields: fields}
@@ -160,7 +160,7 @@ func (s *GeminiService) Synthesize(ctx context.Context, text string, config Synt
 	}
 	voice := config.Voice
 	if voice == "" {
-		voice = GeminiDefaultVoice
+		voice = geminiDefaultVoice
 	}
 
 	body := geminiTTSRequest{

@@ -100,7 +100,7 @@ An `openai` STT entry asks every model for the `json` response format. Its usage
 
 An `elevenlabs` or `cartesia` entry reads no default environment variable: name its key with `credential`. Without `model`, an `elevenlabs` STT entry uses `stt.ElevenLabsModelScribeV3` and a `cartesia` one `stt.CartesiaModelInkWhisper`. Both transcribe each finished turn with the vendor's batch endpoint.
 
-A `gemini` entry reads its key from `GEMINI_API_KEY` or `GOOGLE_API_KEY` when it has no `credential` block. Without `model` it uses `tts.DefaultGeminiTTSModel`. It returns PCM and speaks Gemini Live's prebuilt voices:
+A `gemini` entry reads its key from `GEMINI_API_KEY` or `GOOGLE_API_KEY` when it has no `credential` block. Without `model` it uses `tts.GeminiModelFlashTTS`. It returns PCM and speaks Gemini Live's prebuilt voices:
 
 ```yaml
     - id: cue-voice

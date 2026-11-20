@@ -44,9 +44,9 @@ func (p *Provider) ReportsUsageAfterCallEnds() bool { return true }
 //nolint:lll // URL cannot be split
 const geminiLiveAPIURL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
 
-// DefaultLiveVoice is the prebuilt voice a Live AUDIO session speaks with
+// defaultLiveVoice is the prebuilt voice a Live AUDIO session speaks with
 // when the request's metadata["voice"] names none.
-const DefaultLiveVoice = "Puck"
+const defaultLiveVoice = "Puck"
 
 // CreateStreamSession creates a new bidirectional streaming session with Gemini Live API
 //
