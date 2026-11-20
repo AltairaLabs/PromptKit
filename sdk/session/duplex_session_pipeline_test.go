@@ -234,7 +234,7 @@ func TestDuplexSession_HandleToolCalls(t *testing.T) {
 		}
 	})
 
-	// A pipeline that runs the calls (PipelineRunsTools): the turn is neither
+	// A pipeline that runs the calls (pipelineRunsTools): the turn is neither
 	// run here nor forwarded, and the call, its name and arguments as sent,
 	// is kept for a result submitted by ID alone.
 	t.Run("pipeline runs tools: the turn is not run or forwarded", func(t *testing.T) {

@@ -177,8 +177,8 @@ type Config struct {
 	Caller types.Caller
 
 	// BlockedMessage chooses the text of a blocked message on the text, VAD
-	// and realtime provider stages (sdk.WithBlockedMessage); nil keeps the
-	// guardrail's.
+	// and realtime provider stages and in every composition step
+	// (sdk.WithBlockedMessage); nil keeps the guardrail's.
 	BlockedMessage stage.BlockedMessageFunc
 
 	// CallRate is the window the provider stage counts calls in for
@@ -373,6 +373,11 @@ type Config struct {
 	// ActiveComposition, when non-nil, makes the work stage a CompositionStage
 	// that runs this composition instead of an LLM ProviderStage (RFC 0010).
 	ActiveComposition *composition.Composition
+
+	// StepHookRegistry gives each composition prompt/agent step the hooks it
+	// runs for its prompt task: the host's with that prompt's validators
+	// (stage.CompositionExecutorDeps.StepHookRegistry). Nil: HookRegistry.
+	StepHookRegistry func(promptTask string) *hooks.Registry
 
 	// StepProviderResolver picks the provider for each composition prompt/agent
 	// step (RFC 0017). nil runs every step on Provider.
@@ -779,6 +784,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ToolRegistry:       cfg.ToolRegistry,
 			Emitter:            cfg.EventEmitter,
 			HookRegistry:       cfg.HookRegistry,
+			StepHookRegistry:   cfg.StepHookRegistry,
 			BaseVariables:      cfg.Variables,
 			SchemaResolver:     cfg.SchemaResolver,
 			PromptDeclarations: cfg.PromptDeclarations,
@@ -791,6 +797,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			CallRate:              cfg.CallRate,
 			ApprovalGate:          cfg.ApprovalGate,
 			Caller:                cfg.Caller,
+			BlockedMessage:        cfg.BlockedMessage,
 		}
 		name := cfg.CompositionName
 		if name == "" {

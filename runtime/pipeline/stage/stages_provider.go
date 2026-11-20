@@ -334,6 +334,10 @@ func newProviderCallID() string {
 	return uuid.NewString()
 }
 
+// RunsToolCalls reports whether the stage runs the model's tool calls itself:
+// it does whenever it has a tool registry (ToolCallRunner).
+func (s *ProviderStage) RunsToolCalls() bool { return s.toolRegistry != nil }
+
 // NewProviderStage creates a new provider stage for request/response mode.
 func NewProviderStage(
 	provider providers.Provider,

@@ -71,8 +71,14 @@ type CompositionExecutorDeps struct {
 	ResolveProvider func(step *composition.Step) (providers.Provider, error)
 	ToolRegistry    *tools.Registry
 	Emitter         *events.Emitter
-	HookRegistry    *hooks.Registry
-	BaseVariables   map[string]string
+	// HookRegistry holds the hooks every step runs, unless StepHookRegistry
+	// gives a step its own.
+	HookRegistry *hooks.Registry
+	// StepHookRegistry, when set, gives the hooks a prompt or agent step runs
+	// for its prompt task: the host's hooks with that prompt's own validators,
+	// as an opened prompt runs them. A nil return means HookRegistry.
+	StepHookRegistry func(promptTask string) *hooks.Registry
+	BaseVariables    map[string]string
 	// PromptDeclarations maps prompt tasks to their pack declarations, for
 	// provider hooks inside each step (see ProviderConfig.PromptDeclarations).
 	PromptDeclarations map[string]*packspec.Prompt
@@ -125,6 +131,11 @@ type CompositionExecutorDeps struct {
 	// provider stage puts it on its tool calls and tool hook requests. The
 	// zero value means none was set.
 	Caller types.Caller
+
+	// BlockedMessage chooses the text a guardrail's block replaces a prompt or
+	// agent step's reply with (ProviderConfig.BlockedMessage). Nil keeps the
+	// guardrail's message.
+	BlockedMessage BlockedMessageFunc
 }
 
 // NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent
@@ -217,6 +228,7 @@ func (deps CompositionExecutorDeps) stepProviderConfig(
 		ApprovalChecker:       deps.ApprovalChecker,
 		ApprovalGate:          deps.ApprovalGate,
 		Caller:                deps.Caller,
+		BlockedMessage:        deps.BlockedMessage,
 	}
 	// The step's prompt parameters, with its model_overrides entry for the
 	// provider that runs the step, as an opened prompt gets them.
@@ -283,7 +295,7 @@ func (deps CompositionExecutorDeps) execLLM(
 	toolsOverride := &toolScopeStage{turnState: turnState, stepTools: step.Tools}
 
 	provStage := NewProviderStageWithTurnState(
-		provider, deps.ToolRegistry, policy, cfg, deps.Emitter, deps.HookRegistry, turnState,
+		provider, deps.ToolRegistry, policy, cfg, deps.Emitter, deps.stepHooks(step), turnState,
 	)
 
 	pipe, err := NewPipelineBuilder().Chain(promptStage, templateStage, toolsOverride, provStage).Build()
@@ -311,6 +323,17 @@ func (deps CompositionExecutorDeps) execLLM(
 		return nil, fmt.Errorf("step %q: sub-pipeline produced no response", step.ID)
 	}
 	return responseToJSON(res.Response, step.OutputSchema != "", step.ID)
+}
+
+// stepHooks is the hook registry step runs: its prompt task's own, else the
+// shared one.
+func (deps CompositionExecutorDeps) stepHooks(step *composition.Step) *hooks.Registry {
+	if deps.StepHookRegistry != nil {
+		if r := deps.StepHookRegistry(step.PromptTask); r != nil {
+			return r
+		}
+	}
+	return deps.HookRegistry
 }
 
 // responseFormat builds a structured-output ResponseFormat from the step's

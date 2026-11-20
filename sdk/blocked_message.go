@@ -40,9 +40,10 @@ type BlockedMessage struct {
 // sees it, the conversation stores it, and in a realtime voice session the cue
 // stage speaks it. An empty return keeps b.Text.
 //
-// It is called on the text path (Send, Stream), in VAD mode and in a realtime
-// session, wherever a guardrail blocks a turn with a message: an input block,
-// a streamed reply cut part-way, and a completed reply. A length guardrail
+// It is called on the text path (Send, Stream), in each prompt and agent step
+// of a composition, in VAD mode and in a realtime session, wherever a
+// guardrail blocks a turn with a message: an input block, a streamed reply
+// cut part-way, and a completed reply. A length guardrail
 // that truncates a reply, or enforces without changing it, blocks with no
 // message and does not call it. A callback that panics keeps b.Text. On the
 // text path and in VAD mode it runs on the turn's goroutine, so a slow

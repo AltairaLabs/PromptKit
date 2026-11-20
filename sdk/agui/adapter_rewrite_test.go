@@ -45,3 +45,23 @@ func TestE2E_FullAnswerEmitsTheRewrittenResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, `<redacted:"Paris">`, resultContent(t, evts, "c1"))
 }
+
+// When an answer leaves another call pending, the TOOL_CALL_RESULT reported
+// for it before the run finishes is already the rewritten text the model will
+// be given.
+func TestE2E_PartialAnswerEmitsTheRewrittenResult(t *testing.T) {
+	provider := newScriptedProvider(say("Checking.",
+		call("c1", "get_location", `{}`), call("c2", "get_location", `{}`)), say("Done."))
+	conv, err := sdk.Open(writePack(t, toolPackJSON), "chat", sdk.WithProvider(provider),
+		sdk.WithSkipSchemaValidation(), sdk.WithToolHook(redactHook{}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	bindClientTool(t, conv, "get_location")
+	answer := func(context.Context, []sdk.PendingClientTool) ([]ToolResult, error) {
+		return []ToolResult{{CallID: "c1", Result: "Paris"}}, nil
+	}
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithToolResultProvider(answer)), "where am I?")
+	require.NoError(t, err)
+	assert.Equal(t, `<redacted:"Paris">`, resultContent(t, evts, "c1"))
+}

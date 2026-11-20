@@ -26,7 +26,10 @@ type toolCallingStage struct {
 	results []types.MessageToolResult
 }
 
-func (*toolCallingStage) Name() string          { return "tool-calling" }
+func (*toolCallingStage) Name() string { return "tool-calling" }
+
+// RunsToolCalls: this stage stands in for one that runs the calls.
+func (*toolCallingStage) RunsToolCalls() bool   { return true }
 func (*toolCallingStage) Type() stage.StageType { return stage.StageTypeTransform }
 
 func (s *toolCallingStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
@@ -83,10 +86,9 @@ func TestDuplexSession_SubmittedToolResultsCarryTheCallName(t *testing.T) {
 	// The pipeline holds the call for the client, the way a client tool or an
 	// approval gate holds it, so the client answers it with SubmitToolResults.
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:          mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder:   builder,
-		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		Provider:        mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder: builder,
+		ToolRegistry:    tools.NewRegistry(),
 	})
 	require.NoError(t, err)
 	defer sess.Close()

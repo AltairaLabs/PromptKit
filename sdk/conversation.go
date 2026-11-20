@@ -207,14 +207,14 @@ type Conversation struct {
 	// model, by call ID (recordAdmittedRaw).
 	settledMu sync.Mutex
 	admitted  map[string]admittedCall
-	// prepared holds the results SettleClientTool prepared, by resolution,
+	// prepared holds the results settleClientTool prepared, by resolution,
 	// which Resume and Continue give the model without rewriting them again.
 	prepared map[*sdktools.ToolResolution]preparedAnswer
 	// settleMu guards every record of an answer in resolvedStore and the
-	// calls SettleClientTool is settling, so no answer comes between a
+	// calls settleClientTool is settling, so no answer comes between a
 	// settle's check for an earlier one and its own.
 	settleMu sync.Mutex
-	// settling holds the calls a SettleClientTool has claimed and is
+	// settling holds the calls a settleClientTool has claimed and is
 	// preparing an answer for, under settleMu.
 	settling map[string]bool
 
@@ -933,6 +933,7 @@ func (c *Conversation) wireComposition(pipelineCfg *intpipeline.Config) {
 	pipelineCfg.ActiveComposition = c.config.activeComposition
 	pipelineCfg.CompositionName = c.config.compositionName
 	pipelineCfg.StepProviderResolver = stepProviderResolver(c.pack, c.config)
+	pipelineCfg.StepHookRegistry = c.config.stepHookRegistries()
 	if c.pack != nil && c.pack.FilePath != "" {
 		pipelineCfg.SchemaResolver = stage.NewFileSchemaResolver(filepath.Dir(c.pack.FilePath))
 	}

@@ -13,7 +13,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
-// openCtxKey stands in for a host's per-call identity key on the context.
+// openCtxKey stands in for a host value on the context, such as a logger or a
+// database handle, that PromptKit does not read.
 type openCtxKey struct{}
 
 // startCtxHook records the context value its OnSessionStart sees.
@@ -30,7 +31,7 @@ func (h *startCtxHook) OnSessionEnd(context.Context, hooks.SessionEvent) error  
 // Every context-taking duplex open hands its context to the session-start
 // hooks, as it does to the session's tool calls (#2690).
 func TestOpenDuplexContext_SessionStartHookSeesTheContext(t *testing.T) {
-	ctx := context.WithValue(context.Background(), openCtxKey{}, "member@example.com")
+	ctx := context.WithValue(context.Background(), openCtxKey{}, "tenant-db")
 	streaming := func(t *testing.T) []Option {
 		prov := mock.NewStreamingProvider("rt", "rt-model", false).WithAutoRespond("hi")
 		return []Option{WithProvider(prov), WithSkipSchemaValidation(), WithStreamingConfig(convDuplexAudio)}
@@ -63,7 +64,7 @@ func TestOpenDuplexContext_SessionStartHookSeesTheContext(t *testing.T) {
 			conv, err := open(t, hook)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = conv.Close() })
-			assert.Equal(t, "member@example.com", hook.seen)
+			assert.Equal(t, "tenant-db", hook.seen)
 		})
 	}
 }

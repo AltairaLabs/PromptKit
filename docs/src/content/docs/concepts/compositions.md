@@ -88,6 +88,8 @@ Runs a sub-pipeline (prompt assembly and one LLM call) for the named `prompt_tas
 
 `output_schema` is a path, relative to the pack file, to a JSON Schema. The runtime sends it to the provider as a strict structured-output format. It does not validate the response afterwards. On the `openai` provider, a schema that OpenAI strict mode cannot express, such as one using `minProperties` or a map-typed object, fails the step before the request is sent, with an error that names the keyword and its JSON path.
 
+In the SDK, a `prompt` or `agent` step runs its `prompt_task`'s `validators` as guardrails, as `sdk.Open` runs the opened prompt's, alongside the hooks and guardrails the host added once. A validator that blocks replaces the step's output with its message, or with the text `sdk.WithBlockedMessage` chooses. A validator that cannot be built fails the open.
+
 ### `agent`
 
 Runs a sub-pipeline with tools and an LLM tool loop. The loop ends at `max_steps` or when `tool_called` fires. An agent step must declare one of them.

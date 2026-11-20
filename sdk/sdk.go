@@ -139,15 +139,19 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 //
 // The session runs on a context detached from any caller, so its tool calls
 // see no context values; use [OpenDuplexContext] to give them the host's.
+// Who the session acts for is set with [WithCaller], never on a context.
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	return OpenDuplexContext(context.Background(), packPath, promptName, opts...)
 }
 
 // OpenDuplexContext is [OpenDuplex] with a base context for the session. The
 // session's pipeline, and so every tool call the model makes, runs on a
-// context carrying ctx's values — the caller identity or policy a host puts
-// there, as it would on a text turn's Send(ctx). Session-start hooks and a
-// [Conversation.Fork] of the session see the same values.
+// context carrying ctx's values, as a text turn's tool calls run on the
+// context given to Send: host values PromptKit does not read, such as a
+// logger or a database handle. Session-start hooks and a [Conversation.Fork]
+// of the session see the same values. PromptKit never reads caller identity
+// or policy from ctx: who the session acts for is [WithCaller]'s, and a
+// caller put on ctx reaches no tool, hook or authorizer as one.
 //
 // The session owns its own cancellation: canceling ctx does not end it; Close
 // does. The open itself (state store seeding, pipeline build) runs on ctx, so
@@ -249,6 +253,9 @@ func prepareConversation(
 	// Auto-convert pack validators to provider hooks (before building hook registry)
 	if convErr := convertPackValidatorsToHooks(prompt, cfg); convErr != nil {
 		return nil, nil, convErr
+	}
+	if stepErr := compileStepValidators(p, cfg); stepErr != nil {
+		return nil, nil, stepErr
 	}
 	if gateErr := checkLoadGates(p, prompt, cfg, src.callCheck); gateErr != nil {
 		return nil, nil, gateErr
@@ -973,7 +980,7 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 	// context, tool calls included (a realtime session's run in the pipeline),
 	// so that context carries the conversation's capability state: the active
 	// skills a skill__activate grants tools through, and the memory scope.
-	duplexSession, err := session.NewDuplexSession(conv.withConversationState(ctx), &session.DuplexSessionConfig{
+	sessionCfg := &session.DuplexSessionConfig{
 		ConversationID:  conversationID,
 		UserID:          cfg.userID,
 		StateStore:      store,
@@ -981,13 +988,14 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Provider:        conv.callProvider(),
 		Config:          streamConfig, // nil for VAD mode, set for ASM mode
 		ToolRegistry:    conv.toolRegistry,
-		// The pipeline's DuplexProviderStage runs the session's tool calls
-		// (realtime), or its ProviderStage does (VAD): never the session.
-		PipelineRunsTools: true,
-		Caller:            cfg.caller,
-		Metadata:          cfg.sessionMetadata,
-		Variables:         initialVars,
-	})
+		Caller:          cfg.caller,
+		Metadata:        cfg.sessionMetadata,
+		Variables:       initialVars,
+	}
+	// The pipeline's DuplexProviderStage runs the session's tool calls
+	// (realtime), or its ProviderStage does (VAD): never the session, which
+	// learns so from the pipeline (stage.StreamPipeline.RunsToolCalls).
+	duplexSession, err := session.NewDuplexSession(conv.withConversationState(ctx), sessionCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)
 	}
@@ -1340,7 +1348,8 @@ func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (
 }
 
 // ResumeDuplexContext is [ResumeDuplex] with a base context for the session,
-// as [OpenDuplexContext]: the resumed session's tool calls see ctx's values.
+// as [OpenDuplexContext]: the resumed session's tool calls see ctx's values,
+// which PromptKit does not read. The caller is [WithCaller]'s.
 func ResumeDuplexContext(
 	ctx context.Context, conversationID, packPath, promptName string, opts ...Option,
 ) (*Conversation, error) {

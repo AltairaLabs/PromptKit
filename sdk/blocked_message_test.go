@@ -414,3 +414,32 @@ func TestWithBlockedMessage_AsyncInputVerdict(t *testing.T) {
 		[]string{got.Direction, got.ValidatorType, got.Reason, got.Text})
 	assert.Equal(t, []string{localizedBruno}, s.storedAssistants(t))
 }
+
+// A composition step's guardrail blocks with the host's text too: the step's
+// output, and so the composition's, is what WithBlockedMessage chose.
+func TestWithBlockedMessage_CompositionStepUsesTheHostText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bruno-flow.pack.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{
+		"name": "bruno-flow",
+		"version": "v1",
+		"prompts": {"main": {"system_template": "You are a helpful assistant."}},
+		"compositions": {
+			"flow": {"version": 1, "output": "s",
+				"steps": [{"id": "s", "kind": "prompt", "prompt_task": "main", "input": "${input}"}]}
+		}
+	}`), 0o600))
+	host := &blockedCalls{reply: localizedBruno}
+	conv, err := OpenComposition(path, "flow", WithProvider(brunoReplyProvider()),
+		WithSkipSchemaValidation(), WithBlockedMessage(host.fn),
+		WithGuardrail(guardrails.Output("banned_words", map[string]any{"words": []any{"Bruno"}},
+			guardrails.WithMessage(brunoMessage))))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	resp, err := conv.Send(context.Background(), "who is in the family?")
+	require.NoError(t, err)
+	assert.Equal(t, `"`+localizedBruno+`"`, resp.Text())
+	require.Len(t, host.calls(), 1)
+	assert.Equal(t, brunoMessage, host.calls()[0].Text)
+	assert.Equal(t, "output", host.calls()[0].Direction)
+}

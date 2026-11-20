@@ -61,7 +61,8 @@ type duplexSession struct {
 	// TurnsCompleted).
 	turnsCompleted atomic.Int64
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
-	// pipelineRunsTools: the pipeline runs the session's tool calls. Otherwise
+	// pipelineRunsTools: a stage of the pipeline runs the session's tool
+	// calls (stage.StreamPipeline.RunsToolCalls). Otherwise
 	// a session with toolRegistry runs them, gated by asyncToolChecker, and
 	// one without forwards them to the caller. See handleToolCalls.
 	pipelineRunsTools bool
@@ -215,9 +216,9 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 	stageInput := make(chan stage.StreamElement, streamBufferSize)
 	streamOutput := make(chan providers.StreamChunk, streamBufferSize)
 
-	// The session keeps ctx's values — tool calls see the host's caller
-	// identity and policy, as a text turn's do (#2690) — but owns its own
-	// cancellation, so it outlives the call that opened it.
+	// The session keeps ctx's values, as a text turn's tool calls see the
+	// context given to Send, but owns its own cancellation, so it outlives
+	// the call that opened it. The caller is cfg.Caller, never a ctx value.
 	sessionCtx, sessionCancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	sess := &duplexSession{
@@ -226,7 +227,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		pipeline:          builtPipeline,
 		provider:          cfg.Provider,
 		streamConfig:      cfg.Config,
-		pipelineRunsTools: cfg.PipelineRunsTools,
+		pipelineRunsTools: builtPipeline.RunsToolCalls(),
 		toolRegistry:      cfg.ToolRegistry,
 		asyncToolChecker:  cfg.AsyncToolChecker,
 		caller:            cfg.Caller,
@@ -509,7 +510,7 @@ func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.Str
 
 // handleToolCalls handles an assistant turn that made tool calls.
 //
-//   - The pipeline runs the calls (PipelineRunsTools): its DuplexProviderStage
+//   - The pipeline runs the calls (pipelineRunsTools): its DuplexProviderStage
 //     answers them and surfaces those held for approval on an element of their
 //     own, so the turn is not passed on and nothing runs here.
 //   - The pipeline does not, and the session has a registry: the session runs
@@ -1016,7 +1017,7 @@ func (s *duplexSession) ForkSession(
 	s.varsMu.RUnlock()
 
 	// Create new duplex session with the builder. The fork keeps the
-	// parent's context values, so its tool calls run as the same caller.
+	// parent's context values and caller.
 	return NewDuplexSession(context.WithoutCancel(s.sessionCtx), &DuplexSessionConfig{
 		ConversationID:  forkID,
 		StateStore:      s.store,
@@ -1025,12 +1026,11 @@ func (s *duplexSession) ForkSession(
 		// The parent's streaming config, so a realtime session forks into a
 		// realtime session rather than a text pipeline (#2582). A copy, so
 		// the fork's config is its own.
-		Config:            copyStreamConfig(s.streamConfig),
-		ToolRegistry:      s.toolRegistry,
-		PipelineRunsTools: s.pipelineRunsTools,
-		AsyncToolChecker:  s.asyncToolChecker,
-		Caller:            s.caller,
-		Variables:         forkVars,
+		Config:           copyStreamConfig(s.streamConfig),
+		ToolRegistry:     s.toolRegistry,
+		AsyncToolChecker: s.asyncToolChecker,
+		Caller:           s.caller,
+		Variables:        forkVars,
 	})
 }
 

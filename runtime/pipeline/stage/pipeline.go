@@ -19,6 +19,14 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
+// ToolCallRunner is implemented by a stage that can run the model's tool
+// calls itself: a DuplexProviderStage given SetToolExecution, or a
+// ProviderStage with a tool registry.
+type ToolCallRunner interface {
+	// RunsToolCalls reports whether the stage runs the tool calls it sees.
+	RunsToolCalls() bool
+}
+
 // StreamPipeline represents an executable pipeline of stages.
 // It manages the DAG of stages, creates channels between them,
 // and orchestrates execution.
@@ -67,6 +75,18 @@ type StreamPipeline struct {
 	// running; from then on they stop waiting on a consumer that has stopped
 	// reading (see callerOutput). A consumer still reading loses nothing.
 	abandoned chan struct{}
+}
+
+// RunsToolCalls reports whether a stage of the pipeline runs the model's tool
+// calls (ToolCallRunner), so that whatever drives the pipeline, such as a
+// duplex session, must not run them again.
+func (p *StreamPipeline) RunsToolCalls() bool {
+	for _, st := range p.stages {
+		if r, ok := st.(ToolCallRunner); ok && r.RunsToolCalls() {
+			return true
+		}
+	}
+	return false
 }
 
 // Execute starts the pipeline execution with the given input channel.

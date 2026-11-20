@@ -94,7 +94,10 @@ func TestDuplexSession_CountsCompletedTurns(t *testing.T) {
 // ID, which it holds for the caller.
 type callScriptStage struct{ inputs int }
 
-func (*callScriptStage) Name() string          { return "call-script" }
+func (*callScriptStage) Name() string { return "call-script" }
+
+// RunsToolCalls: this stage stands in for one that runs the calls.
+func (*callScriptStage) RunsToolCalls() bool   { return true }
 func (*callScriptStage) Type() stage.StageType { return stage.StageTypeTransform }
 
 func (s *callScriptStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
@@ -141,10 +144,9 @@ func TestDuplexSession_RecordsEveryCallTheLatestUnderAnID(t *testing.T) {
 		return stage.NewPipelineBuilder().Chain(st).Build()
 	}
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:          mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder:   builder,
-		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		Provider:        mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder: builder,
+		ToolRegistry:    tools.NewRegistry(),
 	})
 	require.NoError(t, err)
 	defer sess.Close()
@@ -188,7 +190,10 @@ func TestDuplexSession_CallRecordIsBounded(t *testing.T) {
 // get_weather first, get_location second, the first never answered.
 type heldTwiceStage struct{ inputs int }
 
-func (*heldTwiceStage) Name() string          { return "held-twice" }
+func (*heldTwiceStage) Name() string { return "held-twice" }
+
+// RunsToolCalls: this stage stands in for one that runs the calls.
+func (*heldTwiceStage) RunsToolCalls() bool   { return true }
 func (*heldTwiceStage) Type() stage.StageType { return stage.StageTypeTransform }
 
 func (s *heldTwiceStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
@@ -227,10 +232,9 @@ func TestDuplexSession_ReusedIDWhileTheFirstIsHeld(t *testing.T) {
 		return stage.NewPipelineBuilder().Chain(st).Build()
 	}
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:          mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder:   builder,
-		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		Provider:        mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder: builder,
+		ToolRegistry:    tools.NewRegistry(),
 	})
 	require.NoError(t, err)
 	defer sess.Close()
@@ -264,7 +268,10 @@ func TestDuplexSession_ReusedIDWhileTheFirstIsHeld(t *testing.T) {
 // turn stopped and still holds a call for the caller.
 type stoppedHoldStage struct{}
 
-func (stoppedHoldStage) Name() string          { return "stopped-hold" }
+func (stoppedHoldStage) Name() string { return "stopped-hold" }
+
+// RunsToolCalls: this stage stands in for one that runs the calls.
+func (stoppedHoldStage) RunsToolCalls() bool   { return true }
 func (stoppedHoldStage) Type() stage.StageType { return stage.StageTypeTransform }
 
 func (stoppedHoldStage) Process(ctx context.Context, in <-chan stage.StreamElement, out chan<- stage.StreamElement) error {
@@ -289,10 +296,9 @@ func TestDuplexSession_RecordsACallHeldAlongsideAnError(t *testing.T) {
 		return stage.NewPipelineBuilder().Chain(stoppedHoldStage{}).Build()
 	}
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:          mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder:   builder,
-		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		Provider:        mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder: builder,
+		ToolRegistry:    tools.NewRegistry(),
 	})
 	require.NoError(t, err)
 	defer sess.Close()
@@ -363,10 +369,9 @@ func TestDuplexSession_UnheldCallAnsweredByIDIsNamed(t *testing.T) {
 		return stage.NewPipelineBuilder().Chain(st).Build()
 	}
 	sess, err := NewDuplexSession(context.Background(), &DuplexSessionConfig{
-		Provider:          mock.NewProvider("mock", "mock-model", false),
-		PipelineBuilder:   builder,
-		ToolRegistry:      tools.NewRegistry(),
-		PipelineRunsTools: true,
+		Provider:        mock.NewProvider("mock", "mock-model", false),
+		PipelineBuilder: builder,
+		ToolRegistry:    tools.NewRegistry(),
 	})
 	require.NoError(t, err)
 	defer sess.Close()

@@ -93,9 +93,19 @@ type FrameRateLimitStage struct {
 	droppedFrames  int64
 	emittedFrames  int64
 	loggedDropOnce bool
-	// now is the clock frames are timed by; tests replace it.
-	now func() time.Time
+	// clock is what frames are timed by; tests replace it. An interface, not
+	// a func, so the stage stays comparable.
+	clock frameClock
 }
+
+// frameClock tells a FrameRateLimitStage the time.
+type frameClock interface{ Now() time.Time }
+
+// systemClock is the wall clock.
+type systemClock struct{}
+
+// Now is time.Now.
+func (systemClock) Now() time.Time { return time.Now() }
 
 // NewFrameRateLimitStage creates a new frame rate limiting stage.
 func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage {
@@ -108,7 +118,7 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage {
 		BaseStage:     NewBaseStage("frame-rate-limit", StageTypeTransform),
 		config:        config,
 		frameInterval: time.Duration(float64(time.Second) / fps),
-		now:           time.Now,
+		clock:         systemClock{},
 	}
 }
 
@@ -182,7 +192,7 @@ func (s *FrameRateLimitStage) applyRateLimit() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := s.now()
+	now := s.clock.Now()
 
 	// First frame always passes
 	if s.lastEmitTime.IsZero() {

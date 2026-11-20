@@ -583,7 +583,7 @@ func (c *Conversation) validateDeferredResults(
 	}
 	for _, res := range resolutions {
 		// An approval's result was checked when it ran (checkApprovedResult):
-		// only sdktools.ResolveApproved sets Arguments. One SettleClientTool
+		// only sdktools.ResolveApproved sets Arguments. One settleClientTool
 		// prepared was checked then.
 		if res.Rejected || res.Error != nil || len(res.Parts) > 0 || res.Arguments != nil || c.isPrepared(res) {
 			continue
@@ -608,7 +608,7 @@ func (c *Conversation) validateDeferredResults(
 // limit error replaces it, and the model is told the call was not executed.
 // A rejection is never counted. An approval is skipped, because
 // ResolveToolWithArgs admitted it (only sdktools.ResolveApproved sets
-// Arguments), and so is an answer SettleClientTool admitted.
+// Arguments), and so is an answer settleClientTool admitted.
 func (c *Conversation) admitDeferredResults(
 	resolutions []*sdktools.ToolResolution, callNames func() map[string]string,
 ) {
@@ -851,7 +851,7 @@ func (c *Conversation) takeSettlement(history []types.Message) []*sdktools.ToolR
 	return kept
 }
 
-// dropPrepared forgets the results SettleClientTool prepared for the
+// dropPrepared forgets the results settleClientTool prepared for the
 // resolutions in popped that kept does not hold, answers not used, and takes
 // back their admissions.
 func (c *Conversation) dropPrepared(popped, kept []*sdktools.ToolResolution) {
@@ -968,7 +968,7 @@ func (c *Conversation) FailClientTool(ctx context.Context, callID string, partia
 
 // addResolution records res, an answer to a held or deferred call, for
 // Continue or Resume to use, under settleMu. An answer to a call a
-// SettleClientTool is settling is a second answer and is dropped.
+// settleClientTool is settling is a second answer and is dropped.
 func (c *Conversation) addResolution(res *sdktools.ToolResolution) {
 	c.settleMu.Lock()
 	defer c.settleMu.Unlock()
