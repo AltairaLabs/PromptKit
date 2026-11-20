@@ -93,7 +93,7 @@ func (s *CartesiaService) SynthesizeStream(
 	chunks := make(chan audio.Chunk, streamChannelBuffer)
 
 	// Start goroutine to read responses
-	go s.readStreamResponses(ctx, conn, chunks)
+	go s.readStreamResponses(ctx, conn, chunks, voice)
 
 	return chunks, nil
 }
@@ -119,7 +119,7 @@ func wsReadErrorChunk(ctx context.Context, err error) *audio.Chunk {
 // connection. Sets a read deadline on each iteration so a silent
 // server doesn't block forever.
 func (s *CartesiaService) readStreamResponses(
-	ctx context.Context, conn *websocket.Conn, chunks chan<- audio.Chunk,
+	ctx context.Context, conn *websocket.Conn, chunks chan<- audio.Chunk, voice string,
 ) {
 	defer close(chunks)
 	defer conn.Close()
@@ -152,7 +152,7 @@ func (s *CartesiaService) readStreamResponses(
 			return
 		}
 
-		chunk, err := s.processWSResponse(&resp, index)
+		chunk, err := s.processWSResponse(&resp, index, voice)
 		if err != nil {
 			chunks <- audio.Chunk{Error: err}
 			return

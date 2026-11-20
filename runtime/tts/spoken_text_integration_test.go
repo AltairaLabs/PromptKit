@@ -56,8 +56,9 @@ func TestSpokenText_MatchesRealSpeech(t *testing.T) {
 		t.Skip("OPENAI_API_KEY not set (required for STT verification)")
 	}
 
-	// "Confident Man", the voice the voice-refund-demo pins for Cartesia.
-	const cartesiaVoice = "bf991597-6c13-47e4-8411-91ec2de5c466"
+	// "Daniel - Modern Assistant", a public Cartesia voice ("Confident Man",
+	// the earlier pin, was withdrawn and now 404s — #2822).
+	const cartesiaVoice = "47c38ca4-5f35-497b-b1a3-415245fb35e1"
 	const input = "[whispers]The capital of France is Paris."
 	const strippedSpoken = "The capital of France is Paris."
 

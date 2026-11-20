@@ -351,8 +351,8 @@ func TestCartesiaService_Synthesize_WithDefaultVoice(t *testing.T) {
 	}
 	reader.Close()
 
-	// Should use Barbershop Man as default
-	if receivedReq.Voice.ID != "a0e99841-438c-4a64-b679-ae501e7d6091" {
+	// An empty voice sends the default
+	if receivedReq.Voice.ID != cartesiaDefaultVoice {
 		t.Errorf("Voice.ID = %v, want default voice ID", receivedReq.Voice.ID)
 	}
 }
@@ -461,7 +461,7 @@ func TestCartesiaService_processWSResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			chunk, err := service.processWSResponse(tt.resp, tt.index)
+			chunk, err := service.processWSResponse(tt.resp, tt.index, "v")
 
 			if tt.wantErr && err == nil {
 				t.Error("processWSResponse() expected error, got nil")

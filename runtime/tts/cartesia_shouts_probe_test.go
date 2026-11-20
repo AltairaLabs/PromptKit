@@ -36,7 +36,7 @@ func TestCartesiaShouts_ProbeVariants(t *testing.T) {
 		t.Skip("CARTESIA_API_KEY not set; skipping live Cartesia probe")
 	}
 
-	const voiceID = "bf991597-6c13-47e4-8411-91ec2de5c466" // Confident Man
+	const voiceID = "47c38ca4-5f35-497b-b1a3-415245fb35e1" // Daniel - Modern Assistant
 	const phrase = "Thirteen MONTHS and they fail?! I want my money back NOW!"
 
 	variants := []struct {

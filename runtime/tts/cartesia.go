@@ -3,9 +3,11 @@ package tts
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -34,8 +36,13 @@ const (
 	// Default timeout for Cartesia requests.
 	defaultCartesiaTimeout = 30 * time.Second
 
-	// cartesiaDefaultVoice is the default voice ID (Barbershop Man).
-	cartesiaDefaultVoice = "a0e99841-438c-4a64-b679-ae501e7d6091"
+	// cartesiaDefaultVoice is the voice used when SynthesisConfig.Voice is
+	// empty: "Katie - Friendly Fixer", a public, active, non-pro voice with a
+	// native general-American accent, built for conversational agents. Checked
+	// live against GET /voices/{id} and POST /tts/bytes (#2822). The previous
+	// default (Barbershop Man, a0e99841-…) was withdrawn from the public library
+	// and now returns 404 voice_not_found.
+	cartesiaDefaultVoice = "f786b574-daa5-4673-aa0c-cbe3e8534c02"
 
 	// tagShouts / tagShout are the markup tag names that map to anger +
 	// volume bump on Cartesia. Both spellings tolerated because the
@@ -238,7 +245,8 @@ func (s *CartesiaService) Synthesize(
 		"Cartesia-Version": "2026-03-01",
 	}
 	return postJSONForAudio(
-		ctx, s.Client, providerCartesia, s.BaseURL+cartesiaRESTURL, reqBody, headers, s.handleError,
+		ctx, s.Client, providerCartesia, s.BaseURL+cartesiaRESTURL, reqBody, headers,
+		func(resp *http.Response) error { return s.handleError(resp, voice) },
 	)
 }
 
@@ -316,17 +324,58 @@ type cartesiaWSResponse struct {
 	Type       string `json:"type"`
 	Data       string `json:"data"` // Base64-encoded audio
 	Error      string `json:"error,omitempty"`
+	// Newer API versions describe an error with these instead of Error.
+	ErrorCode string `json:"error_code,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+// cartesiaWSTypeError is the type of a websocket frame that reports a failure.
+const cartesiaWSTypeError = "error"
+
+// errorText returns the frame's error description, or "" when it reports none.
+// The pinned API version sends it in "error"; newer versions send a title and
+// message instead, and a frame of type "error" is a failure either way.
+func (r *cartesiaWSResponse) errorText() string {
+	if r.Error != "" {
+		return r.Error
+	}
+	if r.Type != cartesiaWSTypeError {
+		return ""
+	}
+	var parts []string
+	for _, p := range []string{r.Title, r.Message} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	if len(parts) == 0 {
+		return "error frame from server"
+	}
+	return strings.Join(parts, ": ")
+}
+
+// namingVoice prefixes message with the voice it is about when cause says the
+// voice was rejected, so the caller sees which voice to fix.
+func namingVoice(message, voice string, cause error) string {
+	if errors.Is(cause, ErrInvalidVoice) {
+		return fmt.Sprintf("voice %q: %s", voice, message)
+	}
+	return message
 }
 
 // processWSResponse processes a single WebSocket response and returns the audio chunk.
 // Returns nil chunk if the response doesn't contain audio data.
-// Returns error if processing fails or response contains an error.
+// Returns error if processing fails or response contains an error; a rejected
+// voice's error names voice.
 func (s *CartesiaService) processWSResponse(
-	resp *cartesiaWSResponse, index int,
+	resp *cartesiaWSResponse, index int, voice string,
 ) (*audio.Chunk, error) {
-	if resp.Error != "" {
+	if text := resp.errorText(); text != "" {
 		retryable, cause := cartesiaWSErrorCause(resp)
-		return nil, NewSynthesisError(providerCartesia, "", resp.Error, cause, retryable)
+		return nil, NewSynthesisError(
+			providerCartesia, resp.ErrorCode, namingVoice(text, voice, cause), cause, retryable,
+		)
 	}
 
 	if resp.Type != "chunk" || resp.Data == "" {
@@ -378,12 +427,14 @@ func (s *CartesiaService) mapFormat(format AudioFormat) cartesiaOutputFormat {
 
 // cartesiaErrorResponse represents an error response from Cartesia.
 type cartesiaErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message"`
+	Error     string `json:"error"`
+	ErrorCode string `json:"error_code"`
+	Message   string `json:"message"`
 }
 
-// handleError processes an error response from Cartesia.
-func (s *CartesiaService) handleError(resp *http.Response) error {
+// handleError processes an error response from Cartesia to a request for
+// voice. A 404 is the voice being rejected, and its error names the voice.
+func (s *CartesiaService) handleError(resp *http.Response, voice string) error {
 	var errResp cartesiaErrorResponse
 	if e := decodeErrorBody(providerCartesia, resp, &errResp); e != nil {
 		return e
@@ -393,26 +444,35 @@ func (s *CartesiaService) handleError(resp *http.Response) error {
 	if message == "" {
 		message = errResp.Error
 	}
-	cause = quotaCause(cause, resp.StatusCode, errResp.Error)
-	return NewSynthesisError(providerCartesia, errResp.Error, message, cause, retryable)
+	code := errResp.ErrorCode
+	if code == "" {
+		code = errResp.Error
+	}
+	cause = quotaCause(cause, resp.StatusCode, errResp.Error, errResp.ErrorCode)
+	return NewSynthesisError(providerCartesia, code, namingVoice(message, voice, cause), cause, retryable)
 }
 
 // cartesiaWSErrorCause maps a websocket error frame to a cause and whether it
 // is retryable. Cartesia's frames carry status_code (HTTP-style); 402 is an
-// exhausted quota and 429 is throttling.
+// exhausted quota, 429 is throttling and 404 is a voice it does not serve.
 func cartesiaWSErrorCause(resp *cartesiaWSResponse) (retryable bool, cause error) {
-	retryable, cause = classifyHTTPStatus(resp.StatusCode, nil, nil)
-	return retryable, quotaCause(cause, resp.StatusCode, resp.Error)
+	retryable, cause = classifyHTTPStatus(resp.StatusCode, ErrInvalidVoice, nil)
+	return retryable, quotaCause(cause, resp.StatusCode, resp.Error, resp.ErrorCode)
 }
 
 // SupportedVoices returns a sample of available Cartesia voices.
 func (s *CartesiaService) SupportedVoices() []Voice {
 	return []Voice{
-		makeVoice("a0e99841-438c-4a64-b679-ae501e7d6091", "Barbershop Man", "en", "male", "Deep, warm male voice"),
-		makeVoice("156fb8d2-335b-4950-9cb3-a2d33befec77", "British Lady", "en", "female", "British accent, professional"),
-		makeVoice("79a125e8-cd45-4c13-8a67-188112f4dd22", "California Girl", "en", "female", "Casual, friendly American"),
-		makeVoice("bf991597-6c13-47e4-8411-91ec2de5c466", "Confident Man", "en", "male", "Clear, confident delivery"),
-		makeVoice("9121c0ae-12a6-4012-8158-6e4a72e6da91", "Friendly Woman", "en", "female", "Warm, approachable"),
+		makeVoice(cartesiaDefaultVoice, "Katie - Friendly Fixer", "en", "female",
+			"Enunciating American female for conversational support"),
+		makeVoice("47c38ca4-5f35-497b-b1a3-415245fb35e1", "Daniel - Modern Assistant", "en", "male",
+			"Clear, crisp American male for digital assistants"),
+		makeVoice("62ae83ad-4f6a-430b-af41-a9bede9286ca", "Gemma - Decisive Agent", "en", "female",
+			"Confident British female for professional assistance"),
+		makeVoice("4bc3cb8c-adb9-4bb8-b5d5-cbbef950b991", "George - Composed Consultant", "en", "male",
+			"Steady British male for capable assistance"),
+		makeVoice("db6b0ed5-d5d3-463d-ae85-518a07d3c2b4", "Skylar - Friendly Guide", "en", "female",
+			"Approachable American female for customer care"),
 	}
 }
 
