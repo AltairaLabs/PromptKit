@@ -374,6 +374,11 @@ type Config struct {
 	// that runs this composition instead of an LLM ProviderStage (RFC 0010).
 	ActiveComposition *composition.Composition
 
+	// StepHookRegistry gives each composition prompt/agent step the hooks it
+	// runs for its prompt task: the host's with that prompt's validators
+	// (stage.CompositionExecutorDeps.StepHookRegistry). Nil: HookRegistry.
+	StepHookRegistry func(promptTask string) *hooks.Registry
+
 	// StepProviderResolver picks the provider for each composition prompt/agent
 	// step (RFC 0017). nil runs every step on Provider.
 	StepProviderResolver func(step *composition.Step) (providers.Provider, error)
@@ -779,6 +784,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			ToolRegistry:       cfg.ToolRegistry,
 			Emitter:            cfg.EventEmitter,
 			HookRegistry:       cfg.HookRegistry,
+			StepHookRegistry:   cfg.StepHookRegistry,
 			BaseVariables:      cfg.Variables,
 			SchemaResolver:     cfg.SchemaResolver,
 			PromptDeclarations: cfg.PromptDeclarations,

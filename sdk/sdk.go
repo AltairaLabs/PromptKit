@@ -256,6 +256,9 @@ func prepareConversation(
 	if convErr := convertPackValidatorsToHooks(prompt, cfg); convErr != nil {
 		return nil, nil, convErr
 	}
+	if stepErr := compileStepValidators(p, cfg); stepErr != nil {
+		return nil, nil, stepErr
+	}
 	if gateErr := checkLoadGates(p, prompt, cfg, src.callCheck); gateErr != nil {
 		return nil, nil, gateErr
 	}

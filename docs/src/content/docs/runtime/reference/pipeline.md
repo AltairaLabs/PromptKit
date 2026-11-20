@@ -794,7 +794,7 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L137>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L143>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -1560,7 +1560,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L133>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L64-L139>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -1575,8 +1575,14 @@ type CompositionExecutorDeps struct {
     ResolveProvider func(step *composition.Step) (providers.Provider, error)
     ToolRegistry    *tools.Registry
     Emitter         *events.Emitter
-    HookRegistry    *hooks.Registry
-    BaseVariables   map[string]string
+    // HookRegistry holds the hooks every step runs, unless StepHookRegistry
+    // gives a step its own.
+    HookRegistry *hooks.Registry
+    // StepHookRegistry, when set, gives the hooks a prompt or agent step runs
+    // for its prompt task: the host's hooks with that prompt's own validators,
+    // as an opened prompt runs them. A nil return means HookRegistry.
+    StepHookRegistry func(promptTask string) *hooks.Registry
+    BaseVariables    map[string]string
     // PromptDeclarations maps prompt tasks to their pack declarations, for
     // provider hooks inside each step (see ProviderConfig.PromptDeclarations).
     PromptDeclarations map[string]*packspec.Prompt

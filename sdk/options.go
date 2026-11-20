@@ -437,6 +437,9 @@ type config struct {
 	// prompt-assembly → LLM path.
 	activeComposition *composition.Composition
 	compositionName   string
+	// stepValidatorHooks are the compiled validators of each prompt the
+	// active composition's steps run, by prompt task.
+	stepValidatorHooks map[string][]hooks.ProviderHook
 
 	// callRate, when set by withCallRateWindow, is the window
 	// ToolPolicy.MaxCallsPerMinute counts the conversation's calls in, in
@@ -469,11 +472,17 @@ func withResolvedComposition(name string, comp *composition.Composition) Option 
 // buildHookRegistry creates a hooks.Registry from the configured hooks.
 // Returns nil if no hooks are configured (zero overhead path).
 func (c *config) buildHookRegistry() *hooks.Registry {
-	if len(c.providerHooks) == 0 && len(c.toolHooks) == 0 && len(c.sessionHooks) == 0 {
+	return c.buildHookRegistryWith(c.providerHooks)
+}
+
+// buildHookRegistryWith is buildHookRegistry with providerHooks in place of
+// the configured provider hooks.
+func (c *config) buildHookRegistryWith(providerHooks []hooks.ProviderHook) *hooks.Registry {
+	if len(providerHooks) == 0 && len(c.toolHooks) == 0 && len(c.sessionHooks) == 0 {
 		return nil
 	}
 	var opts []hooks.Option
-	for _, h := range c.providerHooks {
+	for _, h := range providerHooks {
 		opts = append(opts, hooks.WithProviderHook(h))
 	}
 	for _, h := range c.toolHooks {

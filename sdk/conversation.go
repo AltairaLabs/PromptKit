@@ -933,6 +933,7 @@ func (c *Conversation) wireComposition(pipelineCfg *intpipeline.Config) {
 	pipelineCfg.ActiveComposition = c.config.activeComposition
 	pipelineCfg.CompositionName = c.config.compositionName
 	pipelineCfg.StepProviderResolver = stepProviderResolver(c.pack, c.config)
+	pipelineCfg.StepHookRegistry = c.config.stepHookRegistries()
 	if c.pack != nil && c.pack.FilePath != "" {
 		pipelineCfg.SchemaResolver = stage.NewFileSchemaResolver(filepath.Dir(c.pack.FilePath))
 	}
