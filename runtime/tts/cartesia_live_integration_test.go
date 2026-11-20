@@ -34,10 +34,10 @@ func TestCartesiaLive_GenerationConfigEmotion(t *testing.T) {
 		t.Skip("CARTESIA_API_KEY not set; skipping live Cartesia test")
 	}
 
-	// "Confident Man" voice, the one the voice-refund-demo uses. Pin so
-	// regressions surface against the actual production voice rather than
-	// some Cartesia default that might track API drift differently.
-	const voiceID = "bf991597-6c13-47e4-8411-91ec2de5c466"
+	// "Daniel - Modern Assistant", a public male voice (the former pin,
+	// "Confident Man", was withdrawn and now 404s — #2822). Pin so
+	// regressions surface against a fixed voice rather than the default.
+	const voiceID = "47c38ca4-5f35-497b-b1a3-415245fb35e1"
 	const phrase = "I want my money back right now."
 
 	svc := tts.NewCartesia(apiKey)

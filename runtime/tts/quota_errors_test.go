@@ -73,11 +73,11 @@ func TestQuotaErrors_MapToErrQuotaExceeded(t *testing.T) {
 
 func TestCartesiaWSErrorFrame_QuotaMapping(t *testing.T) {
 	s := NewCartesia("k")
-	_, err := s.processWSResponse(&cartesiaWSResponse{StatusCode: 402, Error: "insufficient credits"}, 0)
+	_, err := s.processWSResponse(&cartesiaWSResponse{StatusCode: 402, Error: "insufficient credits"}, 0, "v")
 	if !errors.Is(err, ErrQuotaExceeded) {
 		t.Errorf("402 frame: want ErrQuotaExceeded, got %v", err)
 	}
-	_, err = s.processWSResponse(&cartesiaWSResponse{StatusCode: 429, Error: "too many"}, 0)
+	_, err = s.processWSResponse(&cartesiaWSResponse{StatusCode: 429, Error: "too many"}, 0, "v")
 	if !errors.Is(err, ErrRateLimited) || errors.Is(err, ErrQuotaExceeded) {
 		t.Errorf("429 frame: want ErrRateLimited only, got %v", err)
 	}
