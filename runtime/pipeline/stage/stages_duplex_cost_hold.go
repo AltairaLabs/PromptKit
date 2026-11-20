@@ -65,13 +65,13 @@ func (s *DuplexProviderStage) emitRoundCompleted(
 	if s.emitter == nil {
 		return
 	}
-	dt := s.tools
-	dt.completionMu.Lock()
-	defer dt.completionMu.Unlock()
+	ct := s.calls
+	ct.completionMu.Lock()
+	defer ct.completionMu.Unlock()
 	if s.holdCompletionLocked(ctx, msg, round, dur, noMessage) {
 		return
 	}
-	s.sendHeld(dt.takeHeld(nil), nil)
+	s.sendHeld(ct.takeHeld(nil), nil)
 	s.emitRoundCompletedNow(ctx, msg, round, dur, noMessage)
 }
 
@@ -85,43 +85,43 @@ func (s *DuplexProviderStage) reportsLateUsage() bool {
 // holdCompletionLocked holds round's completion, when it has no cost and the
 // provider can report usage after a call ends, until the call's usage
 // arrives (reportUsage) or the wait ends, and reports whether it did. Called
-// with dt.completionMu held.
+// with ct.completionMu held.
 func (s *DuplexProviderStage) holdCompletionLocked(
 	ctx context.Context, msg *types.Message, round *duplexRound, dur time.Duration, noMessage bool,
 ) bool {
 	if hasCost(msg.CostInfo) || !s.reportsLateUsage() {
 		return false
 	}
-	dt := s.tools
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
+	ct := s.calls
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
 	h := &heldCompletion{ctx: ctx, round: round, msg: *msg, dur: dur, noMessage: noMessage}
 	h.timer = time.AfterFunc(s.completionWait(), func() {
-		dt.completionMu.Lock()
-		defer dt.completionMu.Unlock()
-		s.sendHeld(dt.takeHeld(round), nil)
+		ct.completionMu.Lock()
+		defer ct.completionMu.Unlock()
+		s.sendHeld(ct.takeHeld(round), nil)
 	})
-	dt.held = append(dt.held, h)
+	ct.held = append(ct.held, h)
 	return true
 }
 
 // takeHeld takes the held completions up to and including round's (all of
 // them when round is nil), in the order they were held; none when round's
-// is not held. Called with dt.completionMu held.
-func (dt *duplexTools) takeHeld(round *duplexRound) []*heldCompletion {
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	n := len(dt.held)
+// is not held. Called with ct.completionMu held.
+func (ct *callTracker) takeHeld(round *duplexRound) []*heldCompletion {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	n := len(ct.held)
 	if round != nil {
-		n = slices.IndexFunc(dt.held, func(h *heldCompletion) bool { return h.round == round }) + 1
+		n = slices.IndexFunc(ct.held, func(h *heldCompletion) bool { return h.round == round }) + 1
 	}
-	taken := slices.Clone(dt.held[:n])
-	dt.held = slices.Delete(dt.held, 0, n)
+	taken := slices.Clone(ct.held[:n])
+	ct.held = slices.Delete(ct.held, 0, n)
 	return taken
 }
 
 // sendHeld emits held completions in order; the one for usage's call, when
-// usage is set, carries it. Called with dt.completionMu held.
+// usage is set, carries it. Called with ct.completionMu held.
 func (s *DuplexProviderStage) sendHeld(held []*heldCompletion, usage *heldUsage) {
 	for _, h := range held {
 		h.timer.Stop()
@@ -143,11 +143,11 @@ type heldUsage struct {
 // provider.call.usage after the completion. A nil round is a session-level
 // usage.
 func (s *DuplexProviderStage) reportUsage(ctx context.Context, cost *types.CostInfo, round *duplexRound) {
-	dt := s.tools
-	dt.completionMu.Lock()
-	defer dt.completionMu.Unlock()
+	ct := s.calls
+	ct.completionMu.Lock()
+	defer ct.completionMu.Unlock()
 	if round != nil {
-		if held := dt.takeHeld(round); len(held) > 0 {
+		if held := ct.takeHeld(round); len(held) > 0 {
 			s.sendHeld(held, &heldUsage{round: round, cost: cost})
 			return
 		}
@@ -160,8 +160,8 @@ func (s *DuplexProviderStage) reportUsage(ctx context.Context, cost *types.CostI
 // flushHeldCompletions emits every completion still waiting for its usage,
 // as it is: the session has ended, and no usage can arrive.
 func (s *DuplexProviderStage) flushHeldCompletions() {
-	dt := s.tools
-	dt.completionMu.Lock()
-	defer dt.completionMu.Unlock()
-	s.sendHeld(dt.takeHeld(nil), nil)
+	ct := s.calls
+	ct.completionMu.Lock()
+	defer ct.completionMu.Unlock()
+	s.sendHeld(ct.takeHeld(nil), nil)
 }

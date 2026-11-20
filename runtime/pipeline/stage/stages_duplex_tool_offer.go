@@ -236,10 +236,13 @@ func (s *DuplexProviderStage) syncSessionTools(
 	ctx context.Context, turn *duplexToolTurn, excluded map[string]bool, record bool,
 ) {
 	dt := s.tools
+	if dt == nil {
+		return // without tool execution the session keeps the host's tools
+	}
 	o := &dt.offer
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !dt.isCurrent(turn) {
+	if !s.calls.isCurrent(turn) {
 		return
 	}
 	want := s.wantedSessionTools(excluded)
@@ -247,7 +250,7 @@ func (s *DuplexProviderStage) syncSessionTools(
 		s.updateSessionToolsLocked(ctx, want, key)
 	}
 	if record {
-		dt.recordOffered(turn, o.heldNames())
+		s.calls.recordOffered(turn, o.heldNames())
 	}
 }
 
@@ -275,20 +278,20 @@ func (s *DuplexProviderStage) updateSessionToolsLocked(
 }
 
 // isCurrent reports whether turn is the current tool turn.
-func (dt *duplexTools) isCurrent(turn *duplexToolTurn) bool {
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	return dt.turn == turn
+func (ct *callTracker) isCurrent(turn *duplexToolTurn) bool {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	return ct.turn == turn
 }
 
 // recordOffered adds names to what turn offered the model.
-func (dt *duplexTools) recordOffered(turn *duplexToolTurn, names []string) {
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
+func (ct *callTracker) recordOffered(turn *duplexToolTurn, names []string) {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
 	recordOfferedLocked(turn, names)
 }
 
-// recordOfferedLocked is recordOffered with dt.mu held.
+// recordOfferedLocked is recordOffered with ct.mu held.
 func recordOfferedLocked(turn *duplexToolTurn, names []string) {
 	if turn.offered == nil {
 		turn.offered = make(map[string]bool, len(names))
@@ -300,13 +303,13 @@ func recordOfferedLocked(turn *duplexToolTurn, names []string) {
 
 // stampToolsOffered records on msg what turn offered the model: every tool
 // the session held during the turn, sorted. Nothing when it offered none.
-func (dt *duplexTools) stampToolsOffered(turn *duplexToolTurn, msg *types.Message) {
-	dt.mu.Lock()
+func (ct *callTracker) stampToolsOffered(turn *duplexToolTurn, msg *types.Message) {
+	ct.mu.Lock()
 	names := make([]string, 0, len(turn.offered))
 	for name := range turn.offered {
 		names = append(names, name)
 	}
-	dt.mu.Unlock()
+	ct.mu.Unlock()
 	if len(names) == 0 {
 		return
 	}

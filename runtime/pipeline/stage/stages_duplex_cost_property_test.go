@@ -178,7 +178,7 @@ func (sc *costScenario) emitTool(g int64, turn []providers.StreamChunk) {
 	before := len(sc.h.sess().sentResponses())
 	sc.emit("tool", gen(g, turn))
 	assert.Eventually(sc.t, func() bool {
-		return len(sc.h.sess().sentResponses()) > before || sc.h.sess().isClosed() || sc.h.stage.tools.isTerminal()
+		return len(sc.h.sess().sentResponses()) > before || sc.h.sess().isClosed() || sc.h.stage.calls.isTerminal()
 	}, 2*time.Second, time.Millisecond)
 }
 
@@ -308,13 +308,13 @@ func (sc *costScenario) trailingCancelled() {
 
 // awaitUserTurn waits for the user's turn to begin its tool turn.
 func (sc *costScenario) awaitUserTurn() {
-	dt := sc.h.stage.tools
-	ok := assert.Eventuallyf(sc.t, func() bool { return sc.h.toolTurn() != nil || dt.isTerminal() },
+	ct := sc.h.stage.calls
+	ok := assert.Eventuallyf(sc.t, func() bool { return sc.h.toolTurn() != nil || ct.isTerminal() },
 		2*time.Second, time.Millisecond, "the user turn began no tool turn: %v", sc.log)
 	if !ok {
-		dt.mu.Lock()
-		sc.t.Logf("open=%+v turn=%v round=%d terminal=%v", dt.open, dt.turn, dt.round, dt.terminal)
-		dt.mu.Unlock()
+		ct.mu.Lock()
+		sc.t.Logf("open=%+v turn=%v round=%d terminal=%v", ct.open, ct.turn, ct.round, ct.terminal)
+		ct.mu.Unlock()
 	}
 }
 
@@ -322,29 +322,29 @@ func (sc *costScenario) awaitUserTurn() {
 // be taken in: the call goes on, and the next generation's call starts the
 // user's tool turn.
 func (sc *costScenario) awaitUserTurnDue() {
-	dt := sc.h.stage.tools
+	ct := sc.h.stage.calls
 	assert.Eventuallyf(sc.t, func() bool {
-		dt.mu.Lock()
-		defer dt.mu.Unlock()
-		return dt.newTurnDue || dt.terminal || sc.h.sess().isClosed()
+		ct.mu.Lock()
+		defer ct.mu.Unlock()
+		return ct.newTurnDue || ct.terminal || sc.h.sess().isClosed()
 	}, 2*time.Second, time.Millisecond, "the user turn was never taken in: %v", sc.log)
 }
 
 // turnEnded checks that once a turn has ended no call and no tool turn is
 // left open.
 func (sc *costScenario) turnEnded() {
-	dt := sc.h.stage.tools
-	if sc.h.sess().isClosed() || dt.isTerminal() {
+	ct := sc.h.stage.calls
+	if sc.h.sess().isClosed() || ct.isTerminal() {
 		return // a spent budget is closing the session
 	}
 	if !assert.Eventuallyf(sc.t, func() bool {
-		dt.mu.Lock()
-		defer dt.mu.Unlock()
-		return (dt.open == nil && dt.turn == nil) || dt.terminal
+		ct.mu.Lock()
+		defer ct.mu.Unlock()
+		return (ct.open == nil && ct.turn == nil) || ct.terminal
 	}, 2*time.Second, time.Millisecond, "a call or tool turn left open after a turn end: %v", sc.log) {
-		dt.mu.Lock()
-		sc.t.Logf("open=%+v turn=%v round=%d", dt.open, dt.turn != nil, dt.round)
-		dt.mu.Unlock()
+		ct.mu.Lock()
+		sc.t.Logf("open=%+v turn=%v round=%d", ct.open, ct.turn != nil, ct.round)
+		ct.mu.Unlock()
 	}
 }
 
@@ -387,11 +387,11 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 		ops[sc.rng.Intn(len(ops))]()
 		sc.settle()
 		if os.Getenv("COSTDEBUG") != "" {
-			dt := h.stage.tools
-			dt.mu.Lock()
-			t.Logf("%v: open=%v turn=%v round=%d terminal=%v spent=%.3f", sc.log, dt.open != nil, dt.turn != nil,
-				dt.round, dt.terminal, dt.spent)
-			dt.mu.Unlock()
+			ct := h.stage.calls
+			ct.mu.Lock()
+			t.Logf("%v: open=%v turn=%v round=%d terminal=%v spent=%.3f", sc.log, ct.open != nil, ct.turn != nil,
+				ct.round, ct.terminal, ct.spent)
+			ct.mu.Unlock()
 		}
 	}
 	elems := h.finish()
@@ -454,9 +454,9 @@ func runCostScenario(t *testing.T, shape costShape, seed int64) costTotals {
 	for id, n := range startedIDs {
 		assert.Equalf(t, 1, n, "%s seed %d: call %s started %d times", shape, seed, id, n)
 	}
-	h.stage.tools.mu.Lock()
-	assert.Nilf(t, h.stage.tools.open, "%s seed %d %v: a call left open", shape, seed, sc.log)
-	h.stage.tools.mu.Unlock()
+	h.stage.calls.mu.Lock()
+	assert.Nilf(t, h.stage.calls.open, "%s seed %d %v: a call left open", shape, seed, sc.log)
+	h.stage.calls.mu.Unlock()
 	all := startedSnapshot()
 	for _, i := range sc.firstAfterUser {
 		if i < len(all) { // the user's turn starts with the next call
@@ -501,8 +501,8 @@ func (denyReplyHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, resp
 // that usage names no call only where the scenario allows it.
 func (sc *costScenario) assertDelivered(elems []StreamElement, ev *callEvents, label string) {
 	t := sc.t
-	dt := sc.h.stage.tools
-	if dt.isTerminal() || sc.over {
+	ct := sc.h.stage.calls
+	if ct.isTerminal() || sc.over {
 		return // the session closed early: later output was never read
 	}
 	for g, want := range sc.expected {
@@ -528,9 +528,9 @@ func (sc *costScenario) assertDelivered(elems []StreamElement, ev *callEvents, l
 	usage := append([]*events.ProviderCallUsageData(nil), ev.usage...)
 	ev.mu.Unlock()
 	noMessageOf := func(g int64) (bool, bool) {
-		dt.mu.Lock()
-		r := dt.gens[g]
-		dt.mu.Unlock()
+		ct.mu.Lock()
+		r := ct.gens[g]
+		ct.mu.Unlock()
 		if r == nil {
 			return false, false
 		}

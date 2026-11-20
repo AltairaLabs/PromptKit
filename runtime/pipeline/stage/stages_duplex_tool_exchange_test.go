@@ -275,7 +275,7 @@ func TestDuplexToolExchange_CallOfACompletedGenerationHoldsNothing(t *testing.T)
 func TestDuplexToolExchange_CallWhileTheSessionClosesIsRefusedAtOnce(t *testing.T) {
 	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`)}
 	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
-	require.True(t, h.stage.tools.setTerminal(), "a limit is closing the session")
+	require.True(t, h.stage.calls.setTerminal(), "a limit is closing the session")
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.settle()

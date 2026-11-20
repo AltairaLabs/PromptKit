@@ -62,41 +62,41 @@ const (
 )
 
 // lookupLocked returns the call gen is bound to and its state. Called with
-// dt.mu held.
-func (dt *duplexTools) lookupLocked(gen int64) (*duplexRound, genState) {
+// ct.mu held.
+func (ct *callTracker) lookupLocked(gen int64) (*duplexRound, genState) {
 	if gen == 0 {
 		return nil, genUnbound
 	}
-	if r, ok := dt.gens[gen]; ok {
-		if r == dt.open {
+	if r, ok := ct.gens[gen]; ok {
+		if r == ct.open {
 			return r, genOpen
 		}
 		return r, genCompleted
 	}
-	if gen <= dt.forgottenUpTo {
+	if gen <= ct.forgottenUpTo {
 		return nil, genForgotten
 	}
 	return nil, genUnbound
 }
 
 // bindGenerationLocked binds gen to the open call, when gen is unbound and
-// the open call has none. Called with dt.mu held.
-func (dt *duplexTools) bindGenerationLocked(gen int64) {
-	if _, st := dt.lookupLocked(gen); st != genUnbound || gen == 0 || dt.open == nil || dt.open.gen != 0 {
+// the open call has none. Called with ct.mu held.
+func (ct *callTracker) bindGenerationLocked(gen int64) {
+	if _, st := ct.lookupLocked(gen); st != genUnbound || gen == 0 || ct.open == nil || ct.open.gen != 0 {
 		return
 	}
-	if dt.gens == nil {
-		dt.gens = map[int64]*duplexRound{}
+	if ct.gens == nil {
+		ct.gens = map[int64]*duplexRound{}
 	}
-	dt.open.gen = gen
-	dt.gens[gen] = dt.open
-	dt.genOrder = append(dt.genOrder, gen)
-	if len(dt.genOrder) > maxTrackedGenerations {
-		for i, old := range dt.genOrder {
-			if dt.gens[old] != dt.open {
-				delete(dt.gens, old)
-				dt.forgottenUpTo = max(dt.forgottenUpTo, old)
-				dt.genOrder = append(dt.genOrder[:i], dt.genOrder[i+1:]...)
+	ct.open.gen = gen
+	ct.gens[gen] = ct.open
+	ct.genOrder = append(ct.genOrder, gen)
+	if len(ct.genOrder) > maxTrackedGenerations {
+		for i, old := range ct.genOrder {
+			if ct.gens[old] != ct.open {
+				delete(ct.gens, old)
+				ct.forgottenUpTo = max(ct.forgottenUpTo, old)
+				ct.genOrder = append(ct.genOrder[:i], ct.genOrder[i+1:]...)
 				break
 			}
 		}
@@ -111,24 +111,24 @@ func (dt *duplexTools) bindGenerationLocked(gen int64) {
 // accumulated is discarded). A new generation's call starts a tool turn of
 // its own (round 1) when a user turn came in meanwhile, when the previous
 // call was superseded, or when no turn is under way. Response goroutine
-// only. Nil-safe without tool execution.
+// only.
 func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
-	dt := s.tools
-	if dt == nil || gen == 0 {
+	ct := s.calls
+	if gen == 0 {
 		return
 	}
-	dt.mu.Lock()
-	if _, st := dt.lookupLocked(gen); st != genUnbound || (dt.open != nil && dt.open.gen == 0) {
-		dt.bindGenerationLocked(gen)
-		dt.mu.Unlock()
+	ct.mu.Lock()
+	if _, st := ct.lookupLocked(gen); st != genUnbound || (ct.open != nil && ct.open.gen == 0) {
+		ct.bindGenerationLocked(gen)
+		ct.mu.Unlock()
 		return
 	}
 	var superseded *completion
-	if dt.open != nil {
-		old := dt.open
+	if ct.open != nil {
+		old := ct.open
 		superseded = &completion{round: old, turn: old.turn, dur: time.Since(old.start),
 			reported: types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: old.pending}}
-		dt.open = nil
+		ct.open = nil
 		delete(s.parked, old.gen)
 		if s.accGen == old.gen { // what it accumulated is not anyone's message
 			s.discardAccumulation()
@@ -136,15 +136,15 @@ func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
 		}
 	}
 	var started *duplexToolTurn
-	if dt.turn == nil || dt.newTurnDue || superseded != nil {
-		started = s.startToolTurnLocked(dt.offer.heldNames())
-		dt.newTurnDue = false
+	if ct.turn == nil || ct.newTurnDue || superseded != nil {
+		started = s.startToolTurnLocked(s.heldToolNames())
+		ct.newTurnDue = false
 	}
-	opened := dt.openRoundLocked()
-	dt.bindGenerationLocked(gen)
-	dt.mu.Unlock()
+	opened := ct.openRoundLocked()
+	ct.bindGenerationLocked(gen)
+	ct.mu.Unlock()
 	if superseded != nil {
-		dt.replyDue.Store(false)
+		s.tools.clearReplyDue()
 		s.emitCompletion(ctx, superseded, true)
 	}
 	s.syncStartedTurn(ctx, started)
@@ -155,10 +155,10 @@ func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
 // the open call: gen is the open call's (bindGeneration has bound every
 // numbered generation by now), or 0 (not numbered). An interruption naming a
 // completed call interrupts nothing now.
-func (dt *duplexTools) interruptsOpenCall(gen int64) bool {
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	_, st := dt.lookupLocked(gen)
+func (ct *callTracker) interruptsOpenCall(gen int64) bool {
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	_, st := ct.lookupLocked(gen)
 	return gen == 0 || st == genOpen
 }
 
@@ -168,13 +168,13 @@ func (dt *duplexTools) interruptsOpenCall(gen int64) bool {
 // only its cost counts, and an interruption still flushes the caller's
 // playback.
 func (s *DuplexProviderStage) staleChunk(chunk *providers.StreamChunk) bool {
-	dt := s.tools
-	if dt == nil || chunk.Generation == 0 || isInputTranscriptionChunk(chunk) {
+	ct := s.calls
+	if chunk.Generation == 0 || isInputTranscriptionChunk(chunk) {
 		return false
 	}
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	_, st := dt.lookupLocked(chunk.Generation)
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	_, st := ct.lookupLocked(chunk.Generation)
 	return st == genCompleted || st == genForgotten
 }
 
@@ -285,16 +285,13 @@ func (s *DuplexProviderStage) switchGeneration(gen int64) {
 // path that takes the open call's partial reply (an error, the session
 // closing).
 func (s *DuplexProviderStage) switchToOpenCall() {
-	dt := s.tools
-	if dt == nil {
-		return
-	}
-	dt.mu.Lock()
+	ct := s.calls
+	ct.mu.Lock()
 	var gen int64
-	if dt.open != nil {
-		gen = dt.open.gen
+	if ct.open != nil {
+		gen = ct.open.gen
 	}
-	dt.mu.Unlock()
+	ct.mu.Unlock()
 	s.switchGeneration(gen)
 }
 
@@ -316,25 +313,22 @@ func (s *DuplexProviderStage) discardAccumulation() {
 // generation, a session-level usage event with no CallID. Returns the job
 // reporting a spent budget, or nil. Response goroutine only.
 func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *providers.StreamChunk) *duplexToolJob {
-	dt := s.tools
-	if dt == nil {
-		return nil
-	}
+	ct := s.calls
 	cost := chunk.CostInfo
-	dt.mu.Lock()
-	dt.bindGenerationLocked(chunk.Generation) // a generation seen first with its cost
-	round, st := dt.lookupLocked(chunk.Generation)
+	ct.mu.Lock()
+	ct.bindGenerationLocked(chunk.Generation) // a generation seen first with its cost
+	round, st := ct.lookupLocked(chunk.Generation)
 	if chunk.Generation == 0 {
-		round = dt.last
+		round = ct.last
 	}
 	if st == genForgotten {
 		round = nil
 	}
-	open := round != nil && round == dt.open
+	open := round != nil && round == ct.open
 	if open {
 		round.pending = addCost(round.pending, cost)
 	}
-	turn := dt.turn
+	turn := ct.turn
 	var rr roundRef
 	if round != nil {
 		rr = round.rr
@@ -342,7 +336,7 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 			turn = round.turn
 		}
 	}
-	dt.mu.Unlock()
+	ct.mu.Unlock()
 	if !open {
 		s.reportUsage(ctx, cost, round)
 	}
@@ -353,12 +347,12 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 // only to the spend once a limit is closing the session. A budget it
 // exceeds refuses on rr, the call the cost belongs to.
 func (s *DuplexProviderStage) chargeLate(turn *duplexToolTurn, cost *types.CostInfo, rr roundRef) *duplexToolJob {
-	if s.tools.isTerminal() {
+	if s.calls.isTerminal() {
 		s.chargeSpend(cost)
 		return nil
 	}
 	if turn == nil {
-		turn = &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, 0)}
+		turn = s.newCallTurn(0)
 	}
 	if err := s.charge(turn, cost); err != nil {
 		return s.budgetSpent(turn, nil, rr, err)
@@ -377,8 +371,8 @@ func (s *DuplexProviderStage) emitRoundUsage(ctx context.Context, cost *types.Co
 		OutputTokens: cost.OutputTokens,
 		CachedTokens: cost.CachedTokens,
 		Cost:         cost.TotalCost,
-		Source:       s.tools.cfg.Source,
-		Labels:       s.tools.cfg.Labels,
+		Source:       s.calls.source,
+		Labels:       s.calls.labels,
 		Round:        round.rr.round,
 		CallID:       round.rr.providerCallID,
 	}
@@ -392,24 +386,21 @@ func (s *DuplexProviderStage) emitRoundUsage(ctx context.Context, cost *types.Co
 // completeOpenCall completes the provider call still open when the turn or
 // the session ends, with msg (the partial reply taken then) or as
 // interrupted, carrying the cost reported for it while it was open. emitted
-// says whether msg is emitted. Nil-safe without tool execution.
+// says whether msg is emitted.
 func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.Message, emitted bool) {
-	dt := s.tools
-	if dt == nil {
-		return
-	}
-	dt.mu.Lock()
-	round := dt.open
-	dt.open = nil
+	ct := s.calls
+	ct.mu.Lock()
+	round := ct.open
+	ct.open = nil
 	var pending *types.CostInfo
 	if round != nil {
 		pending = round.pending
 	}
-	dt.mu.Unlock()
+	ct.mu.Unlock()
 	if round == nil {
 		return
 	}
-	dt.replyDue.Store(false)
+	s.tools.clearReplyDue()
 	reported := types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
 	if msg != nil {
 		reported = *msg
@@ -424,10 +415,10 @@ func (s *DuplexProviderStage) chargeSpend(cost *types.CostInfo) {
 	if cost == nil {
 		return
 	}
-	dt := s.tools
-	dt.mu.Lock()
-	defer dt.mu.Unlock()
-	dt.spent += cost.TotalCost
+	ct := s.calls
+	ct.mu.Lock()
+	defer ct.mu.Unlock()
+	ct.spent += cost.TotalCost
 }
 
 // placeCarriedCost carries an unplaced cost for the history, and adds what

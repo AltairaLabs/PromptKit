@@ -746,9 +746,11 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 		elements := drainUntilClosed(t, output)
 		close(input)
 
-		// The empty turnComplete that closed the interrupted turn must be
-		// marked interrupted_turn_complete and must NOT end the stream: the
-		// ONLY EndOfStream is the final response's.
+		// The empty turnComplete that closed the interrupted turn belongs to
+		// the call the interruption completed: it is dropped, not forwarded,
+		// and must NOT end the stream: the ONLY EndOfStream is the final
+		// response's. (An unnumbered one is marked interrupted_turn_complete:
+		// TestDuplexProviderStage_UnnumberedInterruptedTurnComplete.)
 		hasInterruptedTurnComplete := false
 		var endOfStreams []StreamElement
 		for _, elem := range elements {
@@ -759,7 +761,7 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 				endOfStreams = append(endOfStreams, elem)
 			}
 		}
-		assert.True(t, hasInterruptedTurnComplete, "Should emit interrupted_turn_complete metadata")
+		assert.False(t, hasInterruptedTurnComplete, "the interrupted call's end is dropped, not forwarded")
 		require.Len(t, endOfStreams, 1,
 			"Empty turnComplete after interruption should NOT emit EndOfStream; only the final response does")
 		finalMessage := endOfStreams[0].Message
@@ -824,8 +826,8 @@ func TestDuplexProviderStage_InterruptionHandling(t *testing.T) {
 
 		assert.False(t, hasEndOfStream,
 			"Empty turnComplete after interruption (no content) should NOT emit EndOfStream")
-		assert.True(t, hasInterruptedTurnComplete,
-			"Should emit interrupted_turn_complete metadata")
+		assert.False(t, hasInterruptedTurnComplete,
+			"the interrupted call's end is dropped, not forwarded")
 
 		close(input)
 	})

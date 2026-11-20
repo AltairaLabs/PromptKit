@@ -150,9 +150,6 @@ type DuplexProviderStage struct {
 	// Track if we recently saw an interruption
 	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
 	wasInterrupted bool
-	// interruptedGen is the generation that interruption cut short: only its
-	// completion is the "interrupted turn complete" to skip.
-	interruptedGen int64
 
 	// costPlaced is set by chunkToElement when it puts the chunk's cost on the
 	// message it builds; carriedCost is cost no emitted message carries yet
@@ -286,6 +283,9 @@ type DuplexProviderStage struct {
 	// tools runs the session's tool calls (SetToolExecution); nil forwards
 	// them downstream for the host to run. See stages_duplex_tools.go.
 	tools *duplexTools
+	// calls tracks the session's provider calls, with or without tool
+	// execution (stages_duplex_call_tracker.go).
+	calls *callTracker
 	// exchange keeps each call message the stage runs followed by its results
 	// in the output (stages_duplex_tool_exchange.go).
 	exchange toolExchangeOrder
@@ -356,6 +356,7 @@ func NewDuplexProviderStage(
 		// stage always has one; an empty one allows every tool and holds no
 		// system prompt, as no turn state did.
 		turnState: NewTurnState(),
+		calls:     &callTracker{},
 	}
 }
 
