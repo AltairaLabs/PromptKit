@@ -226,6 +226,15 @@ func (s *AudioTurnStage) Process(
 	state := newAudioTurnState()
 
 	for elem := range input {
+		// Inbound audio is activity, silence included: an open microphone is a
+		// live session. Without this a VAD session's idle timer sees only the
+		// model's calls, so a caller who listens to a reply, or thinks, for
+		// longer than the idle timeout loses the session. DuplexProviderStage
+		// does the same for ASM mode.
+		if elem.Audio != nil {
+			ResetIdleFromContext(ctx)
+		}
+
 		// Handle EndOfStream specially - emit any accumulated audio first
 		// This prevents EndOfStream from racing ahead of buffered audio
 		if elem.EndOfStream {

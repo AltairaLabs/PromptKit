@@ -83,7 +83,7 @@ func main() {
 }
 ```
 
-A field left at its zero value takes its default (800ms silence, 200ms minimum speech, 30s maximum turn, 16000 Hz, `alloy`); the [`VADModeConfig` reference](/sdk/reference/conversation-manager/#VADModeConfig) lists every field.
+A field left at its zero value takes its default (800ms silence, 200ms minimum speech, 30s maximum turn, 16000 Hz); the [`VADModeConfig` reference](/sdk/reference/conversation-manager/#VADModeConfig) lists every field. With no `Voice`, the TTS service speaks in its own default voice (`alloy` for OpenAI TTS). Set `Voice` to one of that service's voices: a voice name from another service, such as `alloy` on ElevenLabs, fails every synthesis.
 
 VAD mode does not resample the input: send audio at `SampleRate`.
 
@@ -138,7 +138,7 @@ Every tool call in the session sees the values on `ctx`, as a text turn's tool c
 
 Canceling `ctx` does not end the session; `conv.Close` does. A deadline on `ctx` bounds only the open. The session keeps the values on `ctx` for its whole life, so build a context with what the tool calls need rather than passing a request's context, whose span, logger or transaction ends with the request.
 
-The session also ends without `conv.Close`: when nothing happens in it for the idle timeout (`sdk.WithIdleTimeout`, 30 seconds by default), when the provider reports an error, or when the provider closes the connection. `Response()` closes after any error that ended the session, and `Done()` closes. Input sent after that (`SendChunk`, `SendText`, `SendFrame`, `SendVideoChunk`, `TriggerStart`, `ContinueDuplex`) returns at once with the error that ended the session, which wraps `stage.ErrIdleTimeout` for the idle timeout, or with `sdk.ErrSessionClosed` when the provider closed the session without one (match it with `errors.Is`). Input a send handed over shortly before the session ended may never reach the provider: it is lost with the session. `conv.SessionError()` returns the same error once the session has ended, and nil while it runs or when it ended without one.
+The session also ends without `conv.Close`: when nothing happens in it for the idle timeout (`sdk.WithIdleTimeout`, 30 seconds by default; audio you send, silence included, counts as activity in both modes), when the provider reports an error, or when the provider closes the connection. `Response()` closes after any error that ended the session, and `Done()` closes. Input sent after that (`SendChunk`, `SendText`, `SendFrame`, `SendVideoChunk`, `TriggerStart`, `ContinueDuplex`) returns at once with the error that ended the session, which wraps `stage.ErrIdleTimeout` for the idle timeout, or with `sdk.ErrSessionClosed` when the provider closed the session without one (match it with `errors.Is`). Input a send handed over shortly before the session ended may never reach the provider: it is lost with the session. `conv.SessionError()` returns the same error once the session has ended, and nil while it runs or when it ended without one.
 
 ## Realtime tool calls
 
@@ -189,7 +189,7 @@ In ASM mode the model speaks as it generates. Its audio reaches you as it is pro
 - Output guardrails run on the session's reply goroutine: a slow streaming output check holds back the reply's next audio while it runs. An input check on the caller's speech, such as an LLM judge, does not hold back a reply already streaming. The reply goes on while the check runs, and a block cuts it when the check returns. When no reply is streaming the session waits up to 200 ms for the check. A reply's turn ends only once the checks on its input are done, and a reply that starts while a check is still running waits for it before any of its text, audio, reasoning or tool calls go out, so a blocked reply is never heard. A transcript that arrives after its reply has completed is shown once its check is done.
 - When Gemini Live's own safety filters end a turn, the turn's finish reason is `safety`.
 
-If a reply must be checked before anyone hears it, or the caller's speech before the model hears it, use VAD mode. There the STT text passes the input guardrails before the model is called, and the TTS stage speaks each reply only once it is complete, after every output guardrail has passed it.
+If a reply must be checked before anyone hears it, or the caller's speech before the model hears it, use VAD mode. There the STT text passes the input guardrails before the model is called, and the TTS stage speaks each reply only once it is complete, after every output guardrail has passed it. A blocked reply is replaced whole by the guardrail's message, which the same TTS service speaks, so a cut reply is never partly heard. The [`realtime-showcase` example](https://github.com/AltairaLabs/PromptKit/tree/main/sdk/examples/realtime-showcase) runs the same pack and guardrails in both modes (`-mode asm` and `-mode vad`).
 
 ## Verify
 

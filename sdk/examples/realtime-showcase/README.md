@@ -4,7 +4,8 @@ Talk to OpenAI Realtime or Gemini Live through your microphone and speakers
 while the terminal prints every event the session produces: each message as
 it joins the conversation, barge-in with how much of the reply you heard,
 guardrail blocks, a tool that returns a picture, and what each provider call
-cost.
+cost. `-mode vad` runs the same pack on a text model instead, with speech
+recognition and text-to-speech in the pipeline (see [VAD mode](#vad-mode)).
 
 ```
 09:41:03.120  user      message.created #0 "Tell me a long story."
@@ -89,6 +90,66 @@ warns once. The first session
 renders each of the pack's guardrail messages when it starts; a block in the
 first second or so of the session, before the render is done, plays the tone
 instead. The log prints a `cue` line each time a message plays.
+
+## VAD mode
+
+`-mode asm` (the default) streams your audio to a realtime audio model.
+`-mode vad` opens the session with `sdk.WithVADMode`: the pipeline detects
+when you stop speaking (voice activity detection), transcribes the turn with
+an STT service, sends the text to the provider's text model, and speaks the
+reply with a TTS service.
+
+```bash
+go run . -mode vad -provider openai                    # gpt-4.1-mini
+go run . -mode vad -provider gemini                    # gemini-2.5-flash
+go run . -mode vad -provider openai -tts elevenlabs    # ElevenLabs speaks the replies
+go run -tags portaudio . -mode vad -provider openai    # microphone and speaker
+```
+
+| Flag | In VAD mode |
+|---|---|
+| `-model` | the text model (default `gpt-4.1-mini` / `gemini-2.5-flash`, set in `setupFor`) |
+| `-stt` | the STT service, built by the runtime's STT factory: `openai` (default, needs `OPENAI_API_KEY`) or any other type registered there |
+| `-tts` | the TTS service that speaks every reply, built by the runtime's TTS factory: `openai` (default), `elevenlabs`, `cartesia` or `gemini`, with the key in `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `CARTESIA_API_KEY` or `GEMINI_API_KEY` |
+| `-voice` | the TTS voice; by default the service's own default voice |
+
+The first line printed names the mode, the models and the speech services,
+and what speaks a guardrail's message: in VAD mode, the TTS service.
+
+The scripted mode needs no microphone in VAD mode either. VAD mode takes
+audio, not text, so it synthesizes each request with OpenAI TTS (voice
+`echo`, so you can tell it from the assistant) and sends it as your speech,
+followed by silence so the turn ends. The session's VAD and STT treat it as
+they would a microphone's, so the log's `user` line is the STT transcript of
+what was said. After each reply the script sends silence for as long as the
+reply would play: the session counts the assistant as speaking until then, and
+speech before then would barge in.
+
+What you hear differs from ASM mode:
+
+- **A reply is spoken only once it is complete.** The TTS service speaks a
+  reply after the model has finished it and the output guardrails have passed
+  it. When `no-pineapple` blocks a reply, the whole reply is replaced by
+  "Sorry, I can't say that word." and that is all you hear: no part of the
+  blocked reply is ever spoken, and there is nothing to cut, so no
+  `interrupt` or `playout` line. In ASM mode you hear the reply until the
+  guardrail cuts it.
+- **Your words are checked before the model sees them.** An input guardrail
+  judges the STT transcript before the text model is called, so "Tell me
+  about my friend Bruno." never reaches the model, and the model has no
+  blocked turn to remember.
+- **The guardrail's message is a reply.** The same TTS service speaks it, in
+  the same voice as every other reply. The log's `speech` line shows the
+  words the TTS service spoke and how long they play.
+- **Speech costs are on the log.** Besides each model call, a `cost` line
+  gives each STT call (`STT for #N`, priced on seconds of audio) and each TTS
+  call (`TTS for #N`, priced on characters), and the session total includes
+  them.
+- **Latency.** A reply starts only after the silence that ends your turn
+  (800 ms), the transcription, the whole model reply and its synthesis, so it
+  comes later than in ASM mode, and a long reply waits longest.
+- **Barge-in.** In voice mode, talking over a reply stops it, as in ASM mode:
+  the log prints an `interrupt` line.
 
 ## What is in the pack
 
@@ -202,7 +263,9 @@ Run the voice mode and say each of these in turn.
 go test ./...
 ```
 
-The test runs the example's pack, tool and event log on a scripted mock
-realtime session (no audio, no network), with a mock model as the
-`topic-judge`, and checks the log lines for a barge-in, the guardrails, the
-picture tool and cost.
+The tests run the example's pack, tool and event log without a network: on a
+scripted mock realtime session (ASM mode), checking the log lines for a
+barge-in, the guardrails, the picture tool and cost; and on a VAD session with
+a mock text model and test STT and TTS services, checking that a spoken
+request is transcribed, blocked by `no-bruno` before the model, answered when
+allowed, spoken, and priced. A mock model is the `topic-judge` in both.

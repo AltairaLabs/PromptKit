@@ -1,12 +1,14 @@
 package main
 
-// showcase.go holds everything both modes share: the providers, the
-// show_picture tool and the event log. It builds without PortAudio, so CI
-// compiles and tests it; main_interactive.go (mic and speaker) needs the
-// portaudio build tag, and main_text.go is the scripted text mode.
+// showcase.go holds everything the voice and scripted modes share: the
+// providers, the session modes (ASM and VAD), the show_picture tool and the
+// event log. It builds without PortAudio, so CI compiles and tests it;
+// main_interactive.go (mic and speaker) needs the portaudio build tag, and
+// main_text.go is the scripted mode.
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -17,12 +19,17 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"slices"
+	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/openai"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -43,7 +50,29 @@ const (
 	// judgeProviderKey is the logical provider the pack's no-bruno-topic
 	// guardrail names in its requires block; judgeProvider binds it.
 	judgeProviderKey = "topic-judge"
+
+	// modeASM opens a realtime session on a native audio model (OpenAI
+	// Realtime, Gemini Live); modeVAD runs voice activity detection, STT, a
+	// text model and TTS in the pipeline.
+	modeASM = "asm"
+	modeVAD = "vad"
+
+	// vadSampleRate is the rate VAD mode takes the caller's audio at: the
+	// microphone captures at it and the scripted mode synthesizes its
+	// requests at it. VAD mode does not resample its input.
+	vadSampleRate = 16000
 )
+
+// speechKeys is the environment variable the API key of each speech service
+// is read from, for -stt and -tts in VAD mode. A service type not listed here
+// reads <TYPE>_API_KEY. The services themselves are whatever the runtime's
+// STT and TTS factories have registered.
+var speechKeys = map[string]string{
+	"openai":     "OPENAI_API_KEY",
+	"elevenlabs": "ELEVENLABS_API_KEY",
+	"cartesia":   "CARTESIA_API_KEY",
+	"gemini":     "GEMINI_API_KEY",
+}
 
 // providerSetup is one realtime provider: how to build it and the audio it
 // takes.
@@ -65,6 +94,20 @@ type providerSetup struct {
 	// guardrail's message itself (providers.OutOfBandSpeaker): it comes
 	// before tts.
 	speaksOutOfBand bool
+
+	// mode is modeASM or modeVAD (-mode).
+	mode string
+	// textName and textModel are the text model VAD mode talks to; -model
+	// overrides textModel in VAD mode.
+	textName  string
+	textModel string
+	// stt transcribes the caller in VAD mode; tts then speaks every reply,
+	// in voice (-voice; "" is the service's own default).
+	stt   stt.Service
+	voice string
+	// callerTTS speaks the scripted mode's requests in VAD mode: OpenAI TTS,
+	// in a voice of its own.
+	callerTTS tts.Service
 }
 
 // setupFor returns the realtime provider named by the -provider flag. The
@@ -75,6 +118,7 @@ func setupFor(name string) (*providerSetup, error) {
 		return &providerSetup{
 			name: "OpenAI Realtime", envKey: "OPENAI_API_KEY", model: "gpt-realtime",
 			inputRate: 24000, encoding: "pcm16", judgeType: "openai", judgeModel: "gpt-4.1-mini",
+			textName: "OpenAI", textModel: "gpt-4.1-mini",
 			metadata: map[string]interface{}{"voice": "alloy", "modalities": []string{"audio"}},
 			build: func(model string) providers.Provider {
 				return openai.NewProvider("openai-realtime", model, "https://api.openai.com",
@@ -86,6 +130,7 @@ func setupFor(name string) (*providerSetup, error) {
 		return &providerSetup{
 			name: "Gemini Live", envKey: "GEMINI_API_KEY", model: "gemini-3.8-live",
 			inputRate: 16000, encoding: "pcm_linear16", judgeType: "gemini", judgeModel: "gemini-2.5-flash",
+			textName: "Gemini", textModel: "gemini-2.5-flash",
 			metadata: map[string]interface{}{"response_modalities": []string{"AUDIO"}},
 			build: func(model string) providers.Provider {
 				return gemini.NewProvider("gemini-live", model,
@@ -120,35 +165,175 @@ func (p *providerSetup) judgeProvider() sdk.Option {
 	return sdk.WithNamedProvider(sdk.ProviderSpec{ID: judgeProviderKey, Type: p.judgeType, Model: p.judgeModel})
 }
 
-// flags are the command-line options both modes take.
+// flags are the command-line options the voice and scripted modes take.
 type flags struct {
 	provider string
+	mode     string
 	model    string
+	stt      string
 	tts      string
+	voice    string
 }
 
-// parseFlags reads the command line and resolves the provider, checking its
-// API key is set.
+// parseFlags reads the command line and resolves the provider and mode,
+// checking the API keys they need are set.
 func parseFlags() (*providerSetup, error) {
 	var f flags
-	flag.StringVar(&f.provider, "provider", "openai", "realtime provider: openai or gemini")
-	flag.StringVar(&f.model, "model", "", "model (default: gpt-realtime / gemini-3.8-live)")
-	flag.StringVar(&f.tts, "tts", "", "TTS service that speaks guardrail messages: openai or gemini (default: none, a tone)")
+	flag.StringVar(&f.provider, "provider", "openai", "provider: openai or gemini")
+	flag.StringVar(&f.mode, "mode", modeASM,
+		"asm: the provider's realtime audio model; vad: VAD, an STT service, the provider's text model, a TTS service")
+	flag.StringVar(&f.model, "model", "",
+		"model (default: gpt-realtime / gemini-3.8-live; with -mode vad, gpt-4.1-mini / gemini-2.5-flash)")
+	flag.StringVar(&f.tts, "tts", "",
+		"-mode asm: TTS service that speaks guardrail messages: openai or gemini (default: none, a tone); "+
+			"-mode vad: TTS service that speaks every reply: openai (default), elevenlabs, cartesia or gemini")
+	flag.StringVar(&f.stt, "stt", "", "-mode vad: STT service that transcribes you: "+
+		strings.Join(stt.RegisteredTypes(), ", ")+" (default: openai)")
+	flag.StringVar(&f.voice, "voice", "", "-mode vad: the TTS voice (default: the service's own)")
 	flag.Parse()
+	return resolve(f)
+}
+
+// resolve turns the flags into a provider setup.
+func resolve(f flags) (*providerSetup, error) {
 	setup, err := setupFor(f.provider)
 	if err != nil {
 		return nil, err
 	}
-	if f.model != "" {
-		setup.model = f.model
-	}
 	if os.Getenv(setup.envKey) == "" {
 		return nil, fmt.Errorf("%s is not set", setup.envKey)
 	}
-	if err := setup.useTTS(f.tts); err != nil {
+	switch f.mode {
+	case modeASM:
+		if f.voice != "" || f.stt != "" {
+			return nil, errors.New("-stt and -voice apply to -mode vad")
+		}
+		setup.mode = modeASM
+		if f.model != "" {
+			setup.model = f.model
+		}
+		err = setup.useTTS(f.tts)
+	case modeVAD:
+		if f.model != "" {
+			setup.textModel = f.model
+		}
+		err = setup.useVAD(f.stt, f.tts, f.voice)
+	default:
+		err = fmt.Errorf("unknown mode %q (want asm or vad)", f.mode)
+	}
+	if err != nil {
 		return nil, err
 	}
 	return setup, nil
+}
+
+// useVAD switches the setup to VAD mode: the STT service sttName hears the
+// caller, and the TTS service ttsName speaks every reply, including a
+// guardrail's message, in voice ("" for the service's own default voice).
+// Both default to openai.
+func (p *providerSetup) useVAD(sttName, ttsName, voice string) error {
+	sttName = cmp.Or(sttName, "openai")
+	ttsName = cmp.Or(ttsName, "openai")
+	if !slices.Contains(stt.RegisteredTypes(), sttName) {
+		return fmt.Errorf("unknown STT service %q (want %s)", sttName, strings.Join(stt.RegisteredTypes(), ", "))
+	}
+	if !slices.Contains(tts.RegisteredTypes(), ttsName) {
+		return fmt.Errorf("unknown TTS service %q (want %s)", ttsName, strings.Join(tts.RegisteredTypes(), ", "))
+	}
+	sttCred, err := speechCredential("stt", sttName)
+	if err != nil {
+		return err
+	}
+	ttsCred, err := speechCredential("tts", ttsName)
+	if err != nil {
+		return err
+	}
+	if p.stt, err = stt.CreateFromSpec(stt.ProviderSpec{ID: "showcase-stt", Type: sttName, Credential: sttCred}); err != nil {
+		return fmt.Errorf("-stt %s: %w", sttName, err)
+	}
+	if p.tts, err = tts.CreateFromSpec(tts.ProviderSpec{ID: "showcase-tts", Type: ttsName, Credential: ttsCred}); err != nil {
+		return fmt.Errorf("-tts %s: %w", ttsName, err)
+	}
+	p.mode = modeVAD
+	p.voice = voice
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		p.callerTTS = tts.NewOpenAI(key)
+	}
+	return nil
+}
+
+// speechCredential resolves the API key of the speech service name, given
+// with -flagName, from its environment variable (speechKeys).
+func speechCredential(flagName, name string) (credentials.Credential, error) {
+	env, ok := speechKeys[name]
+	if !ok {
+		env = strings.ToUpper(name) + "_API_KEY"
+	}
+	if os.Getenv(env) == "" {
+		return nil, fmt.Errorf("-%s %s needs %s", flagName, name, env)
+	}
+	cred, err := base.ResolveCredential(context.Background(), name, "", &credentials.CredentialConfig{CredentialEnv: env})
+	if err != nil {
+		return nil, fmt.Errorf("-%s %s: %w", flagName, name, err)
+	}
+	return cred, nil
+}
+
+// banner is the first line the showcase prints: the mode, the model, and what
+// plays a guardrail's message.
+func (p *providerSetup) banner() string {
+	_, heard := p.sessionOptions()
+	if p.mode == modeVAD {
+		voice := "its default voice"
+		if p.voice != "" {
+			voice = "voice " + p.voice
+		}
+		return fmt.Sprintf("Realtime showcase - VAD mode: %s %s, %s STT, %s TTS (%s); guardrail messages: %s",
+			p.textName, p.textModel, p.stt.Name(), p.tts.Name(), voice, heard)
+	}
+	return fmt.Sprintf("Realtime showcase - ASM mode: %s (%s); guardrail messages: %s", p.name, p.model, heard)
+}
+
+// sessionOptions are the options that open the mode's session, and what a
+// guardrail's message is heard as.
+//
+// ASM mode streams audio to the provider's realtime model
+// (WithStreamingConfig). VAD mode runs the pipeline Audio -> VAD -> STT -> LLM
+// -> TTS (WithVADMode) on the provider's text model: a turn ends when the
+// caller falls silent, input guardrails judge the transcript before the model
+// sees it, and the TTS service speaks a reply only once it is complete and has
+// passed the output guardrails. A guardrail's message is the blocked turn's
+// reply, so the same TTS service speaks it.
+func (p *providerSetup) sessionOptions() (opts []sdk.Option, heard string) {
+	if p.mode == modeVAD {
+		return []sdk.Option{
+			sdk.WithLLMProvider(sdk.ProviderSpec{ID: "showcase-llm", Type: p.judgeType, Model: p.textModel}),
+			sdk.WithVADMode(p.stt, p.tts, p.vadConfig()),
+		}, "spoken by " + p.tts.Name() + " TTS, as every reply is, once the turn is complete"
+	}
+	opts, heard = p.cueOptions()
+	return append([]sdk.Option{
+		sdk.WithProvider(p.build(p.model)),
+		sdk.WithStreamingConfig(p.streamingConfig()),
+	}, opts...), heard
+}
+
+// vadConfig is VAD mode's turn detection and voice: the defaults, at
+// vadSampleRate, in the -voice voice ("" leaves the TTS service's own).
+func (p *providerSetup) vadConfig() *sdk.VADModeConfig {
+	cfg := sdk.DefaultVADModeConfig()
+	cfg.SampleRate = vadSampleRate
+	cfg.Voice = p.voice
+	return cfg
+}
+
+// captureRate is the rate the microphone records at: the realtime model's
+// input rate in ASM mode, vadSampleRate in VAD mode.
+func (p *providerSetup) captureRate() int {
+	if p.mode == modeVAD {
+		return vadSampleRate
+	}
+	return p.inputRate
 }
 
 // useTTS sets the TTS service that speaks a guardrail's message: "openai"
@@ -285,9 +470,9 @@ func fillSquare(img *image.Gray, x0, y0, size int) {
 // reads replies from.
 const conversationID = "realtime-showcase"
 
-// sessionOptions are the options both modes open the conversation with: the
+// logOptions are the options every session opens the conversation with: the
 // event bus the log watches and the store it reads replies from.
-func sessionOptions(bus events.Bus, store statestore.Store) []sdk.Option {
+func logOptions(bus events.Bus, store statestore.Store) []sdk.Option {
 	return []sdk.Option{
 		sdk.WithEventBus(bus),
 		sdk.WithStateStore(store),

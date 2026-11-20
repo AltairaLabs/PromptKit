@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image/png"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,8 +19,11 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
@@ -68,7 +73,14 @@ type showcaseRun struct {
 	sess *mock.MockStreamSession
 	out  *syncBuffer
 	seen int
+	// speechCosts masks the running total on a step's lines: STT, TTS and
+	// provider costs print from their own goroutines, so the order they add
+	// up in is not fixed. The session's end gives the total.
+	speechCosts bool
 }
+
+// totalRe matches a line's running session total.
+var totalRe = regexp.MustCompile(`session total \$[0-9.]+$`)
 
 // step drives one exchange and returns the lines it printed, sorted: the
 // bus, the Response() reader and the store poll print from their own
@@ -78,6 +90,12 @@ func (r *showcaseRun) step(want int, chunks ...*providers.StreamChunk) []string 
 	for _, c := range chunks {
 		r.sess.EmitChunk(c)
 	}
+	return r.collect(want)
+}
+
+// collect waits for want new lines and returns them sorted, as step does.
+func (r *showcaseRun) collect(want int) []string {
+	r.t.Helper()
 	var got []string
 	require.Eventuallyf(r.t, func() bool {
 		got = r.out.lines()[r.seen:]
@@ -88,7 +106,11 @@ func (r *showcaseRun) step(want int, chunks ...*providers.StreamChunk) []string 
 	r.seen += len(got)
 	out := make([]string, len(got))
 	for i, l := range got {
-		out[i] = heardRe.ReplaceAllString(l, "heard_ms=N $1 played_fraction=F")
+		l = heardRe.ReplaceAllString(l, "heard_ms=N $1 played_fraction=F")
+		if r.speechCosts {
+			l = totalRe.ReplaceAllString(l, "session total $$T")
+		}
+		out[i] = l
 	}
 	sort.Strings(out)
 	return out
@@ -224,7 +246,7 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
 	elog.attach(bus)
 
-	opts := append(sessionOptions(bus, store),
+	opts := append(logOptions(bus, store),
 		sdk.WithProvider(&scriptedProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt-model", false), sess: sess}),
 		sdk.WithStreamingConfig((&providerSetup{inputRate: 24000, encoding: "pcm16"}).streamingConfig()),
 		sdk.WithPlayoutTracking(),
@@ -417,4 +439,226 @@ func TestCueOptions_OpenAISpeaksInItsOwnVoice(t *testing.T) {
 	opts, heard = setup.cueOptions()
 	assert.Len(t, opts, 1, "the TTS service stays configured as the fallback")
 	assert.Equal(t, "spoken by the session in its own voice (out of band; openai TTS if it cannot)", heard)
+}
+
+// flagsFor is the flags for provider and mode, the rest at their defaults.
+func flagsFor(provider, mode string) flags { return flags{provider: provider, mode: mode} }
+
+// -mode picks the session: asm (the default) keeps the realtime model and
+// -tts's meaning, vad switches to the text model with OpenAI STT and a TTS
+// service -tts picks, each with the key it needs.
+func TestResolve_Modes(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	t.Setenv("ELEVENLABS_API_KEY", "test-key")
+	t.Setenv("CARTESIA_API_KEY", "")
+
+	asm, err := resolve(flags{provider: "openai", mode: modeASM, model: "gpt-realtime-mini"})
+	require.NoError(t, err)
+	assert.Equal(t, modeASM, asm.mode)
+	assert.Equal(t, "gpt-realtime-mini", asm.model, "-model is the realtime model in ASM mode")
+	assert.Equal(t, "Realtime showcase - ASM mode: OpenAI Realtime (gpt-realtime-mini); "+
+		"guardrail messages: spoken by the session in its own voice (out of band)", asm.banner())
+
+	vad, err := resolve(flags{provider: "gemini", mode: modeVAD, model: "gemini-2.5-pro"})
+	require.NoError(t, err)
+	assert.Equal(t, modeVAD, vad.mode)
+	assert.Equal(t, "gemini-2.5-pro", vad.textModel, "-model is the text model in VAD mode")
+	assert.Equal(t, "gemini-3.8-live", vad.model)
+	assert.Equal(t, "Realtime showcase - VAD mode: Gemini gemini-2.5-pro, openai-whisper STT, openai TTS "+
+		"(its default voice); guardrail messages: spoken by openai TTS, as every reply is, once the turn is complete",
+		vad.banner())
+	assert.Equal(t, vadSampleRate, vad.captureRate())
+	assert.Equal(t, 24000, asm.captureRate(), "ASM captures at the realtime model's input rate")
+
+	el, err := resolve(flags{provider: "openai", mode: modeVAD, tts: "elevenlabs", voice: "rachel"})
+	require.NoError(t, err)
+	assert.Equal(t, "Realtime showcase - VAD mode: OpenAI gpt-4.1-mini, openai-whisper STT, elevenlabs TTS "+
+		"(voice rachel); guardrail messages: spoken by elevenlabs TTS, as every reply is, once the turn is complete",
+		el.banner())
+	assert.Equal(t, "rachel", el.vadConfig().Voice)
+	assert.Equal(t, vadSampleRate, el.vadConfig().SampleRate)
+	assert.Equal(t, "openai", el.callerTTS.Name(), "the scripted requests are spoken by OpenAI TTS")
+
+	for _, tc := range []struct {
+		f    flags
+		want string
+	}{
+		{flagsFor("openai", "pipeline"), `unknown mode "pipeline" (want asm or vad)`},
+		{flags{provider: "openai", mode: modeVAD, tts: "polly"},
+			`unknown TTS service "polly" (want ` + strings.Join(tts.RegisteredTypes(), ", ") + ")"},
+		{flags{provider: "openai", mode: modeVAD, stt: "deepgram"}, `unknown STT service "deepgram" (want ` + strings.Join(stt.RegisteredTypes(), ", ") + ")"},
+		{flags{provider: "openai", mode: modeASM, stt: "openai"}, "-stt and -voice apply to -mode vad"},
+		{flags{provider: "openai", mode: modeVAD, tts: "cartesia"}, "-tts cartesia needs CARTESIA_API_KEY"},
+		{flags{provider: "openai", mode: modeASM, voice: "nova"}, "-stt and -voice apply to -mode vad"},
+		{flags{provider: "openai", mode: modeASM, tts: "elevenlabs"},
+			`unknown TTS service "elevenlabs" (want openai or gemini)`},
+	} {
+		_, err := resolve(tc.f)
+		assert.EqualError(t, err, tc.want, "%+v", tc.f)
+	}
+
+	t.Setenv("OPENAI_API_KEY", "")
+	_, err = resolve(flagsFor("gemini", modeVAD))
+	assert.EqualError(t, err, "-stt openai needs OPENAI_API_KEY")
+}
+
+// scriptSTT transcribes each turn as the next line of the script, at a fixed
+// price.
+type scriptSTT struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (s *scriptSTT) next() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.lines) == 0 {
+		return ""
+	}
+	line := s.lines[0]
+	s.lines = s.lines[1:]
+	return line
+}
+
+func (s *scriptSTT) Name() string                      { return "script-stt" }
+func (s *scriptSTT) Type() base.ProviderType           { return base.ProviderTypeSTT }
+func (s *scriptSTT) Pricing() *base.PricingDescriptor  { return nil }
+func (s *scriptSTT) Validate() error                   { return nil }
+func (s *scriptSTT) Init(context.Context) error        { return nil }
+func (s *scriptSTT) HealthCheck(context.Context) error { return nil }
+func (s *scriptSTT) Close() error                      { return nil }
+func (s *scriptSTT) SupportedFormats() []string        { return []string{"pcm"} }
+
+func (s *scriptSTT) Transcribe(context.Context, base.STTRequest) (base.STTResponse, error) {
+	return base.STTResponse{Text: s.next(), Cost: &types.CostInfo{
+		TotalCost: 0.0005, Capability: "stt", Quantities: map[string]float64{"second": 5}}}, nil
+}
+
+func (s *scriptSTT) TranscribeBytes(context.Context, []byte, stt.TranscriptionConfig) (string, error) {
+	return s.next(), nil
+}
+
+// pricedTTS synthesizes 100 ms of PCM at 24 kHz per reply, priced per
+// character, and reports what it spoke. As a caller's voice it renders a
+// loud square wave the VAD calls speech.
+type pricedTTS struct{ speech time.Duration }
+
+func (p *pricedTTS) Name() string                                         { return "priced-tts" }
+func (p *pricedTTS) ImplName() string                                     { return "priced-tts" }
+func (p *pricedTTS) ModelName() string                                    { return "" }
+func (p *pricedTTS) SupportedVoices() []tts.Voice                         { return nil }
+func (p *pricedTTS) SpokenText(text string, _ tts.SynthesisConfig) string { return text }
+func (p *pricedTTS) Pricing() *base.PricingDescriptor {
+	return &base.PricingDescriptor{Items: []base.PriceItem{{Unit: "character", Rate: 0.00001}}}
+}
+
+func (p *pricedTTS) SupportedFormats() []tts.AudioFormat {
+	return []tts.AudioFormat{{Name: "pcm", MIMEType: "audio/pcm", SampleRate: 24000, BitDepth: 16, Channels: 1}}
+}
+
+func (p *pricedTTS) Synthesize(_ context.Context, _ string, cfg tts.SynthesisConfig) (io.ReadCloser, error) {
+	if p.speech == 0 {
+		return io.NopCloser(bytes.NewReader(make([]byte, 4800))), nil // 100 ms at 24 kHz
+	}
+	n := int(p.speech * time.Duration(cfg.Format.SampleRate) / time.Second)
+	pcm := make([]byte, n*2)
+	for i := range n {
+		v := int16(12000)
+		if i%8 < 4 {
+			v = -12000
+		}
+		pcm[i*2], pcm[i*2+1] = byte(v), byte(v>>8)
+	}
+	return io.NopCloser(bytes.NewReader(pcm)), nil
+}
+
+// The scripted VAD mode without API keys: each request is synthesized and
+// sent as speech, the session's VAD ends the turn, STT transcribes it, the
+// input guardrail blocks the Bruno request before the text model, and the TTS
+// service speaks every reply — the guardrail's message included — with the
+// STT and TTS cost of each.
+func TestShowcaseEventLog_ScriptedVADSession(t *testing.T) {
+	bus := events.NewEventBus()
+	store := statestore.NewMemoryStore()
+	out := &syncBuffer{}
+	elog := newEventLog(out, store, conversationID)
+	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+	elog.speechCosts = true
+	elog.attach(bus)
+
+	setup := &providerSetup{mode: modeVAD, tts: &pricedTTS{}, callerTTS: &pricedTTS{speech: 600 * time.Millisecond},
+		stt: &scriptSTT{lines: []string{"Tell me about my friend Bruno.", "What is the capital of France?"}}}
+	llm := mock.NewProviderWithRepository("llm", "text-model", false,
+		mock.NewInMemoryMockRepository("The capital of France is Paris."))
+	opts := append(logOptions(bus, store),
+		sdk.WithProvider(llm),
+		sdk.WithVADMode(setup.stt, setup.tts, setup.vadConfig()),
+		sdk.WithNamedProvider(sdk.ProviderSpec{ID: judgeProviderKey, Type: "mock", Model: "judge",
+			AdditionalConfig: map[string]any{"repository": mock.ResponseRepository(&topicJudge{})}}),
+	)
+	conv, err := sdk.OpenDuplex(packPath, promptName, opts...)
+	require.NoError(t, err)
+	require.NoError(t, registerTools(conv))
+	resp, err := conv.Response()
+	require.NoError(t, err)
+	turns := make(chan reply, 2)
+	go readReplies(resp, elog, turns)
+	r := &showcaseRun{t: t, out: out, speechCosts: true}
+
+	// One scripted request, spoken, and its reply.
+	ask := func(line string) reply {
+		require.NoError(t, send(setup, conv, elog, line))
+		got, err := waitReply(turns)
+		require.NoError(t, err)
+		return got
+	}
+
+	blocked := ask("Tell me about my friend Bruno.")
+	assert.Equal(t, reply{finish: types.FinishReasonSafety, audio: 100 * time.Millisecond}, blocked)
+	assert.Equal(t, []string{
+		`09:30:00.000  assistant message.created #1 "We don't talk about Bruno."`,
+		`09:30:00.000  cost      STT for #0: $0.0005 (5 second); session total $T`,
+		`09:30:00.000  cost      TTS for #1: $0.0003 (26 character); session total $T`,
+		`09:30:00.000  guardrail no-bruno blocked the user's input ` +
+			`(forbidden content found: turn 0 contains "Bruno"); the turn ends, the session continues`,
+		`09:30:00.000  speech    TTS speaks "We don't talk about Bruno." (100 ms of audio)`,
+		`09:30:00.000  user      message.created #0 "Tell me about my friend Bruno."`,
+		`09:30:00.000  you say   "Tell me about my friend Bruno." (0.6 s of speech, synthesized by priced-tts TTS)`,
+	}, r.collect(7))
+	require.NoError(t, listen(context.Background(), conv, blocked.audio))
+
+	answered := ask("What is the capital of France?")
+	assert.Equal(t, types.FinishReasonStop, answered.finish)
+	assert.Equal(t, []string{
+		`09:30:00.000  assistant message.created #3 "The capital of France is Paris."`,
+		`09:30:00.000  cost      STT for #2: $0.0005 (5 second); session total $T`,
+		`09:30:00.000  cost      TTS for #3: $0.0003 (31 character); session total $T`,
+		`09:30:00.000  cost      call 1: $0.0002 (10 in / 7 out tokens); session total $T`,
+		`09:30:00.000  speech    TTS speaks "The capital of France is Paris." (100 ms of audio)`,
+		`09:30:00.000  user      message.created #2 "What is the capital of France?"`,
+		`09:30:00.000  you say   "What is the capital of France?" (0.6 s of speech, synthesized by priced-tts TTS)`,
+	}, r.collect(7))
+
+	require.NoError(t, conv.Close())
+	bus.Close()
+	elog.end()
+	assert.Equal(t, []string{
+		`09:30:00.000  session   end: 1 provider calls, total cost (with STT and TTS) $0.0017`,
+	}, r.collect(1))
+}
+
+// An error on Response(), such as a TTS service that could not speak a
+// reply, is printed: the caller would otherwise hear nothing and see no why.
+func TestShowcaseEventLog_PrintsResponseErrors(t *testing.T) {
+	out := &syncBuffer{}
+	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+
+	elog.observe(providers.StreamChunk{Delta: "hello"})
+	elog.observe(providers.StreamChunk{Error: errors.New("cartesia: The requested voice was not found.")})
+
+	assert.Equal(t, []string{
+		`09:30:00.000  error     cartesia: The requested voice was not found.`,
+	}, out.lines())
 }
