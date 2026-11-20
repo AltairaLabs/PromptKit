@@ -25,7 +25,8 @@ import (
 //
 // Boundaries are a sentence terminator (. ! ? …) followed by whitespace, a CJK
 // terminator (。！？), a blank line, and a line end before a list item or table
-// row. A terminator is not a boundary inside a number (3.14), after a
+// row. A terminator is not a boundary inside a number (3.14), after a list
+// item's number ("1." at a line start), after a
 // single-letter word or an initialism (e.g., U.S.), after a common title or
 // abbreviation (Mr., Dr., vs.), or inside a code fence, inline code or a link.
 // A boundary is declared only once the text after it shows that it is one, so
@@ -173,7 +174,7 @@ func (sc *segmentScanner) step(i int) (end, size int) {
 	case '。', '！', '？':
 		return i + size, size
 	case '.':
-		if abbreviationBefore(text, i) {
+		if abbreviationBefore(text, i) || listMarkerBefore(text, i) {
 			return 0, size
 		}
 		return sentenceEnd(text, i+size), size
@@ -206,6 +207,15 @@ func abbreviationBefore(text string, i int) bool {
 		return unicode.IsLetter(r)
 	}
 	return abbreviations[strings.ToLower(word)]
+}
+
+// listMarkerBefore reports whether the period at i ends a numbered list
+// item's marker ("1." at the start of a line): it belongs with the item's
+// text, not in a segment of its own.
+func listMarkerBefore(text string, i int) bool {
+	lineStart := strings.LastIndexByte(text[:i], '\n') + 1
+	marker := strings.TrimLeft(text[lineStart:i], " \t")
+	return marker != "" && strings.Trim(marker, "0123456789") == ""
 }
 
 // sentenceEnd returns where a sentence whose terminator ends at after ends:
