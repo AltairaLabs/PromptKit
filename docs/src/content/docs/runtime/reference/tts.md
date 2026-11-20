@@ -734,7 +734,7 @@ func (s *ElevenLabsService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on v3\-class models \(they consume bracket tags natively\); older models \(v1, v2, turbo\) speak the brackets literally, so we return the empty string and the persona prompt is left untouched.
 
 <a name="ElevenLabsService.SpokenText"></a>
-### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L188>)
+### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L191>)
 
 ```go
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
@@ -743,7 +743,7 @@ func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) stri
 SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: eleven\_v3 keeps inline tags \(the model interprets them\), other models strip tags. Implements tts.SpokenTextReporter.
 
 <a name="ElevenLabsService.SupportedFormats"></a>
-### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L279>)
+### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L282>)
 
 ```go
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat
@@ -752,7 +752,7 @@ func (s *ElevenLabsService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by ElevenLabs.
 
 <a name="ElevenLabsService.SupportedVoices"></a>
-### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L264>)
+### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L267>)
 
 ```go
 func (s *ElevenLabsService) SupportedVoices() []Voice

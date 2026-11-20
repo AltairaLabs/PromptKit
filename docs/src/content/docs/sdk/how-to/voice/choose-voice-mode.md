@@ -89,6 +89,8 @@ A field left at its zero value takes its default (800ms silence, 200ms minimum s
 
 VAD mode does not resample the input: send audio at `SampleRate`.
 
+VAD mode speaks a reply while the model is still writing it. As the model streams the reply, the TTS stage splits the text into sentences and synthesizes each one as soon as it ends. It sends the audio on as the TTS service returns it. So the first audio arrives after the first sentence, however long the reply is. A run of text with no sentence end is split at about 250 characters. Each sentence is synthesized once, in order. The conversation still records one reply per turn, and its `tts_cost` is the cost of all its sentences. When an output guardrail holds back text, it is spoken only once the guardrail clears it.
+
 Any `stt.Service` fills the STT slot. Besides `stt.NewOpenAI`, `stt.NewElevenLabs` (ElevenLabs Scribe) and `stt.NewCartesia` (Cartesia Ink) take an API key the same way, so one vendor can both hear and speak:
 
 ```go

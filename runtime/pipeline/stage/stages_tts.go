@@ -134,7 +134,8 @@ const ttsCostMetaKey = "tts_cost"
 
 // extractText extracts text content from an element.
 func (s *TTSStage) extractText(elem *StreamElement) string {
-	// Skip incremental streaming deltas — see TTSStageWithInterruption.extractText.
+	// Skip incremental streaming deltas: this stage speaks the complete
+	// Message (ElementMetadata.StreamingDelta).
 	if elem.Meta.StreamingDelta {
 		return ""
 	}

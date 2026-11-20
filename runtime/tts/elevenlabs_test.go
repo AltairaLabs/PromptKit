@@ -77,8 +77,10 @@ func TestElevenLabsService_Synthesize_Success(t *testing.T) {
 			t.Errorf("Method = %v, want POST", r.Method)
 		}
 
-		if !strings.Contains(r.URL.Path, "/text-to-speech/") {
-			t.Errorf("Path = %v, should contain /text-to-speech/", r.URL.Path)
+		// The streaming endpoint: the audio arrives as it is generated, so a
+		// voice reply starts playing before its synthesis ends.
+		if !strings.HasPrefix(r.URL.Path, "/text-to-speech/") || !strings.HasSuffix(r.URL.Path, "/stream") {
+			t.Errorf("Path = %v, want /text-to-speech/{voice}/stream", r.URL.Path)
 		}
 
 		auth := r.Header.Get("xi-api-key")

@@ -47,7 +47,7 @@ func TestCreateFromSpec_UndeclaredPlatformIsIgnoredWithAWarning(t *testing.T) {
 	_ = rc.Close()
 	assert.Equal(t, "MP3", string(audio))
 	assert.Equal(t, "eleven-key", gotKey)
-	assert.Equal(t, "/text-to-speech/v1", gotPath)
+	assert.Equal(t, "/text-to-speech/v1/stream", gotPath, "audio streams as it is generated")
 	assert.Contains(t, logs.String(), "provider type does not run on this platform; the platform is ignored")
 	assert.Contains(t, logs.String(), "type=elevenlabs platform=azure")
 }

@@ -160,6 +160,18 @@ Which request shape a model gets was read from its name. It now comes from the p
 | Use OpenAI TTS on `tts-1` or `tts-1-hd` with markup tags | the tags' directives are sent as `instructions`, which those models ignore, and `PersonaRubric` offers the markup rubric | set `additional_config.instructions: false`, or call `SetInstructions(false)`, to drop the directives and the rubric |
 | List voices with `SupportedVoices` on OpenAI TTS | all 13 voices on every model; the four `tts-1` lacks say so in their description | pick a voice the model has |
 
+### VAD mode speaks a reply sentence by sentence as it streams
+
+A VAD session used to synthesize a reply only once the model had finished it, so the caller's wait grew with the length of the reply. It now speaks each sentence as soon as the model has streamed it.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read the reply audio from `Response()` in VAD mode | the audio of each sentence, in pieces of about 100ms, where one chunk carried the whole reply | nothing, unless your player expects one chunk per reply |
+| Read `Metadata["spoken_text"]` | it on the first chunk of each sentence, with that sentence's text, where it came once with the whole reply's | join the values to get the whole reply |
+| Guard VAD replies with an output guardrail that judges only the complete reply (an `AfterCall` hook, or a validator with no streaming evaluation) | the caller hears each sentence before that guardrail runs, as a text caller already sees it. If the guardrail then replaces the reply, the rest is not spoken and its message is | use a guardrail that judges streamed chunks; text it holds back is not spoken until it clears it |
+| Use `ElevenLabsService` | requests go to `/text-to-speech/{voice}/stream`, which returns the audio as it is generated | nothing |
+| Speak a short turn while a VAD reply is pending or playing | the turn barges in on the reply, where an utterance the voice activity detector never reported as speech was queued after it | nothing |
+
 ## v2.21.0
 
 ### Voice runs on Azure, and Gemini Live on Vertex

@@ -321,10 +321,12 @@ type ElementMetadata struct {
 
 	// StreamingDelta marks an incremental content Text element emitted by a
 	// streaming provider mid-generation (see ProviderStage.emitChunkElement).
-	// These are the live-text feed for UI consumers; the same reply also arrives
-	// as a complete assistant Message. A speech-out stage must skip the deltas
-	// and speak the Message: the TTS provider takes a complete string, so
-	// synthesizing per fragment would be one request per token and choppy audio.
+	// These are the live-text feed for UI consumers, and the text the provider
+	// stage has released to the caller (output guardrails have cleared it); the
+	// same reply also arrives as a complete assistant Message. A speech-out
+	// stage speaks either the deltas, gathered into sentence-sized segments
+	// (TTSStageWithInterruption: one request per token would be choppy audio),
+	// or the Message (TTSStage), never both.
 	StreamingDelta bool
 
 	// TokenCount is the per-chunk token count emitted by streaming providers.
