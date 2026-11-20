@@ -135,7 +135,7 @@ For OpenAI Realtime, use `sdk.WithModel("gpt-realtime")` and a `SampleRate` of 2
 
 ## Step 3: Pass the caller and host context to tool calls
 
-To tell the session who it acts for, pass `sdk.WithCaller`. Tool executors, tool hooks, provider hooks, chunk interceptors and session hooks receive the caller on their requests, and it does not depend on any context. See [Act for a caller](/sdk/how-to/tools/act-for-a-caller/). Realtime sessions (ASM mode) run their tool calls through the same tool hooks, policy and approval gate as text turns.
+To tell the session who it acts for, pass `sdk.WithCaller`. Tool executors, tool hooks, provider hooks, chunk interceptors and session hooks receive the caller on their requests. PromptKit never reads the caller from a context: a caller you put on `ctx` reaches no tool or hook as the caller. See [Act for a caller](/sdk/how-to/tools/act-for-a-caller/). Realtime sessions (ASM mode) run their tool calls through the same tool hooks, policy and approval gate as text turns.
 
 A duplex session runs its tool calls on its own context, not on the context of any `SendChunk` call. If your tool handlers read other host values from the context, such as a logger or a database handle, open the session with `sdk.OpenDuplexContext` instead of `sdk.OpenDuplex`:
 

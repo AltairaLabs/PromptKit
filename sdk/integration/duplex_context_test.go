@@ -14,8 +14,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
-// callerKey stands in for a host's per-call identity key on the context.
-type callerKey struct{}
+// hostValueKey stands in for a host value on the context, such as a logger or
+// a database handle, that PromptKit does not read.
+type hostValueKey struct{}
 
 // openDuplexFunc opens a duplex conversation on ctx from packPath.
 type openDuplexFunc func(ctx context.Context, t *testing.T, packPath string, opts []sdk.Option) (*sdk.Conversation, error)
@@ -49,8 +50,8 @@ func TestDuplexContext_ToolCallSeesOpeningContextValues(t *testing.T) {
 			}}, "done")
 			packPath := writePackFile(t, duplexToolsPackJSON)
 
-			caller := context.WithValue(context.Background(), callerKey{}, "member@example.com")
-			openCtx, cancelOpen := context.WithCancel(caller)
+			hostCtx := context.WithValue(context.Background(), hostValueKey{}, "tenant-db")
+			openCtx, cancelOpen := context.WithCancel(hostCtx)
 			conv, err := open(openCtx, t, packPath, []sdk.Option{
 				sdk.WithProvider(provider),
 				sdk.WithSkipSchemaValidation(),
@@ -65,7 +66,7 @@ func TestDuplexContext_ToolCallSeesOpeningContextValues(t *testing.T) {
 			patchToolMode(t, conv, "get_location", "client")
 			seen := make(chan any, 1)
 			conv.OnClientTool("get_location", func(ctx context.Context, _ sdk.ClientToolRequest) (any, error) {
-				seen <- ctx.Value(callerKey{})
+				seen <- ctx.Value(hostValueKey{})
 				return map[string]any{"lat": 1}, nil
 			})
 
@@ -74,8 +75,8 @@ func TestDuplexContext_ToolCallSeesOpeningContextValues(t *testing.T) {
 			require.NoError(t, conv.SendText(context.Background(), "Where am I?"))
 
 			select {
-			case caller := <-seen:
-				assert.Equal(t, "member@example.com", caller)
+			case got := <-seen:
+				assert.Equal(t, "tenant-db", got)
 			case <-time.After(5 * time.Second):
 				t.Fatal("tool handler never ran")
 			}
@@ -88,16 +89,16 @@ func TestDuplexContext_ToolCallSeesOpeningContextValues(t *testing.T) {
 }
 
 // A fork of a session opened with OpenDuplexContext keeps the parent's
-// context values: Fork takes no context, and the fork's tool calls run as
-// the same caller as the parent's.
+// context values: Fork takes no context, and the fork's tool calls run with
+// the same host values as the parent's.
 func TestDuplexContext_ForkKeepsTheParentsContextValues(t *testing.T) {
 	provider := newToolAwareStreamingProvider([]types.MessageToolCall{{
 		ID: "call_1", Name: "get_location", Args: json.RawMessage(`{"accuracy":"fine"}`),
 	}}, "done")
 	packPath := writePackFile(t, duplexToolsPackJSON)
 
-	caller := context.WithValue(context.Background(), callerKey{}, "member@example.com")
-	parent, err := sdk.OpenDuplexContext(caller, packPath, "chat",
+	hostCtx := context.WithValue(context.Background(), hostValueKey{}, "tenant-db")
+	parent, err := sdk.OpenDuplexContext(hostCtx, packPath, "chat",
 		sdk.WithProvider(provider),
 		sdk.WithSkipSchemaValidation(),
 		sdk.WithStreamingConfig(&providers.StreamingInputConfig{
@@ -110,7 +111,7 @@ func TestDuplexContext_ForkKeepsTheParentsContextValues(t *testing.T) {
 	patchToolMode(t, parent, "get_location", "client")
 	seen := make(chan any, 1)
 	parent.OnClientTool("get_location", func(ctx context.Context, _ sdk.ClientToolRequest) (any, error) {
-		seen <- ctx.Value(callerKey{})
+		seen <- ctx.Value(hostValueKey{})
 		return map[string]any{"lat": 1}, nil
 	})
 
@@ -123,7 +124,7 @@ func TestDuplexContext_ForkKeepsTheParentsContextValues(t *testing.T) {
 
 	select {
 	case got := <-seen:
-		assert.Equal(t, "member@example.com", got)
+		assert.Equal(t, "tenant-db", got)
 	case <-time.After(5 * time.Second):
 		t.Fatal("the fork's tool handler never ran")
 	}

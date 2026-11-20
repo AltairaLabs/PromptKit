@@ -56,8 +56,9 @@ func OpenVoice(packPath, promptName string, opts ...Option) (*Conversation, erro
 }
 
 // OpenVoiceContext is [OpenVoice] with a base context for the session, as
-// [OpenDuplexContext]: the session's tool calls see ctx's values. The context
-// passed to Start only bounds the audio pumps; it does not reach tool calls.
+// [OpenDuplexContext]: the session's tool calls see ctx's values, which
+// PromptKit does not read; the caller is [WithCaller]'s. The context passed
+// to Start only bounds the audio pumps; it does not reach tool calls.
 func OpenVoiceContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error) {
 	conv, err := OpenDuplexContext(ctx, packPath, promptName, opts...)
 	if err != nil {

@@ -139,15 +139,19 @@ func Open(packPath, promptName string, opts ...Option) (*Conversation, error) {
 //
 // The session runs on a context detached from any caller, so its tool calls
 // see no context values; use [OpenDuplexContext] to give them the host's.
+// Who the session acts for is set with [WithCaller], never on a context.
 func OpenDuplex(packPath, promptName string, opts ...Option) (*Conversation, error) {
 	return OpenDuplexContext(context.Background(), packPath, promptName, opts...)
 }
 
 // OpenDuplexContext is [OpenDuplex] with a base context for the session. The
 // session's pipeline, and so every tool call the model makes, runs on a
-// context carrying ctx's values — the caller identity or policy a host puts
-// there, as it would on a text turn's Send(ctx). Session-start hooks and a
-// [Conversation.Fork] of the session see the same values.
+// context carrying ctx's values, as a text turn's tool calls run on the
+// context given to Send: host values PromptKit does not read, such as a
+// logger or a database handle. Session-start hooks and a [Conversation.Fork]
+// of the session see the same values. PromptKit never reads caller identity
+// or policy from ctx: who the session acts for is [WithCaller]'s, and a
+// caller put on ctx reaches no tool, hook or authorizer as one.
 //
 // The session owns its own cancellation: canceling ctx does not end it; Close
 // does. The open itself (state store seeding, pipeline build) runs on ctx, so
@@ -1340,7 +1344,8 @@ func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (
 }
 
 // ResumeDuplexContext is [ResumeDuplex] with a base context for the session,
-// as [OpenDuplexContext]: the resumed session's tool calls see ctx's values.
+// as [OpenDuplexContext]: the resumed session's tool calls see ctx's values,
+// which PromptKit does not read. The caller is [WithCaller]'s.
 func ResumeDuplexContext(
 	ctx context.Context, conversationID, packPath, promptName string, opts ...Option,
 ) (*Conversation, error) {
