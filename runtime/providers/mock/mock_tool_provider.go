@@ -356,7 +356,8 @@ func (m *ToolProvider) PredictStreamWithTools(
 		defer close(outChan)
 
 		// Send content in chunks (simulate streaming): the turn's own chunks
-		// when it scripts them, else 20 characters at a time.
+		// when it scripts them, else about 20 bytes at a time, cut on
+		// character boundaries.
 		content := resp.Content
 		deltas := streamDeltas(turn, content)
 		for i := range deltas {

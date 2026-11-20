@@ -288,3 +288,34 @@ func assertSessionClosed(t *testing.T, session *MockStreamSession) {
 		t.Fatal("session should be closed")
 	}
 }
+
+// An interrupted reply's partial text ends on a character boundary: half of
+// "Now 2°C okay" is 6 bytes, which falls inside the "°" (bytes 5-6), so the
+// partial text stops before it rather than carrying half of it (#2799).
+func TestEmitAutoResponse_InterruptPartialTextNeverSplitsACharacter(t *testing.T) {
+	session := NewMockStreamSession().
+		WithAutoRespond("Now 2°C okay").
+		WithInterruptOnTurn(1)
+
+	require.NoError(t, session.SendText(context.Background(), "hi"))
+	chunks := drainResponses(t, session, 50*time.Millisecond)
+
+	require.Len(t, chunks, 3)
+	assert.Equal(t, "Now 2", chunks[0].Delta)
+	assert.Equal(t, "Now 2", chunks[0].Content)
+}
+
+// A reply that is not valid UTF-8 never backs the cut past its start: with no
+// character boundary before the halfway point the partial text is empty.
+func TestEmitAutoResponse_InterruptInvalidUTF8PartialTextIsEmpty(t *testing.T) {
+	session := NewMockStreamSession().
+		WithAutoRespond("\xb0\xb0\xb0\xb0").
+		WithInterruptOnTurn(1)
+
+	require.NoError(t, session.SendText(context.Background(), "hi"))
+	chunks := drainResponses(t, session, 50*time.Millisecond)
+
+	require.Len(t, chunks, 3)
+	assert.Equal(t, "", chunks[0].Delta)
+	assert.True(t, chunks[1].Interrupted)
+}

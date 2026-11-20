@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,4 +112,25 @@ func TestStreamChunks_UnscriptedPlainStreamIsOneChunk(t *testing.T) {
 	assert.Equal(t, []streamedChunk{
 		{Delta: "Hello there", Content: "Hello there", Finish: types.FinishReasonStop, OutputTokens: 2},
 	}, collectStream(t, ch))
+}
+
+// A multi-byte character straddling a 20-byte boundary stays whole in the
+// chunk it starts in, so every delta is valid UTF-8 (#2799): the "°" here
+// occupies bytes 19-20 of the reply.
+func TestStreamChunks_UnscriptedReplyNeverSplitsACharacter(t *testing.T) {
+	const reply = "Top oil reading: 71°C, within limits."
+	tp := NewToolProviderWithRepository("p", "m", false, &oneTurnRepo{turn: Turn{Type: "text", Content: reply}})
+	ch, err := tp.PredictStreamWithTools(t.Context(),
+		providers.PredictionRequest{Messages: []types.Message{{Role: "user", Content: "hi"}}}, nil, "auto")
+	require.NoError(t, err)
+
+	got := collectStream(t, ch)
+	assert.Equal(t, []streamedChunk{
+		{Delta: "Top oil reading: 71°", Content: "Top oil reading: 71°"},
+		{Delta: "C, within limits.", Content: reply},
+		{Content: reply, Finish: types.FinishReasonStop, OutputTokens: 9},
+	}, got)
+	for _, c := range got {
+		assert.True(t, utf8.ValidString(c.Delta), "delta %q is not valid UTF-8", c.Delta)
+	}
 }

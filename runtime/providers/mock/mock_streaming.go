@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -511,10 +512,10 @@ func (m *MockStreamSession) emitAutoResponse() {
 func (m *MockStreamSession) emitInterruption(currentTurn int) {
 	logger.Debug("MockStreamSession: simulating interruption",
 		"turn", currentTurn,
-		"partialText", m.responseText[:min(len(m.responseText), logPreviewMaxLen)])
+		"partialText", m.responseText[:runeBoundaryAtOrBefore(m.responseText, logPreviewMaxLen)])
 
 	// 1. Emit partial content before interruption
-	partialText := m.responseText[:min(len(m.responseText), len(m.responseText)/partialTextDivisor)]
+	partialText := m.responseText[:runeBoundaryAtOrBefore(m.responseText, len(m.responseText)/partialTextDivisor)]
 	partialChunk := providers.StreamChunk{
 		Content: partialText,
 		Delta:   partialText,
@@ -964,4 +965,14 @@ func (p *StreamingProvider) GetSessions() []*MockStreamSession {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.sessions
+}
+
+// runeBoundaryAtOrBefore is the largest n' <= n at which s can be cut without
+// splitting a multi-byte character, so s[:n'] is valid UTF-8 when s is.
+func runeBoundaryAtOrBefore(s string, n int) int {
+	n = min(n, len(s))
+	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return n
 }
