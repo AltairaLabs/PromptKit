@@ -99,6 +99,13 @@ type duplexSession struct {
 	// warnedSlowConsumer guards the one-time "consumer is not draining" warning
 	// for a taken-but-stalled Response().
 	warnedSlowConsumer atomic.Bool
+	// drainStarted is closed when Drain starts (drainOnce). From then on
+	// output never waits for the Response() reader: it is buffered while
+	// there is room and dropped otherwise, so a reader that stopped reading
+	// (a caller that closed and left) cannot hold the turn, and with it the
+	// pipeline's input and the drain signal, until the drain times out (#2847).
+	drainStarted chan struct{}
+	drainOnce    sync.Once
 
 	// Pipeline execution control
 	executionStarted bool
@@ -237,6 +244,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		sessionCtx:        sessionCtx,
 		sessionCancel:     sessionCancel,
 		pipelineDone:      make(chan struct{}),
+		drainStarted:      make(chan struct{}),
 	}
 
 	return sess, nil
@@ -428,6 +436,7 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 		case <-ctx.Done():
 			// Close canceled the session: no terminal error of the pipeline's.
 			s.offerChunk(providers.StreamChunk{Error: ctx.Err()})
+			s.awaitTeardown(stageOutput)
 			return
 		case elem, ok := <-stageOutput:
 			if !ok {
@@ -441,9 +450,48 @@ func (s *duplexSession) executePipeline(ctx context.Context) {
 				continue
 			}
 			if keep, failErr := s.handleOutputElement(ctx, &elem); !keep {
-				s.recordEnd(ctx, failErr)
+				s.endForwarding(ctx, failErr, stageOutput)
 				return
 			}
+		}
+	}
+}
+
+// endForwarding ends the forwarding loop on an element it could not hand on:
+// it records failErr as the pipeline's end and, when Close canceled the
+// session, waits for the pipeline to stop with it.
+func (s *duplexSession) endForwarding(
+	ctx context.Context, failErr error, stageOutput <-chan stage.StreamElement,
+) {
+	s.recordEnd(ctx, failErr)
+	if ctx.Err() != nil {
+		s.awaitTeardown(stageOutput)
+	}
+}
+
+// pipelineTeardownTimeout bounds how long a canceled session waits for its
+// pipeline to wind down. The cancellation reaches every stage at once, and
+// they finish in milliseconds (a held reply released, the turn saved); the
+// bound only keeps a stage that ignores its context from holding Done open.
+const pipelineTeardownTimeout = time.Second
+
+// awaitTeardown reads the canceled pipeline's output, which no caller wants
+// any more, until the pipeline closes it, so that no stage blocks on a send
+// while it winds down and Done closes only once the pipeline has stopped:
+// its in-flight model and TTS calls canceled, what it held saved.
+func (s *duplexSession) awaitTeardown(stageOutput <-chan stage.StreamElement) {
+	timer := time.NewTimer(pipelineTeardownTimeout)
+	defer timer.Stop()
+	for {
+		select {
+		case _, ok := <-stageOutput:
+			if !ok {
+				return
+			}
+		case <-timer.C:
+			logger.Warn("duplexSession: pipeline still running after the session was closed; not waiting for it",
+				"timeout", pipelineTeardownTimeout)
+			return
 		}
 	}
 }
@@ -560,6 +608,8 @@ var outputBlockWarnThreshold = 3 * time.Second
 // If Response() has NOT been taken, nothing will ever read the channel, so the
 // send must never block: it buffers while there is room and then drops, keeping
 // the pipeline alive instead of deadlocking it (issue #1638). Dropping warns once.
+// Once Drain has started, a send to a taken Response() that finds no room is
+// dropped rather than waited on (#2847).
 func (s *duplexSession) forwardChunk(ctx context.Context, chunk providers.StreamChunk) bool {
 	if !s.responseTaken.Load() {
 		select {
@@ -595,6 +645,10 @@ func (s *duplexSession) forwardChunk(ctx context.Context, chunk providers.Stream
 			return false
 		case s.streamOutput <- chunk:
 			return true
+		case <-s.drainStarted:
+			// Draining: the chunk the reader has not made room for is dropped.
+			s.droppedChunks.Add(1)
+			return true
 		case <-timer.C:
 			if !s.warnedSlowConsumer.Swap(true) {
 				logger.Warn("duplexSession: Response() consumer is not draining fast enough; " +
@@ -614,8 +668,13 @@ const DefaultDrainTimeout = 30 * time.Second
 const drainPlayoutGrace = 750 * time.Millisecond
 
 // Drain gracefully stops the session by sending an EndOfStream signal to the
-// pipeline and waiting for it to finish processing. If the context expires
-// before the pipeline completes, Drain falls back to a hard Close.
+// pipeline and waiting for it to finish processing: a turn in flight finishes
+// and is saved. The signal waits behind the input the pipeline has not read
+// yet, for as long as ctx allows; once it is taken, Drain waits a short
+// playout grace for the pipeline to finish. It then closes the session, which
+// cancels whatever still runs. While draining, output no longer waits for
+// the Response() reader: what does not fit its buffer is dropped, so a reader
+// that has stopped reading cannot hold the turn.
 func (s *duplexSession) Drain(ctx context.Context) error {
 	s.closeMu.Lock()
 	if s.closed {
@@ -633,6 +692,10 @@ func (s *duplexSession) Drain(ctx context.Context) error {
 	if !started {
 		return s.Close()
 	}
+
+	// A reader that stopped reading must not hold the turn's output, and with
+	// it the pipeline's input and the signal below, until ctx ends (#2847).
+	s.drainOnce.Do(func() { close(s.drainStarted) })
 
 	// Send EndOfStream so the pipeline knows input is done. AllResponsesReceived
 	// marks this as a graceful drain (not an end-of-turn boundary), so a streaming

@@ -1255,13 +1255,13 @@ func (p *StreamPipeline) runStage(
 	if mi, ok := stage.(MultiInputStage); ok && len(inputs) > 1 {
 		instrumented := make([]<-chan StreamElement, len(inputs))
 		for i, in := range inputs {
-			instrumented[i] = p.orderInput(instrumentStageInput(stage.Name(), in), run.done)
+			instrumented[i] = p.orderInput(instrumentStageInput(stage.Name(), in, run.done), run.done)
 		}
 		err = mi.ProcessMultiple(ctx, instrumented, output)
 	} else {
 		var in <-chan StreamElement
 		if len(inputs) > 0 {
-			in = p.orderInput(instrumentStageInput(stage.Name(), inputs[0]), run.done)
+			in = p.orderInput(instrumentStageInput(stage.Name(), inputs[0], run.done), run.done)
 		}
 		err = stage.Process(ctx, in, output)
 	}
@@ -1369,24 +1369,51 @@ func queueReady(ctx context.Context, in <-chan StreamElement, pc *PriorityChanne
 
 // instrumentStageInput wraps an input channel with Prometheus counters
 // that track element count and audio bytes flowing INTO a stage. Returns
-// the original channel unchanged when no metrics are registered.
-func instrumentStageInput(stageName string, input <-chan StreamElement) <-chan StreamElement {
+// the original channel unchanged when no metrics are registered. stageDone
+// is closed when the reading stage has returned: the relay stops then, as
+// one waiting to hand an element to a stage that stopped reading (a stage
+// canceled mid-session) would otherwise wait forever (#2847).
+func instrumentStageInput(
+	stageName string, input <-chan StreamElement, stageDone <-chan struct{},
+) <-chan StreamElement {
 	metrics := providers.DefaultStreamMetrics()
 	if metrics == nil {
 		return input
 	}
 	instrumented := make(chan StreamElement, cap(input))
-	go func() {
-		defer close(instrumented)
-		for elem := range input {
-			metrics.PipelineStageElementInc(stageName)
-			if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
-				metrics.PipelineStageAudioBytesAdd(stageName, len(elem.Audio.Samples))
-			}
-			instrumented <- elem
+	go relayCounted(input, instrumented, stageDone, func(elem *StreamElement) {
+		metrics.PipelineStageElementInc(stageName)
+		if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+			metrics.PipelineStageAudioBytesAdd(stageName, len(elem.Audio.Samples))
 		}
-	}()
+	})
 	return instrumented
+}
+
+// relayCounted relays input to out, counting each element, until input
+// closes or stageDone does. It closes out.
+func relayCounted(
+	input <-chan StreamElement, out chan<- StreamElement, stageDone <-chan struct{}, count func(*StreamElement),
+) {
+	defer close(out)
+	for {
+		var elem StreamElement
+		select {
+		case e, ok := <-input:
+			if !ok {
+				return
+			}
+			elem = e
+		case <-stageDone:
+			return
+		}
+		count(&elem)
+		select {
+		case out <- elem:
+		case <-stageDone:
+			return
+		}
+	}
 }
 
 // forwardOutput hands one element from the leaf stage leaf to the caller,

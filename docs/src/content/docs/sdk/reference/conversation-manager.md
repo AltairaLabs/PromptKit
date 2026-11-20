@@ -1630,7 +1630,7 @@ true
 </details>
 
 <a name="OpenComposition"></a>
-### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1381>)
+### func [OpenComposition](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1384>)
 
 ```go
 func OpenComposition(packPath, name string, opts ...Option) (*Conversation, error)
@@ -1698,7 +1698,7 @@ Provider requirements depend on how the input side is driven:
 The session runs on a context detached from any caller, so its tool calls see no context values; use [OpenDuplexContext](<#OpenDuplexContext>) to give them the host's. Who the session acts for is set with [WithCaller](<#WithCaller>), never on a context.
 
 <a name="OpenDuplexContext"></a>
-### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L161>)
+### func [OpenDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L164>)
 
 ```go
 func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1706,7 +1706,7 @@ func OpenDuplexContext(ctx context.Context, packPath, promptName string, opts ..
 
 OpenDuplexContext is [OpenDuplex](<#OpenDuplex>) with a base context for the session. The session's pipeline, and so every tool call the model makes, runs on a context carrying ctx's values, as a text turn's tool calls run on the context given to Send: host values PromptKit does not read, such as a logger or a database handle. Session\-start hooks and a [Conversation.Fork](<#Conversation.Fork>) of the session see the same values. PromptKit never reads caller identity or policy from ctx: who the session acts for is [WithCaller](<#WithCaller>)'s, and a caller put on ctx reaches no tool, hook or authorizer as one.
 
-The session owns its own cancellation: canceling ctx does not end it; Close does. The open itself \(state store seeding, pipeline build\) runs on ctx, so a deadline on ctx bounds the open. The session holds ctx's values for its whole life, so pass a context carrying what tool calls need, not a request\-scoped one whose span, logger or transaction ends with the request.
+ctx supplies values; it does not set the session's lifetime. The open itself \(state store seeding, pipeline build\) runs on ctx, so a deadline on ctx bounds the open, but canceling ctx later does not end the session. [Conversation.Close](<#Conversation.Close>) ends it, gracefully: the turn in flight finishes and is saved. For a voice session, canceling the context passed to [Conversation.Start](<#Conversation.Start>) ends it at once. The session holds ctx's values for its whole life, so pass a context carrying what tool calls need, not a request\-scoped one whose span, logger or transaction ends with the request.
 
 <a name="OpenVoice"></a>
 ### func [OpenVoice](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L54>)
@@ -1730,16 +1730,16 @@ _ = conv.Start(ctx) // blocks: mic → LLM → speaker, until ctx is canceled
 ```
 
 <a name="OpenVoiceContext"></a>
-### func [OpenVoiceContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L62>)
+### func [OpenVoiceContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L64>)
 
 ```go
 func OpenVoiceContext(ctx context.Context, packPath, promptName string, opts ...Option) (*Conversation, error)
 ```
 
-OpenVoiceContext is [OpenVoice](<#OpenVoice>) with a base context for the session, as [OpenDuplexContext](<#OpenDuplexContext>): the session's tool calls see ctx's values, which PromptKit does not read; the caller is [WithCaller](<#WithCaller>)'s. The context passed to Start only bounds the audio pumps; it does not reach tool calls.
+OpenVoiceContext is [OpenVoice](<#OpenVoice>) with a base context for the session, as [OpenDuplexContext](<#OpenDuplexContext>): the session's tool calls see ctx's values, which PromptKit does not read; the caller is [WithCaller](<#WithCaller>)'s. ctx bounds the open but not the session: the context passed to [Conversation.Start](<#Conversation.Start>) does that, and canceling it stops the session at once. Start's context does not reach tool calls.
 
 <a name="Resume"></a>
-### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1234>)
+### func [Resume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1237>)
 
 ```go
 func Resume(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1767,7 +1767,7 @@ if errors.Is(err, sdk.ErrConversationNotFound) {
 Resume requires a state store to be configured. If no state store is provided, it returns [ErrNoStateStore](<#ErrConversationClosed>).
 
 <a name="ResumeDuplex"></a>
-### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1346>)
+### func [ResumeDuplex](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1349>)
 
 ```go
 func ResumeDuplex(conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1799,7 +1799,7 @@ ResumeDuplex requires a state store to be configured. If no state store is provi
 In a realtime \(ASM\) conversation the new provider session is given the persisted user and assistant turns before the caller's first input, through the provider's own mechanism \(OpenAI Realtime conversation.item.create items, Gemini Live client\_content turns\). A provider that cannot take them \(see \[providers.StreamHistorySupport\]\) makes ResumeDuplex return [ErrResumeHistoryUnsupported](<#ErrConversationClosed>) rather than continue without memory. In VAD mode each turn's request carries the history, as in a unary conversation.
 
 <a name="ResumeDuplexContext"></a>
-### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1353-L1355>)
+### func [ResumeDuplexContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/sdk.go#L1356-L1358>)
 
 ```go
 func ResumeDuplexContext(ctx context.Context, conversationID, packPath, promptName string, opts ...Option) (*Conversation, error)
@@ -1830,7 +1830,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1727>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1733>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1840,12 +1840,12 @@ Close ends the conversation's session and releases its resources. It runs the pa
 
 After Close is called, Send and Stream will return [ErrConversationClosed](<#ErrConversationClosed>). It's safe to call Close multiple times.
 
-Close cancels the session context; it does not drain work already in flight. On the streaming ingestion path in particular, turns are processed asynchronously after the last chunk is queued, so calling Close immediately can cancel a turn mid\-pipeline and drop its response. Wait for the responses you expect before closing.
+On a duplex session Close drains: it ends the session's input, lets the turn in flight finish and be saved, then closes. It waits at most \[session.DefaultDrainTimeout\] for the pipeline to take the end of input, then at most a short playout grace for it to finish, and cancels what is still running after that. A Response\(\) channel left unread does not hold it: while Close runs, a chunk that finds Response\(\) full is dropped. A turn still in the pipeline when the grace ends is canceled and its response dropped \(on the streaming ingestion path, turns are processed after the last chunk is queued\), so wait for the responses you expect before closing. To stop a voice session at once, cancel the context passed to [Conversation.Start](<#Conversation.Start>).
 
 An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to one second for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
 
 <a name="Conversation.Complete"></a>
-### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1746>)
+### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1752>)
 
 ```go
 func (c *Conversation) Complete() error
@@ -1931,7 +1931,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2046>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2080>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -2100,7 +2100,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2032>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2066>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2542,7 +2542,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2056>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2090>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -3096,13 +3096,13 @@ conv.SetVarsFromEnv("PROMPTKIT_")
 ```
 
 <a name="Conversation.Start"></a>
-### func \(\*Conversation\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L109>)
+### func \(\*Conversation\) [Start](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L114>)
 
 ```go
 func (c *Conversation) Start(ctx context.Context) error
 ```
 
-Start runs the bound audio session: it feeds every microphone source into the pipeline and plays the pipeline's audio replies back to the speaker sinks, flushing them on barge\-in. It blocks until ctx is canceled or the session ends \(a source closes or the response stream finishes\), then tears the session down. A context\-cancel shutdown returns nil.
+Start runs the bound audio session: it feeds every microphone source into the pipeline and plays the pipeline's audio replies back to the speaker sinks, flushing them on barge\-in. It blocks until ctx is canceled or the session ends \(a source closes or the response stream finishes\), then tears the session down: the audio session closes and the pipeline stops at once, canceling a model or TTS call in flight and dropping queued audio, so Done closes promptly. The conversation itself stays open; call Close to run its session evals and release it. A context\-cancel shutdown returns nil.
 
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
@@ -6202,7 +6202,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithVoiceObserver"></a>
-### func [WithVoiceObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L88>)
+### func [WithVoiceObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/voice.go#L90>)
 
 ```go
 func WithVoiceObserver(fn func(providers.StreamChunk)) Option
@@ -6440,7 +6440,7 @@ This is equivalent to [sdk.OpenDuplex](<#OpenDuplex>) but reuses pre\-loaded pac
 func (t *PackTemplate) OpenDuplexContext(ctx context.Context, promptName string, opts ...Option) (*Conversation, error)
 ```
 
-OpenDuplexContext is [PackTemplate.OpenDuplex](<#PackTemplate.OpenDuplex>) with a base context for the session, as [sdk.OpenDuplexContext](<#OpenDuplexContext>): tool calls see ctx's values, which PromptKit does not read \(the caller is [sdk.WithCaller](<#WithCaller>)'s\), and the session owns its own cancellation.
+OpenDuplexContext is [PackTemplate.OpenDuplex](<#PackTemplate.OpenDuplex>) with a base context for the session, as [sdk.OpenDuplexContext](<#OpenDuplexContext>): tool calls see ctx's values, which PromptKit does not read \(the caller is [sdk.WithCaller](<#WithCaller>)'s\), and canceling ctx after the open does not end the session.
 
 <a name="PackTemplate.Pack"></a>
 ### func \(\*PackTemplate\) [Pack](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/template.go#L131>)

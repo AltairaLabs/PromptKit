@@ -216,6 +216,8 @@ type cueRun struct {
 	rate    int
 	pending *cueRender
 	queue   []cueQueued
+	// fwd carries the run's output across a cancellation (see send).
+	fwd cancelForwarder
 }
 
 type cuePreparedKey struct {
@@ -229,7 +231,12 @@ func (s *cueStage) Process(ctx context.Context, input <-chan StreamElement, outp
 	r := &cueRun{s: s, output: output, prepared: map[cuePreparedKey][]byte{}}
 	defer r.discard()
 	for {
-		if done, err := r.step(ctx, input); done || err != nil {
+		done, err := r.step(ctx, input)
+		if err != nil && !done && ctx.Err() != nil {
+			// A send or a clip the cancellation cut short.
+			return r.passThroughCanceled(ctx, input)
+		}
+		if done || err != nil {
 			return err
 		}
 	}
@@ -246,7 +253,7 @@ func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, er
 	select {
 	case elem, ok := <-input:
 		if !ok {
-			return true, r.finish(ctx)
+			return true, r.finish(ctx, input)
 		}
 		return false, r.handle(ctx, elem)
 	case <-result:
@@ -254,13 +261,40 @@ func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, er
 	case <-budget:
 		return false, r.overBudget(ctx)
 	case <-ctx.Done():
-		return true, ctx.Err()
+		return true, r.passThroughCanceled(ctx, input)
 	}
+}
+
+// passThroughCanceled ends a canceled run: a cue still to play is not played,
+// but what the stages upstream still deliver (the partial reply a canceled
+// provider emits, its error) is carried on to the save stage, with what
+// waited behind the cue first. See cancelForwarder.
+func (r *cueRun) passThroughCanceled(ctx context.Context, input <-chan StreamElement) error {
+	r.discard()
+	for i := range r.queue {
+		if !r.queue[i].sent {
+			r.fwd.forward(ctx, r.output, r.queue[i].elem)
+		}
+	}
+	r.queue = nil
+	for elem := range input {
+		r.fwd.forward(ctx, r.output, elem)
+	}
+	return ctx.Err()
+}
+
+// send passes an element on. Once the run is canceled the element is still
+// offered downstream for a short while (see cancelForwarder), so the one in
+// hand when the cancellation lands is not lost, and send returns the
+// cancellation so that no clip plays after it.
+func (r *cueRun) send(ctx context.Context, elem StreamElement) error {
+	r.fwd.forward(ctx, r.output, elem)
+	return ctx.Err()
 }
 
 // finish waits for a clip still rendering, within its budget, and plays it
 // and what waited behind it: the input is over, its output is not.
-func (r *cueRun) finish(ctx context.Context) error {
+func (r *cueRun) finish(ctx context.Context, input <-chan StreamElement) error {
 	for r.pending != nil {
 		var err error
 		select {
@@ -269,7 +303,7 @@ func (r *cueRun) finish(ctx context.Context) error {
 		case <-r.pending.budget.C:
 			err = r.overBudget(ctx)
 		case <-ctx.Done():
-			return ctx.Err()
+			return r.passThroughCanceled(ctx, input)
 		}
 		if err != nil {
 			return err
@@ -299,7 +333,7 @@ func (r *cueRun) handle(ctx context.Context, elem StreamElement) error {
 		r.queue = append(r.queue, cueQueued{elem: elem})
 		return nil
 	}
-	if err := sendStreamElement(ctx, elem, r.output); err != nil {
+	if err := r.send(ctx, elem); err != nil {
 		return err
 	}
 	if elem.Cue != nil {
@@ -310,7 +344,7 @@ func (r *cueRun) handle(ctx context.Context, elem StreamElement) error {
 
 // forward sends elem on and plays its cue's clip.
 func (r *cueRun) forward(ctx context.Context, elem StreamElement) error {
-	if err := sendStreamElement(ctx, elem, r.output); err != nil {
+	if err := r.send(ctx, elem); err != nil {
 		return err
 	}
 	if elem.Cue != nil {
@@ -327,14 +361,11 @@ func (r *cueRun) cutPending(ctx context.Context, cut StreamElement) error {
 	queued := r.queue
 	r.queue = nil
 	for i := range queued {
-		if queued[i].sent {
-			continue
-		}
-		if err := sendStreamElement(ctx, queued[i].elem, r.output); err != nil {
-			return err
+		if !queued[i].sent {
+			_ = r.send(ctx, queued[i].elem) // canceled: the rest still go on
 		}
 	}
-	return sendStreamElement(ctx, cut, r.output)
+	return r.send(ctx, cut)
 }
 
 // isCueOnly reports whether elem's only payload is a Cue (a backchannel a

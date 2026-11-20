@@ -119,8 +119,8 @@ func (t *PackTemplate) OpenDuplex(promptName string, opts ...Option) (*Conversat
 
 // OpenDuplexContext is [PackTemplate.OpenDuplex] with a base context for the
 // session, as [sdk.OpenDuplexContext]: tool calls see ctx's values, which
-// PromptKit does not read (the caller is [sdk.WithCaller]'s), and the session
-// owns its own cancellation.
+// PromptKit does not read (the caller is [sdk.WithCaller]'s), and canceling
+// ctx after the open does not end the session.
 func (t *PackTemplate) OpenDuplexContext(
 	ctx context.Context, promptName string, opts ...Option,
 ) (*Conversation, error) {

@@ -1712,11 +1712,17 @@ func (c *Conversation) startOTelSession(ctx context.Context) {
 // After Close is called, Send and Stream will return [ErrConversationClosed].
 // It's safe to call Close multiple times.
 //
-// Close cancels the session context; it does not drain work already in
-// flight. On the streaming ingestion path in particular, turns are processed
-// asynchronously after the last chunk is queued, so calling Close immediately
-// can cancel a turn mid-pipeline and drop its response. Wait for the
-// responses you expect before closing.
+// On a duplex session Close drains: it ends the session's input, lets the
+// turn in flight finish and be saved, then closes. It waits at most
+// [session.DefaultDrainTimeout] for the pipeline to take the end of input,
+// then at most a short playout grace for it to finish, and cancels what is
+// still running after that. A Response() channel left unread does not hold
+// it: while Close runs, a chunk that finds Response() full is dropped. A
+// turn still in the pipeline when the grace ends is canceled and its
+// response dropped (on the streaming ingestion path, turns are processed
+// after the last chunk is queued), so wait for the responses you expect
+// before closing. To stop a voice session at once, cancel the context passed
+// to [Conversation.Start].
 //
 // An event bus the SDK created is closed last, once this conversation and
 // any forks of it are all closed. Before closing it, Close waits up to one
@@ -1943,8 +1949,8 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 }
 
 // drainDuplexSession drains the duplex session, if any (graceful shutdown
-// with a timeout), returning its error. Draining a session already drained or
-// closed is a no-op. Caller must hold c.mu.
+// bounded by session.DefaultDrainTimeout), returning its error. Draining a
+// session already drained or closed is a no-op. Caller must hold c.mu.
 func (c *Conversation) drainDuplexSession() []error {
 	if c.mode != DuplexMode || c.duplexSession == nil {
 		return nil
@@ -1956,6 +1962,34 @@ func (c *Conversation) drainDuplexSession() []error {
 	}
 	return nil
 }
+
+// stopDuplexSession stops the duplex session, if any, at once, and waits for
+// its pipeline to wind down: a model or TTS call in flight is canceled,
+// queued audio is dropped, and a reply still held for playout is released,
+// with what was heard, into the transcript before Done closes. The wait is
+// bounded by the session's own teardown timeout. Stopping a session already
+// stopped is a no-op. Start uses it when its context is canceled. Caller
+// must hold c.mu.
+func (c *Conversation) stopDuplexSession() []error {
+	if c.mode != DuplexMode || c.duplexSession == nil {
+		return nil
+	}
+	if err := c.duplexSession.Close(); err != nil {
+		return []error{fmt.Errorf("failed to close duplex session: %w", err)}
+	}
+	timer := time.NewTimer(duplexStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-c.duplexSession.Done():
+	case <-timer.C:
+		logger.Warn("duplex session did not end after Close; not waiting for it", "timeout", duplexStopTimeout)
+	}
+	return nil
+}
+
+// duplexStopTimeout is a backstop on stopDuplexSession's wait, above the
+// session's own teardown bound, for a session that never reports Done.
+const duplexStopTimeout = 2 * time.Second
 
 // releaseResources closes everything the conversation holds except the event
 // bus, attempting every step and returning the errors. Caller must hold c.mu.

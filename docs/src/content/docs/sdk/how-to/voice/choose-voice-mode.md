@@ -145,7 +145,12 @@ conv, err := sdk.OpenDuplexContext(ctx, "./voice-assistant.pack.json", "assistan
 
 Every tool call in the session sees the values on `ctx`, as a text turn's tool calls see the values on the context passed to `Send`. Session-start hooks and forks of the session see them too. `sdk.ResumeDuplexContext`, `sdk.OpenVoiceContext` and `PackTemplate.OpenDuplexContext` take the context the same way.
 
-Canceling `ctx` does not end the session; `conv.Close` does. A deadline on `ctx` bounds only the open. The session keeps the values on `ctx` for its whole life, so build a context with what the tool calls need rather than passing a request's context, whose span, logger or transaction ends with the request.
+This `ctx` supplies values; it does not set how long the session lives. A deadline on `ctx` bounds only the open, and canceling `ctx` afterwards does not end the session. The session keeps the values on `ctx` for its whole life, so build a context with what the tool calls need rather than passing a request's context, whose span, logger or transaction ends with the request.
+
+Two things end the session:
+
+- Canceling the context passed to `conv.Start` stops it at once. A model call or TTS synthesis still running is canceled, audio queued for the speaker is dropped, and `Done()` closes. Call `conv.Close` afterwards to run the session evals and release the conversation.
+- `conv.Close` ends it gracefully: it ends the input, lets the turn in flight finish and be saved, and then closes. It waits at most `session.DefaultDrainTimeout` (30 seconds) for the pipeline to take the end of input, then a short grace for the pipeline to finish, and cancels what is still running. A `Response()` channel left unread does not hold it: while `Close` runs, a chunk that finds the channel full is dropped.
 
 The session also ends without `conv.Close`: when nothing happens in it for the idle timeout (`sdk.WithIdleTimeout`, 30 seconds by default; audio you send, silence included, counts as activity in both modes), when the provider reports an error, or when the provider closes the connection. `Response()` closes after any error that ended the session, and `Done()` closes. Input sent after that (`SendChunk`, `SendText`, `SendFrame`, `SendVideoChunk`, `TriggerStart`, `ContinueDuplex`) returns at once with the error that ended the session, which wraps `stage.ErrIdleTimeout` for the idle timeout, or with `sdk.ErrSessionClosed` when the provider closed the session without one (match it with `errors.Is`). Input a send handed over shortly before the session ended may never reach the provider: it is lost with the session. `conv.SessionError()` returns the same error once the session has ended, and nil while it runs or when it ended without one.
 
