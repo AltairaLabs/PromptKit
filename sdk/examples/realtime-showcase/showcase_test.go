@@ -112,16 +112,20 @@ func done(cost float64, in, out int) *providers.StreamChunk {
 }
 
 // A note the pipeline adds to the model's conversation after a guardrail
-// block is printed in full, as what the model was told.
+// block is printed in full, as what the model was told, with the guardrails
+// that blocked the turn: the note never names them to the model.
 func TestShowcaseEventLog_PrintsTheModelsNote(t *testing.T) {
 	out := &syncBuffer{}
 	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
 	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
 
-	elog.onEvent(&events.Event{Data: &events.ContextNoteData{Text: "Your previous reply was withheld."}})
+	elog.onEvent(&events.Event{Data: &events.ContextNoteData{
+		Text: "Your previous reply was withheld.", Validator: "no-bruno"}})
+	elog.onEvent(&events.Event{Data: &events.ContextNoteData{Text: "A message from the user was blocked."}})
 
 	assert.Equal(t, []string{
-		`09:30:00.000  note      told the model, not the caller: "Your previous reply was withheld."`,
+		`09:30:00.000  note      told the model, not the caller (no-bruno): "Your previous reply was withheld."`,
+		`09:30:00.000  note      told the model, not the caller: "A message from the user was blocked."`,
 	}, out.lines())
 }
 

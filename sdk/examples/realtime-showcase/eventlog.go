@@ -100,8 +100,13 @@ func (l *eventLog) onEvent(e *events.Event) {
 		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, true)
 	case *events.ContextNoteData:
 		// The model is told a guardrail withheld its reply or the caller's
-		// words; the caller never hears or sees the note.
-		l.logf("note", "told the model, not the caller: %q", d.Text)
+		// words; the caller never hears or sees the note. The note does not
+		// name the guardrails; the event does, for the log.
+		if d.Validator == "" {
+			l.logf("note", "told the model, not the caller: %q", d.Text)
+			break
+		}
+		l.logf("note", "told the model, not the caller (%s): %q", d.Validator, d.Text)
 	}
 }
 
