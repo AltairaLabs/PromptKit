@@ -222,6 +222,10 @@ func (s *AudioTurnStage) Process(
 	output chan<- StreamElement,
 ) error {
 	defer close(output)
+	// A live session's input closes only when the session does, so the stage
+	// must also stop when its context ends (the idle timeout), or the pipeline
+	// would not end until the caller sent more audio (#2823).
+	input = inputUntilDone(ctx, input)
 
 	state := newAudioTurnState()
 
