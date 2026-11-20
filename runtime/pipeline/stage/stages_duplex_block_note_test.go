@@ -205,7 +205,37 @@ func TestDuplexBlockNote_OneCombinedNotePerTurn(t *testing.T) {
 	ev := noted()
 	require.Len(t, ev, 1)
 	assert.Equal(t, "both", ev[0].Direction)
-	assert.Equal(t, "banned_words, banned_words", ev[0].Validator)
+	assert.Equal(t, "banned_words", ev[0].Validator, "a guardrail is named once however many sides it blocked")
+}
+
+// The note's event names each guardrail that blocked the turn once, in the
+// order they fired: here the output guardrail cut the reply before the
+// caller's transcript was blocked.
+func TestDuplexBlockNote_EventNamesEachGuardrailInFiringOrder(t *testing.T) {
+	named := func(id, word, direction string) hooks.ProviderHook {
+		params := map[string]any{"words": []any{word}}
+		if direction != "" {
+			params["direction"] = direction
+		}
+		g, err := guardrails.NewGuardrailHook("banned_words", params,
+			guardrails.WithMessage("I can't say that."), guardrails.WithDeclaration(&packspec.Validator{ID: id}))
+		require.NoError(t, err)
+		return g
+	}
+	s, sess, noted := noteStage(t, hooks.NewRegistry(
+		hooks.WithProviderHook(named("no-wire", "wire", "input")),
+		hooks.WithProviderHook(named("no-pineapple", "pineapple", ""))))
+
+	_, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("pineapple", pcm(10))),
+		spoken("a wire transfer", "item_A"),
+		genChunk(1, stopChunk()))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{wantTurnRemovedNote}, sess.noted())
+	ev := noted()
+	require.Len(t, ev, 1)
+	assert.Equal(t, "no-pineapple, no-wire", ev[0].Validator)
 }
 
 // A turn both sides blocked on a session that cannot forget it (Gemini Live)

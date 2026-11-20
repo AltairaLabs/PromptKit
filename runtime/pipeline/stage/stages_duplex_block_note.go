@@ -72,13 +72,14 @@ const (
 )
 
 // blockNote is a blocked turn the model is still to be told of: the reply
-// generation it is (0 when the provider does not number them), the guardrails
-// that blocked each side (for the host's event, never the note), and its turn
-// index.
+// generation it is (0 when the provider does not number them), which sides
+// were blocked, the guardrails that blocked it, each once in the order they
+// fired (for the host's event, never the note), and its turn index.
 type blockNote struct {
 	gen    int64
-	output []string
-	input  []string
+	output bool
+	input  bool
+	names  []string
 	turn   int
 }
 
@@ -99,12 +100,12 @@ func (s *DuplexProviderStage) noteBlock(d hooks.Decision, direction string, gen 
 		s.pendingNotes = append(s.pendingNotes, blockNote{gen: gen, turn: s.hookTurnIndex()})
 		n = &s.pendingNotes[len(s.pendingNotes)-1]
 	}
-	name := guardrailName(d)
 	if direction == hooks.DirectionInput {
-		n.input = appendNew(n.input, name)
+		n.input = true
 	} else {
-		n.output = appendNew(n.output, name)
+		n.output = true
 	}
+	n.names = appendNew(n.names, guardrailName(d))
 }
 
 // appendNew appends name to names unless it is there already.
@@ -132,12 +133,12 @@ func guardrailName(d hooks.Decision) string {
 // (forgets) or keeps them, and the direction it reports.
 func (n *blockNote) text(forgets bool) (string, string) {
 	switch {
-	case len(n.input) > 0 && len(n.output) > 0:
+	case n.input && n.output:
 		if forgets {
 			return blockedTurnRemovedNote, noteDirectionBoth
 		}
 		return blockedTurnKeptNote, noteDirectionBoth
-	case len(n.input) > 0:
+	case n.input:
 		if forgets {
 			return blockedInputRemovedNote, hooks.DirectionInput
 		}
@@ -174,7 +175,7 @@ func (s *DuplexProviderStage) sendBlockNotes(ctx context.Context) {
 		if s.emitter != nil {
 			s.emitter.ContextNoteAddedCtx(ctx, &events.ContextNoteData{
 				Text: text, Reason: contextNoteReasonGuardrail, Direction: direction,
-				Validator: strings.Join(append(slices.Clone(n.input), n.output...), ", "), TurnIndex: n.turn,
+				Validator: strings.Join(n.names, ", "), TurnIndex: n.turn,
 			})
 		}
 	}
