@@ -61,7 +61,8 @@ type duplexSession struct {
 	// TurnsCompleted).
 	turnsCompleted atomic.Int64
 	// Note: Session is NOT stored here - DuplexProviderStage creates and manages it
-	// pipelineRunsTools: the pipeline runs the session's tool calls. Otherwise
+	// pipelineRunsTools: a stage of the pipeline runs the session's tool
+	// calls (stage.StreamPipeline.RunsToolCalls). Otherwise
 	// a session with toolRegistry runs them, gated by asyncToolChecker, and
 	// one without forwards them to the caller. See handleToolCalls.
 	pipelineRunsTools bool
@@ -226,7 +227,7 @@ func NewDuplexSession(ctx context.Context, cfg *DuplexSessionConfig) (DuplexSess
 		pipeline:          builtPipeline,
 		provider:          cfg.Provider,
 		streamConfig:      cfg.Config,
-		pipelineRunsTools: cfg.pipelineRunsTools,
+		pipelineRunsTools: builtPipeline.RunsToolCalls(),
 		toolRegistry:      cfg.ToolRegistry,
 		asyncToolChecker:  cfg.AsyncToolChecker,
 		caller:            cfg.Caller,
@@ -1025,12 +1026,11 @@ func (s *duplexSession) ForkSession(
 		// The parent's streaming config, so a realtime session forks into a
 		// realtime session rather than a text pipeline (#2582). A copy, so
 		// the fork's config is its own.
-		Config:            copyStreamConfig(s.streamConfig),
-		ToolRegistry:      s.toolRegistry,
-		pipelineRunsTools: s.pipelineRunsTools,
-		AsyncToolChecker:  s.asyncToolChecker,
-		Caller:            s.caller,
-		Variables:         forkVars,
+		Config:           copyStreamConfig(s.streamConfig),
+		ToolRegistry:     s.toolRegistry,
+		AsyncToolChecker: s.asyncToolChecker,
+		Caller:           s.caller,
+		Variables:        forkVars,
 	})
 }
 

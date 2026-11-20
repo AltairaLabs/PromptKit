@@ -112,6 +112,10 @@ func (s *DuplexProviderStage) SetToolExecution(
 	}
 }
 
+// RunsToolCalls reports whether the stage runs the session's tool calls
+// itself, which SetToolExecution with a registry turns on (ToolCallRunner).
+func (s *DuplexProviderStage) RunsToolCalls() bool { return s.tools != nil }
+
 // duplexTools is the stage's tool execution state.
 type duplexTools struct {
 	registry *tools.Registry

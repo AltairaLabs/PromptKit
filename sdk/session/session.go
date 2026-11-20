@@ -154,7 +154,7 @@ type AsyncToolCheckResult struct {
 // an async tool (falls through to normal registry execution). The context is
 // the tool-execution context so a checker persisting the held call honors
 // cancellation and deadlines. It is consulted only when the session runs tool
-// calls itself (not when the SDK's pipeline runs them).
+// calls itself (not when the pipeline runs them).
 type AsyncToolChecker func(ctx context.Context, callID, name string, args map[string]any) *AsyncToolCheckResult
 
 // DuplexSessionConfig configures a DuplexSession.
@@ -184,22 +184,16 @@ type DuplexSessionConfig struct {
 	PipelineBuilder PipelineBuilder                 // Function to build pipeline (required, typically a closure from SDK)
 	Provider        providers.Provider              // Provider for LLM calls (required)
 	Config          *providers.StreamingInputConfig // For ASM mode: base streaming config. For VAD mode: nil
-	// ToolRegistry runs the session's tool calls. Who runs them depends on
-	// pipelineRunsTools; with no registry nothing does, and an assistant turn
+	// ToolRegistry runs the session's tool calls when no stage of the
+	// pipeline does (stage.StreamPipeline.RunsToolCalls): a pipeline that
+	// runs them is never doubled by the session. With no registry and no
+	// such stage nothing runs them, and an assistant turn
 	// that made tool calls is forwarded for the caller to answer with
 	// SubmitToolResults.
 	ToolRegistry *tools.Registry
-	// pipelineRunsTools is set when the pipeline's DuplexProviderStage runs
-	// the session's tool calls (stage.DuplexProviderStage.SetToolExecution),
-	// as the SDK's pipelines do: the session then runs none, does not forward
-	// a tool-call turn, and passes on the calls the stage holds for approval.
-	// Unset, a session with a ToolRegistry runs the calls itself, gated by
-	// AsyncToolChecker, and sends their results back into the pipeline. Only
-	// package sdk sets it (sdk/internal/duplexcfg).
-	pipelineRunsTools bool
 	// AsyncToolChecker gates the calls the session runs itself; it is not
-	// consulted when the SDK's pipeline runs them (the stage's ApprovalGate
-	// holds calls there).
+	// consulted when the pipeline runs them (the stage's ApprovalGate holds
+	// calls there).
 	AsyncToolChecker AsyncToolChecker
 	// Caller is who the conversation acts for (sdk.WithCaller). Every tool call
 	// the session runs carries it; when the pipeline runs them it is given

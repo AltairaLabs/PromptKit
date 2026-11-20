@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/duplexcfg"
-
 	"github.com/google/uuid"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
@@ -995,8 +993,8 @@ func initDuplexSession(ctx context.Context, conv *Conversation, cfg *config) err
 		Variables:       initialVars,
 	}
 	// The pipeline's DuplexProviderStage runs the session's tool calls
-	// (realtime), or its ProviderStage does (VAD): never the session.
-	duplexcfg.RunToolsInPipeline(sessionCfg)
+	// (realtime), or its ProviderStage does (VAD): never the session, which
+	// learns so from the pipeline (stage.StreamPipeline.RunsToolCalls).
 	duplexSession, err := session.NewDuplexSession(conv.withConversationState(ctx), sessionCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create duplex session: %w", err)
