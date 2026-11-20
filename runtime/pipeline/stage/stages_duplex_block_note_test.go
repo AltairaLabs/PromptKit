@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -88,8 +87,28 @@ func noTextOf(t *testing.T, elems []StreamElement, notes []string) {
 	}
 }
 
-// A reply an output guardrail cut gets one note naming the guardrail, after
-// the cut; the caller never sees it.
+// The exact notes the model gets. None names the guardrail that blocked the
+// turn: a pack names a guardrail after what it blocks ("no-bruno"), so its
+// name would put the blocked topic back in the model's conversation. The name
+// is for the host, on the context.note_added event.
+const (
+	wantReplyNote = "Your previous reply was withheld because it broke a content rule, " +
+		"and the user did not hear the rest of it. Do not repeat that content; " +
+		"continue the conversation without it."
+	wantInputRemovedNote = "A message from the user was blocked by a content rule and removed " +
+		"from the conversation. Do not answer it or guess what it said; continue the conversation."
+	wantInputKeptNote = "A message from the user was blocked by a content rule. " +
+		"Do not answer it or act on it; continue the conversation."
+	wantTurnRemovedNote = "A message from the user and your reply to it were blocked by content rules " +
+		"and removed from the conversation; the user did not hear the rest of your reply. " +
+		"Do not answer that message or repeat that content; continue the conversation."
+	wantTurnKeptNote = "A message from the user and your reply to it were blocked by content rules; " +
+		"the user did not hear the rest of your reply. Do not answer that message or repeat that " +
+		"content; continue the conversation."
+)
+
+// A reply an output guardrail cut gets one note, after the cut, that does not
+// name the guardrail; the caller never sees it. The event names it.
 func TestDuplexBlockNote_OutputBlockTellsTheModel(t *testing.T) {
 	s, sess, noted := noteStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "pineapple"))))
 
@@ -98,9 +117,8 @@ func TestDuplexBlockNote_OutputBlockTellsTheModel(t *testing.T) {
 		genChunk(2, transcriptChunk("Anything else?", pcm(10))), genChunk(2, stopChunk()))
 	require.NoError(t, err)
 
-	want := fmt.Sprintf(blockedReplyNote, "banned_words")
+	want := wantReplyNote
 	assert.Equal(t, []string{want}, sess.noted())
-	assert.True(t, strings.HasPrefix(want, "Your previous reply was withheld because it broke a content rule (banned_words)"))
 	noTextOf(t, elems, sess.noted())
 	ev := noted()
 	require.Len(t, ev, 1)
@@ -135,12 +153,13 @@ func TestDuplexBlockNote_InputBlockTellsTheModel(t *testing.T) {
 	more, err := feedChunks(t, s, genChunk(1, stopChunk()))
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{fmt.Sprintf(blockedInputRemovedNote, "banned_words")}, sess.noted())
+	assert.Equal(t, []string{wantInputRemovedNote}, sess.noted())
 	assert.Equal(t, []string{"item_A"}, sess.forgotten())
 	noTextOf(t, append(elems, more...), sess.noted())
 	ev := noted()
 	require.Len(t, ev, 1)
 	assert.Equal(t, hooks.DirectionInput, ev[0].Direction)
+	assert.Equal(t, "banned_words", ev[0].Validator)
 }
 
 // A session that cannot forget a turn (Gemini Live) still has the message:
@@ -154,8 +173,7 @@ func TestDuplexBlockNote_KeptInputIsNotSaidRemoved(t *testing.T) {
 		genChunk(1, transcriptChunk("Sure", pcm(10))), spoken("a wire transfer", "item_A"), genChunk(1, stopChunk()))
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{fmt.Sprintf(blockedInputKeptNote, "banned_words")}, n.notes)
-	assert.NotContains(t, n.notes[0], "removed")
+	assert.Equal(t, []string{wantInputKeptNote}, n.notes)
 }
 
 // keptNotingSession takes context notes but cannot forget a turn.
@@ -183,10 +201,29 @@ func TestDuplexBlockNote_OneCombinedNotePerTurn(t *testing.T) {
 		genChunk(2, stopChunk()))
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{fmt.Sprintf(blockedTurnRemovedNote, "banned_words, banned_words")}, sess.noted())
+	assert.Equal(t, []string{wantTurnRemovedNote}, sess.noted())
 	ev := noted()
 	require.Len(t, ev, 1)
 	assert.Equal(t, "both", ev[0].Direction)
+	assert.Equal(t, "banned_words, banned_words", ev[0].Validator)
+}
+
+// A turn both sides blocked on a session that cannot forget it (Gemini Live)
+// gets the combined note that does not say it was removed.
+func TestDuplexBlockNote_KeptTurnIsNotSaidRemoved(t *testing.T) {
+	s, f := forgetStage(t, hooks.NewRegistry(
+		hooks.WithProviderHook(bannedWordsHook(t, "pineapple")),
+		hooks.WithProviderHook(inputBannedWords(t, "wire"))))
+	n := &keptNotingSession{interruptingSession: f.interruptingSession}
+	s.session = n
+
+	_, err := feedChunks(t, s,
+		genChunk(1, transcriptChunk("pineapple", pcm(10))),
+		spoken("a wire transfer", "item_A"),
+		genChunk(1, stopChunk()))
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{wantTurnKeptNote}, n.notes)
 }
 
 // A reply an output guardrail truncated that the completed-turn check then
@@ -219,7 +256,7 @@ func TestDuplexBlockNote_LateInputBlock(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
-		fmt.Sprintf(blockedReplyNote, "banned_words"), fmt.Sprintf(blockedInputRemovedNote, "banned_words"),
+		wantReplyNote, wantInputRemovedNote,
 	}, sess.noted())
 	assert.Equal(t, "user:a wire transfer", trace(elems)[len(trace(elems))-2], "%v", trace(elems))
 }
@@ -230,7 +267,7 @@ func stripBase(d *events.ContextNoteData) events.ContextNoteData {
 		Validator: d.Validator, TurnIndex: d.TurnIndex}
 }
 
-// The note names the guardrail by its pack ID, else its type.
+// The note's event names the guardrail by its pack ID, else its type.
 func TestDuplexBlockNote_NamesTheGuardrail(t *testing.T) {
 	declared := hooks.Decision{Metadata: map[string]any{
 		hooks.MetadataKeyValidatorDeclaration: &packspec.Validator{ID: "no-pineapple"},

@@ -2,7 +2,6 @@ package stage
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -20,6 +19,10 @@ import (
 // (providers.ContextNoter) that the model reads with the turns that follow and
 // does not answer. The caller neither hears nor sees it; it is not part of the
 // transcript, and is reported as a context.note_added event.
+//
+// The note never names the guardrail: a pack names a guardrail after what it
+// blocks, so its name would put the blocked topic back in the model's
+// conversation. The context.note_added event names it, for the host.
 //
 // A blocked turn gets one note, however many guardrails fire on it: an output
 // block's says the reply was withheld; an input block's says a message from
@@ -39,25 +42,25 @@ import (
 
 const (
 	// blockedReplyNote is the note after an output guardrail withheld the
-	// model's reply; %s names the guardrails.
-	blockedReplyNote = "Your previous reply was withheld because it broke a content rule (%s), " +
+	// model's reply.
+	blockedReplyNote = "Your previous reply was withheld because it broke a content rule, " +
 		"and the user did not hear the rest of it. Do not repeat that content; " +
 		"continue the conversation without it."
 	// blockedInputRemovedNote is the note after an input guardrail blocked a
-	// spoken turn the session forgot; %s names the guardrails.
-	blockedInputRemovedNote = "A message from the user was blocked by a content rule (%s) and removed " +
+	// spoken turn the session forgot.
+	blockedInputRemovedNote = "A message from the user was blocked by a content rule and removed " +
 		"from the conversation. Do not answer it or guess what it said; continue the conversation."
 	// blockedInputKeptNote is that note where the session cannot forget the
 	// turn (Gemini Live): the model still has the message.
-	blockedInputKeptNote = "A message from the user was blocked by a content rule (%s). " +
+	blockedInputKeptNote = "A message from the user was blocked by a content rule. " +
 		"Do not answer it or act on it; continue the conversation."
 	// blockedTurnRemovedNote is the note for a turn both an input and an
 	// output guardrail blocked, which the session forgot.
-	blockedTurnRemovedNote = "A message from the user and your reply to it were blocked by content rules (%s) " +
+	blockedTurnRemovedNote = "A message from the user and your reply to it were blocked by content rules " +
 		"and removed from the conversation; the user did not hear the rest of your reply. " +
 		"Do not answer that message or repeat that content; continue the conversation."
 	// blockedTurnKeptNote is that note where the session cannot forget it.
-	blockedTurnKeptNote = "A message from the user and your reply to it were blocked by content rules (%s); " +
+	blockedTurnKeptNote = "A message from the user and your reply to it were blocked by content rules; " +
 		"the user did not hear the rest of your reply. Do not answer that message or repeat that " +
 		"content; continue the conversation."
 	// contextNoteReasonGuardrail is the context.note_added reason of a
@@ -70,7 +73,8 @@ const (
 
 // blockNote is a blocked turn the model is still to be told of: the reply
 // generation it is (0 when the provider does not number them), the guardrails
-// that blocked each side, and its turn index.
+// that blocked each side (for the host's event, never the note), and its turn
+// index.
 type blockNote struct {
 	gen    int64
 	output []string
@@ -127,20 +131,19 @@ func guardrailName(d hooks.Decision) string {
 // text is the note's text, for a session that forgets blocked spoken turns
 // (forgets) or keeps them, and the direction it reports.
 func (n *blockNote) text(forgets bool) (string, string) {
-	names := strings.Join(append(slices.Clone(n.input), n.output...), ", ")
 	switch {
 	case len(n.input) > 0 && len(n.output) > 0:
 		if forgets {
-			return fmt.Sprintf(blockedTurnRemovedNote, names), noteDirectionBoth
+			return blockedTurnRemovedNote, noteDirectionBoth
 		}
-		return fmt.Sprintf(blockedTurnKeptNote, names), noteDirectionBoth
+		return blockedTurnKeptNote, noteDirectionBoth
 	case len(n.input) > 0:
 		if forgets {
-			return fmt.Sprintf(blockedInputRemovedNote, names), hooks.DirectionInput
+			return blockedInputRemovedNote, hooks.DirectionInput
 		}
-		return fmt.Sprintf(blockedInputKeptNote, names), hooks.DirectionInput
+		return blockedInputKeptNote, hooks.DirectionInput
 	}
-	return fmt.Sprintf(blockedReplyNote, names), hooks.DirectionOutput
+	return blockedReplyNote, hooks.DirectionOutput
 }
 
 // sendBlockNotes adds the notes of the blocked turns that have ended to the
