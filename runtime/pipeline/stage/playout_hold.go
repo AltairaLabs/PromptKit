@@ -261,7 +261,7 @@ func (h *playoutHold) release(ctx context.Context, output chan<- StreamElement, 
 		// every stage downstream, when it happened.
 		out := StreamElement{Message: msg, Timestamp: m.elem.Timestamp}
 		out.Meta.PlayoutRelease = true
-		out.Meta.PlayoutTurnEnd = m.elem.EndOfStream
+		out.Meta.PlayoutTurnEnd = m.elem.EndOfStream || m.elem.Meta.Interrupted
 		h.fwd.forward(ctx, output, out)
 		if m.reply {
 			delete(h.audio, m.key)

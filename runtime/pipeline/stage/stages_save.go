@@ -226,11 +226,15 @@ func (s *IncrementalSaveStage) collectAndForward(
 			continue
 		}
 
-		fwd.forward(ctx, output, elem)
-
+		// The turn is stored before its assistant message goes on, so what
+		// follows this stage (the caller, the conversation's per-turn evals and
+		// session hooks) finds the turn in the transcript when the message
+		// reaches it.
 		if newMessage && s.config.FlushEachTurn && elem.Message.Role == roleAssistant {
 			s.flushTurn(ctx, collected)
 		}
+
+		fwd.forward(ctx, output, elem)
 	}
 	return collected
 }

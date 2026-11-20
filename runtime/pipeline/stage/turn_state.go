@@ -272,8 +272,9 @@ type ElementMetadata struct {
 	PlayoutRelease bool
 
 	// PlayoutTurnEnd, on a PlayoutRelease element, records that the held
-	// element was a turn end (EndOfStream), for a stage that treats a
-	// turn-end Message differently from others.
+	// element was a turn end (EndOfStream, or the Interrupted element carrying
+	// a reply barge-in cut short), for a stage that treats a turn-end Message
+	// differently from others.
 	PlayoutTurnEnd bool
 
 	// CueAudio marks audio a cue stage played for a cue, not reply audio:

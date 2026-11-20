@@ -78,6 +78,32 @@ func TestIncrementalSaveStage_FlushEachTurn(t *testing.T) {
 	}
 }
 
+// With FlushEachTurn a turn is stored before its assistant message goes on, so
+// a stage after this one that reads the transcript when the message reaches it
+// finds the turn there.
+func TestIncrementalSaveStage_FlushStoresTheTurnBeforeForwardingIt(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+		FlushEachTurn:    true,
+	})
+	input := make(chan StreamElement)
+	output := make(chan StreamElement)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	input <- newTestMsgElement("user", "hi")
+	<-output
+	input <- newTestMsgElement("assistant", "hello")
+	got := <-output
+	assert.Equal(t, "hello", got.Message.Content)
+	assert.Equal(t, []string{"user:hi", "assistant:hello"}, storedRoles(t, store, "c"),
+		"the turn is in the store when its assistant message is forwarded")
+	close(input)
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"user:hi", "assistant:hello"}, storedRoles(t, store, "c"))
+}
+
 // A mid-session write that fails keeps the messages for the final save.
 func TestIncrementalSaveStage_FlushFailureIsRetriedAtTheEnd(t *testing.T) {
 	store := &flakyAppendStore{MemoryStore: statestore.NewMemoryStore()}

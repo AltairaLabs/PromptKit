@@ -355,6 +355,11 @@ type Config struct {
 	// produces the agent's audio. Each hands audio elements to AudioTap.
 	AudioTap AudioTapFunc
 
+	// TurnRecorded, when non-nil, is told each time an assistant reply of a
+	// duplex session has entered the transcript (see turnObserverStage). The
+	// conversation runs its per-turn evals and session hooks from it.
+	TurnRecorded TurnRecordedFunc
+
 	// RecordingStore is the destination for recording stage writes.
 	// Required when RecordingConfig is set; without it, recording stages
 	// will not be added to the pipeline.
@@ -624,6 +629,13 @@ func collectPipelineStages(
 
 	// 6. State store save stage - saves conversation state LAST
 	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
+
+	// 6.5 Turn observer - reports each reply once the save stage has stored
+	// it, for the conversation's per-turn evals and session hooks. After the
+	// save stage, which stores a turn before forwarding the element ending it.
+	if cfg.TurnRecorded != nil {
+		stages = append(stages, newTurnObserverStage(cfg.TurnRecorded))
+	}
 
 	// 7. Output audio pacing (realtime playback only). Placed last so the emitted
 	// response stream reaches a realtime sink at real-time cadence while the
@@ -917,7 +929,7 @@ func appendStateStoreSaveStages(
 		MessageLog:         messageLog,
 		// A duplex session's input stays open for the whole session: persist
 		// each turn as it completes, not at hang-up.
-		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil,
+		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil || cfg.Ingestion != nil,
 	}))
 }
 

@@ -207,6 +207,12 @@ type evalMiddleware struct {
 	// Bounded concurrency: sem limits how many eval goroutines run simultaneously.
 	sem chan struct{}
 
+	// dispatchMu orders each dispatch's wg.Add against stopDispatch, so no
+	// dispatch starts once Close waits for them: a duplex session reports its
+	// turns from its pipeline's goroutine, which can still be running.
+	dispatchMu sync.Mutex
+	stopped    bool
+
 	// cacheMu protects the cached fields below from concurrent access
 	// across multiple dispatchTurnEvals goroutines.
 	cacheMu         sync.Mutex
@@ -379,7 +385,19 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 		return
 	}
 	em.turnIndex.Add(1)
-	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals)
+	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals, em.reportedTurn)
+}
+
+// dispatchTurnEvalsAt is dispatchTurnEvals for a turn whose 0-based index the
+// caller knows: a duplex reply, which the pipeline's turn state may already
+// have counted past by the time the reply reaches the transcript.
+// Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) dispatchTurnEvalsAt(ctx context.Context, turn int) {
+	if em == nil {
+		return
+	}
+	em.turnIndex.Add(1)
+	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals, func(int32) int { return turn })
 }
 
 // recordWorkflowStep notes that a workflow state transition committed during
@@ -406,12 +424,13 @@ func (em *evalMiddleware) dispatchWorkflowStepEvals(ctx context.Context) {
 		return
 	}
 	for range steps {
-		em.dispatchAsync(ctx, "workflow step", em.runner.RunWorkflowStepEvals)
+		em.dispatchAsync(ctx, "workflow step", em.runner.RunWorkflowStepEvals, em.reportedTurn)
 	}
 }
 
-// dispatchAsync builds the eval context for the current turn and runs run on a
-// goroutine tracked by the WaitGroup, bounded by the semaphore.
+// dispatchAsync builds the eval context for the current turn, reported as
+// turn gives it, and runs run on a goroutine tracked by the WaitGroup, bounded
+// by the semaphore. Once stopDispatch has run it dispatches nothing.
 //
 // The semaphore is acquired without blocking: if every slot is taken the
 // dispatch is skipped, to prevent unbounded goroutine growth.
@@ -419,28 +438,54 @@ func (em *evalMiddleware) dispatchAsync(
 	ctx context.Context,
 	kind string,
 	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
+	turn func(dispatchCount int32) int,
 ) {
-	select {
-	case em.sem <- struct{}{}:
-		// Acquired — proceed
-	default:
-		logger.Warn("evals: semaphore full, skipping eval dispatch",
-			"kind", kind, "turn", em.turnIndex.Load(), "capacity", cap(em.sem))
+	if !em.startDispatch(kind) {
 		return
 	}
 
-	evalCtx := em.buildEvalContext(ctx)
+	evalCtx := em.buildEvalContextAt(ctx, turn)
 
 	// Use the middleware's lifecycle context so that close() can cancel
 	// in-flight evals. The middleware context is derived from
 	// context.Background() so it outlives any single Send() call.
-	em.wg.Add(1)
 	go func() {
 		defer em.wg.Done()
 		defer func() { <-em.sem }()
 		results := run(em.evalContextWithBinding(em.evalContextWithRegistry(em.ctx)), em.defs, evalCtx)
 		em.recordMetrics(results)
 	}()
+}
+
+// startDispatch takes a semaphore slot and counts the dispatch in the
+// WaitGroup, unless the middleware has stopped dispatching or every slot is
+// taken. It reports whether the dispatch may go ahead.
+func (em *evalMiddleware) startDispatch(kind string) bool {
+	em.dispatchMu.Lock()
+	defer em.dispatchMu.Unlock()
+	if em.stopped {
+		return false
+	}
+	select {
+	case em.sem <- struct{}{}:
+	default:
+		logger.Warn("evals: semaphore full, skipping eval dispatch",
+			"kind", kind, "turn", em.turnIndex.Load(), "capacity", cap(em.sem))
+		return false
+	}
+	em.wg.Add(1)
+	return true
+}
+
+// stopDispatch makes every later dispatch a no-op, so wait sees every
+// dispatch there will be. Nil-safe.
+func (em *evalMiddleware) stopDispatch() {
+	if em == nil {
+		return
+	}
+	em.dispatchMu.Lock()
+	defer em.dispatchMu.Unlock()
+	em.stopped = true
 }
 
 // dispatchSessionEvals dispatches session-complete evals synchronously.
@@ -451,7 +496,7 @@ func (em *evalMiddleware) dispatchSessionEvals(ctx context.Context) {
 		return
 	}
 
-	evalCtx := em.buildEvalContext(ctx)
+	evalCtx := em.buildFreshEvalContext(ctx)
 	results := em.runner.RunSessionEvals(em.evalContextWithBinding(em.evalContextWithRegistry(ctx)), em.defs, evalCtx)
 	em.recordMetrics(results)
 }
@@ -466,7 +511,7 @@ func (em *evalMiddleware) dispatchConversationEvals(ctx context.Context) {
 		return
 	}
 
-	evalCtx := em.buildEvalContext(ctx)
+	evalCtx := em.buildFreshEvalContext(ctx)
 	if len(evalCtx.Messages) == 0 {
 		// Nothing was said: a conversation closed on a failed open, or never
 		// used, has no transcript to score.
@@ -494,6 +539,7 @@ func (em *evalMiddleware) close() {
 	if em == nil {
 		return
 	}
+	em.stopDispatch()
 	em.cancel()
 	em.wg.Wait()
 }
@@ -536,11 +582,31 @@ func (em *evalMiddleware) evalContextWithBinding(base context.Context) context.C
 }
 
 func (em *evalMiddleware) buildEvalContext(ctx context.Context) *evals.EvalContext {
+	return em.buildEvalContextAt(ctx, em.reportedTurn)
+}
+
+// buildFreshEvalContext is buildEvalContext reading the transcript anew. The
+// session and conversation evals use it: the transcript may have grown since
+// the last turn eval cached it (a duplex session's messages after its last
+// completed turn, such as a reply released on drain or a user turn no reply
+// answered).
+func (em *evalMiddleware) buildFreshEvalContext(ctx context.Context) *evals.EvalContext {
+	em.cacheMu.Lock()
+	em.cachedMessages = nil
+	em.cacheMu.Unlock()
+	return em.buildEvalContext(ctx)
+}
+
+// buildEvalContextAt is buildEvalContext with the turn it reports given by
+// turn, from the dispatch count.
+func (em *evalMiddleware) buildEvalContextAt(
+	ctx context.Context, turn func(dispatchCount int32) int,
+) *evals.EvalContext {
 	em.cacheMu.Lock()
 	defer em.cacheMu.Unlock()
 
 	currentTurn := em.turnIndex.Load()
-	reported := em.reportedTurn(currentTurn)
+	reported := turn(currentTurn)
 
 	// Safely get session info — sessions may not be initialized in tests
 	// or when middleware is used standalone.
