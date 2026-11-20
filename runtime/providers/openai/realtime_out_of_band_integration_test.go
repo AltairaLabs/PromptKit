@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
@@ -145,8 +147,8 @@ func TestRealtimeIntegration_CueStageSpeaksOutOfBand(t *testing.T) {
 			Channels: DefaultRealtimeChannels, BitDepth: DefaultRealtimeBitDepth, Encoding: "pcm16"},
 		Metadata: map[string]interface{}{"modalities": []string{"text", "audio"}},
 	})
-	cue := stage.NewCueStageFor(duplex, stage.CueConfig{Cache: stage.NewMemoryClipCache(1 << 24),
-		Texts: []string{brunoLine}, OnDemandBudget: 15 * time.Second, RenderTimeout: 15 * time.Second})
+	duplex.SetHookRegistry(hooks.NewRegistry(hooks.WithProviderHook(messageHook{brunoLine})))
+	cue := stage.NewDuplexCueStage(duplex, stage.CueOptions{Cache: cueclip.NewMemoryCache(1 << 24)})
 
 	in := make(chan stage.StreamElement, 4)
 	out := make(chan stage.StreamElement, 256)
@@ -154,7 +156,7 @@ func TestRealtimeIntegration_CueStageSpeaksOutOfBand(t *testing.T) {
 	go func() { done <- duplex.Process(ctx, in, out) }()
 	in <- stage.NewAudioElement(&stage.AudioData{Samples: make([]byte, 4800), SampleRate: 24000, Channels: 1,
 		Format: stage.AudioFormatPCM16})
-	time.Sleep(3 * time.Second) // the session connects and starts rendering
+	time.Sleep(10 * time.Second) // the session connects and renders the message
 
 	cueIn := make(chan stage.StreamElement, 1)
 	cueOut := make(chan stage.StreamElement, 256)

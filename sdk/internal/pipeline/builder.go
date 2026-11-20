@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -276,13 +277,16 @@ type Config struct {
 	// STTConfig configures the STTStage
 	STTConfig *stage.STTStageConfig
 
-	// TTSService for text-to-speech in VAD mode; in a realtime (ASM) pipeline
-	// it voices the cue stage's clips.
+	// TTSService speaks replies in VAD mode.
 	TTSService tts.Service
+
+	// CueVoice voices the realtime (ASM) cue stage's clips; nil renders none
+	// with a TTS service.
+	CueVoice tts.Service
 
 	// CueClipCache keeps the realtime cue stage's rendered clips; nil is the
 	// runtime's process-wide in-memory cache.
-	CueClipCache stage.ClipCache
+	CueClipCache cueclip.Cache
 
 	// TTSConfig configures the TTSStageWithInterruption
 	TTSConfig *stage.TTSStageWithInterruptionConfig
@@ -630,13 +634,13 @@ func collectPipelineStages(
 }
 
 // appendCueStage adds the cue stage after a realtime (ASM) provider stage
-// (DuplexProviderStage), wired to it, with the TTS service and clip cache
+// (DuplexProviderStage), wired to it, with the cue voice and clip cache
 // configured. Other pipelines (text, VAD, composition) have none, and no cues.
 func appendCueStage(stages, providerStages []stage.Stage, cfg *Config) []stage.Stage {
 	for _, st := range providerStages {
 		if duplex, ok := st.(*stage.DuplexProviderStage); ok {
-			return append(stages, stage.NewCueStageFor(duplex, stage.CueConfig{
-				TTS:   cfg.TTSService,
+			return append(stages, stage.NewDuplexCueStage(duplex, stage.CueOptions{
+				Voice: cfg.CueVoice,
 				Cache: cfg.CueClipCache,
 			}))
 		}

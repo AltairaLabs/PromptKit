@@ -14,6 +14,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
@@ -55,16 +56,16 @@ func synthesizeRequest(ctx context.Context, svc tts.Service, text string) ([]byt
 
 // sendSpeech sends pcm (16-bit mono at vadSampleRate) as the caller's
 // speech: silence, the speech, then silence long enough to end the turn, in
-// speechChunk pieces. VAD mode times turns by the audio's own length, so the
+// speechChunk pieces. VAD mode times turns by the speech's own length, so the
 // chunks are sent back to back.
 func sendSpeech(ctx context.Context, conv chunkSender, pcm []byte) error {
-	audio := append(silence(leadSilence), pcm...)
-	audio = append(audio, silence(trailSilence)...)
+	speech := append(silence(leadSilence), pcm...)
+	speech = append(speech, silence(trailSilence)...)
 	step := pcmBytes(speechChunk)
-	for start := 0; start < len(audio); start += step {
-		end := min(start+step, len(audio))
+	for start := 0; start < len(speech); start += step {
+		end := min(start+step, len(speech))
 		if err := conv.SendChunk(ctx, &providers.StreamChunk{MediaData: &providers.StreamMediaData{
-			MIMEType: "audio/pcm", SampleRate: vadSampleRate, Channels: 1, Data: audio[start:end],
+			MIMEType: "audio/pcm", SampleRate: vadSampleRate, Channels: 1, Data: speech[start:end],
 		}}); err != nil {
 			return err
 		}
@@ -95,14 +96,6 @@ func silence(d time.Duration) []byte { return make([]byte, pcmBytes(d)) }
 // pcmBytes is the size of d of 16-bit mono PCM at vadSampleRate.
 func pcmBytes(d time.Duration) int { return int(d * vadSampleRate / time.Second * 2) }
 
-// pcmDuration is how long n bytes of 16-bit mono PCM at rate play for.
-func pcmDuration(n, rate int) time.Duration {
-	if rate <= 0 {
-		return 0
-	}
-	return time.Duration(n/2) * time.Second / time.Duration(rate)
-}
-
 // turnTimeout bounds how long the script waits for each reply.
 const turnTimeout = 90 * time.Second
 
@@ -119,7 +112,7 @@ func send(setup *providerSetup, conv *sdk.Conversation, elog *eventLog, line str
 		return err
 	}
 	elog.logf("you say", "%q (%.1f s of speech, synthesized by %s TTS)",
-		line, pcmDuration(len(pcm), vadSampleRate).Seconds(), setup.callerTTS.Name())
+		line, audio.PCM16Duration(len(pcm), vadSampleRate, 1).Seconds(), setup.callerTTS.Name())
 	return sendSpeech(ctx, conv, pcm)
 }
 
@@ -133,21 +126,21 @@ type reply struct {
 // each finished reply on turns. A tool-call turn is not a reply: the model
 // answers after the tool's result.
 func readReplies(resp <-chan providers.StreamChunk, elog *eventLog, turns chan<- reply) {
-	var audio time.Duration
+	var played time.Duration
 	for c := range resp {
 		elog.observe(c)
 		if m := c.MediaData; m != nil {
-			audio += pcmDuration(len(m.Data), m.SampleRate)
+			played += audio.PCM16Duration(len(m.Data), m.SampleRate, 1)
 		}
 		if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
 			continue
 		}
 		if fr, _ := c.Metadata["finish_reason"].(string); fr != "tool_use" {
 			select {
-			case turns <- reply{finish: fr, audio: audio}:
+			case turns <- reply{finish: fr, audio: played}:
 			default: // nobody is waiting (the script is done)
 			}
-			audio = 0
+			played = 0
 		}
 	}
 	close(turns)

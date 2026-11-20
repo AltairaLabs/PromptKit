@@ -87,6 +87,36 @@ const MetaInterruptedCause = "_interrupted_cause"
 // before it are kept in the transcript but never sent to the model.
 const MetaBlockedInput = "_blocked_input"
 
+// Message.Meta keys a realtime voice session sets on a reply the caller did
+// not hear in full, when it tracks playout (the SDK's OpenVoice and
+// WithPlayoutTracking). The reply keeps its own FinishReason: it completed,
+// and only its playback was cut, so it stays in model context with any tool
+// calls it made.
+const (
+	// MetaHeardMs is how much of the reply's audio the caller heard, in
+	// milliseconds (int64).
+	MetaHeardMs = "heard_ms"
+	// MetaAudioMs is the reply's audio duration, in milliseconds (int64).
+	MetaAudioMs = "audio_ms"
+	// MetaPlayedFraction is MetaHeardMs over MetaAudioMs, from 0 to 1
+	// (float64, three decimals).
+	MetaPlayedFraction = "played_fraction"
+	// MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn,
+	// PlayoutCutGuardrail or PlayoutCutSessionClosed.
+	MetaPlayoutCut = "playout_cut"
+)
+
+// Values of MetaPlayoutCut.
+const (
+	// PlayoutCutBargeIn: the caller barged in while the reply played.
+	PlayoutCutBargeIn = "barge-in"
+	// PlayoutCutSessionClosed: the session ended (closed, drained or canceled)
+	// while the reply played.
+	PlayoutCutSessionClosed = "session-closed"
+	// PlayoutCutGuardrail: a guardrail blocked the reply and cut it.
+	PlayoutCutGuardrail = "guardrail"
+)
+
 // MetaMessageMetadata is the Message.Meta key holding the metadata an
 // application attached to this message (the SDK's WithMessageMetadata): what
 // the user selected, the view they were on, anything that is not chat text.

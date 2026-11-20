@@ -17,6 +17,7 @@ import (
 	pkgconfig "github.com/AltairaLabs/PromptKit/pkg/v2/config"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -237,12 +238,13 @@ type config struct {
 	// Initial variables from prompt defaults
 	initialVariables map[string]string
 
-	// TTS configuration for Pipeline middleware; in a realtime session it
-	// voices cues (WithTTS).
+	// ttsService speaks replies in VAD mode (WithTTS, WithVADMode,
+	// WithTTSProvider, a role: tts provider file).
 	ttsService tts.Service
-	// cueClipCache keeps a realtime session's rendered cue clips; nil is the
-	// process-wide default (WithCueClipCache).
-	cueClipCache stage.ClipCache
+	// cueVoice voices a realtime session's cues, and cueCache keeps their
+	// rendered clips; nil is the process-wide default (WithCueVoice).
+	cueVoice tts.Service
+	cueCache cueclip.Cache
 	// blockedMessage chooses a blocked message's text (WithBlockedMessage).
 	blockedMessage func(ctx context.Context, b BlockedMessage) string
 
@@ -2741,39 +2743,22 @@ func WithVariables(vars map[string]string) Option {
 	}
 }
 
-// WithTTS sets the text-to-speech service. In VAD mode ([WithVADMode], which
-// sets the TTS service from its own argument) it speaks every reply; whichever
-// of the two options is applied last decides the service.
+// WithTTS sets the text-to-speech service that speaks every reply in VAD mode
+// ([WithVADMode]). It does nothing in a realtime session (ASM, a provider that
+// takes streaming input such as OpenAI Realtime or Gemini Live), where the
+// model speaks: Open logs a warning, once per process, when a TTS service is
+// set on one. To have a service speak a realtime session's guardrail
+// messages, use [WithCueVoice].
 //
-// In a realtime session ([OpenDuplex] or [OpenVoice] on a provider that takes
-// streaming input, such as OpenAI Realtime or Gemini Live) it voices cues: a
-// guardrail's message, when a guardrail cuts a spoken reply or blocks typed
-// input, is spoken from this service, in the session's voice when the service
-// has a voice of that name, instead of by the model. A session that speaks
-// the message itself outside the conversation (OpenAI Realtime) comes first;
-// the service is then used only for a message the session could not say.
-// Only a service that renders PCM is used. Without one the caller hears a
-// short tone (an earcon) and sees the text. [WithTTSProvider] and a
-// `role: tts` provider file set the same service.
+// Four options set the VAD reply service, with one precedence: a service
+// given as an instance ([WithTTS], or [WithVADMode]'s argument) always wins,
+// and between those the one applied last decides; a service built from a spec
+// ([WithTTSProvider], or a `role: tts` entry in a provider file or runtime
+// config) is used only when no instance is given, and the first one declared
+// decides.
 func WithTTS(service tts.Service) Option {
 	return func(c *config) error {
 		c.ttsService = service
-		return nil
-	}
-}
-
-// WithCueClipCache sets the cache a realtime session's cue clips (a guardrail's
-// spoken message) are kept in once rendered, so a clip is rendered once and
-// every conversation sharing the cache plays it without rendering it again.
-// Clips are keyed by their content: the text, the voice, the source and the
-// audio format. A host serving one pack from many processes can share clips
-// across them with its own [stage.ClipCache] over a shared store.
-//
-// The default is one process-wide in-memory cache of
-// [stage.DefaultClipCacheBytes], shared by every conversation the SDK opens.
-func WithCueClipCache(cache stage.ClipCache) Option {
-	return func(c *config) error {
-		c.cueClipCache = cache
 		return nil
 	}
 }
@@ -4259,12 +4244,16 @@ func WithEventRedactor(r events.Redactor) Option {
 // a reply reaches the state store, the recording and message.created once its
 // audio has played, and a reply the caller barged in on (or that was still
 // playing when the session closed) keeps its text and finish reason but gets
-// Message.Meta heard_ms, audio_ms, played_fraction and playout_cut.
+// the Message.Meta keys types.MetaHeardMs, types.MetaAudioMs,
+// types.MetaPlayedFraction and types.MetaPlayoutCut.
 //
-// It is on already when the conversation drives a speaker itself (OpenVoice,
-// WithAudioSession). Without either, nothing is held: a headless consumer
-// that does not play the audio would otherwise have every last reply marked
-// cut at close.
+// A realtime conversation that drives a speaker itself (OpenVoice or
+// WithAudioSession on a provider that takes streaming input) tracks playout
+// already. Without either, nothing is held: a headless consumer that does not
+// play the audio would otherwise have every last reply marked cut at close.
+//
+// Only a realtime session has this playout: Open, and OpenDuplex or OpenVoice
+// in VAD mode (WithVADMode) or with WithIngestion, return an error for it.
 func WithPlayoutTracking() Option {
 	return func(c *config) error {
 		c.playoutTracking = true

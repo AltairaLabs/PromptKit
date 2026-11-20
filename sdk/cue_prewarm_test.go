@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	rtprompt "github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
@@ -50,11 +51,11 @@ func writeTwoPromptPack(t *testing.T) string {
 // cache plays the pre-warmed clip on a cut and never asks the service.
 func TestPrewarmCueClips_ConversationPlaysThePrewarmedClip(t *testing.T) {
 	speech := newCueTTS(cueRate / 4)
-	cache := stage.NewMemoryClipCache(1 << 20)
+	cache := cueclip.NewMemoryCache(1 << 20)
 	packPath := writeTwoPromptPack(t)
 
-	require.NoError(t, PrewarmCueClips(context.Background(), packPath, speech, "alloy",
-		WithSkipSchemaValidation(), WithCueClipCache(cache)))
+	require.NoError(t, PrewarmCueClips(context.Background(), packPath, "alloy",
+		WithSkipSchemaValidation(), WithCueVoice(speech, CueClipCache(cache))))
 
 	assert.Equal(t, 1, speech.calls(brunoMessage))
 	assert.Equal(t, 1, speech.calls(rtprompt.DefaultBlockedMessage))
@@ -62,7 +63,7 @@ func TestPrewarmCueClips_ConversationPlaysThePrewarmedClip(t *testing.T) {
 	assert.Len(t, speech.texts, 2, "nothing else is rendered: %q", speech.texts)
 	speech.mu.Unlock()
 
-	s := openCueSession(t, packPath, spokenProvider(), WithTTS(speech), WithCueClipCache(cache))
+	s := openCueSession(t, packPath, spokenProvider(), WithCueVoice(speech, CueClipCache(cache)))
 	want := speech.played(brunoMessage)
 	r := s.cutBruno(t, len(want))
 
@@ -75,16 +76,16 @@ func TestPrewarmCueClips_ConversationPlaysThePrewarmedClip(t *testing.T) {
 // read-only with no TTS service: the cut plays the same bytes.
 func TestPrewarmCueClips_DirCacheServesAConversationWithoutTTS(t *testing.T) {
 	dir := t.TempDir()
-	w, err := stage.NewDirClipCache(dir)
+	w, err := cueclip.NewDirCache(dir)
 	require.NoError(t, err)
 	speech := newCueTTS(cueRate / 4)
 	packPath := writeBrunoPack(t)
-	require.NoError(t, PrewarmCueClips(context.Background(), packPath, speech, "alloy",
-		WithSkipSchemaValidation(), WithCueClipCache(w)))
+	require.NoError(t, PrewarmCueClips(context.Background(), packPath, "alloy",
+		WithSkipSchemaValidation(), WithCueVoice(speech, CueClipCache(w))))
 
-	ro, err := stage.NewDirClipCache(dir, stage.DirCacheReadOnly())
+	ro, err := cueclip.NewDirCache(dir, cueclip.ReadOnly())
 	require.NoError(t, err)
-	s := openCueSession(t, packPath, spokenProvider(), WithCueClipCache(ro))
+	s := openCueSession(t, packPath, spokenProvider(), WithCueVoice(nil, CueClipCache(ro)))
 	want := speech.played(brunoMessage)
 	r := s.cutBruno(t, len(want))
 
@@ -112,9 +113,10 @@ func TestPrewarmCueClips_DefaultCache(t *testing.T) {
 	speech := defaultCacheTTS{newCueTTS(cueRate / 4),
 		fmt.Sprintf("cue-prewarm-default-%d", defaultCacheRuns.Add(1))}
 	packPath := writeBrunoPack(t)
-	require.NoError(t, PrewarmCueClips(context.Background(), packPath, speech, "alloy", WithSkipSchemaValidation()))
+	require.NoError(t, PrewarmCueClips(context.Background(), packPath, "alloy",
+		WithCueVoice(speech), WithSkipSchemaValidation()))
 
-	s := openCueSession(t, packPath, spokenProvider(), WithTTS(speech))
+	s := openCueSession(t, packPath, spokenProvider(), WithCueVoice(speech))
 	want := speech.played(brunoMessage)
 	r := s.cutBruno(t, len(want))
 	assert.Equal(t, want, r.cue)
@@ -123,22 +125,25 @@ func TestPrewarmCueClips_DefaultCache(t *testing.T) {
 
 // A session-bound source cannot be pre-warmed.
 func TestPrewarmCueClips_SessionBoundSourceIsRefused(t *testing.T) {
-	err := PrewarmCueClips(context.Background(), writeBrunoPack(t), nil, "alloy", WithSkipSchemaValidation())
+	err := PrewarmCueClips(context.Background(), writeBrunoPack(t), "alloy", WithSkipSchemaValidation())
 	require.ErrorIs(t, err, stage.ErrSessionBoundSource)
-	assert.Contains(t, err.Error(), "session-bound")
+	assert.Equal(t, "PrewarmCueClips: no TTS service; pass WithCueVoice: "+stage.ErrSessionBoundSource.Error(),
+		err.Error())
 
 	live := struct {
 		*cueTTS
 		*mock.MockStreamSession
 	}{newCueTTS(10), mock.NewMockStreamSession()}
-	err = PrewarmCueClips(context.Background(), writeBrunoPack(t), live, "alloy", WithSkipSchemaValidation())
+	err = PrewarmCueClips(context.Background(), writeBrunoPack(t), "alloy",
+		WithCueVoice(live), WithSkipSchemaValidation())
 	require.ErrorIs(t, err, stage.ErrSessionBoundSource)
 	assert.Zero(t, live.calls(brunoMessage))
 }
 
 // A pack that cannot be loaded is an error naming it.
 func TestPrewarmCueClips_MissingPack(t *testing.T) {
-	err := PrewarmCueClips(context.Background(), filepath.Join(t.TempDir(), "none.pack.json"), newCueTTS(10), "alloy")
+	err := PrewarmCueClips(context.Background(), filepath.Join(t.TempDir(), "none.pack.json"), "alloy",
+		WithCueVoice(newCueTTS(10)))
 	require.ErrorIs(t, err, ErrPackNotFound)
 }
 
@@ -147,16 +152,16 @@ func TestPrewarmCueClips_MissingPack(t *testing.T) {
 func TestPrewarmCueClips_HostGuardrailMessage(t *testing.T) {
 	speech := newCueTTS(cueRate / 4)
 	const hostMessage = "Let's keep this about the weather."
-	cache := stage.NewMemoryClipCache(1 << 20)
-	require.NoError(t, PrewarmCueClips(context.Background(), writeBrunoPack(t), speech, "alloy",
-		WithSkipSchemaValidation(), WithCueClipCache(cache),
+	cache := cueclip.NewMemoryCache(1 << 20)
+	require.NoError(t, PrewarmCueClips(context.Background(), writeBrunoPack(t), "alloy",
+		WithSkipSchemaValidation(), WithCueVoice(speech, CueClipCache(cache)),
 		WithGuardrail(guardrails.Output("banned_words", map[string]any{"words": []any{"rain"}},
 			guardrails.WithMessage(hostMessage)))))
 
-	clip, ok, err := cache.Get(context.Background(), stage.ClipKeyFor(hostMessage, "alloy", "tts:"+speech.Name(),
-		stage.ClipFormat{Encoding: stage.AudioFormatPCM16, SampleRate: cueRate, Channels: 1}))
+	clip, ok, err := cache.Get(context.Background(), cueclip.KeyFor(hostMessage, "alloy", "tts:"+speech.Name(),
+		cueclip.Format{SampleRate: cueRate, Channels: 1}))
 	require.NoError(t, err)
 	require.True(t, ok, "the host guardrail's message is cached")
-	assert.Equal(t, speech.played(hostMessage), clip.Audio.Samples)
+	assert.Equal(t, speech.played(hostMessage), clip.PCM)
 	assert.Equal(t, 1, speech.calls(brunoMessage))
 }

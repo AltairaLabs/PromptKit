@@ -2,9 +2,12 @@ package stage
 
 import (
 	"context"
+	"encoding/hex"
 	"flag"
 	"os"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,17 +25,26 @@ type cueFixture struct {
 	rate, samples       int
 }
 
-func (f cueFixture) format() ClipFormat {
-	return ClipFormat{Encoding: AudioFormatPCM16, SampleRate: f.rate, Channels: 1}
+func (f cueFixture) format() cueclip.Format {
+	return cueclip.Format{SampleRate: f.rate, Channels: 1}
 }
-func (f cueFixture) key() ClipKey   { return ClipKeyFor(f.text, f.voice, f.source, f.format()) }
-func (f cueFixture) pcm() []byte    { return cueRamp(f.samples) }
-func (f cueFixture) clip() CueClip  { c := readyClip(f.pcm(), f.rate); c.Meta = f.meta(); return c }
-func (f cueFixture) meta() ClipMeta { return ClipMeta{Text: f.text, Voice: f.voice, Source: f.source} }
+func (f cueFixture) key() cueclip.Key { return cueclip.KeyFor(f.text, f.voice, f.source, f.format()) }
+func (f cueFixture) pcm() []byte      { return cueRamp(f.samples) }
+func (f cueFixture) clip() cueClip    { c := readyClip(f.pcm(), f.rate); c.Meta = f.meta(); return c }
+func (f cueFixture) meta() cueclip.Meta {
+	return cueclip.Meta{Text: f.text, Voice: f.voice, Source: f.source}
+}
 func (f cueFixture) String() string { return f.text }
-func cueFixtureCache(t *testing.T) ClipCache {
+
+// pcm24k is the format of a clip a 24 kHz session plays.
+var pcm24k = cueclip.Format{SampleRate: 24000, Channels: 1}
+
+// keyHex is the name the directory cache gives key's files.
+func keyHex(key cueclip.Key) string { return hex.EncodeToString(key[:]) }
+
+func cueFixtureCache(t *testing.T) cueclip.Cache {
 	t.Helper()
-	c, err := NewDirClipCache(cueFixtureDir, DirCacheReadOnly())
+	c, err := cueclip.NewDirCache(cueFixtureDir, cueclip.ReadOnly())
 	require.NoError(t, err)
 	return c
 }
@@ -57,10 +69,10 @@ var (
 func TestRegenerateCueFixtures(t *testing.T) {
 	if *updateCueFixtures {
 		require.NoError(t, os.RemoveAll(cueFixtureDir))
-		w, err := NewDirClipCache(cueFixtureDir)
+		w, err := cueclip.NewDirCache(cueFixtureDir)
 		require.NoError(t, err)
 		for _, f := range cueFixtures {
-			require.NoError(t, w.Put(context.Background(), f.key(), f.clip()))
+			require.NoError(t, w.Put(context.Background(), f.key(), toCached(f.clip())))
 		}
 	}
 	r := cueFixtureCache(t)
@@ -69,7 +81,7 @@ func TestRegenerateCueFixtures(t *testing.T) {
 		got, ok, err := r.Get(context.Background(), f.key())
 		require.NoError(t, err)
 		require.True(t, ok, "fixture %q is missing: regenerate with -update", f.text)
-		assert.Equal(t, f.pcm(), got.Audio.Samples, f.text)
+		assert.Equal(t, f.pcm(), got.PCM, f.text)
 		assert.Equal(t, f.meta(), got.Meta, f.text)
 		want = append(want, keyHex(f.key())+".pcm", keyHex(f.key())+".json")
 	}

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -56,8 +56,8 @@ func count(trace []string, entry string) int {
 // message once and hears it once, in full.
 func TestDuplexGuardrailOnce_InputBlockMidCutSpeaksOnce(t *testing.T) {
 	speech := newCueTTS(cueRate / 2)
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech), inputBruno(),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), inputBruno(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))))
 	want := speech.played(brunoMessage)
 
 	r := &cueRead{}
@@ -82,8 +82,8 @@ func TestDuplexGuardrailOnce_InputBlockMidCutSpeaksOnce(t *testing.T) {
 // nothing more, so the message's clip is not cut as it plays.
 func TestDuplexGuardrailOnce_LateInputBlockLeavesTheClip(t *testing.T) {
 	speech := newCueTTS(cueRate / 2)
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech), inputBruno(),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), inputBruno(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))))
 	want := speech.played(brunoMessage)
 
 	r := &cueRead{}
@@ -179,7 +179,7 @@ func TestDuplexGuardrailOnce_SlowInputBlockCutsTheStreamingReply(t *testing.T) {
 	judge := newHeldInputHook("Bruno", brunoMessage)
 	speech := newCueTTS(cueRate / 2)
 	s := openCueSession(t, writeIngestionTestPack(t), spokenProvider(), WithProviderHook(judge),
-		WithTTS(speech), WithCueClipCache(stage.NewMemoryClipCache(1<<20)))
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))))
 	want := speech.played(brunoMessage)
 
 	r := &cueRead{}
@@ -228,8 +228,8 @@ func TestDuplexGuardrailOnce_SpeakerHearsTheWholeMessage(t *testing.T) {
 	speech := newCueTTS(cueRate) // a second, played in real time
 	prov := spokenProvider()
 	conv, err := OpenVoice(writeBrunoPack(t), "main",
-		WithProvider(prov), WithSkipSchemaValidation(), WithTTS(speech), inputBruno(),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)),
+		WithProvider(prov), WithSkipSchemaValidation(), inputBruno(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))),
 		WithStreamingConfig(&providers.StreamingInputConfig{Config: types.StreamingMediaConfig{
 			Type: types.ContentTypeAudio, SampleRate: cueRate, Channels: 1, Encoding: "pcm16", BitDepth: 16,
 		}}),

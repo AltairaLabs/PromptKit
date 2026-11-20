@@ -37,12 +37,11 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func BudgetTokensFor\(p providers.Provider\) int](<#BudgetTokensFor>)
 - [func CosineSimilarity\(a, b \[\]float32\) float64](<#CosineSimilarity>)
 - [func DescribeCapabilities\(stage Stage\) string](<#DescribeCapabilities>)
-- [func EarconPCM\(rate int\) \[\]byte](<#EarconPCM>)
 - [func ExcludeFromModelContext\(msgs \[\]types.Message\) \[\]types.Message](<#ExcludeFromModelContext>)
 - [func NewCompositionStepExecutor\(deps CompositionExecutorDeps\) engine.StepExecutor](<#NewCompositionStepExecutor>)
 - [func NewFileSchemaResolver\(configDir string\) func\(path string\) \(json.RawMessage, error\)](<#NewFileSchemaResolver>)
 - [func NormalizeEmbedding\(embedding \[\]float32\) \[\]float32](<#NormalizeEmbedding>)
-- [func PrewarmClips\(ctx context.Context, cache ClipCache, svc tts.Service, voice string, format ClipFormat, texts \[\]string\) error](<#PrewarmClips>)
+- [func PrewarmClips\(ctx context.Context, cache cueclip.Cache, svc tts.Service, voice string, format cueclip.Format, texts \[\]string\) error](<#PrewarmClips>)
 - [func PutElement\(elem \*StreamElement\)](<#PutElement>)
 - [func ResetIdleFromContext\(ctx context.Context\)](<#ResetIdleFromContext>)
 - [func ValidateCapabilities\(stages \[\]Stage, edges map\[string\]\[\]string\)](<#ValidateCapabilities>)
@@ -99,13 +98,6 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func TextCapabilities\(\) Capabilities](<#TextCapabilities>)
   - [func \(c \*Capabilities\) AcceptsContentType\(ct ContentType\) bool](<#Capabilities.AcceptsContentType>)
   - [func \(c \*Capabilities\) AcceptsElement\(elem \*StreamElement\) bool](<#Capabilities.AcceptsElement>)
-- [type ClipCache](<#ClipCache>)
-  - [func NewDirClipCache\(dir string, opts ...DirClipCacheOption\) \(ClipCache, error\)](<#NewDirClipCache>)
-  - [func NewMemoryClipCache\(maxBytes int64\) ClipCache](<#NewMemoryClipCache>)
-- [type ClipFormat](<#ClipFormat>)
-- [type ClipKey](<#ClipKey>)
-  - [func ClipKeyFor\(text, voice, sourceKind string, format ClipFormat\) ClipKey](<#ClipKeyFor>)
-- [type ClipMeta](<#ClipMeta>)
 - [type CompactResult](<#CompactResult>)
 - [type CompactionContext](<#CompactionContext>)
 - [type CompactionRule](<#CompactionRule>)
@@ -152,18 +144,11 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(c \*ContextCompactor\) ForProvider\(p providers.Provider\) CompactionStrategy](<#ContextCompactor.ForProvider>)
   - [func \(c \*ContextCompactor\) TokenBudget\(\) int](<#ContextCompactor.TokenBudget>)
 - [type Cue](<#Cue>)
-- [type CueClip](<#CueClip>)
-- [type CueConfig](<#CueConfig>)
 - [type CueKind](<#CueKind>)
-- [type CueStage](<#CueStage>)
-  - [func NewCueStage\(cfg CueConfig\) \*CueStage](<#NewCueStage>)
-  - [func NewCueStageFor\(duplex \*DuplexProviderStage, cfg CueConfig\) \*CueStage](<#NewCueStageFor>)
-  - [func \(s \*CueStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#CueStage.Process>)
+- [type CueOptions](<#CueOptions>)
 - [type DebugStage](<#DebugStage>)
   - [func NewDebugStage\(stageName string\) \*DebugStage](<#NewDebugStage>)
   - [func \(s \*DebugStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#DebugStage.Process>)
-- [type DirClipCacheOption](<#DirClipCacheOption>)
-  - [func DirCacheReadOnly\(\) DirClipCacheOption](<#DirCacheReadOnly>)
 - [type DropStrategy](<#DropStrategy>)
   - [func \(s DropStrategy\) String\(\) string](<#DropStrategy.String>)
 - [type DuplexProviderStage](<#DuplexProviderStage>)
@@ -381,6 +366,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(s ScoredMessages\) Less\(i, j int\) bool](<#ScoredMessages.Less>)
   - [func \(s ScoredMessages\) Swap\(i, j int\)](<#ScoredMessages.Swap>)
 - [type Stage](<#Stage>)
+  - [func NewDuplexCueStage\(duplex \*DuplexProviderStage, opts CueOptions\) Stage](<#NewDuplexCueStage>)
   - [func WithNamePrefix\(prefix string, s Stage\) Stage](<#WithNamePrefix>)
 - [type StageError](<#StageError>)
   - [func NewStageError\(stageName string, stageType StageType, err error\) \*StageError](<#NewStageError>)
@@ -523,38 +509,6 @@ const (
 )
 ```
 
-<a name="MetaHeardMs"></a>Message.Meta keys PlayoutHoldStage sets on a reply the caller did not hear in full. The reply keeps its own FinishReason: it completed, and only its playback was cut, so it stays in model context with any tool calls it made.
-
-```go
-const (
-    // MetaHeardMs is how much of the reply's audio the caller heard, in
-    // milliseconds (int64).
-    MetaHeardMs = "heard_ms"
-    // MetaAudioMs is the reply's audio duration, in milliseconds (int64).
-    MetaAudioMs = "audio_ms"
-    // MetaPlayedFraction is MetaHeardMs over MetaAudioMs, from 0 to 1
-    // (float64, three decimals).
-    MetaPlayedFraction = "played_fraction"
-    // MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn,
-    // PlayoutCutGuardrail or PlayoutCutSessionClosed.
-    MetaPlayoutCut = "playout_cut"
-)
-```
-
-<a name="PlayoutCutBargeIn"></a>Values of MetaPlayoutCut.
-
-```go
-const (
-    // PlayoutCutBargeIn: the caller barged in while the reply played.
-    PlayoutCutBargeIn = "barge-in"
-    // PlayoutCutSessionClosed: the session ended (closed, drained or canceled)
-    // while the reply played.
-    PlayoutCutSessionClosed = "session-closed"
-    // PlayoutCutGuardrail: a guardrail blocked the reply and cut it.
-    PlayoutCutGuardrail = "guardrail"
-)
-```
-
 <a name="DefaultMaxMessages"></a>
 
 ```go
@@ -624,12 +578,6 @@ const (
     DefaultBudgetTokens = 128000 // sensible default for modern models
 
 )
-```
-
-<a name="DefaultClipCacheBytes"></a>DefaultClipCacheBytes is the size of the process\-wide clip cache a cue stage uses when its config names none.
-
-```go
-const DefaultClipCacheBytes = 64 << 20
 ```
 
 <a name="DefaultCompletionTimeout"></a>Default configuration values.
@@ -836,15 +784,6 @@ func DescribeCapabilities(stage Stage) string
 
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
-<a name="EarconPCM"></a>
-## func [EarconPCM](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_earcon.go#L24>)
-
-```go
-func EarconPCM(rate int) []byte
-```
-
-EarconPCM is the earcon, the short tone a CueStage plays for a cue no other source voices, as PCM16 mono little\-endian at rate. It depends on rate only, so every session at a rate plays the same bytes.
-
 <a name="ExcludeFromModelContext"></a>
 ## func [ExcludeFromModelContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L168>)
 
@@ -882,10 +821,10 @@ func NormalizeEmbedding(embedding []float32) []float32
 NormalizeEmbedding normalizes an embedding vector to unit length. This can improve similarity comparisons by ensuring all vectors have the same magnitude.
 
 <a name="PrewarmClips"></a>
-## func [PrewarmClips](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_prewarm.go#L78-L80>)
+## func [PrewarmClips](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_prewarm.go#L80-L82>)
 
 ```go
-func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice string, format ClipFormat, texts []string) error
+func PrewarmClips(ctx context.Context, cache cueclip.Cache, svc tts.Service, voice string, format cueclip.Format, texts []string) error
 ```
 
 PrewarmClips renders texts with the TTS service svc into cache, so a session started later plays them with no render. voice is the session's voice name: the clips are keyed by the service voice whose ID or name matches it, ignoring case \(the service's default voice when none does\), exactly as a session in that voice looks them up. format is the session's output format \(PCM16 mono; a zero SampleRate is 24 kHz\). A nil cache is the process\-wide default.
@@ -1539,94 +1478,6 @@ func (c *Capabilities) AcceptsElement(elem *StreamElement) bool
 
 AcceptsElement returns true if this capability accepts the given stream element.
 
-<a name="ClipCache"></a>
-## type [ClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L70-L73>)
-
-ClipCache stores rendered clips by content key, so sessions that need the same clip render it once. Implementations must be safe for concurrent use. Get returns a miss as \(zero, false, nil\); an error is a cache fault, which the cue stage logs and treats as a miss.
-
-The cue stage renders through a single\-flight group within its process, so one process renders a key once at a time. A store shared across processes \(many pods serving the same pack\) does not get that across processes: each process can render a key once before the store holds it. An implementation that wants no duplicate writes should make Put put\-if\-absent \(Redis SET NX, a blob store's create\-if\-absent\).
-
-A cached clip is ready to play: trimmed, faded out and at the format in its key, so a hit needs no processing. Its bytes are shared: no one modifies them.
-
-```go
-type ClipCache interface {
-    Get(ctx context.Context, key ClipKey) (CueClip, bool, error)
-    Put(ctx context.Context, key ClipKey, clip CueClip) error
-}
-```
-
-<a name="NewDirClipCache"></a>
-### func [NewDirClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L49>)
-
-```go
-func NewDirClipCache(dir string, opts ...DirClipCacheOption) (ClipCache, error)
-```
-
-NewDirClipCache is a ClipCache over dir. Each clip is two files named by the key's hex: \<key\>.pcm \(raw PCM16LE\) and \<key\>.json, a sidecar naming the text, voice, source and format, so the directory can be read and checked into a repo:
-
-```
-{"text": "...", "voice": "alloy", "source": "tts:openai",
- "encoding": "pcm16", "sample_rate": 24000, "channels": 1, "duration_ms": 1830,
- "sha256": "..."}
-```
-
-Writes are atomic \(temp file and rename, .pcm first, .json last\), so a .pcm without a .json, what a write cut short leaves, is a miss. Many writers, in one process or several, can share a directory. Get is a miss for a sidecar that is not the key's own \(its text, voice, source or format does not make the key\) and for a .pcm the sidecar does not vouch for \(another length, or another digest\). Put keeps only a clip Get would return, so it errors on one whose Meta does not make its key.
-
-A writable cache creates dir and sweeps temp files a crashed writer left more than an hour ago; a DirCacheReadOnly one needs dir to exist and changes nothing in it.
-
-<a name="NewMemoryClipCache"></a>
-### func [NewMemoryClipCache](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L93>)
-
-```go
-func NewMemoryClipCache(maxBytes int64) ClipCache
-```
-
-NewMemoryClipCache is an in\-process ClipCache that keeps at most maxBytes of clip media, evicting the least recently used clips first. A clip larger than maxBytes is not kept.
-
-<a name="ClipFormat"></a>
-## type [ClipFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L15-L19>)
-
-ClipFormat is the PCM format of a rendered clip.
-
-```go
-type ClipFormat struct {
-    Encoding   AudioFormat
-    SampleRate int
-    Channels   int
-}
-```
-
-<a name="ClipKey"></a>
-## type [ClipKey](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L22>)
-
-ClipKey identifies a rendered clip by what determines its audio.
-
-```go
-type ClipKey [32]byte
-```
-
-<a name="ClipKeyFor"></a>
-### func [ClipKeyFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache.go#L31>)
-
-```go
-func ClipKeyFor(text, voice, sourceKind string, format ClipFormat) ClipKey
-```
-
-ClipKeyFor is the key of the clip that says text in voice from the source kind sourceKind \("tts:\<service name\>", "session:\<family\>" or "earcon"\), in format. It is SHA\-256 over the text \(trimmed and in Unicode NFC, otherwise exact: punctuation changes how it is said\), the voice, the source kind and the format. No model name goes into it: a model change behind the same source and voice keeps the key, so a host that wants fresh clips after one clears its cache.
-
-<a name="ClipMeta"></a>
-## type [ClipMeta](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L51-L55>)
-
-ClipMeta is what a clip says and who said it: the inputs of its ClipKey.
-
-```go
-type ClipMeta struct {
-    Text   string // the text the key was made from
-    Voice  string
-    Source string // the source kind: "tts:<service>", "session:<family>", "earcon"
-}
-```
-
 <a name="CompactResult"></a>
 ## type [CompactResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/compactor.go#L19-L29>)
 
@@ -2277,16 +2128,16 @@ func (c *ContextCompactor) TokenBudget() int
 TokenBudget implements CompactionStrategy.
 
 <a name="Cue"></a>
-## type [Cue](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L25-L34>)
+## type [Cue](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L22-L31>)
 
-Cue asks a CueStage to play the clip for Text.
+Cue asks the cue stage \(NewDuplexCueStage\) to play the clip for Text.
 
 ```go
 type Cue struct {
     Kind CueKind
     // Text is what the clip says and the key it is looked up by.
     Text string
-    // Preemptible cues (backchannels) give way to reply audio: a flush-on-cut
+    // Preemptible cues give way to reply audio: a flush-on-cut
     // AudioPacingStage drops what is still queued of them when reply audio
     // arrives. Guardrail messages are not preemptible: a reply queues behind
     // them as behind another reply.
@@ -2294,63 +2145,8 @@ type Cue struct {
 }
 ```
 
-<a name="CueClip"></a>
-## type [CueClip](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L37-L48>)
-
-CueClip is a cue's pre\-rendered media.
-
-```go
-type CueClip struct {
-    // Audio is PCM16 mono. A clip at another sample rate than the output's is
-    // resampled once, before it is first played.
-    Audio *AudioData
-    // Video is reserved: no source renders it yet. A video stage goes after
-    // the CueStage and lip-syncs cue audio as it does reply audio.
-    Video *VideoData
-    // Meta says where the clip came from. A cache that keeps clips where a
-    // person can read them (the directory cache's sidecar) records it; it is
-    // not part of what plays.
-    Meta ClipMeta
-}
-```
-
-<a name="CueConfig"></a>
-## type [CueConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L58-L84>)
-
-CueConfig configures a CueStage.
-
-```go
-type CueConfig struct {
-    // Clips are ready clips by cue text.
-    Clips map[string]CueClip
-    // ChunkDuration is the length of the audio elements a clip is played as;
-    // default 100ms.
-    ChunkDuration time.Duration
-    // OnDemandBudget bounds how long reply output waits behind a clip still
-    // rendering; default 1.5s. Past it what waited goes on, after the earcon
-    // when the clip renders from the session's sources (NewCueStageFor), and
-    // with no clip otherwise. The clip itself is kept for the next cue.
-    OnDemandBudget time.Duration
-    // RenderTimeout bounds one clip's render; default 3s. The session's own
-    // audio gets it for each of its tries (it is asked again when it says
-    // other than the text). A render that
-    // finishes after OnDemandBudget, or after a cut dropped its cue, still
-    // keeps its clip for the next cue with that text.
-    RenderTimeout time.Duration
-    // Cache holds rendered clips across sessions; nil is the process-wide
-    // in-memory cache of DefaultClipCacheBytes.
-    Cache ClipCache
-    // TTS renders clips in the session's voice when the session has no audio
-    // of its own to offer. Only a service that renders PCM is used.
-    TTS tts.Service
-    // Texts are rendered as soon as the session starts, with the messages of
-    // the provider stage's guardrails, so their cues play without waiting.
-    Texts []string
-}
-```
-
 <a name="CueKind"></a>
-## type [CueKind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L14>)
+## type [CueKind](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L15>)
 
 CueKind says what a cue is for.
 
@@ -2358,60 +2154,29 @@ CueKind says what a cue is for.
 type CueKind string
 ```
 
-<a name="CueGuardrailMessage"></a>
+<a name="CueGuardrailMessage"></a>CueGuardrailMessage is a guardrail's message, spoken when it cuts a reply or blocks typed input.
 
 ```go
-const (
-    // CueGuardrailMessage is a guardrail's message, spoken when it cuts a reply.
-    CueGuardrailMessage CueKind = "guardrail_message"
-    // CueBackchannel is a short acknowledgment ("mm-hm") played while the
-    // caller speaks.
-    CueBackchannel CueKind = "backchannel"
-)
+const CueGuardrailMessage CueKind = "guardrail_message"
 ```
 
-<a name="CueStage"></a>
-## type [CueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L121-L128>)
+<a name="CueOptions"></a>
+## type [CueOptions](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L154-L163>)
 
-CueStage plays a pre\-rendered clip for each element carrying a Cue. It goes directly after the provider stage, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as they treat reply audio \(marked Meta.CueAudio\).
-
-Every element goes on unchanged and in order. After an element with a Cue the stage plays the cue's clip, when it has one, as audio elements of ChunkDuration each, PCM16 mono at the reply audio's rate \(the first reply audio seen, else 24 kHz\). A clip is trimmed of leading and trailing silence, resampled to that rate and faded out at its end once, the first time it plays at that rate. A cue with no clip plays nothing: the element's text is already out.
-
-While a clip is still rendering, the stage holds reply output behind it: elements go on until the first one carrying audio, which waits, and every element after it waits too, so a reply's end never overtakes its audio. The clip plays when it is ready, then what waited. A clip not ready within OnDemandBudget plays nothing, a cut \(barge\-in\) while it renders drops the cue, and reply audio drops a preemptible cue: in each case what waited goes on at once, and the render goes on to keep its clip for next time.
+CueOptions configures the cue stage NewDuplexCueStage builds.
 
 ```go
-type CueStage struct {
-    BaseStage
-    // contains filtered or unexported fields
+type CueOptions struct {
+    // Voice renders clips in the session's voice when the session has no
+    // audio of its own to offer. Only a service that renders PCM is used; nil
+    // plays the clips pre-warmed for the session's voice (PrewarmClips), and
+    // the earcon for any other text.
+    Voice tts.Service
+    // Cache holds rendered clips across sessions; nil is the process-wide
+    // in-memory cache of cueclip.DefaultCacheBytes.
+    Cache cueclip.Cache
 }
 ```
-
-<a name="NewCueStage"></a>
-### func [NewCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L131>)
-
-```go
-func NewCueStage(cfg CueConfig) *CueStage
-```
-
-NewCueStage creates a cue stage named "cue".
-
-<a name="NewCueStageFor"></a>
-### func [NewCueStageFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L162>)
-
-```go
-func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage
-```
-
-NewCueStageFor creates a cue stage that renders its clips for duplex's session, and wires duplex to it: when duplex creates its session the stage learns the session's voice and output rate and starts rendering the configured texts and the messages of duplex's guardrails. Clips come from the first source that renders them: the session's own out\-of\-band audio \(providers.OutOfBandSpeaker, OpenAI Realtime\), in its exact voice and outside the conversation; then the TTS service; then a built\-in earcon \(a short tone\). The session's audio is checked against the text by its transcript \(case, punctuation and spacing aside\) and asked for once more on a miss before the text falls to the next source. Its clips are cached under the session's provider family and voice, so only the first session of a family and voice renders them; a clip put in the cache for the TTS service \(a pre\-warmed one\) is not played on such a session, since its own audio comes first. A text not known in advance renders when first cued; past OnDemandBudget the earcon plays in its place. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) plays its configured clips and renders as PCM16 at 24 kHz in the TTS service's default voice.
-
-<a name="CueStage.Process"></a>
-### func \(\*CueStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L200>)
-
-```go
-func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
-```
-
-Process implements the Stage interface.
 
 <a name="DebugStage"></a>
 ## type [DebugStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_utilities.go#L26-L29>)
@@ -2442,24 +2207,6 @@ func (s *DebugStage) Process(ctx context.Context, input <-chan StreamElement, ou
 ```
 
 Process logs each element as it passes through \(passthrough transform\).
-
-<a name="DirClipCacheOption"></a>
-## type [DirClipCacheOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L22>)
-
-DirClipCacheOption configures NewDirClipCache.
-
-```go
-type DirClipCacheOption func(*dirClipCache)
-```
-
-<a name="DirCacheReadOnly"></a>
-### func [DirCacheReadOnly](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_clip_cache_dir.go#L27>)
-
-```go
-func DirCacheReadOnly() DirClipCacheOption
-```
-
-DirCacheReadOnly makes Put of a directory clip cache a no\-op that returns nil, so a test or an arena run never writes. A clip the directory lacks is a miss.
 
 <a name="DropStrategy"></a>
 ## type [DropStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L24>)
@@ -2734,7 +2481,7 @@ type ElementMetadata struct {
     // turn-end Message differently from others.
     PlayoutTurnEnd bool
 
-    // CueAudio marks audio a CueStage played for a cue, not reply audio:
+    // CueAudio marks audio a cue stage played for a cue, not reply audio:
     // playout accounting keeps it out of the reply's audio, and a flush-on-cut
     // AudioPacingStage drops a preemptible cue's queued audio when reply audio
     // arrives.
@@ -4613,7 +4360,7 @@ func (c *PipelineConfig) WithPrioritizeElements(prioritize bool) *PipelineConfig
 WithPrioritizeElements sets whether stages read their input in priority order.
 
 <a name="PlayoutHoldStage"></a>
-## type [PlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L92-L95>)
+## type [PlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L64-L67>)
 
 PlayoutHoldStage keeps a realtime reply out of the transcript until the caller has heard it. A realtime model sends a reply's audio faster than it plays, so the reply completes long before the caller has heard it, and a caller who barges in while it plays hears only part of it.
 
@@ -4633,7 +4380,7 @@ type PlayoutHoldStage struct {
 ```
 
 <a name="NewPlayoutHoldStage"></a>
-### func [NewPlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L98>)
+### func [NewPlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L70>)
 
 ```go
 func NewPlayoutHoldStage() *PlayoutHoldStage
@@ -4642,7 +4389,7 @@ func NewPlayoutHoldStage() *PlayoutHoldStage
 NewPlayoutHoldStage creates a playout hold stage.
 
 <a name="PlayoutHoldStage.Process"></a>
-### func \(\*PlayoutHoldStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L136>)
+### func \(\*PlayoutHoldStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L108>)
 
 ```go
 func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5693,6 +5440,19 @@ type Stage interface {
 }
 ```
 
+<a name="NewDuplexCueStage"></a>
+### func [NewDuplexCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_cue.go#L191>)
+
+```go
+func NewDuplexCueStage(duplex *DuplexProviderStage, opts CueOptions) Stage
+```
+
+NewDuplexCueStage creates the stage that speaks cues for duplex's realtime session: a guardrail's message, when a guardrail cuts a spoken reply or blocks typed input. It goes directly after duplex in the pipeline, ahead of transcript reordering, playout tracking, recording and pacing, which treat its audio as reply audio \(marked Meta.CueAudio\). Every element goes on unchanged and in order; after one carrying a Cue the stage plays the cue's clip, PCM16 mono at the reply audio's rate, in chunks of 100ms.
+
+When duplex creates its session the stage learns the session's voice and output rate and starts rendering the messages of duplex's guardrails. Clips come from the first source that renders them: the session's own out\-of\-band audio \(providers.OutOfBandSpeaker, OpenAI Realtime\), in its exact voice and outside the conversation; then opts.Voice; then, with no Voice, the clips pre\-warmed for the session's voice; then a built\-in earcon \(a short tone\). The session's audio is checked against the text by its transcript \(case, punctuation and spacing aside\) and asked for once more on a miss before the text falls to the next source. Clips are kept in opts.Cache under their source and voice, so only the first session of a source and voice renders them.
+
+While a clip renders, reply output waits behind it for at most 1.5s; past that the earcon plays in its place, and the clip is kept for the next cue. A cut \(barge\-in\) while it renders drops the cue. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) renders PCM16 at 24 kHz in the voice service's default voice.
+
 <a name="WithNamePrefix"></a>
 ### func [WithNamePrefix](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/rename.go#L29>)
 
@@ -5950,9 +5710,9 @@ type StreamElement struct {
     // turns. Distinct from the content fields above so consumers exclude it.
     Reasoning *ReasoningDelta
 
-    // Cue asks a CueStage downstream to play a pre-rendered clip. It is not
+    // Cue asks a cue stage downstream to play a pre-rendered clip. It is not
     // content: stages that do not know it pass it on, and a pipeline without a
-    // CueStage shows the element's other payload (for a guardrail cue, its
+    // cue stage shows the element's other payload (for a guardrail cue, its
     // text).
     Cue *Cue
 

@@ -115,12 +115,17 @@ That is the case when the conversation drives a speaker itself (`OpenVoice`,
 arrives and opens the conversation with `sdk.WithPlayoutTracking()`. A reply
 with audio then reaches the state store, the recording and `message.created`
 once its audio has played; everything after it waits behind it, so the order
-holds. The chunks on `Response()` are not delayed.
+holds. The chunks on `Response()` are not delayed. `sdk.Open`, and a duplex
+session in VAD mode or with `WithIngestion`, return an error for
+`WithPlayoutTracking`: their replies have no such playout.
 
 If the caller barges in, or the session ends while the reply still plays, the
 stored reply keeps its full text and its `FinishReason`, so it stays in model
 context with any tool calls it made. A reply a guardrail blocks is stored as the
-guardrail's message, marked `safety`. Its `Meta` gains:
+guardrail's message, marked `safety`. Its `Meta` gains these keys, named by
+constants in `runtime/types` (`types.MetaHeardMs`, `types.MetaAudioMs`,
+`types.MetaPlayedFraction`, `types.MetaPlayoutCut`, and the `types.PlayoutCut*`
+values):
 
 | Key | Value |
 |---|---|

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -67,8 +67,8 @@ func (s *cueSession) storedAssistants(t *testing.T) []string {
 func TestWithBlockedMessage_RealtimeShowsSpeaksAndStoresTheHostText(t *testing.T) {
 	speech := newCueTTS(cueRate / 4)
 	host := &blockedCalls{reply: localizedBruno}
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(host.fn))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(host.fn))
 
 	want := speech.played(localizedBruno)
 	r := s.cutBruno(t, len(want))
@@ -87,8 +87,8 @@ func TestWithBlockedMessage_RealtimeShowsSpeaksAndStoresTheHostText(t *testing.T
 func TestWithBlockedMessage_EmptyKeepsTheMessage(t *testing.T) {
 	speech := newCueTTS(cueRate / 4)
 	host := &blockedCalls{}
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(host.fn))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(host.fn))
 
 	want := speech.played(brunoMessage)
 	r := s.cutBruno(t, len(want))
@@ -232,7 +232,7 @@ func TestWithBlockedMessage_ReceivesTheFiring(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			host := &blockedCalls{reply: localizedBruno}
 			s := openCueSession(t, writeValidatorPack(t, tc.validator), spokenProvider(),
-				WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(host.fn), WithCaller(caller))
+				WithCueVoice(nil, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(host.fn), WithCaller(caller))
 
 			tc.drive(t, s)
 
@@ -288,7 +288,7 @@ func TestWithBlockedMessage_TurnIndexAgreesAcrossPaths(t *testing.T) {
 
 	live := &blockedCalls{reply: localizedBruno}
 	s := openCueSession(t, writeValidatorPack(t, jsonOnly), spokenProvider(),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(live.fn))
+		WithCueVoice(nil, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(live.fn))
 	for range 2 {
 		s.sess.EmitChunk(replyChunk("Let me"))
 		s.sess.EmitChunk(endChunk())
@@ -327,8 +327,8 @@ func TestWithBlockedMessage_HostTextIsNotJudgedAgain(t *testing.T) {
 	t.Run("realtime", func(t *testing.T) {
 		speech := newCueTTS(cueRate / 4)
 		host := &blockedCalls{reply: namesBruno}
-		s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech),
-			WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(host.fn))
+		s := openCueSession(t, writeBrunoPack(t), spokenProvider(),
+			WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(host.fn))
 
 		r := s.cutBruno(t, len(speech.played(namesBruno)))
 
@@ -360,8 +360,8 @@ func TestWithBlockedMessage_OncePerBlockedTurn(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			speech := newCueTTS(cueRate / 4)
 			host := &blockedCalls{reply: localizedBruno}
-			s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech), inputBruno(),
-				WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(host.fn))
+			s := openCueSession(t, writeBrunoPack(t), spokenProvider(), inputBruno(),
+				WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(host.fn))
 			want := speech.played(localizedBruno)
 
 			r := &cueRead{}
@@ -395,7 +395,7 @@ func TestWithBlockedMessage_AsyncInputVerdict(t *testing.T) {
 	judge := newHeldInputHook("Bruno", brunoMessage)
 	host := &blockedCalls{reply: localizedBruno}
 	s := openCueSession(t, writeIngestionTestPack(t), spokenProvider(), WithProviderHook(judge),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithBlockedMessage(host.fn))
+		WithCueVoice(nil, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(host.fn))
 
 	r := &cueRead{}
 	s.sess.EmitChunk(replyChunk("Sure, "))

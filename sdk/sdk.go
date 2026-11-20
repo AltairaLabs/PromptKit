@@ -367,6 +367,9 @@ func completeOpen(
 	if err := initMCPRegistry(conv, conv.config); err != nil {
 		return conv.failOpen(err)
 	}
+	if err := checkVoiceOptions(conv.config, duplex); err != nil {
+		return conv.failOpen(err)
+	}
 
 	if duplex {
 		// After MCP init, deliberately: a misconfigured MCP entry surfaces

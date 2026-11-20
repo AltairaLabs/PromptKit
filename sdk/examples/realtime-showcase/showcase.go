@@ -88,12 +88,9 @@ type providerSetup struct {
 	// words for the no-bruno-topic guardrail, on the same API key.
 	judgeType  string
 	judgeModel string
-	// tts speaks a guardrail's message (-tts); nil plays a short tone.
+	// tts speaks a guardrail's message (-tts) when the session cannot say it
+	// itself; nil plays a short tone.
 	tts tts.Service
-	// speaksOutOfBand is set for a provider whose session speaks a
-	// guardrail's message itself (providers.OutOfBandSpeaker): it comes
-	// before tts.
-	speaksOutOfBand bool
 
 	// mode is modeASM or modeVAD (-mode).
 	mode string
@@ -124,7 +121,6 @@ func setupFor(name string) (*providerSetup, error) {
 				return openai.NewProvider("openai-realtime", model, "https://api.openai.com",
 					providers.ProviderDefaults{}, false)
 			},
-			speaksOutOfBand: true,
 		}, nil
 	case "gemini":
 		return &providerSetup{
@@ -362,24 +358,19 @@ func (p *providerSetup) useTTS(name string) error {
 }
 
 // cueOptions are the options that voice a guardrail's message, and what the
-// caller hears it as. With a TTS service the message is spoken from it, in
-// the session's voice when the service has a voice of that name; without one
-// the caller hears a short tone and sees the text. OpenAI Realtime speaks the
-// message itself, in its own voice, outside the conversation: a TTS service
-// is then used only for a message the session could not say.
+// caller hears it as. A session that can speak outside the conversation
+// (OpenAI Realtime) says the message itself, in its own voice; the library
+// finds that out from the session, and the event log reports which source
+// rendered each message. Otherwise the TTS service (-tts) speaks it, in the
+// session's voice when the service has a voice of that name; without one the
+// caller hears a short tone and sees the text.
 func (p *providerSetup) cueOptions() (opts []sdk.Option, heard string) {
-	if p.speaksOutOfBand {
-		heard = "spoken by the session in its own voice (out of band)"
-		if p.tts != nil {
-			opts = []sdk.Option{sdk.WithTTS(p.tts)}
-			heard = "spoken by the session in its own voice (out of band; " + p.tts.Name() + " TTS if it cannot)"
-		}
-		return opts, heard
-	}
 	if p.tts == nil {
-		return nil, "a short tone (no TTS service; add -tts openai to hear the words)"
+		return nil, "the session's own voice when it can speak out of band, else a short tone " +
+			"(add -tts openai to hear the words)"
 	}
-	return []sdk.Option{sdk.WithTTS(p.tts)}, "spoken by " + p.tts.Name() + " TTS"
+	return []sdk.Option{sdk.WithCueVoice(p.tts)},
+		"the session's own voice when it can speak out of band, else " + p.tts.Name() + " TTS"
 }
 
 // pictureExecutor runs show_picture: it returns only a PNG, so the model has

@@ -20,6 +20,10 @@ const cueTestRate = 24000
 
 const brunoText = "We don't talk about Bruno."
 
+// testCueBackchannel is a preemptible cue kind no source emits yet: a short
+// acknowledgment played while the caller speaks, which gives way to reply audio.
+const testCueBackchannel CueKind = "backchannel"
+
 // cueRamp is n samples of PCM16 mono that never fall to silence, so no byte of
 // it is trimmed and every byte is distinct from a neighbor's.
 func cueRamp(n int) []byte {
@@ -30,7 +34,7 @@ func cueRamp(n int) []byte {
 	return b
 }
 
-// cueFaded is what a CueStage plays of pcm, a clip already at rate with no
+// cueFaded is what a cue stage plays of pcm, a clip already at rate with no
 // silence at either end: pcm with its last cueFadeOut faded to silence.
 func cueFaded(pcm []byte, rate int) []byte {
 	n := rate * int(cueFadeOut/time.Millisecond) / 1000
@@ -39,8 +43,8 @@ func cueFaded(pcm []byte, rate int) []byte {
 	return append(out, audio.FadeOutPCM16(pcm[split:], n)...)
 }
 
-func cueClip(pcm []byte, rate int) CueClip {
-	return CueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16}}
+func pcmClip(pcm []byte, rate int) cueClip {
+	return cueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16}}
 }
 
 // guardrailCueElem is the element a provider stage emits for a guardrail's
@@ -155,7 +159,7 @@ func TestCueStage_PlaysTheClipAfterItsElement(t *testing.T) {
 	clip, ok, err := cueFixtureCache(t).Get(context.Background(), fixtureBruno.key())
 	require.NoError(t, err)
 	require.True(t, ok)
-	cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: clip}})
+	cue := newCueStage(cueConfig{Clips: map[string]cueClip{brunoText: fromCached(clip)}})
 	c := startChain(t, cue, outputPacer(newFakeClock()))
 	c.in <- guardrailCueElem(brunoText)
 	got := c.finish(t)
@@ -189,7 +193,7 @@ func TestCueStage_PlaysTheClipAfterItsElement(t *testing.T) {
 // ChunkDuration sets the size of the audio elements.
 func TestCueStage_ChunkDuration(t *testing.T) {
 	pcm := cueRamp(6000)
-	cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: cueClip(pcm, cueTestRate)},
+	cue := newCueStage(cueConfig{Clips: map[string]cueClip{brunoText: pcmClip(pcm, cueTestRate)},
 		ChunkDuration: 200 * time.Millisecond})
 	c := startChain(t, cue)
 	c.in <- guardrailCueElem(brunoText)
@@ -220,20 +224,20 @@ func TestCueStage_PlaysInTheReplyFormat(t *testing.T) {
 	}
 	cases := []struct {
 		name     string
-		clip     CueClip
+		clip     cueClip
 		before   []StreamElement
 		wantRate int
 		want     []byte
 	}{
-		{"no reply audio yet: 24 kHz", cueClip(core16, 16000), nil, 24000,
+		{"no reply audio yet: 24 kHz", pcmClip(core16, 16000), nil, 24000,
 			cueFaded(resampled(core16, 16000, 24000), 24000)},
-		{"the first reply audio's rate", cueClip(core24, 24000), []StreamElement{replyAt(16000), replyAt(24000)},
+		{"the first reply audio's rate", pcmClip(core24, 24000), []StreamElement{replyAt(16000), replyAt(24000)},
 			16000, cueFaded(resampled(core24, 24000, 16000), 16000)},
-		{"silence trimmed", cueClip(padded, 24000), nil, 24000, cueFaded(core24, 24000)},
+		{"silence trimmed", pcmClip(padded, 24000), nil, 24000, cueFaded(core24, 24000)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: tc.clip}})
+			cue := newCueStage(cueConfig{Clips: map[string]cueClip{brunoText: tc.clip}})
 			c := startChain(t, cue)
 			for _, e := range tc.before {
 				c.in <- e
@@ -251,7 +255,7 @@ func TestCueStage_PlaysInTheReplyFormat(t *testing.T) {
 
 // A cue with no clip for its text plays nothing: its text is already out.
 func TestCueStage_NoClipPlaysNothing(t *testing.T) {
-	cue := NewCueStage(CueConfig{Clips: map[string]CueClip{"another": cueClip(cueRamp(2400), cueTestRate)}})
+	cue := newCueStage(cueConfig{Clips: map[string]cueClip{"another": pcmClip(cueRamp(2400), cueTestRate)}})
 	c := startChain(t, cue)
 	c.in <- guardrailCueElem(brunoText)
 	got := c.finish(t)
@@ -269,7 +273,7 @@ func TestCueStage_CutDropsTheClip(t *testing.T) {
 	for name, cut := range cuts {
 		t.Run(name, func(t *testing.T) {
 			pcm := cueRamp(12000) // 500 ms: five chunks
-			cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: cueClip(pcm, cueTestRate)}})
+			cue := newCueStage(cueConfig{Clips: map[string]cueClip{brunoText: pcmClip(pcm, cueTestRate)}})
 			c := startChain(t, cue, outputPacer(blockingClock()))
 			c.in <- guardrailCueElem(brunoText)
 			assert.Equal(t, brunoText, *c.next(t).Text)
@@ -293,13 +297,13 @@ func TestCueStage_CutDropsTheClip(t *testing.T) {
 
 // pendingRender is a render that finishes when released, or fails when its
 // context ends.
-func pendingRender(clip CueClip, release <-chan struct{}) func(context.Context, string) (CueClip, error) {
-	return func(ctx context.Context, _ string) (CueClip, error) {
+func pendingRender(clip cueClip, release <-chan struct{}) func(context.Context, string) (cueClip, error) {
+	return func(ctx context.Context, _ string) (cueClip, error) {
 		select {
 		case <-release:
 			return clip, nil
 		case <-ctx.Done():
-			return CueClip{}, ctx.Err()
+			return cueClip{}, ctx.Err()
 		}
 	}
 }
@@ -311,9 +315,9 @@ func replyAudioOf(pcm []byte) StreamElement {
 }
 
 // storedTexts records each text the bank stores a rendered clip for.
-func storedTexts(s *CueStage) <-chan string {
+func storedTexts(s *cueStage) <-chan string {
 	ch := make(chan string, 8)
-	s.bank.stored = func(text string, _ CueClip) { ch <- text }
+	s.bank.stored = func(text string, _ cueClip) { ch <- text }
 	return ch
 }
 
@@ -334,8 +338,8 @@ func waitStored(t *testing.T, ch <-chan string) string {
 func TestCueStage_PendingClipHoldsReplyOutput(t *testing.T) {
 	pcm := cueRamp(6000)
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{})
-	cue.render = pendingRender(cueClip(pcm, cueTestRate), release)
+	cue := newCueStage(cueConfig{})
+	cue.render = pendingRender(pcmClip(pcm, cueTestRate), release)
 	c := startChain(t, cue, outputPacer(newFakeClock()))
 
 	reply := cueRamp(2400)
@@ -365,8 +369,8 @@ func TestCueStage_PendingClipHoldsReplyOutput(t *testing.T) {
 // playout tracking holds the reply and counts its own audio only.
 func TestCueStage_PendingClipKeepsReplyPlayout(t *testing.T) {
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{})
-	cue.render = pendingRender(cueClip(cueRamp(12000), cueTestRate), release) // 500 ms
+	cue := newCueStage(cueConfig{})
+	cue.render = pendingRender(pcmClip(cueRamp(12000), cueTestRate), release) // 500 ms
 	fc := &fakeHoldClock{t: holdT0}
 	hold := NewPlayoutHoldStage()
 	hold.clock = holdClock{now: fc.now, until: fc.until}
@@ -388,7 +392,7 @@ func TestCueStage_PendingClipKeepsReplyPlayout(t *testing.T) {
 	assert.True(t, c.next(t).Meta.Interrupted)
 	rel := c.next(t)
 	require.True(t, rel.Meta.PlayoutRelease)
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 400, AudioMs: 1000, Fraction: 0.4},
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutBargeIn, HeardMs: 400, AudioMs: 1000, Fraction: 0.4},
 		playoutOf(rel.Message))
 	c.finish(t)
 }
@@ -397,10 +401,10 @@ func TestCueStage_PendingClipKeepsReplyPlayout(t *testing.T) {
 func TestCueStage_RenderedClipIsKept(t *testing.T) {
 	pcm := cueRamp(2400)
 	renders := 0
-	cue := NewCueStage(CueConfig{})
-	cue.render = func(context.Context, string) (CueClip, error) {
+	cue := newCueStage(cueConfig{})
+	cue.render = func(context.Context, string) (cueClip, error) {
 		renders++
-		return cueClip(pcm, cueTestRate), nil
+		return pcmClip(pcm, cueTestRate), nil
 	}
 	c := startChain(t, cue)
 	c.in <- guardrailCueElem(brunoText)
@@ -415,8 +419,8 @@ func TestCueStage_RenderedClipIsKept(t *testing.T) {
 // keeps its clip.
 func TestCueStage_CutWhilePendingDropsTheCue(t *testing.T) {
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{})
-	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), release)
+	cue := newCueStage(cueConfig{})
+	cue.render = pendingRender(pcmClip(cueRamp(2400), cueTestRate), release)
 	stored := storedTexts(cue)
 	c := startChain(t, cue)
 
@@ -442,12 +446,12 @@ func TestCueStage_CutWhilePendingDropsTheCue(t *testing.T) {
 // A clip not ready within OnDemandBudget plays nothing, and what waited
 // behind it goes on, even when the render never returns.
 func TestCueStage_HoldBudgetReleasesTheAudio(t *testing.T) {
-	cue := NewCueStage(CueConfig{OnDemandBudget: 5 * time.Millisecond})
+	cue := newCueStage(cueConfig{OnDemandBudget: 5 * time.Millisecond})
 	stuck := make(chan struct{})
 	t.Cleanup(func() { close(stuck) })
-	cue.render = func(context.Context, string) (CueClip, error) {
+	cue.render = func(context.Context, string) (cueClip, error) {
 		<-stuck
-		return CueClip{}, errors.New("abandoned")
+		return cueClip{}, errors.New("abandoned")
 	}
 	c := startChain(t, cue)
 
@@ -465,11 +469,11 @@ func TestCueStage_LateRenderIsKeptForNextTime(t *testing.T) {
 	pcm := cueRamp(2400)
 	release := make(chan struct{})
 	renders := 0
-	cue := NewCueStage(CueConfig{OnDemandBudget: 5 * time.Millisecond})
-	cue.render = func(context.Context, string) (CueClip, error) {
+	cue := newCueStage(cueConfig{OnDemandBudget: 5 * time.Millisecond})
+	cue.render = func(context.Context, string) (cueClip, error) {
 		renders++
 		<-release
-		return cueClip(pcm, cueTestRate), nil
+		return pcmClip(pcm, cueTestRate), nil
 	}
 	stored := storedTexts(cue)
 	c := startChain(t, cue)
@@ -491,8 +495,8 @@ func TestCueStage_LateRenderIsKeptForNextTime(t *testing.T) {
 // RenderTimeout bounds the render itself: a render that has not finished by
 // then is given up, and what waited goes on without the clip.
 func TestCueStage_RenderTimeoutEndsTheRender(t *testing.T) {
-	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute, RenderTimeout: 5 * time.Millisecond})
-	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), make(chan struct{}))
+	cue := newCueStage(cueConfig{OnDemandBudget: time.Minute, RenderTimeout: 5 * time.Millisecond})
+	cue.render = pendingRender(pcmClip(cueRamp(2400), cueTestRate), make(chan struct{}))
 	c := startChain(t, cue)
 
 	reply := cueRamp(100)
@@ -507,13 +511,13 @@ func TestCueStage_RenderTimeoutEndsTheRender(t *testing.T) {
 // cue gives way, and its clip does not play when the render finishes.
 func TestCueStage_PendingPreemptibleCueDoesNotHoldReplyAudio(t *testing.T) {
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute})
-	cue.render = pendingRender(cueClip(cueRamp(2400), cueTestRate), release)
+	cue := newCueStage(cueConfig{OnDemandBudget: time.Minute})
+	cue.render = pendingRender(pcmClip(cueRamp(2400), cueTestRate), release)
 	stored := storedTexts(cue)
 	c := startChain(t, cue)
 
 	reply := cueRamp(100)
-	c.in <- StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	c.in <- StreamElement{Cue: &Cue{Kind: testCueBackchannel, Text: "mm-hm", Preemptible: true}}
 	c.in <- replyAudioOf(reply)
 	assert.NotNil(t, c.next(t).Cue)
 	assert.Equal(t, reply, c.next(t).Audio.Samples, "the reply's audio passes at once")
@@ -528,8 +532,8 @@ func TestCueStage_PendingPreemptibleCueDoesNotHoldReplyAudio(t *testing.T) {
 func TestCueStage_InputCloseWaitsForRenderingClip(t *testing.T) {
 	pcm := cueRamp(2400)
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{})
-	cue.render = pendingRender(cueClip(pcm, cueTestRate), release)
+	cue := newCueStage(cueConfig{})
+	cue.render = pendingRender(pcmClip(pcm, cueTestRate), release)
 	c := startChain(t, cue)
 
 	reply := cueRamp(100)
@@ -582,13 +586,13 @@ func TestCueStage_PreemptibleCueGivesWayToReplyAudio(t *testing.T) {
 		cue        StreamElement
 		wantChunks int // of the clip's 4, after the first
 	}{
-		{"backchannel", StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}, 0},
+		{"backchannel", StreamElement{Cue: &Cue{Kind: testCueBackchannel, Text: "mm-hm", Preemptible: true}}, 0},
 		{"guardrail", guardrailCueElem("mm-hm"), 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			pcm := cueRamp(9600) // 400 ms: four chunks
-			cue := NewCueStage(CueConfig{Clips: map[string]CueClip{"mm-hm": cueClip(pcm, cueTestRate)}})
+			cue := newCueStage(cueConfig{Clips: map[string]cueClip{"mm-hm": pcmClip(pcm, cueTestRate)}})
 			src := startChain(t, cue)
 			src.in <- tc.cue
 			played := src.finish(t)
@@ -659,7 +663,7 @@ func TestCueStage_PlayoutHoldKeepsCueAudioOutOfTheReply(t *testing.T) {
 	r.pass(t, bargeInElem())
 	rel := r.next(t)
 	require.True(t, rel.Meta.PlayoutRelease)
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 400, AudioMs: 1000, Fraction: 0.4},
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutBargeIn, HeardMs: 400, AudioMs: 1000, Fraction: 0.4},
 		playoutOf(rel.Message))
 	close(r.in)
 	require.NoError(t, <-r.done)
@@ -689,7 +693,7 @@ func TestCueStage_RecordingTagsCueAudio(t *testing.T) {
 	store := &fakeEventStore{}
 	rec := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionOutput, SessionID: "s",
 		IncludeAudio: true})
-	cue := NewCueStage(CueConfig{Clips: map[string]CueClip{brunoText: cueClip(pcm, cueTestRate)}})
+	cue := newCueStage(cueConfig{Clips: map[string]cueClip{brunoText: pcmClip(pcm, cueTestRate)}})
 	c := startChain(t, cue, rec)
 
 	reply := cueRamp(480)
@@ -728,13 +732,13 @@ func TestCueStage_RecordingTagsCueAudio(t *testing.T) {
 func TestDuplexProviderStage_ForwardsCueOnlyInput(t *testing.T) {
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
-	elem := StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	elem := StreamElement{Cue: &Cue{Kind: testCueBackchannel, Text: "mm-hm", Preemptible: true}}
 	out := make(chan StreamElement, 4)
 	done := make(chan error, 1)
 
 	require.False(t, s.handleInputElement(context.Background(), &elem, out, done))
 	require.Len(t, out, 1)
-	assert.Equal(t, &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}, (<-out).Cue)
+	assert.Equal(t, &Cue{Kind: testCueBackchannel, Text: "mm-hm", Preemptible: true}, (<-out).Cue)
 	assert.Empty(t, done)
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -749,12 +753,12 @@ func TestCueStage_RecuedTextJoinsItsRunningRender(t *testing.T) {
 	release := make(chan struct{})
 	var mu sync.Mutex
 	renders := 0
-	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute})
-	cue.render = func(ctx context.Context, _ string) (CueClip, error) {
+	cue := newCueStage(cueConfig{OnDemandBudget: time.Minute})
+	cue.render = func(ctx context.Context, _ string) (cueClip, error) {
 		mu.Lock()
 		renders++
 		mu.Unlock()
-		return pendingRender(cueClip(pcm, cueTestRate), release)(ctx, "")
+		return pendingRender(pcmClip(pcm, cueTestRate), release)(ctx, "")
 	}
 	c := startChain(t, cue)
 
@@ -778,12 +782,12 @@ func TestCueStage_RecuedTextJoinsItsRunningRender(t *testing.T) {
 func TestCueStage_PreemptibleCueBehindPendingGivesWayToReplyAudio(t *testing.T) {
 	guard := cueRamp(2400)
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute,
-		Clips: map[string]CueClip{"mm-hm": cueClip(cueRamp(4800), cueTestRate)}})
-	cue.render = pendingRender(cueClip(guard, cueTestRate), release)
+	cue := newCueStage(cueConfig{OnDemandBudget: time.Minute,
+		Clips: map[string]cueClip{"mm-hm": pcmClip(cueRamp(4800), cueTestRate)}})
+	cue.render = pendingRender(pcmClip(guard, cueTestRate), release)
 	c := startChain(t, cue)
 
-	backchannel := StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	backchannel := StreamElement{Cue: &Cue{Kind: testCueBackchannel, Text: "mm-hm", Preemptible: true}}
 	reply := cueRamp(100)
 	c.in <- guardrailCueElem(brunoText)
 	c.in <- backchannel
@@ -805,13 +809,13 @@ func TestCueStage_PreemptibleCueBehindPendingGivesWayToReplyAudio(t *testing.T) 
 func TestCueStage_PreemptibleCueBehindPendingPlaysWithoutReplyAudio(t *testing.T) {
 	guard, hm := cueRamp(2400), cueRamp(2400)
 	release := make(chan struct{})
-	cue := NewCueStage(CueConfig{OnDemandBudget: time.Minute,
-		Clips: map[string]CueClip{"mm-hm": cueClip(hm, cueTestRate)}})
-	cue.render = pendingRender(cueClip(guard, cueTestRate), release)
+	cue := newCueStage(cueConfig{OnDemandBudget: time.Minute,
+		Clips: map[string]cueClip{"mm-hm": pcmClip(hm, cueTestRate)}})
+	cue.render = pendingRender(pcmClip(guard, cueTestRate), release)
 	c := startChain(t, cue)
 
 	c.in <- guardrailCueElem(brunoText)
-	c.in <- StreamElement{Cue: &Cue{Kind: CueBackchannel, Text: "mm-hm", Preemptible: true}}
+	c.in <- StreamElement{Cue: &Cue{Kind: testCueBackchannel, Text: "mm-hm", Preemptible: true}}
 	assert.Equal(t, brunoText, *c.next(t).Text)
 	assert.Equal(t, "mm-hm", c.next(t).Cue.Text)
 	close(release)
