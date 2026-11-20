@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
@@ -13,57 +14,41 @@ import (
 // CueKind says what a cue is for.
 type CueKind string
 
-const (
-	// CueGuardrailMessage is a guardrail's message, spoken when it cuts a reply.
-	CueGuardrailMessage CueKind = "guardrail_message"
-	// CueBackchannel is a short acknowledgment ("mm-hm") played while the
-	// caller speaks.
-	CueBackchannel CueKind = "backchannel"
-)
+// CueGuardrailMessage is a guardrail's message, spoken when it cuts a reply
+// or blocks typed input.
+const CueGuardrailMessage CueKind = "guardrail_message"
 
-// Cue asks a CueStage to play the clip for Text.
+// Cue asks the cue stage (NewDuplexCueStage) to play the clip for Text.
 type Cue struct {
 	Kind CueKind
 	// Text is what the clip says and the key it is looked up by.
 	Text string
-	// Preemptible cues (backchannels) give way to reply audio: a flush-on-cut
+	// Preemptible cues give way to reply audio: a flush-on-cut
 	// AudioPacingStage drops what is still queued of them when reply audio
 	// arrives. Guardrail messages are not preemptible: a reply queues behind
 	// them as behind another reply.
 	Preemptible bool
 }
 
-// CueClip is a cue's pre-rendered media.
-type CueClip struct {
+// cueClip is a cue's pre-rendered media.
+type cueClip struct {
 	// Audio is PCM16 mono. A clip at another sample rate than the output's is
 	// resampled once, before it is first played.
 	Audio *AudioData
-	// Video is reserved: no source renders it yet. A video stage goes after
-	// the CueStage and lip-syncs cue audio as it does reply audio.
-	Video *VideoData
-	// Meta says where the clip came from. A cache that keeps clips where a
-	// person can read them (the directory cache's sidecar) records it; it is
-	// not part of what plays.
-	Meta ClipMeta
+	// Meta says where the clip came from (cueclip.Clip's Meta).
+	Meta cueclip.Meta
 }
 
-// ClipMeta is what a clip says and who said it: the inputs of its ClipKey.
-type ClipMeta struct {
-	Text   string // the text the key was made from
-	Voice  string
-	Source string // the source kind: "tts:<service>", "session:<family>", "earcon"
-}
-
-// CueConfig configures a CueStage.
-type CueConfig struct {
+// cueConfig configures a cue stage.
+type cueConfig struct {
 	// Clips are ready clips by cue text.
-	Clips map[string]CueClip
+	Clips map[string]cueClip
 	// ChunkDuration is the length of the audio elements a clip is played as;
 	// default 100ms.
 	ChunkDuration time.Duration
 	// OnDemandBudget bounds how long reply output waits behind a clip still
 	// rendering; default 1.5s. Past it what waited goes on, after the earcon
-	// when the clip renders from the session's sources (NewCueStageFor), and
+	// when the clip renders from the session's sources (NewDuplexCueStage), and
 	// with no clip otherwise. The clip itself is kept for the next cue.
 	OnDemandBudget time.Duration
 	// RenderTimeout bounds one clip's render; default 3s. The session's own
@@ -73,8 +58,8 @@ type CueConfig struct {
 	// keeps its clip for the next cue with that text.
 	RenderTimeout time.Duration
 	// Cache holds rendered clips across sessions; nil is the process-wide
-	// in-memory cache of DefaultClipCacheBytes.
-	Cache ClipCache
+	// in-memory cache of cueclip.DefaultCacheBytes.
+	Cache cueclip.Cache
 	// TTS renders clips in the session's voice when the session has no audio
 	// of its own to offer. Only a service that renders PCM is used.
 	TTS tts.Service
@@ -98,7 +83,7 @@ const (
 	cueSilenceLevel = 64
 )
 
-// CueStage plays a pre-rendered clip for each element carrying a Cue. It
+// cue stage plays a pre-rendered clip for each element carrying a Cue. It
 // goes directly after the provider stage, ahead of transcript reordering,
 // playout tracking, recording and pacing, which treat its audio as they treat
 // reply audio (marked Meta.CueAudio).
@@ -118,17 +103,17 @@ const (
 // OnDemandBudget plays nothing, a cut (barge-in) while it renders drops the
 // cue, and reply audio drops a preemptible cue: in each case what waited goes
 // on at once, and the render goes on to keep its clip for next time.
-type CueStage struct {
+type cueStage struct {
 	BaseStage
-	cfg  CueConfig
+	cfg  cueConfig
 	bank *cueBank
 	// render renders a clip for a text the bank does not hold; nil means none
 	// can be.
-	render func(ctx context.Context, text string) (CueClip, error)
+	render func(ctx context.Context, text string) (cueClip, error)
 }
 
-// NewCueStage creates a cue stage named "cue".
-func NewCueStage(cfg CueConfig) *CueStage {
+// newCueStage creates a cue stage named "cue".
+func newCueStage(cfg cueConfig) *cueStage {
 	if cfg.ChunkDuration <= 0 {
 		cfg.ChunkDuration = defaultCueChunkDuration
 	}
@@ -138,10 +123,10 @@ func NewCueStage(cfg CueConfig) *CueStage {
 	if cfg.RenderTimeout <= 0 {
 		cfg.RenderTimeout = defaultCueRenderTimeout
 	}
-	return &CueStage{BaseStage: NewBaseStage("cue", StageTypeTransform), cfg: cfg, bank: newCueBank(&cfg)}
+	return &cueStage{BaseStage: NewBaseStage("cue", StageTypeTransform), cfg: cfg, bank: newCueBank(&cfg)}
 }
 
-// NewCueStageFor creates a cue stage that renders its clips for duplex's
+// newCueStageFor creates a cue stage that renders its clips for duplex's
 // session, and wires duplex to it: when duplex creates its session the stage
 // learns the session's voice and output rate and starts rendering the
 // configured texts and the messages of duplex's guardrails. Clips come from
@@ -159,10 +144,52 @@ func NewCueStage(cfg CueConfig) *CueStage {
 // replies are not spoken gets no cue audio; one that does not report its
 // output audio (providers.OutputAudioReporter) plays its configured clips and
 // renders as PCM16 at 24 kHz in the TTS service's default voice.
-func NewCueStageFor(duplex *DuplexProviderStage, cfg CueConfig) *CueStage {
-	s := NewCueStage(cfg)
+func newCueStageFor(duplex *DuplexProviderStage, cfg cueConfig) *cueStage {
+	s := newCueStage(cfg)
 	duplex.cues = s.bank
 	return s
+}
+
+// CueOptions configures the cue stage NewDuplexCueStage builds.
+type CueOptions struct {
+	// Voice renders clips in the session's voice when the session has no
+	// audio of its own to offer. Only a service that renders PCM is used; nil
+	// plays the clips pre-warmed for the session's voice (PrewarmClips), and
+	// the earcon for any other text.
+	Voice tts.Service
+	// Cache holds rendered clips across sessions; nil is the process-wide
+	// in-memory cache of cueclip.DefaultCacheBytes.
+	Cache cueclip.Cache
+}
+
+// NewDuplexCueStage creates the stage that speaks cues for duplex's realtime
+// session: a guardrail's message, when a guardrail cuts a spoken reply or
+// blocks typed input. It goes directly after duplex in the pipeline, ahead of
+// transcript reordering, playout tracking, recording and pacing, which treat
+// its audio as reply audio (marked Meta.CueAudio). Every element goes on
+// unchanged and in order; after one carrying a Cue the stage plays the cue's
+// clip, PCM16 mono at the reply audio's rate, in chunks of 100ms.
+//
+// When duplex creates its session the stage learns the session's voice and
+// output rate and starts rendering the messages of duplex's guardrails. Clips
+// come from the first source that renders them: the session's own
+// out-of-band audio (providers.OutOfBandSpeaker, OpenAI Realtime), in its
+// exact voice and outside the conversation; then opts.Voice; then, with no
+// Voice, the clips pre-warmed for the session's voice; then a built-in
+// earcon (a short tone). The session's audio is checked against the text by
+// its transcript (case, punctuation and spacing aside) and asked for once
+// more on a miss before the text falls to the next source. Clips are kept in
+// opts.Cache under their source and voice, so only the first session of a
+// source and voice renders them.
+//
+// While a clip renders, reply output waits behind it for at most 1.5s; past
+// that the earcon plays in its place, and the clip is kept for the next cue.
+// A cut (barge-in) while it renders drops the cue. A session whose replies
+// are not spoken gets no cue audio; one that does not report its output audio
+// (providers.OutputAudioReporter) renders PCM16 at 24 kHz in the voice
+// service's default voice.
+func NewDuplexCueStage(duplex *DuplexProviderStage, opts CueOptions) Stage {
+	return newCueStageFor(duplex, cueConfig{TTS: opts.Voice, Cache: opts.Cache})
 }
 
 // cueRender is the playback of a clip still rendering for cue.
@@ -181,7 +208,7 @@ type cueQueued struct {
 
 // cueRun is one Process run's state.
 type cueRun struct {
-	s      *CueStage
+	s      *cueStage
 	output chan<- StreamElement
 	// prepared are clips ready to play, by text and output rate.
 	prepared map[cuePreparedKey][]byte
@@ -197,7 +224,7 @@ type cuePreparedKey struct {
 }
 
 // Process implements the Stage interface.
-func (s *CueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
+func (s *cueStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
 	defer close(output)
 	r := &cueRun{s: s, output: output, prepared: map[cuePreparedKey][]byte{}}
 	defer r.discard()
@@ -311,7 +338,7 @@ func (r *cueRun) cutPending(ctx context.Context, cut StreamElement) error {
 }
 
 // isCueOnly reports whether elem's only payload is a Cue (a backchannel a
-// mic-side stage asks for): it is for a CueStage, not for a provider session.
+// mic-side stage asks for): it is for a cue stage, not for a provider session.
 func isCueOnly(elem *StreamElement) bool {
 	return elem.Cue != nil && !elem.HasContent() && !elem.IsControl()
 }
@@ -387,7 +414,7 @@ func (r *cueRun) overBudget(ctx context.Context) error {
 	r.discard()
 	if !cue.Preemptible && r.s.bank.canRender() {
 		rate := r.outputRate()
-		if err := r.emitPCM(ctx, cue, EarconPCM(rate), rate); err != nil {
+		if err := r.emitPCM(ctx, cue, earconPCM(rate), rate); err != nil {
 			return err
 		}
 	}
@@ -437,7 +464,7 @@ func (r *cueRun) replyAudioQueued() bool {
 
 // emit plays clip for cue as audio elements of ChunkDuration each. A ready
 // clip at the output rate plays as it is; any other is prepared first.
-func (r *cueRun) emit(ctx context.Context, cue Cue, clip CueClip, isReady bool) error {
+func (r *cueRun) emit(ctx context.Context, cue Cue, clip cueClip, isReady bool) error {
 	rate := r.outputRate()
 	key := cuePreparedKey{text: cue.Text, rate: rate}
 	pcm, ok := r.prepared[key]

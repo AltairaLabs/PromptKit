@@ -10,34 +10,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// Message.Meta keys PlayoutHoldStage sets on a reply the caller did not hear
-// in full. The reply keeps its own FinishReason: it completed, and only its
-// playback was cut, so it stays in model context with any tool calls it made.
-const (
-	// MetaHeardMs is how much of the reply's audio the caller heard, in
-	// milliseconds (int64).
-	MetaHeardMs = "heard_ms"
-	// MetaAudioMs is the reply's audio duration, in milliseconds (int64).
-	MetaAudioMs = "audio_ms"
-	// MetaPlayedFraction is MetaHeardMs over MetaAudioMs, from 0 to 1
-	// (float64, three decimals).
-	MetaPlayedFraction = "played_fraction"
-	// MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn,
-	// PlayoutCutGuardrail or PlayoutCutSessionClosed.
-	MetaPlayoutCut = "playout_cut"
-)
-
-// Values of MetaPlayoutCut.
-const (
-	// PlayoutCutBargeIn: the caller barged in while the reply played.
-	PlayoutCutBargeIn = "barge-in"
-	// PlayoutCutSessionClosed: the session ended (closed, drained or canceled)
-	// while the reply played.
-	PlayoutCutSessionClosed = "session-closed"
-	// PlayoutCutGuardrail: a guardrail blocked the reply and cut it.
-	PlayoutCutGuardrail = "guardrail"
-)
-
 // playoutCueItem is the playout item cue audio is tracked under: never a
 // reply's key, so no Message is amended for it.
 const playoutCueItem = "cue"
@@ -148,13 +120,13 @@ func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamEleme
 		select {
 		case elem, ok := <-input:
 			if !ok {
-				h.release(ctx, output, h.playout.Stop(), PlayoutCutSessionClosed)
+				h.release(ctx, output, h.playout.Stop(), types.PlayoutCutSessionClosed)
 				return nil
 			}
 			h.handle(ctx, elem, output)
 		case <-wake: // the loop rechecks the playout
 		case <-ctx.Done():
-			h.release(ctx, output, h.playout.Stop(), PlayoutCutSessionClosed)
+			h.release(ctx, output, h.playout.Stop(), types.PlayoutCutSessionClosed)
 			for elem := range input {
 				h.fwd.forward(ctx, output, elem)
 			}
@@ -192,7 +164,7 @@ func (h *playoutHold) handle(ctx context.Context, elem StreamElement, output cha
 	switch {
 	case elem.Meta.Interrupted:
 		// The playback stopped: what was held is released with what was heard.
-		h.release(ctx, output, h.playout.Stop(), PlayoutCutBargeIn)
+		h.release(ctx, output, h.playout.Stop(), types.PlayoutCutBargeIn)
 		h.endReply()
 	case elem.Interrupt:
 		// A reply cut before its Message: a guardrail's cut (marked safety),
@@ -209,9 +181,9 @@ func (h *playoutHold) handle(ctx context.Context, elem StreamElement, output cha
 // released with what was heard, and the reply still arriving, if it has
 // audio, keeps what was heard of it for its Message (takeCut).
 func (h *playoutHold) interrupt(ctx context.Context, output chan<- StreamElement, elem StreamElement) {
-	cause := PlayoutCutBargeIn
+	cause := types.PlayoutCutBargeIn
 	if fr := elem.Meta.FinishReason; fr != nil && *fr == types.FinishReasonSafety {
-		cause = PlayoutCutGuardrail
+		cause = types.PlayoutCutGuardrail
 	}
 	cuts := h.playout.Stop()
 	h.release(ctx, output, cuts, cause)
@@ -306,13 +278,13 @@ func heardReply(msg *types.Message, heard, total time.Duration, cause string) *t
 	for k, v := range msg.Meta {
 		c.Meta[k] = v
 	}
-	c.Meta[MetaPlayoutCut] = cause
-	c.Meta[MetaHeardMs] = heard.Milliseconds()
-	c.Meta[MetaAudioMs] = total.Milliseconds()
+	c.Meta[types.MetaPlayoutCut] = cause
+	c.Meta[types.MetaHeardMs] = heard.Milliseconds()
+	c.Meta[types.MetaAudioMs] = total.Milliseconds()
 	fraction := 0.0
 	if total > 0 {
 		fraction = math.Round(float64(heard)/float64(total)*1000) / 1000
 	}
-	c.Meta[MetaPlayedFraction] = fraction
+	c.Meta[types.MetaPlayedFraction] = fraction
 	return &c
 }

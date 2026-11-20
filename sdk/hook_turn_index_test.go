@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 )
 
@@ -150,7 +150,7 @@ func realtimeTurns(t *testing.T, validator string, opts ...Option) *turnRecorder
 	t.Helper()
 	rec, bus := newTurnRecorder(t)
 	s := openCueSession(t, writeValidatorPack(t, validator), spokenProvider(), append([]Option{
-		WithCueClipCache(stage.NewMemoryClipCache(1 << 20)), WithEventBus(bus), WithProviderHook(rec),
+		WithCueVoice(nil, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithEventBus(bus), WithProviderHook(rec),
 	}, opts...)...)
 	for i := range 2 {
 		require.NoError(t, s.conv.SendText(context.Background(), "who is in the family?"))

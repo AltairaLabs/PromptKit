@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
@@ -37,17 +39,17 @@ type prewarmedSource struct{ sessionVoice string }
 func (prewarmedSource) kind() string               { return "prewarmed" }
 func (s prewarmedSource) voice() string            { return strings.ToLower(s.sessionVoice) }
 func (prewarmedSource) keyText(text string) string { return text }
-func (prewarmedSource) render(context.Context, string, ClipFormat) (CueClip, *clipRenderCost, error) {
-	return CueClip{}, nil, errNotPrewarmed
+func (prewarmedSource) render(context.Context, string, cueclip.Format) (cueClip, *clipRenderCost, error) {
+	return cueClip{}, nil, errNotPrewarmed
 }
 
 // keepForVoice keeps clip under the session voice alone, for a session with
 // no TTS service (prewarmedSource). A different clip already kept there came
 // from another service: it is refused, not replaced.
-func keepForVoice(ctx context.Context, b *cueBank, voice, text string, format ClipFormat, clip CueClip) error {
+func keepForVoice(ctx context.Context, b *cueBank, voice, text string, format cueclip.Format, clip cueClip) error {
 	pw := prewarmedSource{sessionVoice: voice}
-	clip.Meta = ClipMeta{Text: pw.keyText(text), Voice: pw.voice(), Source: pw.kind()}
-	key := ClipKeyFor(clip.Meta.Text, clip.Meta.Voice, clip.Meta.Source, format)
+	clip.Meta = cueclip.Meta{Text: pw.keyText(text), Voice: pw.voice(), Source: pw.kind()}
+	key := cueclip.KeyFor(clip.Meta.Text, clip.Meta.Voice, clip.Meta.Source, format)
 	if held, ok := b.cached(ctx, key); ok && held.Audio != nil && !bytes.Equal(held.Audio.Samples, clip.Audio.Samples) {
 		return fmt.Errorf("pre-warm %q for voice %q: %w", text, voice, ErrVoicePrewarmedByAnotherService)
 	}
@@ -75,7 +77,7 @@ func keepForVoice(ctx context.Context, b *cueBank, voice, text string, format Cl
 // service fails is named in the returned error; the others are still cached.
 // svc must render PCM; nil, or a live session's audio, is session-bound and
 // returns ErrSessionBoundSource.
-func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice string, format ClipFormat,
+func PrewarmClips(ctx context.Context, cache cueclip.Cache, svc tts.Service, voice string, format cueclip.Format,
 	texts []string,
 ) error {
 	if svc == nil {
@@ -87,7 +89,7 @@ func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice s
 	if format.SampleRate <= 0 {
 		format.SampleRate = defaultCueSampleRate
 	}
-	format.Encoding, format.Channels = AudioFormatPCM16, 1
+	format.Channels = 1
 	src := newTTSClipSource(svc, voice, format.SampleRate)
 	if src == nil {
 		return fmt.Errorf("pre-warm: the TTS service %q renders no PCM", svc.Name())
@@ -99,7 +101,7 @@ func PrewarmClips(ctx context.Context, cache ClipCache, svc tts.Service, voice s
 		logger.Warn("pre-warm: the TTS service has no voice matching the session's; its clips are not kept "+
 			"for sessions without a TTS service", "tts", svc.Name(), "session_voice", voice)
 	}
-	b := newCueBank(&CueConfig{Cache: cache, RenderTimeout: defaultCueRenderTimeout})
+	b := newCueBank(&cueConfig{Cache: cache, RenderTimeout: defaultCueRenderTimeout})
 	b.state, b.format, b.sources = cueSessionSpoken, format, []clipSource{src}
 
 	texts = dedupeTexts(texts)

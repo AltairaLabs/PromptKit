@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -48,8 +50,8 @@ func TestBlockedMessage_HostTextPastTheBudgetPlaysTheEarcon(t *testing.T) {
 	speech := cueRamp(4800)
 	svc := newFakeTTS(speech)
 	svc.gate = make(chan struct{})
-	cache := NewMemoryClipCache(1 << 20)
-	cue := NewCueStageFor(s, CueConfig{TTS: svc, Cache: cache, OnDemandBudget: 20 * time.Millisecond})
+	cache := cueclip.NewMemoryCache(1 << 20)
+	cue := newCueStageFor(s, cueConfig{TTS: svc, Cache: cache, OnDemandBudget: 20 * time.Millisecond})
 	stored := storedTexts(cue)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -65,14 +67,14 @@ func TestBlockedMessage_HostTextPastTheBudgetPlaysTheEarcon(t *testing.T) {
 
 	assert.Contains(t, cueTrace(got), "text:"+hostText)
 	assert.Contains(t, cueTrace(got), "end:"+hostText+"|safety")
-	assert.Equal(t, EarconPCM(cueTestRate), cueAudioOf(got), "past the budget the earcon plays")
+	assert.Equal(t, earconPCM(cueTestRate), cueAudioOf(got), "past the budget the earcon plays")
 
 	close(svc.gate)
 	assert.Equal(t, hostText, waitStored(t, stored))
-	clip, ok, err := cache.Get(context.Background(), ClipKeyFor(hostText, "alloy", "tts:fake", pcm24k))
+	clip, ok, err := cache.Get(context.Background(), cueclip.KeyFor(hostText, "alloy", "tts:fake", pcm24k))
 	require.NoError(t, err)
 	require.True(t, ok, "the late clip is cached")
-	assert.Equal(t, cueFaded(speech, cueTestRate), clip.Audio.Samples)
+	assert.Equal(t, cueFaded(speech, cueTestRate), clip.PCM)
 	require.Len(t, host.calls(), 1)
 	assert.Equal(t, "I can't say that.", host.calls()[0].Text)
 }
@@ -278,7 +280,7 @@ func TestBlockedMessage_RealtimeFunctionPastTheBudget(t *testing.T) {
 		close(canceled)
 		return "Too late."
 	})
-	NewCueStageFor(s, CueConfig{Cache: NewMemoryClipCache(1 << 20), OnDemandBudget: 20 * time.Millisecond})
+	newCueStageFor(s, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20), OnDemandBudget: 20 * time.Millisecond})
 
 	start := time.Now()
 	elems, err := feedChunks(t, s, transcriptChunk("forbidden", pcm(20)), stopChunk())

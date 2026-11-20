@@ -53,10 +53,10 @@ import (
 // (providers.ResponseInterrupter), and an Interrupt element tells the caller
 // to stop playing what it buffered, as a barge-in does. The blocked turn's
 // text then goes out as live output, as a blocked typed turn's does, carrying
-// a cue (StreamElement.Cue) that has the CueStage after this stage speak it,
+// a cue (StreamElement.Cue) that has the cue stage after this stage speak it,
 // so the caller hears why the reply stopped. The model never says it: the
 // message is not model output, the output guardrails never see it, and it
-// never enters the model's conversation. A chain with no CueStage shows the
+// never enters the model's conversation. A chain with no cue stage shows the
 // text only. Whatever the caller heard before the check fired cannot be
 // unsaid.
 
@@ -759,7 +759,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 }
 
 // guardrailCue is the cue that has the cue stage after s speak a guardrail's
-// message, or nil when none will: no cue stage follows (NewCueStageFor), or
+// message, or nil when none will: no cue stage follows (NewDuplexCueStage), or
 // the session's replies are not spoken. Without it the caller has the text.
 func (s *DuplexProviderStage) guardrailCue(text string) *Cue {
 	if s.cues == nil || !s.cues.voices(text) {

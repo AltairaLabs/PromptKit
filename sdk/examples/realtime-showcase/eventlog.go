@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -64,6 +64,9 @@ type eventLog struct {
 	endedOnce sync.Once
 }
 
+// cueRenderSource is the Source of the TTS cost event a cue's render reports.
+const cueRenderSource = "cue"
+
 // newEventLog returns a log writing to out. The conversation's messages are
 // read from store under convID, the conversation's ID.
 func newEventLog(out io.Writer, store statestore.Store, convID string) *eventLog {
@@ -80,6 +83,7 @@ func (l *eventLog) attach(bus events.Bus) {
 	bus.Subscribe(events.EventProviderCallCompleted, l.onEvent)
 	bus.Subscribe(events.EventProviderCallUsage, l.onEvent)
 	bus.Subscribe(events.EventContextNoteAdded, l.onEvent)
+	bus.Subscribe(events.EventTTSCallCompleted, l.onEvent)
 }
 
 // logf writes one line, stamped with the time.
@@ -106,6 +110,12 @@ func (l *eventLog) onEvent(e *events.Event) {
 		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, false)
 	case *events.ProviderCallUsageData:
 		l.onCost(d.Cost, d.InputTokens, d.OutputTokens, d.CallID, true)
+	case *events.TTSCallCompletedData:
+		// A guardrail message's clip was rendered (a cache hit renders
+		// nothing): by the session itself, out of band, or by the TTS service.
+		if d.Source == cueRenderSource {
+			l.logf("cue", "the guardrail's message was rendered by %s (%.1f s of audio)", d.Provider, d.AudioSeconds)
+		}
 	case *events.ContextNoteData:
 		// The model is told a guardrail withheld its reply or the caller's
 		// words; the caller never hears or sees the note. The note does not
@@ -228,16 +238,16 @@ func (l *eventLog) reportPlayout(index int) {
 			continue
 		}
 		meta := state.Messages[index].Meta
-		cut, _ := meta[stage.MetaPlayoutCut].(string)
+		cut, _ := meta[types.MetaPlayoutCut].(string)
 		if cut == "" {
 			return
 		}
 		kind := "playout"
-		if cut == stage.PlayoutCutBargeIn {
+		if cut == types.PlayoutCutBargeIn {
 			kind = "barge-in"
 		}
 		l.logf(kind, "reply #%d cut (%s): heard_ms=%v audio_ms=%v played_fraction=%v",
-			index, cut, meta[stage.MetaHeardMs], meta[stage.MetaAudioMs], meta[stage.MetaPlayedFraction])
+			index, cut, meta[types.MetaHeardMs], meta[types.MetaAudioMs], meta[types.MetaPlayedFraction])
 		return
 	}
 }
@@ -365,7 +375,7 @@ func (l *eventLog) observe(c providers.StreamChunk) {
 	// chunk names the words it spoke.
 	if spoken, _ := c.Metadata["spoken_text"].(string); spoken != "" && kind == "" && c.MediaData != nil {
 		l.logLockedf("speech", "TTS speaks %q (%d ms of audio)",
-			shorten(spoken), pcmDuration(len(c.MediaData.Data), c.MediaData.SampleRate).Milliseconds())
+			shorten(spoken), audio.PCM16Duration(len(c.MediaData.Data), c.MediaData.SampleRate, 1).Milliseconds())
 	}
 	if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
 		return

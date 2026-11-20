@@ -152,7 +152,7 @@ conv, err := sdk.Open("./pack.json", "chat",
 )
 ```
 
-The first declared `tts` entry becomes the conversation's `ttsService`, and the first `stt` entry its `sttService`. `WithTTS` and `WithVADMode(stt, tts, ...)` take precedence: when either has set a service, the declared one does not replace it.
+The first declared `tts` entry becomes the conversation's `ttsService`, the VAD-mode reply voice, and the first `stt` entry its `sttService`. `WithTTS` and `WithVADMode(stt, tts, ...)` take precedence: when either has set a service, the declared one does not replace it. A declared `tts` entry does not voice a realtime session's guardrail messages; pass the service to `sdk.WithCueVoice` for that.
 
 ### 4. Add a provider type (optional)
 

@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
@@ -26,6 +28,18 @@ func (p *sessionProvider) CreateStreamSession(
 	return p.session, nil
 }
 
+// messageHook is a guardrail that allows everything and blocks with message.
+type messageHook struct{ message string }
+
+func (messageHook) Name() string { return "message" }
+func (messageHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+func (messageHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.Allow
+}
+func (h messageHook) BlockMessages() []string { return []string{h.message} }
+
 // A guardrail's message cued on an OpenAI Realtime session with no TTS
 // service configured is spoken in the session's own voice, out of band:
 // the cue plays the out-of-band audio, the server is asked for no reply
@@ -40,8 +54,10 @@ func TestCueStage_OpenAIRealtimeSpeaksTheMessageOutOfBand(t *testing.T) {
 		session:  &realtimeSessionBookkeeping{StreamInputSession: session, release: func() {}},
 	}
 	duplex := stage.NewDuplexProviderStage(provider, &providers.StreamingInputConfig{})
-	cue := stage.NewCueStageFor(duplex, stage.CueConfig{Cache: stage.NewMemoryClipCache(1 << 20),
-		Texts: []string{brunoLine}})
+	// A guardrail whose message is brunoLine: the cue stage renders it as
+	// soon as the session starts.
+	duplex.SetHookRegistry(hooks.NewRegistry(hooks.WithProviderHook(messageHook{brunoLine})))
+	cue := stage.NewDuplexCueStage(duplex, stage.CueOptions{Cache: cueclip.NewMemoryCache(1 << 20)})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -9,11 +9,11 @@ Render a pack's guardrail messages before any session needs them, so a realtime 
 ## Prerequisites
 
 - A realtime voice conversation (`sdk.OpenDuplex` or `sdk.OpenVoice` in ASM mode) whose guardrail messages are spoken, as described in [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/).
-- A `tts.Service` that renders PCM (see [Configure text-to-speech](/sdk/how-to/voice/configure-tts/)).
+- A `tts.Service` that renders PCM (see [Configure text-to-speech](/sdk/how-to/voice/configure-tts/)), given to the conversation as its cue voice with `sdk.WithCueVoice`.
 
 ## Step 1: Pre-warm the pack's messages
 
-Call `sdk.PrewarmCueClips` with the pack, the TTS service and the session's voice name:
+Call `sdk.PrewarmCueClips` with the pack, the session's voice name and the options you open conversations with, including `sdk.WithCueVoice`:
 
 ```go
 import (
@@ -27,7 +27,7 @@ import (
 
 func warm(ctx context.Context) {
 	speech := tts.NewOpenAI(os.Getenv("OPENAI_API_KEY"))
-	if err := sdk.PrewarmCueClips(ctx, "./assistant.pack.json", speech, "alloy"); err != nil {
+	if err := sdk.PrewarmCueClips(ctx, "./assistant.pack.json", "alloy", sdk.WithCueVoice(speech)); err != nil {
 		log.Printf("pre-warm: %v", err)
 	}
 }
@@ -37,18 +37,18 @@ It renders every prompt's validator messages, the messages of guardrails you pas
 
 A message the service fails to render is named in the returned error, and the other messages are still cached. A failed pre-warm does not stop a session from working: a message not in the cache is rendered when the session starts.
 
-`PrewarmCueClips` takes the same options as `sdk.Open`. Pass the ones that shape the guardrails (`sdk.WithEvalRegistry`, `sdk.WithGuardrail`, `sdk.WithJudgeProvider`, `sdk.WithSkipSchemaValidation`) as you pass them to `Open`, so the same messages are rendered.
+`PrewarmCueClips` takes the options you pass to `Open`. It reads the TTS service and the clip cache from `sdk.WithCueVoice`, and the options that shape the guardrails (`sdk.WithEvalRegistry`, `sdk.WithGuardrail`, `sdk.WithJudgeProvider`, `sdk.WithSkipSchemaValidation`) as `Open` does, so it renders the messages those conversations look up. It ignores the other options.
 
 ## Step 2: Open conversations on the same cache
 
-Without `sdk.WithCueClipCache`, both the pre-warm and every conversation use the process-wide in-memory cache, so a conversation opened afterwards in the same process plays the pre-warmed clips:
+Without `sdk.CueClipCache`, both the pre-warm and every conversation use the process-wide in-memory cache, so a conversation opened afterwards in the same process plays the pre-warmed clips:
 
 ```go
 conv, err := sdk.OpenDuplex("./assistant.pack.json", "chat",
-	sdk.WithProvider(realtime), sdk.WithTTS(speech))
+	sdk.WithProvider(realtime), sdk.WithCueVoice(speech))
 ```
 
-To share clips across processes, pass the same `stage.ClipCache` to the pre-warm and to each conversation with `sdk.WithCueClipCache`.
+To share clips across processes, pass the same `cueclip.Cache` (package `runtime/audio/cueclip`) to the pre-warm and to each conversation with `sdk.WithCueVoice(speech, sdk.CueClipCache(cache))`.
 
 A clip plays for a session whose voice and output rate match what was pre-warmed. A session with a TTS service plays it when the service is the one that rendered it.
 
@@ -56,25 +56,25 @@ On OpenAI Realtime the session speaks guardrail messages itself, outside the con
 
 ## Step 3 (optional): Fill a directory offline
 
-`stage.NewDirClipCache` keeps clips as files, so you can render them once and ship or check in the directory. Pre-warm into a writable directory:
+`cueclip.NewDirCache` keeps clips as files, so you can render them once and ship or check in the directory. Pre-warm into a writable directory:
 
 ```go
-cache, err := stage.NewDirClipCache("./cues")
+cache, err := cueclip.NewDirCache("./cues")
 if err != nil {
 	log.Fatal(err)
 }
-err = sdk.PrewarmCueClips(ctx, "./assistant.pack.json", speech, "alloy", sdk.WithCueClipCache(cache))
+err = sdk.PrewarmCueClips(ctx, "./assistant.pack.json", "alloy", sdk.WithCueVoice(speech, sdk.CueClipCache(cache)))
 ```
 
-Open conversations on it read-only. A session with no TTS service configured plays the clips pre-warmed for its voice and makes no TTS call. A session whose TTS service renders no PCM does not use them. When the pre-warming service has no voice matching the one you name, it renders in its default voice and those clips are not kept for sessions without a TTS service; a warning names the voice:
+Open conversations on it read-only. A session with no cue voice (`sdk.WithCueVoice(nil, ...)`) plays the clips pre-warmed for its voice and makes no TTS call. A session whose TTS service renders no PCM does not use them. When the pre-warming service has no voice matching the one you name, it renders in its default voice and those clips are not kept for sessions without a TTS service; a warning names the voice:
 
 ```go
-cues, err := stage.NewDirClipCache("./cues", stage.DirCacheReadOnly())
+cues, err := cueclip.NewDirCache("./cues", cueclip.ReadOnly())
 if err != nil {
 	log.Fatal(err)
 }
 conv, err := sdk.OpenDuplex("./assistant.pack.json", "chat",
-	sdk.WithProvider(realtime), sdk.WithCueClipCache(cues))
+	sdk.WithProvider(realtime), sdk.WithCueVoice(nil, sdk.CueClipCache(cues)))
 ```
 
 A message the directory does not hold plays the earcon, a short tone.
@@ -85,7 +85,8 @@ Count your TTS service's calls (wrap its `Synthesize`). After the pre-warm, open
 
 ## Troubleshooting
 
-- `the clip source is session-bound`: you passed a nil service or a live session. Only a TTS service can be pre-warmed; audio a provider renders inside its own session cannot.
+- `no TTS service; pass WithCueVoice`: the options have no `sdk.WithCueVoice`, or give it a nil service.
+- `the clip source is session-bound`: you passed a live session as the service. Only a TTS service can be pre-warmed; audio a provider renders inside its own session cannot.
 - `renders no PCM`: the service lists no `pcm` format. Use a service that does.
 - The session still calls the TTS service: its voice or output rate differs from the pre-warm's. Pre-warm with the voice name the session uses.
 
@@ -93,4 +94,4 @@ Count your TTS service's calls (wrap its `Synthesize`). After the pre-warm, open
 
 - [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/)
 - [Configure text-to-speech](/sdk/how-to/voice/configure-tts/)
-- [`stage` reference](/runtime/reference/pipeline/)
+- [`sdk` reference](/sdk/reference/conversation-manager/)

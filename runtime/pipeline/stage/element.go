@@ -95,9 +95,9 @@ type StreamElement struct {
 	// turns. Distinct from the content fields above so consumers exclude it.
 	Reasoning *ReasoningDelta
 
-	// Cue asks a CueStage downstream to play a pre-rendered clip. It is not
+	// Cue asks a cue stage downstream to play a pre-rendered clip. It is not
 	// content: stages that do not know it pass it on, and a pipeline without a
-	// CueStage shows the element's other payload (for a guardrail cue, its
+	// cue stage shows the element's other payload (for a guardrail cue, its
 	// text).
 	Cue *Cue
 

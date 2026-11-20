@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
@@ -256,7 +258,7 @@ func TestDuplexGuardrailCue_CutReplySpeaksTheMessageFromTTS(t *testing.T) {
 	})
 	speech := newCueTTS(cueRate) // a second of speech
 	s := openCueSession(t, writeBrunoPack(t), spokenProvider(),
-		WithTTS(speech), WithEventBus(bus), WithCueClipCache(stage.NewMemoryClipCache(1<<20)))
+		WithEventBus(bus), WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))))
 
 	r := s.cutBruno(t, len(speech.played(brunoMessage)))
 
@@ -296,16 +298,17 @@ func TestDuplexGuardrailCue_CutReplySpeaksTheMessageFromTTS(t *testing.T) {
 // Without a TTS service the caller hears the earcon, a short tone, and sees
 // the text.
 func TestDuplexGuardrailCue_CutReplyWithoutTTSPlaysTheEarcon(t *testing.T) {
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithCueClipCache(stage.NewMemoryClipCache(1<<20)))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(),
+		WithCueVoice(nil, CueClipCache(cueclip.NewMemoryCache(1<<20))))
 
-	r := s.cutBruno(t, len(stage.EarconPCM(cueRate)))
+	r := s.cutBruno(t, len(earcon(cueRate)))
 
 	assert.Equal(t, []string{
 		"text:Let me tell you about ", "audio",
 		"interrupted", "text:" + brunoMessage, "cue-audio:guardrail_message",
 		"end:safety",
 	}, r.trace)
-	assert.Equal(t, stage.EarconPCM(cueRate), r.cue)
+	assert.Equal(t, earcon(cueRate), r.cue)
 	assert.Empty(t, s.sess.GetTexts())
 }
 
@@ -314,8 +317,8 @@ func TestDuplexGuardrailCue_CutReplyWithoutTTSPlaysTheEarcon(t *testing.T) {
 // was playing). The blocked text never reaches the model.
 func TestDuplexGuardrailCue_BlockedTypedTurnIsSpoken(t *testing.T) {
 	speech := newCueTTS(cueRate / 2)
-	s := openCueSession(t, writeIngestionTestPack(t), spokenProvider(), WithTTS(speech),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)),
+	s := openCueSession(t, writeIngestionTestPack(t), spokenProvider(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))),
 		WithGuardrail(guardrails.Input("banned_words", map[string]any{"words": []any{"Bruno"}},
 			guardrails.WithMessage(brunoMessage))))
 
@@ -334,6 +337,20 @@ func TestDuplexGuardrailCue_BlockedTypedTurnIsSpoken(t *testing.T) {
 	assert.Empty(t, s.sess.GetTexts(), "the blocked input never reaches the model")
 }
 
+// earcon is the short tone the caller hears for a cue no source voices: 200ms
+// of a 660 Hz sine at amplitude 8000, rising over the first 10ms and falling
+// over the last 40ms.
+func earcon(rate int) []byte {
+	n := rate / 5
+	out := make([]byte, 0, 2*n)
+	for i := range n {
+		gain := min(float64(i)/(float64(rate)/100), float64(n-1-i)/(float64(rate)/25), 1)
+		v := math.Round(8000 * gain * math.Sin(2*math.Pi*660*float64(i)/float64(rate)))
+		out = binary.LittleEndian.AppendUint16(out, uint16(int16(v))) //nolint:gosec // |v| <= 8000
+	}
+	return out
+}
+
 func indexOf(list []string, s string) int {
 	for i, e := range list {
 		if e == s {
@@ -347,10 +364,10 @@ func indexOf(list []string, s string) int {
 // plays the first's clip without asking the service again.
 func TestDuplexGuardrailCue_SharedClipCacheRendersOnce(t *testing.T) {
 	speech := newCueTTS(cueRate / 4)
-	cache := stage.NewMemoryClipCache(1 << 20)
+	cache := cueclip.NewMemoryCache(1 << 20)
 	want := speech.played(brunoMessage)
 	for i := range 2 {
-		s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech), WithCueClipCache(cache))
+		s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithCueVoice(speech, CueClipCache(cache)))
 		r := s.cutBruno(t, len(want))
 		assert.Equal(t, want, r.cue, "conversation %d", i+1)
 		require.NoError(t, s.conv.Close())
@@ -358,18 +375,16 @@ func TestDuplexGuardrailCue_SharedClipCacheRendersOnce(t *testing.T) {
 	assert.Equal(t, 1, speech.calls(brunoMessage))
 }
 
-// A clip already in the conversation's cache (WithCueClipCache) plays as it is,
+// A clip already in the conversation's cache (CueClipCache) plays as it is,
 // and the TTS service is not asked for it.
 func TestDuplexGuardrailCue_ClipCacheIsUsed(t *testing.T) {
 	speech := newCueTTS(cueRate / 4)
-	cache := stage.NewMemoryClipCache(1 << 20)
+	cache := cueclip.NewMemoryCache(1 << 20)
 	held := bytes.Repeat([]byte{0x34, 0x12}, cueRate/5)
-	key := stage.ClipKeyFor(brunoMessage, "alloy", "tts:"+speech.Name(),
-		stage.ClipFormat{Encoding: stage.AudioFormatPCM16, SampleRate: cueRate, Channels: 1})
-	require.NoError(t, cache.Put(context.Background(), key, stage.CueClip{Audio: &stage.AudioData{
-		Samples: held, SampleRate: cueRate, Channels: 1, Format: stage.AudioFormatPCM16,
-	}}))
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech), WithCueClipCache(cache))
+	format := cueclip.Format{SampleRate: cueRate, Channels: 1}
+	key := cueclip.KeyFor(brunoMessage, "alloy", "tts:"+speech.Name(), format)
+	require.NoError(t, cache.Put(context.Background(), key, cueclip.Clip{PCM: held, Format: format}))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithCueVoice(speech, CueClipCache(cache)))
 
 	r := s.cutBruno(t, len(held))
 
@@ -384,8 +399,8 @@ func TestDuplexGuardrailCue_RecordingHoldsTheClip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = evStore.Close() })
 	speech := newCueTTS(cueRate / 4)
-	s := openCueSession(t, writeBrunoPack(t), spokenProvider(), WithTTS(speech),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)), WithEventStore(evStore), WithRecording(nil))
+	s := openCueSession(t, writeBrunoPack(t), spokenProvider(),
+		WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithEventStore(evStore), WithRecording(nil))
 
 	want := speech.played(brunoMessage)
 	s.cutBruno(t, len(want))
@@ -446,8 +461,7 @@ func TestDuplexGuardrailCue_BargeInCutsTheClip(t *testing.T) {
 	speech := newCueTTS(3 * cueRate) // three seconds, played in real time
 	prov := spokenProvider()
 	conv, err := OpenVoice(writeBrunoPack(t), "main",
-		WithProvider(prov), WithSkipSchemaValidation(), WithTTS(speech),
-		WithCueClipCache(stage.NewMemoryClipCache(1<<20)),
+		WithProvider(prov), WithSkipSchemaValidation(), WithCueVoice(speech, CueClipCache(cueclip.NewMemoryCache(1<<20))),
 		WithStreamingConfig(&providers.StreamingInputConfig{Config: types.StreamingMediaConfig{
 			Type: types.ContentTypeAudio, SampleRate: cueRate, Channels: 1, Encoding: "pcm16", BitDepth: 16,
 		}}),

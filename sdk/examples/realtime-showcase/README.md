@@ -62,13 +62,18 @@ API key: `gpt-4.1-mini` for OpenAI, `gemini-2.5-flash` for Gemini, set in
 
 When a guardrail blocks a turn, its message is played by the pipeline, not
 said by the model, so the model never hears it and no guardrail can cut it.
-The first line the showcase prints names what plays it:
+The showcase passes the `-tts` service to `sdk.WithCueVoice`, and the library
+picks what plays the message from what the session can do:
 
-| Run | First line | What you hear |
-|---|---|---|
-| `-provider openai` | `Guardrail messages: spoken by the session in its own voice (out of band)` | the message, in the session's own voice |
-| `-provider gemini`, no `-tts` | `Guardrail messages: a short tone (no TTS service; ...)` | a short tone, with the message shown as text |
-| `-provider gemini -tts gemini` | `Guardrail messages: spoken by gemini TTS` | the message, spoken by Gemini TTS in the session's voice when Gemini TTS has a voice of that name |
+| Run | What you hear |
+|---|---|
+| `-provider openai` | the message, in the session's own voice |
+| `-provider gemini`, no `-tts` | a short tone, with the message shown as text |
+| `-provider gemini -tts gemini` | the message, spoken by Gemini TTS in the session's voice when Gemini TTS has a voice of that name |
+
+The log prints a `cue` line naming what rendered each message (`openai` for
+the session itself, the TTS service's name otherwise); a clip already in the
+cache renders nothing, so it prints no such line.
 
 OpenAI Realtime speaks the message itself, outside the conversation (a
 response with `conversation: "none"`), so it is in the session's exact voice,
@@ -168,7 +173,8 @@ guardrails:
 `showcase.go` renders the picture with the standard library and binds the tool
 with `conv.OnToolExecutor`. `eventlog.go` prints the log: it subscribes to the
 conversation's event bus (`message.created`, `validation.failed`, the tool
-call events, `provider.call.completed` and `provider.call.usage`), watches
+call events, `provider.call.completed`, `provider.call.usage` and
+`tts.call.completed`), watches
 `Response()` for `Interrupted` chunks, and reads each reply back from the
 state store to print the `heard_ms`, `audio_ms` and `played_fraction` the
 conversation stored on it.

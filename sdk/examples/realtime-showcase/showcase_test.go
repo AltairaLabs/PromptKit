@@ -405,7 +405,8 @@ func TestUseTTS(t *testing.T) {
 	require.NoError(t, setup.useTTS(""))
 	opts, heard := setup.cueOptions()
 	assert.Empty(t, opts)
-	assert.Equal(t, "a short tone (no TTS service; add -tts openai to hear the words)", heard)
+	assert.Equal(t, "the session's own voice when it can speak out of band, else a short tone "+
+		"(add -tts openai to hear the words)", heard)
 
 	assert.EqualError(t, setup.useTTS("elevenlabs"), `unknown TTS service "elevenlabs" (want openai or gemini)`)
 	t.Setenv("GEMINI_API_KEY", "")
@@ -413,7 +414,7 @@ func TestUseTTS(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "test-key")
 	require.NoError(t, setup.useTTS("gemini"))
 	_, heard = setup.cueOptions()
-	assert.Equal(t, "spoken by gemini TTS", heard)
+	assert.Equal(t, "the session's own voice when it can speak out of band, else gemini TTS", heard)
 	t.Setenv("OPENAI_API_KEY", "")
 	assert.EqualError(t, setup.useTTS("openai"), "-tts openai needs OPENAI_API_KEY")
 
@@ -421,24 +422,7 @@ func TestUseTTS(t *testing.T) {
 	require.NoError(t, setup.useTTS("openai"))
 	opts, heard = setup.cueOptions()
 	assert.Len(t, opts, 1)
-	assert.Equal(t, "spoken by openai TTS", heard)
-}
-
-// On OpenAI Realtime the session speaks a guardrail's message itself, in its
-// own voice, out of band: -tts is only the fallback.
-func TestCueOptions_OpenAISpeaksInItsOwnVoice(t *testing.T) {
-	setup, err := setupFor("openai")
-	require.NoError(t, err)
-	require.NoError(t, setup.useTTS(""))
-	opts, heard := setup.cueOptions()
-	assert.Empty(t, opts)
-	assert.Equal(t, "spoken by the session in its own voice (out of band)", heard)
-
-	t.Setenv("OPENAI_API_KEY", "test-key")
-	require.NoError(t, setup.useTTS("openai"))
-	opts, heard = setup.cueOptions()
-	assert.Len(t, opts, 1, "the TTS service stays configured as the fallback")
-	assert.Equal(t, "spoken by the session in its own voice (out of band; openai TTS if it cannot)", heard)
+	assert.Equal(t, "the session's own voice when it can speak out of band, else openai TTS", heard)
 }
 
 // flagsFor is the flags for provider and mode, the rest at their defaults.
@@ -457,8 +441,9 @@ func TestResolve_Modes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, modeASM, asm.mode)
 	assert.Equal(t, "gpt-realtime-mini", asm.model, "-model is the realtime model in ASM mode")
-	assert.Equal(t, "Realtime showcase - ASM mode: OpenAI Realtime (gpt-realtime-mini); "+
-		"guardrail messages: spoken by the session in its own voice (out of band)", asm.banner())
+	assert.Equal(t, "Realtime showcase - ASM mode: OpenAI Realtime (gpt-realtime-mini); guardrail messages: "+
+		"the session's own voice when it can speak out of band, else a short tone (add -tts openai to hear the words)",
+		asm.banner())
 
 	vad, err := resolve(flags{provider: "gemini", mode: modeVAD, model: "gemini-2.5-pro"})
 	require.NoError(t, err)
@@ -661,4 +646,21 @@ func TestShowcaseEventLog_PrintsResponseErrors(t *testing.T) {
 	assert.Equal(t, []string{
 		`09:30:00.000  error     cartesia: The requested voice was not found.`,
 	}, out.lines())
+}
+
+// The log names the source that rendered a guardrail message's clip, as the
+// library reports it: the session itself (its provider family) or the TTS
+// service. Other TTS calls (VAD-mode replies) are not cue renders.
+func TestEventLog_ReportsWhoRenderedTheCue(t *testing.T) {
+	out := &syncBuffer{}
+	elog := newEventLog(out, statestore.NewMemoryStore(), conversationID)
+	elog.now = func() time.Time { return time.Date(2026, 11, 17, 9, 30, 0, 0, time.UTC) }
+	for _, d := range []*events.TTSCallCompletedData{
+		{CapabilityCallData: events.CapabilityCallData{Provider: "openai", Source: "cue"}, AudioSeconds: 1.84},
+		{CapabilityCallData: events.CapabilityCallData{Provider: "openai-tts", Source: "reply"}, AudioSeconds: 3},
+	} {
+		elog.onEvent(&events.Event{Type: events.EventTTSCallCompleted, Data: d})
+	}
+	assert.Equal(t, []string{"09:30:00.000  cue       the guardrail's message was rendered by openai (1.8 s of audio)"},
+		out.lines())
 }

@@ -17,7 +17,7 @@ func pcmSample(b []byte, i int) int {
 // silence over 10 ms and falling back to it over the last 40 ms.
 func TestEarconPCM(t *testing.T) {
 	for _, rate := range []int{16000, 24000} {
-		pcm := EarconPCM(rate)
+		pcm := earconPCM(rate)
 		n := rate / 5
 		require.Len(t, pcm, 2*n, "200 ms of PCM16 mono")
 		assert.Equal(t, 0, pcmSample(pcm, 0), "it starts at silence")
@@ -40,5 +40,5 @@ func TestEarconPCM(t *testing.T) {
 		assert.LessOrEqual(t, peak, 8000)
 		assert.Greater(t, peak, 7900)
 	}
-	assert.Equal(t, EarconPCM(24000), EarconPCM(24000), "deterministic")
+	assert.Equal(t, earconPCM(24000), earconPCM(24000), "deterministic")
 }

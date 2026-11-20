@@ -17,7 +17,7 @@ const recordingAudioMIMEType = "audio/pcm"
 // Matches the duplex-provider bus emit format ("pcm_linear16").
 const recordingAudioEncoding = "pcm_linear16"
 
-// generatedFromCue is the GeneratedFrom of output audio a CueStage played for
+// generatedFromCue is the GeneratedFrom of output audio a cue stage played for
 // a cue: a pre-rendered clip, not model audio.
 const generatedFromCue = "cue"
 

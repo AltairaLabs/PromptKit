@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -90,16 +92,16 @@ func TestCueOutOfBand_IsTheFirstSource(t *testing.T) {
 	pcm := cueRamp(4800)
 	sess := newOOBSpeaker("alloy", pcm)
 	svc := newFakeTTS(cueRamp(2400))
-	cache := NewMemoryClipCache(1 << 20)
-	cue := cueStageForSession(t, CueConfig{TTS: svc, Cache: cache}, sess)
+	cache := cueclip.NewMemoryCache(1 << 20)
+	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cache}, sess)
 
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, brunoText))
 	assert.Equal(t, 1, sess.calls(brunoText))
 	assert.Zero(t, svc.calls(brunoText))
-	got, ok, err := cache.Get(context.Background(), ClipKeyFor(brunoText, "alloy", "session:test-live", pcm24k))
+	got, ok, err := cache.Get(context.Background(), cueclip.KeyFor(brunoText, "alloy", "session:test-live", pcm24k))
 	require.NoError(t, err)
 	require.True(t, ok, "kept under the session family's key")
-	assert.Equal(t, ClipMeta{Text: brunoText, Voice: "alloy", Source: "session:test-live"}, got.Meta)
+	assert.Equal(t, cueclip.Meta{Text: brunoText, Voice: "alloy", Source: "session:test-live"}, got.Meta)
 }
 
 // Audio at another rate is resampled to the session's output rate.
@@ -107,7 +109,7 @@ func TestCueOutOfBand_IsResampled(t *testing.T) {
 	pcm16 := cueRamp(3200)
 	sess := newOOBSpeaker("alloy", pcm16)
 	sess.rate = 16000
-	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
+	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
 	assert.Equal(t, cueFaded(resampled(t, pcm16, 16000, 24000), 24000), playedFor(t, cue, brunoText))
 }
 
@@ -133,7 +135,7 @@ func TestCueOutOfBand_TranscriptCheck(t *testing.T) {
 			sess.said = tc.said
 			ttsPCM := cueRamp(2400)
 			svc := newFakeTTS(ttsPCM)
-			cue := cueStageForSession(t, CueConfig{TTS: svc, Cache: NewMemoryClipCache(1 << 20)}, sess)
+			cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
 
 			got := playedFor(t, cue, brunoText)
 			assert.Equal(t, tc.wantCalls, sess.calls(brunoText))
@@ -155,7 +157,7 @@ func TestCueOutOfBand_EachTryGetsTheRenderTimeout(t *testing.T) {
 	sess := newOOBSpeaker("alloy", pcm)
 	sess.said = []string{"Understood. " + brunoText, brunoText}
 	sess.delay = 60 * time.Millisecond
-	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20), RenderTimeout: 100 * time.Millisecond,
+	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20), RenderTimeout: 100 * time.Millisecond,
 		OnDemandBudget: time.Second}, sess)
 
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, brunoText))
@@ -189,7 +191,7 @@ func TestCueOutOfBand_DashedMessageMatchesFirstTime(t *testing.T) {
 	text := "Sorry—that's off-topic."
 	sess := newOOBSpeaker("alloy", cueRamp(4800))
 	sess.said = []string{"Sorry, that's off topic."}
-	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
+	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
 
 	assert.Equal(t, cueFaded(cueRamp(4800), 24000), playedFor(t, cue, text))
 	assert.Equal(t, 1, sess.calls(text))
@@ -199,18 +201,18 @@ func TestCueOutOfBand_DashedMessageMatchesFirstTime(t *testing.T) {
 func TestCueOutOfBand_ErrorFallsThrough(t *testing.T) {
 	sess := newOOBSpeaker("alloy", cueRamp(4800))
 	sess.err = errors.New("the out-of-band response ended cancelled")
-	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
+	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
 
-	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
+	assert.Equal(t, earconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Equal(t, 1, sess.calls(brunoText))
 }
 
 // A render with no audible audio falls to the next source.
 func TestCueOutOfBand_SilentRenderFallsThrough(t *testing.T) {
 	sess := newOOBSpeaker("alloy", nil)
-	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
+	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
 
-	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
+	assert.Equal(t, earconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Equal(t, 1, sess.calls(brunoText))
 }
 
@@ -218,13 +220,13 @@ func TestCueOutOfBand_SilentRenderFallsThrough(t *testing.T) {
 // second plays it from the cache with no out-of-band request.
 func TestCueOutOfBand_TwoSessionsRenderOnce(t *testing.T) {
 	pcm := cueRamp(4800)
-	cache := NewMemoryClipCache(1 << 20)
+	cache := cueclip.NewMemoryCache(1 << 20)
 	first := newOOBSpeaker("alloy", pcm)
 	second := newOOBSpeaker("alloy", cueRamp(10))
 	texts := []string{brunoText, "Another message."}
 
-	cue1 := cueStageForSession(t, CueConfig{Cache: cache}, first)
-	cue2 := cueStageForSession(t, CueConfig{Cache: cache}, second)
+	cue1 := cueStageForSession(t, cueConfig{Cache: cache}, first)
+	cue2 := cueStageForSession(t, cueConfig{Cache: cache}, second)
 	for _, text := range texts {
 		assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue1, text))
 		assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue2, text))
@@ -257,8 +259,8 @@ func TestCueOutOfBand_LeaderClosingLetsAJoinerRenderItself(t *testing.T) {
 			leader.err = tc.leaderErr
 			ownPCM := cueRamp(2400)
 			joiner := newOOBSpeaker("alloy", ownPCM)
-			bank1 := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, leader).bank
-			bank2 := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, joiner).bank
+			bank1 := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, leader).bank
+			bank2 := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, joiner).bank
 			text := "Joined, then on my own. " + tc.name
 
 			f1 := bank1.render(context.Background(), text, nil)
@@ -275,22 +277,22 @@ func TestCueOutOfBand_LeaderClosingLetsAJoinerRenderItself(t *testing.T) {
 				assert.Equal(t, cueFaded(ownPCM, 24000), f2.clip.Audio.Samples, "its own render")
 				assert.True(t, f2.keep)
 			} else {
-				assert.Equal(t, EarconPCM(24000), f2.clip.Audio.Samples)
+				assert.Equal(t, earconPCM(24000), f2.clip.Audio.Samples)
 			}
-			assert.Equal(t, EarconPCM(24000), f1.clip.Audio.Samples, "the closed session plays the earcon")
+			assert.Equal(t, earconPCM(24000), f1.clip.Audio.Samples, "the closed session plays the earcon")
 		})
 	}
 }
 
 // A session in another voice does not share the first one's clips.
 func TestCueOutOfBand_OtherVoiceRendersItsOwn(t *testing.T) {
-	cache := NewMemoryClipCache(1 << 20)
+	cache := cueclip.NewMemoryCache(1 << 20)
 	alloy := newOOBSpeaker("alloy", cueRamp(4800))
 	verse := newOOBSpeaker("verse", cueRamp(2400))
 	assert.Equal(t, cueFaded(cueRamp(4800), 24000),
-		playedFor(t, cueStageForSession(t, CueConfig{Cache: cache}, alloy), brunoText))
+		playedFor(t, cueStageForSession(t, cueConfig{Cache: cache}, alloy), brunoText))
 	assert.Equal(t, cueFaded(cueRamp(2400), 24000),
-		playedFor(t, cueStageForSession(t, CueConfig{Cache: cache}, verse), brunoText))
+		playedFor(t, cueStageForSession(t, cueConfig{Cache: cache}, verse), brunoText))
 	assert.Equal(t, 1, verse.calls(brunoText))
 }
 
@@ -298,7 +300,7 @@ func TestCueOutOfBand_OtherVoiceRendersItsOwn(t *testing.T) {
 // rendered; a session that finds the clip in the cache reports none.
 func TestCueOutOfBand_RenderCostIsReported(t *testing.T) {
 	pcm := cueRamp(4800)
-	cache := NewMemoryClipCache(1 << 20)
+	cache := cueclip.NewMemoryCache(1 << 20)
 	sess := newOOBSpeaker("alloy", pcm)
 	sess.said = []string{"Understood. " + brunoText, brunoText}
 	sess.cost = &types.CostInfo{InputTokens: 40, OutputTokens: 60, TotalCost: 0.25,
@@ -306,12 +308,12 @@ func TestCueOutOfBand_RenderCostIsReported(t *testing.T) {
 
 	bus1 := events.NewEventBus()
 	got1 := ttsEvents(t, bus1)
-	cue1 := cueStageForSessionWith(t, CueConfig{Cache: cache}, sess, events.NewEmitter(bus1, "run1", "s1", "c1"))
+	cue1 := cueStageForSessionWith(t, cueConfig{Cache: cache}, sess, events.NewEmitter(bus1, "run1", "s1", "c1"))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue1, brunoText))
 
 	bus2 := events.NewEventBus()
 	got2 := ttsEvents(t, bus2)
-	cue2 := cueStageForSessionWith(t, CueConfig{Cache: cache}, newOOBSpeaker("alloy", pcm),
+	cue2 := cueStageForSessionWith(t, cueConfig{Cache: cache}, newOOBSpeaker("alloy", pcm),
 		events.NewEmitter(bus2, "run2", "s2", "c2"))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue2, brunoText))
 
@@ -334,8 +336,8 @@ func TestCueOutOfBand_NeedsTheSessionFamily(t *testing.T) {
 	sess := newOOBSpeaker("alloy", cueRamp(4800))
 	sess.MockStreamSession = providersmock.NewMockStreamSession().WithOutputAudio(
 		providers.OutputAudio{Voice: "alloy", SampleRate: 24000})
-	cue := cueStageForSession(t, CueConfig{Cache: NewMemoryClipCache(1 << 20)}, sess)
-	assert.Equal(t, EarconPCM(24000), playedFor(t, cue, brunoText))
+	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
+	assert.Equal(t, earconPCM(24000), playedFor(t, cue, brunoText))
 	assert.Zero(t, sess.calls(brunoText))
 }
 
@@ -350,8 +352,8 @@ func TestCueOutOfBand_CancelledLeaderFlightKeepsTheClip(t *testing.T) {
 	pcm := cueRamp(4800)
 	sess := newOOBSpeaker("alloy", pcm)
 	sess.gate = make(chan struct{})
-	cache := NewMemoryClipCache(1 << 20)
-	bank := cueStageForSession(t, CueConfig{Cache: cache}, sess).bank
+	cache := cueclip.NewMemoryCache(1 << 20)
+	bank := cueStageForSession(t, cueConfig{Cache: cache}, sess).bank
 	text := "Cut while the flight runs."
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -363,13 +365,13 @@ func TestCueOutOfBand_CancelledLeaderFlightKeepsTheClip(t *testing.T) {
 	assert.False(t, f.keep)
 
 	close(sess.gate)
-	key := ClipKeyFor(text, "alloy", "session:test-live", pcm24k)
+	key := cueclip.KeyFor(text, "alloy", "session:test-live", pcm24k)
 	require.Eventually(t, func() bool {
 		_, ok, err := cache.Get(context.Background(), key)
 		return err == nil && ok
 	}, 5*time.Second, time.Millisecond, "the flight keeps the clip")
 	got, _, err := cache.Get(context.Background(), key)
 	require.NoError(t, err)
-	assert.Equal(t, cueFaded(pcm, 24000), got.Audio.Samples)
+	assert.Equal(t, cueFaded(pcm, 24000), got.PCM)
 	assert.Equal(t, 1, sess.calls(text))
 }

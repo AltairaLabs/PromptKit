@@ -5,6 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -65,14 +67,14 @@ func TestDuplexGuardrailCue_TruncatedFirstChunkIsJudgedAndNotSpoken(t *testing.T
 // provider stage puts a cue on the element that carries the message's text,
 // and the cue stage after it plays the clip. The model is asked for nothing.
 
-// cueWiredStage is cutStage with a cue stage wired after it (NewCueStageFor),
+// cueWiredStage is cutStage with a cue stage wired after it (NewDuplexCueStage),
 // told the session's output: spoken in voice at 24 kHz when spoken is set,
 // else not spoken.
 func cueWiredStage(t *testing.T, reg *hooks.Registry, spoken bool,
-) (*DuplexProviderStage, *interruptingSession, *CueStage) {
+) (*DuplexProviderStage, *interruptingSession, *cueStage) {
 	t.Helper()
 	s, sess := cutStage(t, reg)
-	cue := NewCueStageFor(s, CueConfig{Cache: NewMemoryClipCache(1 << 20)})
+	cue := newCueStageFor(s, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)})
 	out := providersmock.NewMockStreamSession()
 	if spoken {
 		out = spokenSession("alloy", cueTestRate)
@@ -180,7 +182,7 @@ func TestDuplexGuardrailCue_TruncationIsNotSpoken(t *testing.T) {
 // interrupted, so it does not cut the cue's clip.
 func TestDuplexGuardrailCue_UnstoppableReplyEndsWithoutAnotherCut(t *testing.T) {
 	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
-	NewCueStageFor(s, CueConfig{Cache: NewMemoryClipCache(1 << 20)})
+	newCueStageFor(s, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s.cues.sessionStarted(ctx, spokenSession("Puck", cueTestRate), nil, nil)
@@ -284,7 +286,7 @@ func TestDuplexGuardrailCue_CueStagePlaysTheEarconAfterTheCut(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"interrupt", "text", "cue-audio", "end"}, order)
-	assert.Equal(t, EarconPCM(cueTestRate), cueAudioOf(got))
+	assert.Equal(t, earconPCM(cueTestRate), cueAudioOf(got))
 }
 
 // brunoGuard is banned_words on "Bruno" in direction, whose message names

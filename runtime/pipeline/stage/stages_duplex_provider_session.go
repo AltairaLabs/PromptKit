@@ -183,8 +183,8 @@ type DuplexProviderStage struct {
 	// Set via SetSessionObserver.
 	onSession func(providers.StreamInputSession)
 
-	// cues is the clip bank of the CueStage after this stage
-	// (NewCueStageFor), told of the session when it is created; nil when the
+	// cues is the clip bank of the cue stage after this stage
+	// (NewDuplexCueStage), told of the session when it is created; nil when the
 	// chain has none.
 	cues *cueBank
 
@@ -820,7 +820,7 @@ func (s *DuplexProviderStage) handleInputElement(
 	if elem.Meta.AllResponsesReceived {
 		return s.handleAllResponsesReceived(elem, done)
 	}
-	if isCueOnly(elem) { // for a CueStage downstream, not the session
+	if isCueOnly(elem) { // for a cueStage downstream, not the session
 		if err := sendStreamElement(ctx, *elem, output); err != nil {
 			done <- err
 			return true

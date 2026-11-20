@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -26,7 +28,7 @@ type clipSource interface {
 	keyText(text string) string
 	// render renders text as a clip ready to play in format, and reports
 	// what the render cost, if it is billed.
-	render(ctx context.Context, text string, format ClipFormat) (CueClip, *clipRenderCost, error)
+	render(ctx context.Context, text string, format cueclip.Format) (cueClip, *clipRenderCost, error)
 }
 
 // clipRenderCost is what a billed render did, for its cost event: a TTS
@@ -72,7 +74,7 @@ func (earconSource) kind() string          { return "earcon" }
 func (earconSource) voice() string         { return "" }
 func (earconSource) keyText(string) string { return "" }
 
-func (earconSource) render(_ context.Context, _ string, format ClipFormat) (CueClip, *clipRenderCost, error) {
+func (earconSource) render(_ context.Context, _ string, format cueclip.Format) (cueClip, *clipRenderCost, error) {
 	return earconClip(format.SampleRate), nil, nil
 }
 
@@ -141,16 +143,18 @@ func (s *ttsClipSource) kind() string               { return "tts:" + s.svc.Name
 func (s *ttsClipSource) voice() string              { return s.voiceID }
 func (s *ttsClipSource) keyText(text string) string { return text }
 
-func (s *ttsClipSource) render(ctx context.Context, text string, format ClipFormat) (CueClip, *clipRenderCost, error) {
+func (s *ttsClipSource) render(ctx context.Context, text string, format cueclip.Format) (
+	cueClip, *clipRenderCost, error,
+) {
 	start := time.Now()
 	rc, err := s.svc.Synthesize(ctx, text, tts.SynthesisConfig{Voice: s.voiceID, Format: s.request})
 	if err != nil {
-		return CueClip{}, nil, err
+		return cueClip{}, nil, err
 	}
 	pcm, err := io.ReadAll(rc)
 	_ = rc.Close()
 	if err != nil {
-		return CueClip{}, nil, err
+		return cueClip{}, nil, err
 	}
 	cost := &clipRenderCost{svc: s.svc, text: text, duration: time.Since(start)}
 	if len(pcm)%bytesPerSamplePCM16 != 0 {
@@ -159,14 +163,14 @@ func (s *ttsClipSource) render(ctx context.Context, text string, format ClipForm
 	ready := prepareCueAudio(&AudioData{Samples: pcm, SampleRate: s.request.SampleRate, Channels: 1,
 		Format: AudioFormatPCM16}, format.SampleRate)
 	if len(ready) == 0 {
-		return CueClip{}, cost, errors.New("the TTS service returned no audible audio")
+		return cueClip{}, cost, errors.New("the TTS service returned no audible audio")
 	}
 	return readyClip(ready, format.SampleRate), cost, nil
 }
 
 // readyClip is pcm, ready to play at rate, as a clip.
-func readyClip(pcm []byte, rate int) CueClip {
-	return CueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16,
+func readyClip(pcm []byte, rate int) cueClip {
+	return cueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16,
 		Duration: audio.PCM16Duration(len(pcm), rate, 1)}}
 }
 
@@ -231,8 +235,8 @@ func (s *sessionClipSource) keyText(text string) string { return text }
 // render has the session say text and checks what it said: a transcript
 // other than the text is rendered once more, then fails the text. Every
 // try's cost is reported.
-func (s *sessionClipSource) render(ctx context.Context, text string, format ClipFormat) (
-	CueClip, *clipRenderCost, error,
+func (s *sessionClipSource) render(ctx context.Context, text string, format cueclip.Format) (
+	cueClip, *clipRenderCost, error,
 ) {
 	start := time.Now()
 	cost := &clipRenderCost{provider: s.family, text: text}
@@ -242,7 +246,7 @@ func (s *sessionClipSource) render(ctx context.Context, text string, format Clip
 		cost.add(speech.Cost)
 		cost.duration = time.Since(start)
 		if err != nil {
-			return CueClip{}, cost.billed(), err
+			return cueClip{}, cost.billed(), err
 		}
 		if !sameSpeech(speech.Transcript, text) {
 			logger.Debug("CueStage: the session said other than the text", "said", speech.Transcript, "try", try+1)
@@ -252,11 +256,11 @@ func (s *sessionClipSource) render(ctx context.Context, text string, format Clip
 		ready := prepareCueAudio(&AudioData{Samples: speech.Audio, SampleRate: speech.SampleRate, Channels: 1,
 			Format: AudioFormatPCM16}, format.SampleRate)
 		if len(ready) == 0 {
-			return CueClip{}, cost.billed(), errors.New("the session returned no audible audio")
+			return cueClip{}, cost.billed(), errors.New("the session returned no audible audio")
 		}
 		return readyClip(ready, format.SampleRate), cost.billed(), nil
 	}
-	return CueClip{}, cost.billed(), lastErr
+	return cueClip{}, cost.billed(), lastErr
 }
 
 // sameSpeech reports whether said is text, case, punctuation and spacing

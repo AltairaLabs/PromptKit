@@ -60,11 +60,10 @@ func runVoice(setup *providerSetup) error {
 	elog.attach(bus)
 
 	// OpenVoice with an audio session paces the reply audio to the speaker
-	// and tracks what was heard; WithPlayoutTracking says so explicitly.
+	// and, in ASM mode, tracks how much of each reply was heard.
 	opts := append(logOptions(bus, store),
 		setup.judgeProvider(),
 		sdk.WithAudioSession(session),
-		sdk.WithPlayoutTracking(),
 		sdk.WithVoiceObserver(elog.observe),
 	)
 	modeOpts, _ := setup.sessionOptions()

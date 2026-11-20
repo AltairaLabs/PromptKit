@@ -146,10 +146,10 @@ type playoutMeta struct {
 }
 
 func playoutOf(m *types.Message) playoutMeta {
-	heardMs, _ := m.Meta[MetaHeardMs].(int64)
-	audioMs, _ := m.Meta[MetaAudioMs].(int64)
-	fraction, _ := m.Meta[MetaPlayedFraction].(float64)
-	return playoutMeta{Finish: m.FinishReason, Cut: m.Meta[MetaPlayoutCut], HeardMs: heardMs, AudioMs: audioMs,
+	heardMs, _ := m.Meta[types.MetaHeardMs].(int64)
+	audioMs, _ := m.Meta[types.MetaAudioMs].(int64)
+	fraction, _ := m.Meta[types.MetaPlayedFraction].(float64)
+	return playoutMeta{Finish: m.FinishReason, Cut: m.Meta[types.MetaPlayoutCut], HeardMs: heardMs, AudioMs: audioMs,
 		Fraction: fraction}
 }
 
@@ -188,10 +188,11 @@ func TestPlayoutHold_BargeInRecordsWhatWasHeard(t *testing.T) {
 	rel := r.next(t)
 	require.True(t, rel.Meta.PlayoutRelease)
 	assert.Equal(t, "A long story.", rel.Message.Content, "the text is not cut")
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 300, AudioMs: 1000, Fraction: 0.3},
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutBargeIn,
+		HeardMs: 300, AudioMs: 1000, Fraction: 0.3},
 		playoutOf(rel.Message))
 	assert.Equal(t, "stop", rel.Message.Meta[finishReasonMetaKey])
-	assert.Nil(t, got[1].Message.Meta[MetaHeardMs], "the caller's copy is untouched")
+	assert.Nil(t, got[1].Message.Meta[types.MetaHeardMs], "the caller's copy is untouched")
 	close(r.in)
 	require.NoError(t, <-r.done)
 }
@@ -205,7 +206,8 @@ func TestPlayoutHold_InputCloseReleasesWhatWasHeard(t *testing.T) {
 	close(r.in)
 	rel := r.next(t)
 	require.True(t, rel.Meta.PlayoutRelease)
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutSessionClosed, HeardMs: 200, AudioMs: 1000, Fraction: 0.2},
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutSessionClosed,
+		HeardMs: 200, AudioMs: 1000, Fraction: 0.2},
 		playoutOf(rel.Message))
 	require.NoError(t, <-r.done)
 }
@@ -255,12 +257,13 @@ func TestPlayoutHold_LaterMessagesKeepTheirPlace(t *testing.T) {
 		e := r.next(t)
 		require.True(t, e.Meta.PlayoutRelease)
 		released = append(released, e.Message.Role+":"+e.Message.Content)
-		if e.Message.Meta[MetaPlayoutCut] != nil {
+		if e.Message.Meta[types.MetaPlayoutCut] != nil {
 			cut = playoutOf(e.Message)
 		}
 	}
 	assert.Equal(t, []string{"assistant:Short.", "user:and then?", "assistant:Long."}, released)
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 200, AudioMs: 1000, Fraction: 0.2}, cut,
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutBargeIn,
+		HeardMs: 200, AudioMs: 1000, Fraction: 0.2}, cut,
 		"the second reply started playing when the first ended, 40 ms after it arrived")
 	close(r.in)
 	require.NoError(t, <-r.done)
@@ -276,7 +279,7 @@ func TestPlayoutHold_ErroredReplyAudioNotCarriedOver(t *testing.T) {
 	r.clock.advance(50 * time.Millisecond)
 	r.pass(t, bargeInElem())
 	rel := r.next(t)
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 50, AudioMs: 100, Fraction: 0.5},
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutBargeIn, HeardMs: 50, AudioMs: 100, Fraction: 0.5},
 		playoutOf(rel.Message))
 	close(r.in)
 	require.NoError(t, <-r.done)
@@ -397,7 +400,7 @@ func TestPlayoutHold_GuardrailCutRecordsWhatWasHeard(t *testing.T) {
 	end := r.pass(t, blocked)[0]
 
 	assert.False(t, end.Meta.PlayoutHeld, "a cut reply is not held: it is no longer playing")
-	assert.Equal(t, playoutMeta{Finish: types.FinishReasonSafety, Cut: PlayoutCutGuardrail,
+	assert.Equal(t, playoutMeta{Finish: types.FinishReasonSafety, Cut: types.PlayoutCutGuardrail,
 		HeardMs: 400, AudioMs: 1000, Fraction: 0.4}, playoutOf(end.Message))
 	assert.True(t, r.idle(t), "nothing is released later")
 	close(r.in)
@@ -414,7 +417,8 @@ func TestPlayoutHold_InterruptReleasesHeldReplyAsBargeIn(t *testing.T) {
 	r.pass(t, NewInterruptElement())
 	rel := r.next(t)
 	require.True(t, rel.Meta.PlayoutRelease)
-	assert.Equal(t, playoutMeta{Finish: "stop", Cut: PlayoutCutBargeIn, HeardMs: 250, AudioMs: 1000, Fraction: 0.25},
+	assert.Equal(t, playoutMeta{Finish: "stop", Cut: types.PlayoutCutBargeIn,
+		HeardMs: 250, AudioMs: 1000, Fraction: 0.25},
 		playoutOf(rel.Message))
 	close(r.in)
 	require.NoError(t, <-r.done)

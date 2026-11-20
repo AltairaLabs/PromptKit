@@ -18,10 +18,10 @@ const (
 	earconAmplitude = 8000.0 // about -12 dBFS
 )
 
-// EarconPCM is the earcon, the short tone a CueStage plays for a cue no other
+// earconPCM is the earcon, the short tone a cue stage plays for a cue no other
 // source voices, as PCM16 mono little-endian at rate. It depends on rate
 // only, so every session at a rate plays the same bytes.
-func EarconPCM(rate int) []byte {
+func earconPCM(rate int) []byte {
 	n := int(int64(rate) * int64(earconDuration) / int64(time.Second))
 	attack := float64(int64(rate) * int64(earconAttack) / int64(time.Second))
 	release := float64(int64(rate) * int64(earconRelease) / int64(time.Second))
@@ -40,8 +40,8 @@ func EarconPCM(rate int) []byte {
 }
 
 // earconClip is the earcon as a clip ready to play at rate.
-func earconClip(rate int) CueClip {
-	pcm := EarconPCM(rate)
-	return CueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16,
+func earconClip(rate int) cueClip {
+	pcm := earconPCM(rate)
+	return cueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16,
 		Duration: audio.PCM16Duration(len(pcm), rate, 1)}}
 }
