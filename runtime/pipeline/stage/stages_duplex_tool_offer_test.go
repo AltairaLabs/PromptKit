@@ -481,8 +481,8 @@ func TestDuplexToolOffer_EarlierTurnsRoundDoesNotChangeTheNewTurnsOffer(t *testi
 	// landing before that is the new turn's to offer.
 	require.Eventually(t, func() bool {
 		turn := h.toolTurn()
-		h.stage.tools.mu.Lock()
-		defer h.stage.tools.mu.Unlock()
+		h.stage.calls.mu.Lock()
+		defer h.stage.calls.mu.Unlock()
 		return turn.offered["activate"]
 	}, 2*time.Second, time.Millisecond, "the new turn never brought the session's tools in line")
 	close(exec.gate)

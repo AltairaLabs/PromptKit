@@ -141,9 +141,9 @@ func assertCostInfo(t *testing.T, want, got *types.CostInfo) {
 }
 
 func (h *realtimeHarness) spent() float64 {
-	h.stage.tools.mu.Lock()
-	defer h.stage.tools.mu.Unlock()
-	return h.stage.tools.spent
+	h.stage.calls.mu.Lock()
+	defer h.stage.calls.mu.Unlock()
+	return h.stage.calls.spent
 }
 
 func derefMessages(msgs []*types.Message) []types.Message {

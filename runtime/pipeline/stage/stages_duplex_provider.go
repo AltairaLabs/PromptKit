@@ -170,10 +170,9 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			elem.Message = msg
 		}
 
-		// Mark that we saw an interruption - the next turnComplete without
-		// content (of the interrupted generation) should be skipped
+		// Mark that we saw an interruption - the next unnumbered turnComplete
+		// without content should be skipped
 		s.wasInterrupted = true
-		s.interruptedGen = chunk.Generation
 
 		interruptedReason := finishReasonInterrupted
 		if elem.Message != nil {
@@ -252,8 +251,10 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// we should skip it - the real response will have its own cost info.
 		// A turn that makes tool calls is the real response, even with no text
 		// or audio: skipping it would leave its calls unanswered.
-		if !hasContent && !hasToolCalls && s.wasInterrupted &&
-			(chunk.Generation == 0 || chunk.Generation == s.interruptedGen) {
+		// Only an unnumbered chunk (Generation 0) gets here as the interrupted
+		// turn's end: a numbered one is its call's, which the interruption
+		// completed, so the call tracker drops it as stale (staleChunk).
+		if !hasContent && !hasToolCalls && s.wasInterrupted && chunk.Generation == 0 {
 			logger.Debug("DuplexProviderStage: detected interrupted turn complete (empty response after interruption), skipping",
 				"hasCostInfo", hasCostInfo)
 			finishReason := *chunk.FinishReason

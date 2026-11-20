@@ -423,9 +423,9 @@ func (h *realtimeHarness) sess() *realtimeToolSession { return h.provider.sessio
 
 // toolTurn returns the stage's current tool turn.
 func (h *realtimeHarness) toolTurn() *duplexToolTurn {
-	h.stage.tools.mu.Lock()
-	defer h.stage.tools.mu.Unlock()
-	return h.stage.tools.turn
+	h.stage.calls.mu.Lock()
+	defer h.stage.calls.mu.Unlock()
+	return h.stage.calls.turn
 }
 
 // awaitNewToolTurn waits until the stage has begun a tool turn other than
@@ -951,9 +951,9 @@ func TestDuplexTools_ProviderCallTimingWithoutUserTurn(t *testing.T) {
 	h.emit([]providers.StreamChunk{{Content: "Let me check", Delta: "Let me check"}})
 	// The call starts when the stage reads that output, not when it is sent.
 	require.Eventually(t, func() bool {
-		h.stage.tools.mu.Lock()
-		defer h.stage.tools.mu.Unlock()
-		return h.stage.tools.open != nil
+		h.stage.calls.mu.Lock()
+		defer h.stage.calls.mu.Unlock()
+		return h.stage.calls.open != nil
 	}, 2*time.Second, time.Millisecond, "the reply's first output opens a provider call")
 	time.Sleep(streamTime)
 	h.emit(toolCallTurn(weatherCall("c1")))
@@ -1365,7 +1365,10 @@ func TestDuplexTools_NilRegistryForwardsToolCalls(t *testing.T) {
 			}, 2*time.Second, time.Millisecond)
 			evMu.Lock()
 			defer evMu.Unlock()
-			assert.Equal(t, []int{99}, rounds, "no provider.call.* events without a registry")
+			// The calls are tracked without a registry: each has its started
+			// and completed events, and the host's tool results continue the
+			// tool turn, so the second call is its round 2.
+			assert.Equal(t, []int{1, 1, 2, 2, 99}, rounds, "provider.call.* events without a registry")
 		})
 	}
 }
@@ -1718,9 +1721,9 @@ func TestDuplexTools_FinalWaitIsNotExtendedWithoutAToolRound(t *testing.T) {
 	text := "hello?"
 	h.input <- StreamElement{Text: &text}
 	require.Eventually(t, func() bool {
-		h.stage.tools.mu.Lock()
-		defer h.stage.tools.mu.Unlock()
-		return h.stage.tools.open != nil
+		h.stage.calls.mu.Lock()
+		defer h.stage.calls.mu.Unlock()
+		return h.stage.calls.open != nil
 	}, 2*time.Second, time.Millisecond, "the typed turn opens a provider call")
 	start := time.Now()
 	close(h.input)
@@ -1746,9 +1749,9 @@ func TestDuplexTools_FinalWaitCoversTheReplyToAnEndedTurnsRound(t *testing.T) {
 	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
 	h.emit(textTurn("One moment.", nil)) // ends the tool turn while the round runs
 	require.Eventually(t, func() bool {
-		h.stage.tools.mu.Lock()
-		defer h.stage.tools.mu.Unlock()
-		return h.stage.tools.turn == nil
+		h.stage.calls.mu.Lock()
+		defer h.stage.calls.mu.Unlock()
+		return h.stage.calls.turn == nil
 	}, 2*time.Second, time.Millisecond)
 	close(h.input)
 	close(exec.gate)
