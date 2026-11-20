@@ -47,6 +47,10 @@ const perMillionScale = 1_000_000.0
 // (which reasoning_tokens is a sub-count of) is one undifferentiated output
 // budget on the wire — so reasoning_token prices at the output rate rather
 // than a separate published constant.
+//
+// These models charge nothing extra to write the prompt cache, so a written
+// token (should one be reported) bills at the input rate, as it did before
+// writes were reported separately.
 func perM(input, cachedInput, output float64) *base.PricingDescriptor {
 	return perMAt(openaiPricingCorrectAt, input, cachedInput, output)
 }
@@ -56,12 +60,43 @@ func perMAt(checked time.Time, input, cachedInput, output float64) *base.Pricing
 	return &base.PricingDescriptor{
 		Source:           base.PricingSourceInline,
 		PricingCorrectAt: checked,
-		Items: []base.PriceItem{
-			{Unit: base.UnitInputToken, Rate: input / perMillionScale},
-			{Unit: base.UnitCacheReadToken, Rate: cachedInput / perMillionScale},
-			{Unit: base.UnitOutputToken, Rate: output / perMillionScale},
-			{Unit: base.UnitReasoningToken, Rate: output / perMillionScale},
-		},
+		Items: append(tokenItems(input, cachedInput, output),
+			base.PriceItem{Unit: base.UnitCacheWriteToken, Rate: input / perMillionScale}),
+	}
+}
+
+// Cache-write premiums for GPT-5.6 and later, as multiples of the input rate:
+// 1.25x for the default 30-minute retention, 2.5x for the 12-hour retention
+// the Responses API offers (https://developers.openai.com/api/docs/guides/prompt-caching).
+const (
+	cacheWrite30mPremium = 1.25
+	cacheWrite12hPremium = 2.5
+)
+
+// perMCacheWrite is perMAt for a model that bills cache writes at a premium.
+// The 12-hour item carries cacheWriteTTLDimension, so it wins only for a
+// request costFromUsage marks as a 12-hour write.
+func perMCacheWrite(input, cachedInput, output float64) *base.PricingDescriptor {
+	return &base.PricingDescriptor{
+		Source:           base.PricingSourceInline,
+		PricingCorrectAt: openaiPricingCheckedAt,
+		Items: append(tokenItems(input, cachedInput, output),
+			base.PriceItem{Unit: base.UnitCacheWriteToken, Rate: input * cacheWrite30mPremium / perMillionScale},
+			base.PriceItem{
+				Unit: base.UnitCacheWriteToken, Rate: input * cacheWrite12hPremium / perMillionScale,
+				Dimensions: map[string]string{cacheWriteTTLDimension: cacheWriteTTL12h},
+			}),
+	}
+}
+
+// tokenItems are the input, cache-read, output and reasoning items every
+// OpenAI text model carries.
+func tokenItems(input, cachedInput, output float64) []base.PriceItem {
+	return []base.PriceItem{
+		{Unit: base.UnitInputToken, Rate: input / perMillionScale},
+		{Unit: base.UnitCacheReadToken, Rate: cachedInput / perMillionScale},
+		{Unit: base.UnitOutputToken, Rate: output / perMillionScale},
+		{Unit: base.UnitReasoningToken, Rate: output / perMillionScale},
 	}
 }
 
@@ -162,16 +197,17 @@ var (
 	gpt54Nano = perMAt(openaiPricingCheckedAt, gpt54NanoIn, gpt54NanoCached, gpt54NanoOut)
 	gpt5xPro  = perMAt(openaiPricingCheckedAt, gpt5xProIn, gpt5xProIn, gpt5xProOut)
 	gpt55     = perMAt(openaiPricingCheckedAt, gpt55In, gpt55Cached, gpt55Out)
-	gpt56Sol  = perMAt(openaiPricingCheckedAt, gpt56SolIn, gpt56SolCached, gpt56SolOut)
-	gpt56Ter  = perMAt(openaiPricingCheckedAt, gpt56TerraIn, gpt56TerraCached, gpt56TerraOut)
-	gpt56Luna = perMAt(openaiPricingCheckedAt, gpt56LunaIn, gpt56LunaCached, gpt56LunaOut)
+	// GPT-5.6 and later bill cache writes at a premium.
+	gpt56Sol  = perMCacheWrite(gpt56SolIn, gpt56SolCached, gpt56SolOut)
+	gpt56Ter  = perMCacheWrite(gpt56TerraIn, gpt56TerraCached, gpt56TerraOut)
+	gpt56Luna = perMCacheWrite(gpt56LunaIn, gpt56LunaCached, gpt56LunaOut)
 
-	gpt6Astra  = perMAt(openaiPricingCheckedAt, gpt6AstraIn, gpt6AstraCached, gpt6AstraOut)
-	gpt6Sol    = perMAt(openaiPricingCheckedAt, gpt6SolIn, gpt6SolCached, gpt6SolOut)
-	gpt6Luna   = perMAt(openaiPricingCheckedAt, gpt6LunaIn, gpt6LunaCached, gpt6LunaOut)
-	gpt61Sol   = perMAt(openaiPricingCheckedAt, gpt61SolIn, gpt61SolCached, gpt61SolOut)
-	gpt61Terra = perMAt(openaiPricingCheckedAt, gpt61TerraIn, gpt61TerraCached, gpt61TerraOut)
-	gpt62Astra = perMAt(openaiPricingCheckedAt, gpt62AstraIn, gpt62AstraCached, gpt62AstraOut)
+	gpt6Astra  = perMCacheWrite(gpt6AstraIn, gpt6AstraCached, gpt6AstraOut)
+	gpt6Sol    = perMCacheWrite(gpt6SolIn, gpt6SolCached, gpt6SolOut)
+	gpt6Luna   = perMCacheWrite(gpt6LunaIn, gpt6LunaCached, gpt6LunaOut)
+	gpt61Sol   = perMCacheWrite(gpt61SolIn, gpt61SolCached, gpt61SolOut)
+	gpt61Terra = perMCacheWrite(gpt61TerraIn, gpt61TerraCached, gpt61TerraOut)
+	gpt62Astra = perMCacheWrite(gpt62AstraIn, gpt62AstraCached, gpt62AstraOut)
 )
 
 // openaiPricingTable maps model aliases to their pricing descriptor. Looked up

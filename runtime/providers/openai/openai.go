@@ -679,7 +679,11 @@ type openAIUsage struct {
 }
 
 type openAIPromptDetails struct {
-	CachedTokens int `json:"cached_tokens"`
+	CachedTokens     int `json:"cached_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens"`
+	// cacheWrite12hTokens is the part of CacheWriteTokens written with 12-hour
+	// retention. Chat Completions has no such field; the Responses API reports it.
+	cacheWrite12hTokens int
 }
 
 // openAICompletionDetails carries the reasoning-token sub-count OpenAI
@@ -789,19 +793,41 @@ func (p *Provider) SupportsPromptCaching() bool { return true }
 // likewise INCLUDES reasoning_tokens, so output is the visible-only
 // remainder and reasoning is priced as its own additive unit.
 func openAIUsageToTokens(u openAIUsage) base.TokenUsage {
-	reasoning, cached := 0, 0
+	reasoning, cached, written := 0, 0, 0
 	if u.CompletionTokensDetails != nil {
 		reasoning = u.CompletionTokensDetails.ReasoningTokens
 	}
 	if u.PromptTokensDetails != nil {
 		cached = u.PromptTokensDetails.CachedTokens
+		written = u.PromptTokensDetails.CacheWriteTokens
 	}
+	// prompt_tokens includes both the tokens read from and the tokens written to
+	// the cache; what is left is full-price input.
 	return base.TokenUsage{
-		Input:     u.PromptTokens - cached,
-		CacheRead: cached,
-		Output:    u.CompletionTokens - reasoning,
-		Reasoning: reasoning,
+		Input:      max(u.PromptTokens-cached-written, 0),
+		CacheRead:  cached,
+		CacheWrite: written,
+		Output:     u.CompletionTokens - reasoning,
+		Reasoning:  reasoning,
 	}
+}
+
+// cacheWriteTTLDimension marks a request whose cache writes used 12-hour
+// retention, which the pricing tables bill at a higher write rate than the
+// default 30 minutes. A request carries one retention setting, so its writes
+// share one rate; should a response report both, every write is billed at the
+// 12-hour rate (overstated, never understated).
+const (
+	cacheWriteTTLDimension = "cache_write_ttl"
+	cacheWriteTTL12h       = "12h"
+)
+
+// cacheWriteDims returns the pricing dimensions a usage report selects.
+func cacheWriteDims(u openAIUsage) map[string]string {
+	if u.PromptTokensDetails != nil && u.PromptTokensDetails.cacheWrite12hTokens > 0 {
+		return map[string]string{cacheWriteTTLDimension: cacheWriteTTL12h}
+	}
+	return nil
 }
 
 // costFromUsage prices an openAIUsage through the unit-keyed pricing engine:
@@ -814,7 +840,7 @@ func (p *Provider) costFromUsage(u openAIUsage) types.CostInfo {
 		p.Pricing(),
 		base.FlatPricing{Input: p.defaults.Pricing.InputCostPer1K, Output: p.defaults.Pricing.OutputCostPer1K},
 		openaiPricingTable, p.model)
-	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, openAIUsageToTokens(u), nil, 0)
+	return base.PriceUsage(desc, p.ID(), base.ProviderTypeInference, openAIUsageToTokens(u), cacheWriteDims(u), 0)
 }
 
 // CalculateCost calculates detailed cost breakdown including optional cached
