@@ -779,35 +779,69 @@ func TestGuardrailHookAdapter_OnChunk_StreamableError(t *testing.T) {
 }
 
 // slowPartialHandler is a streaming check that answers only when its context
-// ends, as a stalled classifier does.
-type slowPartialHandler struct{ streamableStubHandler }
+// ends: with err set it returns the context's error, as a stalled classifier
+// does; without, it swallows the cancellation and returns a passing result.
+type slowPartialHandler struct {
+	streamableStubHandler
+	failOnCancel bool
+}
 
 func (s *slowPartialHandler) EvalPartial(ctx context.Context, _ string, _ map[string]any) (*evals.EvalResult, error) {
 	<-ctx.Done()
+	if s.failOnCancel {
+		return nil, ctx.Err()
+	}
+	if s.partialResult != nil {
+		return s.partialResult, nil
+	}
 	return &evals.EvalResult{Score: floatPtr(1.0)}, nil
 }
 
-// A streaming check is bounded by the guardrail timeout and fails closed past
-// it, with the validator's message, as a completed reply's check does, even
-// when the handler swallows the cancellation and answers.
-func TestGuardrailHookAdapter_InterceptChunk_TimesOutClosed(t *testing.T) {
-	adapter := &GuardrailHookAdapter{
-		handler:   &slowPartialHandler{streamableStubHandler{typeName: "slow"}},
+func slowAdapter(failOnCancel bool) *GuardrailHookAdapter {
+	a := &GuardrailHookAdapter{
+		handler:   &slowPartialHandler{streamableStubHandler{typeName: "slow"}, failOnCancel},
 		evalType:  "slow",
 		params:    map[string]any{},
 		direction: DirectionOutput,
 		message:   "Can't check that now.",
 	}
-	adapter.SetEvalTimeout(5 * time.Millisecond)
+	a.SetEvalTimeout(5 * time.Millisecond)
+	return a
+}
+
+// A streaming check is bounded by the guardrail timeout: one that runs past it
+// without a verdict fails closed, with the validator's message, as a completed
+// reply's check does.
+func TestGuardrailHookAdapter_InterceptChunk_TimesOutClosed(t *testing.T) {
 	chunk := &providers.StreamChunk{Content: "hello"}
 
-	d := adapter.InterceptChunk(context.Background(), hooks.ChunkRequest{Chunk: chunk})
+	d := slowAdapter(true).InterceptChunk(context.Background(), hooks.ChunkRequest{Chunk: chunk})
 
 	require.True(t, d.Enforced)
 	assert.Equal(t, reasonTimeout, d.Metadata["reason"])
 	require.NotNil(t, d.Content)
 	assert.Equal(t, "Can't check that now.", *d.Content)
 	assert.Equal(t, "hello", chunk.Content, "InterceptChunk does not rewrite the chunk")
+}
+
+// A verdict the handler returned is kept even when it came past the timeout,
+// as a completed reply's check keeps it: a passing chunk passes.
+func TestGuardrailHookAdapter_InterceptChunk_KeepsALateVerdict(t *testing.T) {
+	d := slowAdapter(false).InterceptChunk(context.Background(),
+		hooks.ChunkRequest{Chunk: &providers.StreamChunk{Content: "hello"}})
+
+	assert.Equal(t, hooks.Decision{Allow: true}, d)
+}
+
+// A chunk checked as the caller cancels the stream is not a firing: nothing
+// was judged, so the check holds the whole chunk back and reports nothing.
+func TestGuardrailHookAdapter_InterceptChunk_CallerCancelIsNotAFiring(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	d := slowAdapter(true).InterceptChunk(ctx, hooks.ChunkRequest{Chunk: &providers.StreamChunk{Content: "hello"}})
+
+	assert.Equal(t, []any{true, false, len("hello")}, []any{d.Allow, d.Enforced, d.Hold})
 }
 
 // A streaming check that returns neither a result nor an error fails closed.
@@ -825,4 +859,17 @@ func TestGuardrailHookAdapter_InterceptChunk_NoResultFailsClosed(t *testing.T) {
 	require.True(t, d.Enforced)
 	assert.Equal(t, reasonError, d.Metadata["reason"])
 	assert.Equal(t, prompt.DefaultBlockedMessage, *d.Content)
+}
+
+// A late verdict that fires stands too, tagged as having come past the
+// timeout, as a completed reply's check tags one.
+func TestGuardrailHookAdapter_InterceptChunk_LateFiringIsTaggedTimeout(t *testing.T) {
+	a := slowAdapter(false)
+	a.handler.(*slowPartialHandler).partialResult = &evals.EvalResult{Score: floatPtr(0)}
+
+	d := a.InterceptChunk(context.Background(), hooks.ChunkRequest{Chunk: &providers.StreamChunk{Content: "hello"}})
+
+	require.True(t, d.Enforced)
+	assert.Equal(t, reasonTimeout, d.Metadata["reason"])
+	assert.Equal(t, "Can't check that now.", *d.Content)
 }

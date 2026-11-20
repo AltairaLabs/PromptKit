@@ -448,10 +448,12 @@ func (a *GuardrailHookAdapter) OnChunk(
 // chunk: an Enforced decision carries the text that replaces it in Content.
 //
 // The judgment is bounded as a completed reply's is (evaluateMessage): the
-// guardrail timeout applies, and a handler that errors or runs out of time
-// fails closed with the validator's message. It emits no validation.started
-// or validation.passed: a reply has many chunks, and those events would
-// multiply by them. A firing is reported by the stage (validation.failed),
+// guardrail timeout applies, a handler that errors or runs out of time
+// without a verdict fails closed with the validator's message, and a verdict
+// it returned past the timeout stands (tagged "timeout" when it fires). A
+// chunk judged as the caller cancels is held back whole and is not a firing.
+// It emits no validation.started or validation.passed: a reply has many
+// chunks, and those events would multiply by them. A firing is reported by the stage (validation.failed),
 // and the completed reply's check reports the turn's started and passed.
 func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.ChunkRequest) hooks.Decision {
 	if a.direction == DirectionInput || !a.judgesPartial() {
@@ -463,7 +465,15 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 	handlerCtx, cancel := context.WithTimeout(ctx, a.evalTimeoutOrDefault())
 	defer cancel()
 	result, err := a.evalPartial(handlerCtx, content, params, req.Caller)
-	if err == nil && handlerCtx.Err() != nil {
+	if ctx.Err() != nil {
+		// The caller ended the stream: nothing was judged, so nothing of the
+		// chunk is released, and no guardrail fired.
+		return hooks.Decision{Allow: true, Hold: len(content)}
+	}
+	// A verdict the handler returned stands, as evaluateMessage keeps one;
+	// the timeout is the failure only when there is none.
+	timedOut := errors.Is(handlerCtx.Err(), context.DeadlineExceeded)
+	if timedOut && errors.Is(err, errNoPartialResult) {
 		err = handlerCtx.Err()
 	}
 	if err != nil {
@@ -483,6 +493,9 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 		// and holds back the tail PartialHold names, so the caller has had
 		// none of the text this replaces.
 		d := a.enforced(result)
+		if timedOut {
+			d.Metadata["reason"] = reasonTimeout
+		}
 		text := a.enforcedContent(content, params, evals.ResultReplacement(result))
 		d.Content = &text
 		return d

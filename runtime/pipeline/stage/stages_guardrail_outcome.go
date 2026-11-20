@@ -12,22 +12,47 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// outputGuard decides what the output guardrails firing on a reply mean, for
-// the text stage (ProviderStage) and the realtime stage (DuplexProviderStage)
-// alike, on a streamed chunk (the chunk interceptors) and on a completed reply
-// (AfterCall). It runs the hooks, records every firing, chooses the text that
-// blocks the turn once, and returns a verdict. The stages only apply the
-// verdict to their own output.
-type outputGuard struct {
+// guardrailOutcome decides what guardrails firing on a turn mean, for the text
+// stage (ProviderStage) and the realtime stage (DuplexProviderStage) alike.
+// For output, on a streamed chunk (the chunk interceptors) and on a completed
+// reply (AfterCall), it runs the hooks, records every firing, chooses the text
+// that blocks the turn once, and returns a verdict; the stages only apply the
+// verdict to their own output. For input, whose hooks each stage runs where
+// its input arrives, it chooses a blocked turn's message (blockedMessage) and
+// records the firing (record) the same way.
+type guardrailOutcome struct {
 	registry *hooks.Registry
 	emitter  *events.Emitter
 	caller   types.Caller
 	// turn is the 0-based turn the firings are reported against.
 	turn int
-	// choose is the text a firing blocks the turn with, given the text the
-	// guardrail chose: the stage's BlockedMessageFunc's choice
+	// choose is the text a firing in direction blocks the turn with, given
+	// the text the guardrail chose: the stage's BlockedMessageFunc's choice
 	// (chooseBlockedText), recorded on the decision.
-	choose func(ctx context.Context, d *hooks.Decision, text string) string
+	choose func(ctx context.Context, d *hooks.Decision, direction, text string) string
+}
+
+// blockedMessage is the assistant turn a firing in direction blocks a turn
+// with (blockedTurnMessage), its text the stage's choice (choose), which is
+// recorded on d.
+func (g guardrailOutcome) blockedMessage(
+	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
+) types.Message {
+	msg := blockedTurnMessage(req, *d)
+	msg.Content = g.choose(ctx, d, direction, msg.Content)
+	return msg
+}
+
+// record reports a firing in direction, which took dur: its validation.failed
+// event, and its validation record appended to vs, when vs is not nil.
+func (g guardrailOutcome) record(vs *[]types.ValidationResult, d hooks.Decision, direction string, dur time.Duration) {
+	recordGuardrailFiring(g.emitter, nil, d, direction, dur, g.turn)
+	if vs == nil {
+		return
+	}
+	if v, ok := guardrailValidation(d, direction); ok {
+		*vs = append(*vs, v)
+	}
 }
 
 // verdictKind is what an output verdict does to the reply.
@@ -45,7 +70,7 @@ const (
 	verdictDeny
 )
 
-// outputVerdict is an outputGuard's decision on a reply.
+// outputVerdict is a guardrailOutcome's decision on a reply.
 type outputVerdict struct {
 	kind verdictKind
 	// holds, on an allowed chunk, is each chunk interceptor's hold: how many
@@ -88,7 +113,7 @@ func (v *outputVerdict) enforce(msg *types.Message) {
 
 // judgeChunk runs the chunk interceptors on a streamed chunk, whose Content is
 // the reply so far. The chunk is not changed.
-func (g outputGuard) judgeChunk(ctx context.Context, chunk *providers.StreamChunk) outputVerdict {
+func (g guardrailOutcome) judgeChunk(ctx context.Context, chunk *providers.StreamChunk) outputVerdict {
 	if !g.registry.HasChunkInterceptors() {
 		return outputVerdict{}
 	}
@@ -97,14 +122,16 @@ func (g outputGuard) judgeChunk(ctx context.Context, chunk *providers.StreamChun
 	if len(j.Firings) == 0 {
 		return outputVerdict{holds: j.Holds}
 	}
-	return g.verdict(ctx, nil, chunk.Content, j.Firings, time.Since(start))
+	return g.verdict(ctx, nil, chunk.Content, j.Firings, time.Since(start), false)
 }
 
 // judgeResponse runs the AfterCall hooks on a completed reply, msg, for the
 // call req describes, which took latencyMs. msg is not changed: a hook is
-// given a copy.
-func (g outputGuard) judgeResponse(
-	ctx context.Context, req *hooks.ProviderRequest, msg *types.Message, round int, latencyMs int64,
+// given a copy. denyIsError is set by a stage that fails the turn on a deny
+// (HookDeniedError) rather than replacing the reply: no blocked message is
+// chosen for it.
+func (g guardrailOutcome) judgeResponse(
+	ctx context.Context, req *hooks.ProviderRequest, msg *types.Message, round int, latencyMs int64, denyIsError bool,
 ) outputVerdict {
 	if !g.registry.HasProviderHooks() {
 		return outputVerdict{}
@@ -127,7 +154,7 @@ func (g outputGuard) judgeResponse(
 	if d.Allow {
 		return outputVerdict{}
 	}
-	v := g.verdict(ctx, req, msg.Content, []hooks.Decision{d}, time.Since(start))
+	v := g.verdict(ctx, req, msg.Content, []hooks.Decision{d}, time.Since(start), denyIsError)
 	v.validations = append(v.validations, addedValidations(resp.Message.Validations, known)...)
 	return v
 }
@@ -135,11 +162,13 @@ func (g outputGuard) judgeResponse(
 // verdict turns firings on a reply whose text was original into a verdict.
 // The last firing stands: the deny that stopped the chain, or the last
 // enforcing hook, whose text the others judged. Its text is the reply's; a
-// replacement's or a deny's is the stage's choice (choose), made once. Every
+// replacement's or a deny's is the stage's choice (choose), made once, except
+// for a deny the stage returns as an error (denyIsError), which has no text. Every
 // firing is recorded: a validation.failed event each, and a validation record
 // each, so a truncation a later guardrail replaced still shows.
-func (g outputGuard) verdict(
-	ctx context.Context, req *hooks.ProviderRequest, original string, firings []hooks.Decision, dur time.Duration,
+func (g guardrailOutcome) verdict(
+	ctx context.Context, req *hooks.ProviderRequest, original string, firings []hooks.Decision,
+	dur time.Duration, denyIsError bool,
 ) outputVerdict {
 	last := len(firings) - 1
 	d := firings[last]
@@ -151,10 +180,12 @@ func (g outputGuard) verdict(
 	switch {
 	case !d.Enforced:
 		v.kind = verdictDeny
-		v.text = g.choose(ctx, &d, blockedTurnMessage(req, d).Content)
+		if !denyIsError {
+			v.text = g.choose(ctx, &d, hooks.DirectionOutput, blockedTurnMessage(req, d).Content)
+		}
 	case replacedText(original, content):
 		v.kind = verdictReplace
-		v.text = g.choose(ctx, &d, content)
+		v.text = g.choose(ctx, &d, hooks.DirectionOutput, content)
 	default:
 		v.kind = verdictTruncate
 		v.text = content
@@ -163,10 +194,7 @@ func (g outputGuard) verdict(
 	v.decision = d
 	v.firings = firings
 	for _, f := range firings {
-		recordGuardrailFiring(g.emitter, nil, f, hooks.DirectionOutput, dur, g.turn)
-		if val, ok := guardrailValidation(f, hooks.DirectionOutput); ok {
-			v.validations = append(v.validations, val)
-		}
+		g.record(&v.validations, f, hooks.DirectionOutput, dur)
 	}
 	return v
 }

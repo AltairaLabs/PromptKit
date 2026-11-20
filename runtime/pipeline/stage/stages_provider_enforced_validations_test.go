@@ -45,12 +45,12 @@ func TestRunAfterCallHooks_EnforcedKeepsEachValidationOnce(t *testing.T) {
 func TestOutputGuard_KeepsValidationsTheHookAdded(t *testing.T) {
 	prior := types.ValidationResult{ValidatorType: "prior"}
 	msg := types.Message{Content: "original", Validations: []types.ValidationResult{prior}}
-	g := outputGuard{
+	g := guardrailOutcome{
 		registry: hooks.NewRegistry(hooks.WithProviderHook(appendingEnforceHook{})),
-		choose:   func(_ context.Context, _ *hooks.Decision, text string) string { return text },
+		choose:   func(_ context.Context, _ *hooks.Decision, _, text string) string { return text },
 	}
 
-	v := g.judgeResponse(context.Background(), &hooks.ProviderRequest{}, &msg, 1, 0)
+	v := g.judgeResponse(context.Background(), &hooks.ProviderRequest{}, &msg, 1, 0, false)
 
 	var got []string
 	for _, val := range v.validations {
@@ -97,4 +97,47 @@ func TestRunAfterCallHooks_HookValidationsDoNotAliasTheMessage(t *testing.T) {
 		got = append(got, v.ValidatorType)
 	}
 	assert.Equal(t, []string{"prior", "firing", "hook_added"}, got)
+}
+
+// denyAfterCallHook denies every reply without enforcing.
+type denyAfterCallHook struct{ appendingEnforceHook }
+
+func (denyAfterCallHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.DenyWithMetadata("no", map[string]any{"validator_type": "deny"})
+}
+
+// denyOutcome judges a reply its deny hook denies, counting the blocked
+// messages it is asked to choose.
+func denyOutcome(t *testing.T, denyIsError bool) (outputVerdict, int) {
+	t.Helper()
+	asked := 0
+	g := guardrailOutcome{
+		registry: hooks.NewRegistry(hooks.WithProviderHook(denyAfterCallHook{})),
+		choose: func(_ context.Context, _ *hooks.Decision, _, _ string) string {
+			asked++
+			return "chosen"
+		},
+	}
+	msg := types.Message{Content: "original"}
+	v := g.judgeResponse(context.Background(), &hooks.ProviderRequest{}, &msg, 1, 0, denyIsError)
+	return v, asked
+}
+
+// A deny the stage returns as an error has no blocked message, so none is
+// chosen.
+func TestGuardrailOutcome_ChoosesNoMessageForADenyThatIsAnError(t *testing.T) {
+	v, asked := denyOutcome(t, true)
+
+	assert.Equal(t, verdictDeny, v.kind)
+	assert.Equal(t, "", v.text)
+	assert.Equal(t, 0, asked)
+}
+
+// A deny the stage replaces the reply for gets the stage's choice of message.
+func TestGuardrailOutcome_ChoosesTheMessageForADenyThatReplacesTheReply(t *testing.T) {
+	v, asked := denyOutcome(t, false)
+
+	assert.Equal(t, verdictDeny, v.kind)
+	assert.Equal(t, "chosen", v.text)
+	assert.Equal(t, 1, asked)
 }

@@ -391,7 +391,8 @@ type duplexBlockedTurn struct {
 // validation on the Message, and the validation event) at the current turn
 // index.
 func (s *DuplexProviderStage) recordBlockedFiring(turn *duplexBlockedTurn) {
-	recordGuardrailFiring(s.emitter, &turn.msg, turn.decision, hooks.DirectionInput, turn.duration, s.hookTurnIndex())
+	s.guardrailOutcomeAt(s.hookTurnIndex()).record(
+		&turn.msg.Validations, turn.decision, hooks.DirectionInput, turn.duration)
 }
 
 // dropBlockedTurns empties the queue of blocked turns when the session ends
@@ -544,7 +545,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 }
 
 // guardOutputChunk has the output guardrails judge a response chunk's
-// assistant text (outputGuard) before it is accumulated or forwarded, and
+// assistant text (guardrailOutcome) before it is accumulated or forwarded, and
 // drops the chunk's text and audio once the turn is blocked. A firing blocks
 // the turn: a truncation keeps what it leaves of the model's text, and any
 // other firing (a replacement, a deny, a failed check) replaces the turn's
@@ -562,7 +563,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	}
 
 	probe := &providers.StreamChunk{Content: s.accumulatedText.String() + text, Delta: text}
-	v := s.outputGuard().judgeChunk(ctx, probe)
+	v := s.guardrailOutcomeAt(s.hookTurnIndex()).judgeChunk(ctx, probe)
 	if !v.blocks() {
 		s.liveHolds = v.holds
 		return
@@ -664,26 +665,23 @@ func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
 func (s *DuplexProviderStage) blockedTurnMessage(
 	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
 ) types.Message {
-	msg := blockedTurnMessage(req, *d)
 	turn := s.hookTurnIndex()
 	if req != nil {
 		turn = req.TurnIndex
 	}
-	msg.Content = s.chooseBlocked(ctx, d, direction, msg.Content, turn)
-	return msg
+	return s.guardrailOutcomeAt(turn).blockedMessage(ctx, req, d, direction)
 }
 
-// outputGuard is the stage's judge of its replies (outputGuard), with the
-// turn's index and the stage's choice of blocked text.
-func (s *DuplexProviderStage) outputGuard() outputGuard {
-	turn := s.hookTurnIndex()
-	return outputGuard{
+// guardrailOutcomeAt is the stage's judge of its guardrails' firings
+// (guardrailOutcome) on turn, with the stage's choice of blocked text.
+func (s *DuplexProviderStage) guardrailOutcomeAt(turn int) guardrailOutcome {
+	return guardrailOutcome{
 		registry: s.hookRegistry,
 		emitter:  s.emitter,
 		caller:   s.caller,
 		turn:     turn,
-		choose: func(ctx context.Context, d *hooks.Decision, text string) string {
-			return s.chooseBlocked(ctx, d, hooks.DirectionOutput, text, turn)
+		choose: func(ctx context.Context, d *hooks.Decision, direction, text string) string {
+			return s.chooseBlocked(ctx, d, direction, text, turn)
 		},
 	}
 }
@@ -835,7 +833,7 @@ func (s *DuplexProviderStage) applySpokenInputDecision(
 	if d.Allow {
 		return false
 	}
-	recordGuardrailFiring(s.emitter, nil, d, hooks.DirectionInput, dur, req.TurnIndex)
+	g := s.guardrailOutcomeAt(req.TurnIndex)
 	noteGen := s.replyGeneration()
 	if late != nil && late.replyDone {
 		noteGen = late.cutGen
@@ -848,14 +846,13 @@ func (s *DuplexProviderStage) applySpokenInputDecision(
 		if !late.alreadyCut {
 			s.cutReplyOf(late.cutGen)
 		}
+		g.record(nil, d, hooks.DirectionInput, dur)
 		return true
 	}
-	// The blocked text is chosen before the validation is built, which
-	// records the choice.
+	// The blocked text is chosen before the firing is recorded, which records
+	// the choice.
 	s.blockTurnWith(ctx, req, &d, hooks.DirectionInput)
-	if v, ok := guardrailValidation(d, hooks.DirectionInput); ok {
-		s.turnGuard.validations = append(s.turnGuard.validations, v)
-	}
+	g.record(&s.turnGuard.validations, d, hooks.DirectionInput, dur)
 	// The reply that replaces the turn is a blocked input turn's canned reply.
 	s.turnGuard.blockedMeta = withBlockedInputMark(s.turnGuard.blockedMeta)
 	return true
@@ -986,7 +983,7 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 	defer keepIdleAlive(ctx)()
 
 	req := s.hookRequest(s.history.snapshot())
-	v := s.outputGuard().judgeResponse(ctx, req, msg, 0, msg.LatencyMs)
+	v := s.guardrailOutcomeAt(req.TurnIndex).judgeResponse(ctx, req, msg, 0, msg.LatencyMs, false)
 	if !v.blocks() {
 		return false
 	}

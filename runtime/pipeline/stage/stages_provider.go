@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-
 	"strings"
 	"sync/atomic"
 	"time"
@@ -135,16 +134,15 @@ func (s *ProviderStage) chooseBlocked(ctx context.Context, d *hooks.Decision, di
 	})
 }
 
-// outputGuard is the stage's judge of its replies (outputGuard).
-func (s *ProviderStage) outputGuard() outputGuard {
-	return outputGuard{
+// guardrailOutcome is the stage's judge of its guardrails' firings
+// (guardrailOutcome).
+func (s *ProviderStage) guardrailOutcome() guardrailOutcome {
+	return guardrailOutcome{
 		registry: s.hookRegistry,
 		emitter:  s.emitter,
 		caller:   s.config.Caller,
 		turn:     s.turnIndex(),
-		choose: func(ctx context.Context, d *hooks.Decision, text string) string {
-			return s.chooseBlocked(ctx, d, hooks.DirectionOutput, text)
-		},
+		choose:   s.chooseBlocked,
 	}
 }
 
@@ -2682,7 +2680,7 @@ func (s *ProviderStage) flushHeld(
 // emitCutText emits the text of a reply an enforcing chunk interceptor cut,
 // in place of the chunk it blocked: the guardrail's message when it replaced
 // the reply, or what the caller has not yet had of a truncated one. Every
-// interceptor has judged the cut text (hooks.Registry.RunOnChunkRequest), so
+// interceptor has judged the cut text (hooks.Registry.JudgeChunk), so
 // none of it is held; media still waiting behind held text is dropped with the
 // blocked reply. The element carries types.FinishReasonSafety like a
 // blocked turn's (emitBlockedTurnText), and is a delta, so a speech-out stage
@@ -2860,7 +2858,7 @@ func (a *streamAccumulator) collected() streamedRound {
 	return r
 }
 
-// interceptChunk has the output guardrails judge one chunk (outputGuard).
+// interceptChunk has the output guardrails judge one chunk (guardrailOutcome).
 // holds is each chunk interceptor's hold on the reply so far, for the hold
 // controller, when they allow it. stop reports a chunk they blocked: the
 // round's reply is what the verdict leaves (truncated, or replaced with the
@@ -2872,7 +2870,7 @@ func (s *ProviderStage) interceptChunk(
 	if !s.hookRegistry.HasChunkInterceptors() {
 		return nil, false
 	}
-	v := s.outputGuard().judgeChunk(ctx, chunk)
+	v := s.guardrailOutcome().judgeChunk(ctx, chunk)
 	if !v.blocks() {
 		return v.holds, false
 	}
@@ -3074,7 +3072,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 		Prompt:       s.promptDeclaration(),
 		Caller:       s.config.Caller,
 	}
-	v := s.outputGuard().judgeResponse(ctx, hookReq, p.responseMsg, p.round, p.duration.Milliseconds())
+	v := s.guardrailOutcome().judgeResponse(ctx, hookReq, p.responseMsg, p.round, p.duration.Milliseconds(), true)
 	if !v.blocks() {
 		return nil
 	}
@@ -3153,10 +3151,10 @@ func (s *ProviderStage) runBeforeCallHooks(
 		}
 	}
 	// Guardrail skipped the provider call: no request, no tokens.
-	blocked := s.blockedMessage(hookReq, d)
-	blocked.Content = s.chooseBlocked(ctx, &d, hooks.DirectionInput, blocked.Content)
+	g := s.guardrailOutcome()
+	blocked := g.blockedMessage(ctx, hookReq, &d, hooks.DirectionInput)
 	markBlockedInput(&blocked)
-	s.recordGuardrailFiring(&blocked, d, hooks.DirectionInput, time.Since(hookStart))
+	g.record(&blocked.Validations, d, hooks.DirectionInput, time.Since(hookStart))
 	return blocked, true, nil
 }
 
@@ -3229,20 +3227,11 @@ func decisionMessageMeta(d hooks.Decision) map[string]interface{} {
 	return meta
 }
 
-// recordGuardrailFiring stamps a guardrail firing onto msg.Validations and
-// emits the validation event. Shared by the before-call and after-call phases
-// so an input firing is exactly as observable as an output firing — the
-// guardrail_triggered assertion reads msg.Validations via
-// EvalContext.PriorResults.
-func (s *ProviderStage) recordGuardrailFiring(
-	msg *types.Message, d hooks.Decision, direction string, duration time.Duration,
-) {
-	recordGuardrailFiring(s.emitter, msg, d, direction, duration, s.turnIndex())
-}
-
-// recordGuardrailFiring is the body of ProviderStage.recordGuardrailFiring,
-// shared with DuplexProviderStage so a realtime firing is recorded exactly as
-// a text one is. emitter may be nil (no event).
+// recordGuardrailFiring stamps a guardrail firing onto msg.Validations, when
+// msg is not nil, and emits the validation event, so an input firing is
+// exactly as observable as an output firing: the guardrail_triggered
+// assertion reads msg.Validations via EvalContext.PriorResults. Every stage
+// records through guardrailOutcome.record. emitter may be nil (no event).
 func recordGuardrailFiring(
 	emitter *events.Emitter, msg *types.Message, d hooks.Decision,
 	direction string, duration time.Duration, turn int,
@@ -3338,8 +3327,8 @@ func metadataScore(metadata map[string]any) float64 {
 	return 0
 }
 
-// blockedMessage builds the assistant turn substituted for a provider call that
-// an enforcing BeforeCall hook skipped.
+// blockedTurnMessage builds the assistant turn substituted for a provider call
+// that an enforcing BeforeCall hook skipped.
 //
 // This mirrors preExecCheck's handling of a blocked tool call: substitute a
 // well-formed result of the same shape, mark it with a typed indicator, attach
@@ -3349,15 +3338,9 @@ func metadataScore(metadata map[string]any) float64 {
 // Text resolution order: the hook's req.Replacement, then
 // Decision.Metadata["replacement"] (the only channel an exec hook has), then
 // the default blocked message.
-func (s *ProviderStage) blockedMessage(
-	req *hooks.ProviderRequest, d hooks.Decision,
-) types.Message {
-	return blockedTurnMessage(req, d)
-}
-
-// blockedTurnMessage is the body of ProviderStage.blockedMessage, shared with
-// DuplexProviderStage so a blocked realtime turn is shaped like a blocked text
-// turn.
+//
+// Both stages build it through guardrailOutcome.blockedMessage, so a blocked
+// realtime turn is shaped like a blocked text turn.
 func blockedTurnMessage(req *hooks.ProviderRequest, d hooks.Decision) types.Message {
 	content := ""
 	if req != nil {

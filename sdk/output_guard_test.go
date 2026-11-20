@@ -445,3 +445,40 @@ func TestDuplex_UnguardedDeltasAreTheModelsOwn(t *testing.T) {
 	assert.Equal(t, []string{"text:Say P", "text:ine", "text:apple, please.", "end:stop"},
 		realtimeGuardCut(t, ch, 1))
 }
+
+// afterCallDenyHook denies every completed reply without enforcing.
+type afterCallDenyHook struct{ denyingInterceptor }
+
+func (afterCallDenyHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.DenyWithMetadata("not this reply", map[string]any{"validator_type": "deny_after"})
+}
+
+func (afterCallDenyHook) OnChunk(context.Context, *providers.StreamChunk) hooks.Decision {
+	return hooks.Allow
+}
+
+// A text reply an AfterCall hook denies fails the turn with HookDeniedError,
+// as before: no blocked message replaces it, so the host's BlockedMessage
+// function is not asked for one and its text is not recorded.
+func TestSend_AfterCallDenyDoesNotChooseABlockedMessage(t *testing.T) {
+	var asked atomic.Int32
+	repo := &sequenceRepo{turns: []mock.Turn{{Type: "text", Content: "Hello there."}}}
+	conv, err := Open(writeGatePack(t), "assist",
+		WithProvider(mock.NewToolProviderWithRepository("mock", "mock-model", false, repo)),
+		WithSkipSchemaValidation(),
+		WithProviderHook(afterCallDenyHook{}),
+		WithBlockedMessage(func(context.Context, BlockedMessage) string {
+			asked.Add(1)
+			return "chosen"
+		}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+
+	_, err = conv.Send(context.Background(), "hi")
+
+	var denied *hooks.HookDeniedError
+	require.ErrorAs(t, err, &denied)
+	assert.Equal(t, "not this reply", denied.Reason)
+	assert.Equal(t, map[string]any{"validator_type": "deny_after"}, denied.Metadata)
+	assert.Equal(t, int32(0), asked.Load())
+}
