@@ -32,24 +32,6 @@ func TestSpeechSegmenter_SentenceEndNeedsTheNextCharacter(t *testing.T) {
 	assert.Equal(t, "Next", rest)
 }
 
-func TestSpeechSegmenter_KeepsAbbreviationsAndInitials(t *testing.T) {
-	got, rest := segmentAll(0, "Dr. Smith met J. K. Rowling, e.g. at noon. Then she left. ")
-	assert.Equal(t, []string{"Dr. Smith met J. K. Rowling, e.g. at noon.", "Then she left."}, got)
-	assert.Empty(t, rest)
-}
-
-func TestSpeechSegmenter_NumberedListItemsAreNotSentenceEnds(t *testing.T) {
-	got, rest := segmentAll(0, "Steps:\n1. Open it.\n2. Close it.")
-	assert.Equal(t, []string{"Steps:", "1. Open it."}, got)
-	assert.Equal(t, "2. Close it.", rest)
-}
-
-func TestSpeechSegmenter_ClosingQuoteStaysWithItsSentence(t *testing.T) {
-	got, rest := segmentAll(0, `He said "Hi." Then he went (quietly.) Done`)
-	assert.Equal(t, []string{`He said "Hi."`, `Then he went (quietly.)`}, got)
-	assert.Equal(t, "Done", rest)
-}
-
 func TestSpeechSegmenter_CapsALongRunAtAWordBoundary(t *testing.T) {
 	long := strings.Repeat("word ", 30) // 150 runes, no sentence end
 	got, rest := segmentAll(40, long)

@@ -187,7 +187,8 @@ func TestTTSStageWithInterruption_StreamsASegmentsAudioInPieces(t *testing.T) {
 }
 
 // A guardrail's mid-stream replacement drops what was released but not yet
-// spoken and speaks the guardrail's message in its place.
+// spoken and speaks the guardrail's message in its place. The reply is
+// recorded as the caller heard it: the spoken segment, then the message.
 func TestTTSStageWithInterruption_ReplacementDropsUnspokenText(t *testing.T) {
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
@@ -197,7 +198,7 @@ func TestTTSStageWithInterruption_ReplacementDropsUnspokenText(t *testing.T) {
 	}, 2*time.Second)
 
 	assert.Equal(t, []string{"Fine.", "Blocked."}, svc.spoken())
-	assert.Contains(t, kinds(results), "message:Blocked.")
+	assert.Contains(t, kinds(results), "message:Fine. Blocked.")
 }
 
 // A completed reply whose text is not what streamed (a guardrail replaced it
@@ -206,9 +207,50 @@ func TestTTSStageWithInterruption_ReplacedMessageIsSpokenInstead(t *testing.T) {
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
 
-	runStage(t, s, []stage.StreamElement{delta("Hello there. Bad wor"), assistant("Sorry.")}, 2*time.Second)
+	results := runStage(t, s, []stage.StreamElement{delta("Hello there. Bad wor"), assistant("Sorry.")}, 2*time.Second)
 
 	assert.Equal(t, []string{"Hello there.", "Sorry."}, svc.spoken())
+	assert.Contains(t, kinds(results), "message:Hello there. Sorry.")
+}
+
+// A replacement before anything of the reply was heard is recorded as the
+// guardrail's message alone.
+func TestTTSStageWithInterruption_ReplacementBeforeAnythingHeardIsTheMessage(t *testing.T) {
+	svc := newSegmentRecordingTTS()
+	s := newStreamedReplyStage(svc)
+
+	results := runStage(t, s, []stage.StreamElement{
+		delta("Then a dra"), replacement("Blocked."), assistant("Blocked."),
+	}, 2*time.Second)
+
+	assert.Equal(t, []string{"Blocked."}, svc.spoken())
+	assert.Contains(t, kinds(results), "message:Blocked.")
+}
+
+// A delta that ends a released segment (stream_hold's SegmentEnd) is spoken
+// at once, without waiting for the text after it to show a sentence end.
+func TestTTSStageWithInterruption_SegmentEndSpeaksAtOnce(t *testing.T) {
+	svc := newSegmentRecordingTTS()
+	s := newStreamedReplyStage(svc)
+
+	input := make(chan stage.StreamElement)
+	output := make(chan stage.StreamElement, 32)
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
+
+	released := delta("The weather is mild today.")
+	released.Meta.SegmentEnd = true
+	input <- released
+	<-output // the delta
+	select {
+	case e := <-output:
+		require.NotNil(t, e.Audio, "the released segment is spoken before more text arrives")
+	case <-time.After(2 * time.Second):
+		t.Fatal("a released segment waited for the next text")
+	}
+	close(input)
+	require.NoError(t, <-done)
+	assert.Equal(t, []string{"The weather is mild today."}, svc.spoken())
 }
 
 // A completed reply that goes on past the text released speaks the rest.

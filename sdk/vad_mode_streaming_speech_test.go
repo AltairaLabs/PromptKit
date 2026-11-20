@@ -15,9 +15,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/evals/handlers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -460,7 +463,8 @@ func (dragonGuard) OnChunk(_ context.Context, chunk *providers.StreamChunk) hook
 
 // A guardrail that replaces a reply mid-stream stops it being spoken: the
 // sentences released before the cut were spoken, the rest never is, and the
-// guardrail's message is spoken in its place (#2846).
+// guardrail's message is spoken in its place (#2846). The stored reply is what
+// the caller heard: the spoken sentence, then the message.
 func TestVADMode_GuardrailReplacementMidReplyIsSpokenInstead(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives a real VAD turn")
@@ -486,5 +490,58 @@ func TestVADMode_GuardrailReplacementMidReplyIsSpokenInstead(t *testing.T) {
 	require.NoError(t, conv.Close())
 	stored := storedAssistant(t, store, convID)
 	require.Len(t, stored, 1)
-	assert.Equal(t, dragonGuardMessage, stored[0].Content)
+	assert.Equal(t, "The fox woke early. "+dragonGuardMessage, stored[0].Content)
+}
+
+// Under a judge guardrail that holds the reply by segment (stream_hold:
+// segment), a VAD session speaks each segment only once the judge has passed
+// it, and a segment the judge fails is never spoken: the guardrail's message
+// is, and the stored reply is what the caller heard (#2846, #2829).
+func TestVADMode_SegmentHeldReplyIsSpokenOnlyAsItIsReleased(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real VAD turn")
+	}
+	judge := newHoldJudge(&holdLog{}, true, false)
+	judge.gate = make(chan struct{})
+	model := newPacedModel(true, mock.Turn{Type: "text",
+		StreamChunks: []string{"The weather is mild today. ", "Buy CompetitorCo shares now. ", "They are cheap."}})
+	ttsSvc := newSegmentTTS()
+	store := statestore.NewMemoryStore()
+	conv, rec := openStreamingSpeechConv(t, model, newScriptedSTT("what is the weather?"), ttsSvc,
+		WithStateStore(store), smallSegments(),
+		WithGuardrail(guardrails.Output("llm_judge",
+			map[string]any{"criteria": "The reply talks only about the weather.", "stream_hold": "segment"},
+			guardrails.WithMessage(holdMessage), guardrails.WithJudge(handlers.NewProviderJudge(judge)))))
+	t.Cleanup(func() {
+		close(model.step)
+		close(judge.gate)
+	})
+	convID := conv.ID()
+
+	speakOneUtterance(t, conv)
+	model.next(t)
+	assert.Equal(t, "The weather is mild today.", recvWithin(t, judge.started))
+	time.Sleep(20 * time.Millisecond) // a held segment must not be spoken in the meantime
+	assert.Empty(t, ttsSvc.texts(), "nothing is spoken while the judge holds it")
+
+	judge.gate <- struct{}{}
+	recvWithin(t, ttsSvc.first)
+	assert.Equal(t, []string{"The weather is mild today."}, ttsSvc.texts(), "the released segment is spoken")
+
+	model.next(t)
+	assert.Equal(t, "The weather is mild today. Buy CompetitorCo shares now.", recvWithin(t, judge.started))
+	model.next(t) // the reply ends while the segment is judged
+	judge.gate <- struct{}{}
+	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, 8*time.Second),
+		"the reply never completed")
+
+	assert.Equal(t, []string{"The weather is mild today.", holdMessage}, ttsSvc.texts(),
+		"the failed segment is never spoken; the guardrail's message is")
+	assert.Equal(t, []int{1, 2}, rec.audioMarkers())
+
+	require.NoError(t, conv.Close())
+	stored := storedAssistant(t, store, convID)
+	require.Len(t, stored, 1)
+	assert.Equal(t, "The weather is mild today. "+holdMessage, stored[0].Content,
+		"the stored reply is what the caller heard")
 }
