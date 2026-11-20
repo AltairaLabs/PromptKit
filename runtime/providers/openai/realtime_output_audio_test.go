@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
@@ -56,22 +55,4 @@ func TestRealtimeSession_OutputAudioFormat(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 		})
 	}
-}
-
-// The bookkeeping wrapper CreateStreamSession returns forwards OutputAudio:
-// hidden, a cue would play in no voice at the wrong rate.
-func TestRealtimeSessionBookkeeping_ForwardsOutputAudio(t *testing.T) {
-	inner := &RealtimeSession{config: RealtimeSessionConfig{Modalities: []string{modalityAudio}, Voice: "verse"}}
-	var wrapped providers.StreamInputSession = &realtimeSessionBookkeeping{StreamInputSession: inner,
-		release: func() {}}
-	r, ok := wrapped.(providers.OutputAudioReporter)
-	require.True(t, ok, "the wrapper hides OutputAudio")
-	got, spoken := r.OutputAudio()
-	assert.True(t, spoken)
-	assert.Equal(t, providers.OutputAudio{Voice: "verse", SampleRate: 24000, Family: "openai-realtime"}, got)
-
-	plain := &realtimeSessionBookkeeping{StreamInputSession: newFakeStreamSession(), release: func() {}}
-	got, spoken = plain.OutputAudio()
-	assert.False(t, spoken, "a session without the interface reports no spoken output")
-	assert.Equal(t, providers.OutputAudio{}, got)
 }

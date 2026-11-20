@@ -33,14 +33,4 @@ func (s *RealtimeSession) AddContextNote(_ context.Context, text string) error {
 	return nil
 }
 
-// AddContextNote forwards to the underlying session if it implements
-// providers.ContextNoter — hidden, a blocked turn would leave the model
-// unaware that its reply, or the caller's input, was withheld.
-func (s *realtimeSessionBookkeeping) AddContextNote(ctx context.Context, text string) error {
-	if n, ok := s.StreamInputSession.(providers.ContextNoter); ok {
-		return n.AddContextNote(ctx, text)
-	}
-	return errors.New("realtime session cannot add a note to the conversation")
-}
-
 var _ providers.ContextNoter = (*RealtimeSession)(nil)

@@ -51,7 +51,7 @@ func TestCueStage_OpenAIRealtimeSpeaksTheMessageOutOfBand(t *testing.T) {
 	session := openOOBSession(t, srv)
 	provider := &sessionProvider{
 		Provider: NewProvider("openai", "gpt-realtime", "", providers.ProviderDefaults{}, false),
-		session:  &realtimeSessionBookkeeping{StreamInputSession: session, release: func() {}},
+		session:  &realtimeSessionBookkeeping{RealtimeSession: session, release: func() {}},
 	}
 	duplex := stage.NewDuplexProviderStage(provider, &providers.StreamingInputConfig{})
 	// A guardrail whose message is brunoLine: the cue stage renders it as
