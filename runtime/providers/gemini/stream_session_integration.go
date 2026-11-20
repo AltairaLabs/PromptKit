@@ -168,6 +168,12 @@ type StreamSessionConfig struct {
 	AutoReconnect     bool
 	MaxReconnectTries int // Maximum reconnection attempts (default: 3)
 
+	// NoFunctionResponseMedia, when true, describes a tool result's media in
+	// its function response instead of sending it there: for a Live model
+	// whose function responses take none (Gemini 2.x Live models ignore it).
+	// False sends images in the function response's parts.
+	NoFunctionResponseMedia bool
+
 	// Sampling is the prompt's sampling parameters, sent in the setup
 	// message's generationConfig (except the penalties, which Gemini rejects).
 	Sampling *providers.StreamingSampling

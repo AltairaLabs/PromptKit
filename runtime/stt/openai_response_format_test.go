@@ -167,18 +167,12 @@ func TestOpenAITranscribe_TokenUsageWithoutDetailsIsAudio(t *testing.T) {
 	}
 }
 
-// A whisper model is asked for verbose_json, whose duration prices
-// compressed audio; any other model is asked for json, the only format the
-// gpt-4o-*-transcribe models accept.
-func TestOpenAITranscribe_ResponseFormatPerModel(t *testing.T) {
-	cases := map[string]string{
-		"whisper-1":              "verbose_json",
-		"whisper":                "verbose_json", // an Azure deployment name
-		"gpt-4o-transcribe":      "json",
-		"gpt-4o-mini-transcribe": "json",
-		"my-stt-deployment":      "json",
-	}
-	for model, want := range cases {
+// Every model is asked for json, whatever its name: the gpt-4o-*-transcribe
+// models accept no other format, and whisper's json carries its billed
+// duration in usage (observed live: {"usage":{"type":"duration","seconds":3}}).
+func TestOpenAITranscribe_EveryModelIsAskedForJSON(t *testing.T) {
+	for _, model := range []string{"whisper-1", "whisper", "gpt-4o-transcribe", "my-stt-deployment"} {
+		want := "json"
 		formats := make(chan string, 1)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := r.ParseMultipartForm(1 << 20); err != nil {
@@ -199,27 +193,6 @@ func TestOpenAITranscribe_ResponseFormatPerModel(t *testing.T) {
 		if got := <-formats; got != want {
 			t.Errorf("model=%s: response_format = %q, want %q", model, got, want)
 		}
-	}
-}
-
-// verbose_json's top-level duration prices compressed audio that cannot be
-// estimated from its bytes.
-func TestOpenAITranscribe_VerboseDurationPricesCompressedAudio(t *testing.T) {
-	server := transcribeServer(t, map[string]any{"text": "mp3", "duration": 3.0})
-	defer server.Close()
-
-	svc := stt.NewOpenAI("k", base.WithBaseURL(server.URL), base.WithModel("whisper"))
-	resp, err := svc.Transcribe(context.Background(), base.STTRequest{
-		Audio: []byte("compressed"), MIMEType: "audio/mpeg",
-	})
-	if err != nil {
-		t.Fatalf("Transcribe: %v", err)
-	}
-	if resp.Cost == nil {
-		t.Fatal("Cost = nil, want cost from duration")
-	}
-	if got := resp.Cost.Quantities["second"]; got != 3.0 {
-		t.Errorf("Quantities[second] = %v, want 3.0", got)
 	}
 }
 

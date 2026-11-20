@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -26,19 +25,17 @@ const (
 	openAIBaseURL     = "https://api.openai.com/v1"
 	openAITTSEndpoint = "/audio/speech"
 
-	// ModelTTS1 is the OpenAI TTS model optimized for speed. Does not
-	// support the `instructions` field — characterization tags supplied
-	// to this model are stripped from the spoken text and the LLM
-	// directives are dropped (with a debug log).
+	// ModelTTS1 is the OpenAI TTS model optimized for speed. It accepts
+	// the `instructions` field and ignores it, so characterization tags
+	// change nothing in its speech; a service on it can be declared not to
+	// send them (SetInstructions).
 	ModelTTS1 = "tts-1"
-	// ModelTTS1HD is the OpenAI TTS model optimized for quality. Also
-	// has no `instructions` support; same behavior as ModelTTS1 for
-	// characterization tags.
+	// ModelTTS1HD is the OpenAI TTS model optimized for quality. Same
+	// behavior as ModelTTS1 for characterization tags.
 	ModelTTS1HD = "tts-1-hd"
 	// ModelGPT4oMiniTTS is the expressive OpenAI TTS model. Honors the
 	// `instructions` request field, which the adapter populates from
-	// markup tags in the input text (see runtime/tts/markup). So do its
-	// dated snapshots and every other model outside the tts-1 family.
+	// markup tags in the input text (see runtime/tts/markup).
 	ModelGPT4oMiniTTS = "gpt-4o-mini-tts"
 
 	// Default timeout for TTS requests.
@@ -94,7 +91,19 @@ var openAIDefaultPricing = &base.PricingDescriptor{
 type OpenAIService struct {
 	*base.Implementation    // provides Name, Type, Pricing, Validate, Init, HealthCheck, Close
 	*base.HTTPServiceFields // APIKey, BaseURL, Model, Client
+	// noInstructions declares that the model takes no instructions: markup
+	// tags are stripped and their directives dropped (SetInstructions).
+	noInstructions bool
 }
+
+// SetInstructions declares whether the service's model honors the request's
+// instructions field, which carries the directives of the markup tags in the
+// text (see runtime/tts/markup). It is on by default: the API takes the field
+// on every speech model, and tts-1 and tts-1-hd ignore it. Off, the tags are
+// stripped from the spoken text, their directives are not sent, and
+// PersonaRubric offers no rubric, so a persona spends no tokens on tags the
+// model cannot act on. The declarative form is additional_config.instructions.
+func (s *OpenAIService) SetInstructions(on bool) { s.noInstructions = !on }
 
 // OpenAIOption configures the OpenAI TTS service.
 // It is a type alias for base.HTTPServiceOption so callers can pass
@@ -120,26 +129,14 @@ func (s *OpenAIService) ImplName() string { return providerOpenAI }
 // ModelName returns the configured model name for cost tracking.
 func (s *OpenAIService) ModelName() string { return s.Model }
 
-// PersonaRubric implements [PersonaRubricProvider]. Returns the full
-// markup rubric on a model that honors the request's instructions field.
-// The tts-1 family does not, so it gets the empty string — emitting tags
-// would only waste persona tokens.
+// PersonaRubric implements [PersonaRubricProvider]. Returns the full markup
+// rubric, or the empty string on a service declared not to send instructions
+// (SetInstructions), whose tags would only waste persona tokens.
 func (s *OpenAIService) PersonaRubric() string {
-	if acceptsInstructions(s.Model) {
-		return markup.RubricExpressiveFull
+	if s.noInstructions {
+		return ""
 	}
-	return ""
-}
-
-// acceptsInstructions reports whether a speech model honors `instructions`.
-// The API reference names tts-1 and tts-1-hd as the models it does not work
-// with, so those (and their dated snapshots, tts-1-1106, tts-1-hd-1106) are
-// the exception and every other name is expressive. A denylist, because an
-// exact allowlist silently drops directives on dated snapshots
-// (gpt-4o-mini-tts-2025-12-15) and on Azure, where the model is the
-// deployment name and can be anything (#2691).
-func acceptsInstructions(model string) bool {
-	return model != ModelTTS1 && !strings.HasPrefix(model, ModelTTS1+"-")
+	return markup.RubricExpressiveFull
 }
 
 // openAIRequest is the request body for OpenAI TTS API.
@@ -187,13 +184,10 @@ func (s *OpenAIService) Synthesize(
 		model = s.Model
 	}
 
-	// Lower markup tags into the model's native dialect:
-	//   - expressive models honor `instructions` — populate from the tags.
-	//   - tts-1 / tts-1-hd ignore `instructions` entirely; the tags get
-	//     stripped from the spoken text but the directives are dropped.
-	// Plain-text utterances (no tags) hit the same wire format as before
-	// so cache keys stay stable.
-	input, instructions := lowerOpenAIMarkup(text, model)
+	// Lower markup tags into `instructions` (see lowerOpenAIMarkup). Plain-text
+	// utterances (no tags) hit the same wire format as before so cache keys
+	// stay stable.
+	input, instructions := s.lowerMarkup(text, model)
 
 	reqBody := openAIRequest{
 		Model:          model,
@@ -245,36 +239,35 @@ func (s *OpenAIService) Synthesize(
 }
 
 // SpokenText reports the text OpenAI will actually speak for the given input,
-// after markup lowering: on an expressive model the bracket tags become the
-// `instructions` field so the spoken text is the stripped remainder; other
-// models strip tags entirely. Implements tts.SpokenTextReporter.
+// after markup lowering: the bracket tags become the `instructions` field, or
+// are dropped on a service that sends none, so the spoken text is the
+// stripped remainder. Implements tts.SpokenTextReporter.
 func (s *OpenAIService) SpokenText(text string, config SynthesisConfig) string {
 	model := config.Model
 	if model == "" {
 		model = s.Model
 	}
-	input, _ := lowerOpenAIMarkup(text, model)
+	input, _ := s.lowerMarkup(text, model)
 	return input
 }
 
-// lowerOpenAIMarkup translates characterization tags in the input text into
-// the OpenAI request shape. For an expressive model, tags become
-// the `instructions` field and the spoken text is stripped. For tts-1 and
-// tts-1-hd, the tags are stripped from the spoken text and the directives
-// are dropped (with a debug log noting the lossy lowering). When no tags
-// are present, returns (text, "") so cache keys for plain-text utterances
-// stay byte-identical to the pre-markup wire format.
-func lowerOpenAIMarkup(text, model string) (input, instructions string) {
+// lowerMarkup translates characterization tags in the input text into the
+// OpenAI request shape: the tags become the `instructions` field and the
+// spoken text is stripped. On a service that sends no instructions the tags
+// are stripped and the directives dropped (with a debug log noting the lossy
+// lowering). When no tags are present, returns (text, "") so cache keys for
+// plain-text utterances stay byte-identical to the pre-markup wire format.
+func (s *OpenAIService) lowerMarkup(text, model string) (input, instructions string) {
 	tags := markup.ParseTags(text)
 	if len(tags) == 0 {
 		return text, ""
 	}
-	if acceptsInstructions(model) {
+	if !s.noInstructions {
 		ins, stripped := markup.ExtractInstructions(text)
 		return stripped, ins
 	}
 	logger.Debug(
-		"openai tts: markup tags dropped on non-expressive model",
+		"openai tts: markup tags dropped on a service that sends no instructions",
 		"model", model, "tag_count", len(tags),
 	)
 	return markup.StripTags(text), ""
@@ -350,18 +343,15 @@ func (s *OpenAIService) handleError(resp *http.Response) error {
 	)
 }
 
-// voicesNotOnTTS1 are the voices tts-1 and tts-1-hd cannot speak with.
-var voicesNotOnTTS1 = map[string]bool{VoiceBallad: true, VoiceVerse: true, VoiceMarin: true, VoiceCedar: true}
-
 const (
 	voiceNotOnTTS1   = "Not available on tts-1 or tts-1-hd"
 	voiceBestQuality = "Recommended for best quality; not available on tts-1 or tts-1-hd"
 )
 
-// SupportedVoices returns the OpenAI voices the configured model can speak
-// with: the tts-1 family lacks ballad, verse, marin and cedar.
+// SupportedVoices returns the OpenAI voices. tts-1 and tts-1-hd lack ballad,
+// verse, marin and cedar, which their descriptions say.
 func (s *OpenAIService) SupportedVoices() []Voice {
-	voices := []Voice{
+	return []Voice{
 		makeVoice(VoiceAlloy, "Alloy", "en", "neutral", "Balanced, versatile voice"),
 		makeVoice(VoiceAsh, "Ash", "en", "", ""),
 		makeVoice(VoiceBallad, "Ballad", "en", "", voiceNotOnTTS1),
@@ -376,16 +366,6 @@ func (s *OpenAIService) SupportedVoices() []Voice {
 		makeVoice(VoiceMarin, "Marin", "en", "", voiceBestQuality),
 		makeVoice(VoiceCedar, "Cedar", "en", "", voiceBestQuality),
 	}
-	if acceptsInstructions(s.Model) {
-		return voices
-	}
-	tts1 := voices[:0]
-	for _, v := range voices {
-		if !voicesNotOnTTS1[v.ID] {
-			tts1 = append(tts1, v)
-		}
-	}
-	return tts1
 }
 
 // SupportedFormats returns audio formats supported by OpenAI TTS.

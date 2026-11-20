@@ -79,13 +79,15 @@ Each provider sends a tool result's media in the form its API takes:
 
 | Provider | Images | Documents | Audio and video |
 |---|---|---|---|
-| Gemini | in the function response's parts on Gemini 3 and later; on Gemini 2.x, and on a model whose name carries no version, in a user message after the round's function responses, one per result | the same way as images | the same way as images |
+| Gemini | in the function response's parts; on a model whose function responses take no media, in a user message after the round's function responses, one per result | the same way as images | the same way as images |
 | Claude | image blocks in the `tool_result` | PDF document blocks in the `tool_result` | described |
 | OpenAI Responses | `input_image` items in the `function_call_output` | PDF `input_file` items in the `function_call_output` | described |
 | OpenAI Chat Completions | a user message after the round's tool messages, one per result, because a tool message takes only text | described | audio on an audio model in that user message; otherwise described |
 | vLLM, Ollama | described | described | described |
 | OpenAI Realtime | PNG and JPEG in a user message after the round's `function_call_output` items, one per result | described | audio as `input_audio` in that user message, when it is 16-bit mono PCM (WAV, or raw PCM with its rate); video described |
-| Gemini Live | PNG, JPEG and WebP in the function response's parts on Gemini 3 and later; described on Gemini 2.x and on a model whose name carries no version | described | described |
+| Gemini Live | PNG, JPEG and WebP in the function response's parts; described when the provider sets `additional_config.function_response_media: false` | described | described |
+
+Gemini 2.x models take no media in a function response. A Gemini provider sends the media there first. When the API refuses it with a 400 ("Multimodal function responses are not supported for this model"), the provider sends the request again with the media after the round, and sends every later request that way. `additional_config.function_response_media` declares the model's behavior and skips that first attempt: `false` sends the media after the round, and `true` always sends it in the function response. Gemini 2.x Live models ignore media in a function response without an error, so a Live session cannot learn it: set `function_response_media: false` on a provider that runs a Gemini 2.x Live model.
 
 A request sent without tools serializes its history with the same code as a request with tools, so on every provider a tool result keeps its link to the call that produced it: the call ID on Claude, OpenAI and Ollama, the function name on Gemini. Gemini sends a round's function responses in a user turn of their own, never in the same turn as the next user message.
 

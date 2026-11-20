@@ -35,9 +35,20 @@ func twoBadges() []types.ContentPart {
 	}
 }
 
+// noFunctionResponseMedia configures a provider whose model takes no media
+// in a function response.
+var noFunctionResponseMedia = map[string]any{"function_response_media": false}
+
 func predictContents(t *testing.T, model string, msgs []types.Message) string {
 	t.Helper()
-	return string(captureModelContents(t, model, false, func(p *ToolProvider) {
+	return predictContentsWith(t, model, nil, msgs)
+}
+
+// predictContentsWith is predictContents for a provider with additional_config
+// additional.
+func predictContentsWith(t *testing.T, model string, additional map[string]any, msgs []types.Message) string {
+	t.Helper()
+	return string(captureModelContentsWith(t, model, additional, false, func(p *ToolProvider) {
 		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: msgs})
 		require.NoError(t, err)
 	}))
@@ -61,12 +72,12 @@ func TestToolResultMedia_Gemini3SendsEveryPartInTheFunctionResponse(t *testing.T
 	]`, got)
 }
 
-// Gemini 2.x refuses media in a function response ("Multimodal function
-// responses are not supported for this model"), so a tool result's media
-// follows the round's function responses in a user content of its own, and
-// the function response says it is attached there.
-func TestToolResultMedia_Gemini2SendsMediaInAFollowingUserContent(t *testing.T) {
-	got := predictContents(t, "gemini-2.5-flash", badgeRound(twoBadges()...))
+// On a model whose function responses take no media (Gemini 2.x refuses it:
+// "Multimodal function responses are not supported for this model"), a tool
+// result's media follows the round's function responses in a user content of
+// its own, and the function response says it is attached there.
+func TestToolResultMedia_WithoutFunctionResponseMediaSendsItInAFollowingUserContent(t *testing.T) {
+	got := predictContentsWith(t, "gemini-2.5-flash", noFunctionResponseMedia, badgeRound(twoBadges()...))
 
 	assert.JSONEq(t, `[
 		{"role":"user","parts":[{"text":"What numbers are on the badges?"}]},
@@ -119,9 +130,9 @@ func TestToolResultMedia_UnsendableMediaIsDescribed(t *testing.T) {
 	]`, got)
 }
 
-// A tool result with only media: on Gemini 3 its function response carries
-// the media with an empty result; on Gemini 2.x the response says where the
-// one part went, and audio goes as a user message would send it.
+// A tool result with only media: in a function response that takes media it
+// is carried with an empty result; in one that takes none the response says
+// where the one part went, and audio goes as a user message would send it.
 func TestToolResultMedia_MediaOnlyResults(t *testing.T) {
 	image := []types.ContentPart{types.NewImagePartFromData("SlBH", types.MIMETypeImageJPEG, nil)}
 	audio := []types.ContentPart{types.NewAudioPartFromData("UklGRg==", types.MIMETypeAudioWAV)}
@@ -146,7 +157,7 @@ func TestToolResultMedia_MediaOnlyResults(t *testing.T) {
 			"[The audio this tool returned is attached in the next user message.]"}}}]},
 		{"role":"user","parts":[{"text":"Media returned by tool snap (call c1):"},
 			{"inlineData":{"mimeType":"audio/wav","data":"UklGRg=="}}]}
-	]`, predictContents(t, "gemini-2.5-flash", history(audio)))
+	]`, predictContentsWith(t, "gemini-2.5-flash", noFunctionResponseMedia, history(audio)))
 }
 
 // A media part with no media content is described, never sent as nothing.

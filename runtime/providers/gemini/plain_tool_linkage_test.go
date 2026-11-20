@@ -49,6 +49,15 @@ func captureContents(t *testing.T, stream bool, run func(p *ToolProvider)) json.
 // captureModelContents is captureContents for a provider on model.
 func captureModelContents(t *testing.T, model string, stream bool, run func(p *ToolProvider)) json.RawMessage {
 	t.Helper()
+	return captureModelContentsWith(t, model, nil, stream, run)
+}
+
+// captureModelContentsWith is captureModelContents for a provider built from
+// its spec with additional_config additional.
+func captureModelContentsWith(
+	t *testing.T, model string, additional map[string]any, stream bool, run func(p *ToolProvider),
+) json.RawMessage {
+	t.Helper()
 	var body []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
@@ -61,7 +70,11 @@ func captureModelContents(t *testing.T, model string, stream bool, run func(p *T
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv("GEMINI_API_KEY", "k")
-	run(NewToolProvider("linkage", model, server.URL, providers.ProviderDefaults{}, false))
+	built, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "linkage", Type: "gemini", Model: model, BaseURL: server.URL, AdditionalConfig: additional,
+	})
+	require.NoError(t, err)
+	run(built.(*ToolProvider))
 	var got struct {
 		Contents json.RawMessage `json:"contents"`
 	}
@@ -87,11 +100,11 @@ func TestPredictStream_PlainPathKeepsToolLinkage(t *testing.T) {
 	assert.JSONEq(t, wantLinkedContents, string(got))
 }
 
-// A tool result image goes out on the plain path as on the tool path (on
-// gemini-2.5-flash, in a user content after the function responses), and a
-// thought signature is replayed.
+// A tool result image goes out on the plain path as on the tool path (on a
+// provider configured without function response media, in a user content
+// after the function responses), and a thought signature is replayed.
 func TestPredict_PlainPathKeepsToolResultMediaAndSignature(t *testing.T) {
-	got := captureContents(t, false, func(p *ToolProvider) {
+	got := captureModelContentsWith(t, "gemini-2.5-flash", noFunctionResponseMedia, false, func(p *ToolProvider) {
 		_, err := p.Predict(context.Background(), providers.PredictionRequest{Messages: []types.Message{
 			{Role: "user", Content: "Take a picture"},
 			{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "camera", Args: json.RawMessage(`{}`),

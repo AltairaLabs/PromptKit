@@ -20,7 +20,9 @@ func (p *Provider) PredictStream(
 ) (<-chan providers.StreamChunk, error) {
 	return providers.RetryCall(&p.BaseProvider, req,
 		func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-			return p.predictStreamOnce(ctx, r)
+			return withToolMediaFallback(p, func() (<-chan providers.StreamChunk, error) {
+				return p.predictStreamOnce(ctx, r)
+			})
 		})
 }
 
