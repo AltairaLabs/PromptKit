@@ -2714,7 +2714,7 @@ func DefaultFrameRateLimitConfig() FrameRateLimitConfig
 DefaultFrameRateLimitConfig returns sensible defaults for frame rate limiting.
 
 <a name="FrameRateLimitStage"></a>
-## type [FrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L85-L98>)
+## type [FrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L85-L99>)
 
 FrameRateLimitStage drops frames to maintain a target frame rate. This is useful for high\-FPS video feeds \(e.g., 30fps webcam\) that need to be reduced to a rate suitable for LLM processing \(e.g., 1fps\).
 
@@ -2728,7 +2728,7 @@ type FrameRateLimitStage struct {
 ```
 
 <a name="NewFrameRateLimitStage"></a>
-### func [NewFrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L101>)
+### func [NewFrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L111>)
 
 ```go
 func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage
@@ -2737,7 +2737,7 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage
 NewFrameRateLimitStage creates a new frame rate limiting stage.
 
 <a name="FrameRateLimitStage.GetConfig"></a>
-### func \(\*FrameRateLimitStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L220>)
+### func \(\*FrameRateLimitStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L230>)
 
 ```go
 func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig
@@ -2746,7 +2746,7 @@ func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig
 GetConfig returns the stage configuration.
 
 <a name="FrameRateLimitStage.GetStats"></a>
-### func \(\*FrameRateLimitStage\) [GetStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L225>)
+### func \(\*FrameRateLimitStage\) [GetStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L235>)
 
 ```go
 func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64)
@@ -2755,7 +2755,7 @@ func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64)
 GetStats returns the current frame statistics.
 
 <a name="FrameRateLimitStage.Process"></a>
-### func \(\*FrameRateLimitStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L117-L121>)
+### func \(\*FrameRateLimitStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L127-L131>)
 
 ```go
 func (s *FrameRateLimitStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

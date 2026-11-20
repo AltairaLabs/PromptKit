@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -267,11 +268,7 @@ func TestFrameRateLimitStage_HighFPS_PassesMoreFrames(t *testing.T) {
 		PassthroughNonMedia: true,
 	}
 	stage := NewFrameRateLimitStage(config)
-	clock := time.Unix(0, 0)
-	stage.now = func() time.Time {
-		clock = clock.Add(5 * time.Millisecond) // read only by the stage's goroutine
-		return clock
-	}
+	stage.clock = &steppingFrameClock{at: time.Unix(0, 0), step: 5 * time.Millisecond}
 
 	input := make(chan StreamElement, 5)
 	output := make(chan StreamElement, 5)
@@ -477,4 +474,22 @@ func TestFrameRateLimitStage_MixedContent(t *testing.T) {
 	if dropped != 2 {
 		t.Errorf("Expected 2 dropped image frames, got %d", dropped)
 	}
+}
+
+// steppingFrameClock advances by step each time it is read. It is read only
+// by the stage's goroutine.
+type steppingFrameClock struct {
+	at   time.Time
+	step time.Duration
+}
+
+func (c *steppingFrameClock) Now() time.Time {
+	c.at = c.at.Add(c.step)
+	return c.at
+}
+
+// FrameRateLimitStage was comparable in v2.21.0 and stays so: a host may
+// compare stages or key a map by one.
+func TestFrameRateLimitStage_IsComparable(t *testing.T) {
+	assert.True(t, reflect.TypeOf(FrameRateLimitStage{}).Comparable())
 }
