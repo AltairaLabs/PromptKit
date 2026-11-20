@@ -1233,7 +1233,8 @@ func maskHeadersForLog(headers RequestHeaders) map[string]string {
 // MakeRawRequest performs an HTTP POST request with pre-marshaled body.
 // It automatically retries on transient errors (429, 502, 503, 504 and
 // network errors) according to the provider's RetryPolicy. A final status
-// other than 200 returns an error that includes the status code and body.
+// other than 200 returns a *ProviderHTTPError carrying the status, URL, body,
+// provider ID and any Retry-After delay, as the other request paths do.
 //
 // Custom headers set with SetCustomHeaders are merged into the outgoing
 // request headers up front, with a case-insensitive collision check against
@@ -1295,10 +1296,13 @@ func (b *BaseProvider) MakeRawRequest(
 	)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(
-			"API error (status %d): %s",
-			resp.StatusCode, string(respBytes),
-		)
+		return nil, &ProviderHTTPError{
+			StatusCode: resp.StatusCode,
+			URL:        url,
+			Body:       string(respBytes),
+			Provider:   b.id,
+			RetryAfter: parseRetryAfter(resp),
+		}
 	}
 
 	return respBytes, nil

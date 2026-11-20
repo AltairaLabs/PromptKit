@@ -49,24 +49,13 @@ func (p *Provider) canLearnResponses() bool {
 }
 
 // isResponsesOnlyRejection reports whether err is Chat Completions' 404 for a
-// model served only by the Responses API. The tool path reports a non-200 as
-// a plain "API error (status 404): <body>" error rather than a
-// ProviderHTTPError, so both forms are read.
+// model served only by the Responses API.
 func isResponsesOnlyRejection(err error) bool {
-	var body string
 	var httpErr *providers.ProviderHTTPError
-	switch {
-	case errors.As(err, &httpErr):
-		if httpErr.StatusCode != http.StatusNotFound {
-			return false
-		}
-		body = httpErr.Body
-	case err != nil && strings.Contains(err.Error(), "(status 404)"):
-		body = err.Error()
-	default:
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusNotFound {
 		return false
 	}
-	body = strings.ToLower(body)
+	body := strings.ToLower(httpErr.Body)
 	for _, marker := range responsesOnlyMarkers {
 		if strings.Contains(body, marker) {
 			return true

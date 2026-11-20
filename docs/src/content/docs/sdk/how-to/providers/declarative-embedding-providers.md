@@ -91,6 +91,8 @@ A `bedrock` provider reads the request body from the model ID when `embedding_fo
 
 A `vertex` provider builds for any model. A `text-embedding`, `textembedding-gecko` or `gemini-embedding` model gets that family's size and batch size; any other model gets a batch size of 1 and the size of its first response.
 
+A `vertex` model can also be a full resource name. A publisher model (`projects/<project>/locations/<location>/publishers/google/models/<model>`) or an endpoint serving a tuned or self-deployed model (`projects/<project>/locations/<location>/endpoints/<id>`) is sent to `POST /v1/<name>:predict` on the platform's host. A publisher model's name gets its family's defaults. A model-registry name (`projects/<project>/locations/<location>/models/<id>`) has no `:predict` method and fails provider construction; deploy the model and use its endpoint name.
+
 ### 3. Open the conversation
 
 An embedding provider declared in YAML becomes the conversation's default retrieval provider, so `Open` also requires a state store and a context window:

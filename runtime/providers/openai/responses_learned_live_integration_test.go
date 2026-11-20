@@ -77,3 +77,47 @@ func TestOpenAI_LearnsResponsesBehindProxy_Live(t *testing.T) {
 		assert.Equal(t, []string{"/v1/responses"}, take(), model)
 	}
 }
+
+// The tool path learns the same way: its 404 is the typed ProviderHTTPError.
+func TestOpenAI_ToolPathLearnsResponsesBehindProxy_Live(t *testing.T) {
+	if os.Getenv("OPENAI_API_KEY") == "" {
+		t.Skip("OPENAI_API_KEY not set")
+	}
+	upstream, err := url.Parse("https://api.openai.com")
+	require.NoError(t, err)
+	var mu sync.Mutex
+	var paths []string
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	base := proxy.Director
+	proxy.Director = func(r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		base(r)
+		r.Host = upstream.Host
+	}
+	srv := httptest.NewServer(proxy)
+	defer srv.Close()
+
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "proxy-live", Type: "openai", Model: "gpt-5.3-codex", BaseURL: srv.URL + "/v1",
+		Defaults: providers.ProviderDefaults{MaxTokens: 2048},
+	})
+	require.NoError(t, err)
+	tp := p.(providers.ToolSupport)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+		Name: "get_time", Description: "Returns the current time",
+		InputSchema: []byte(`{"type":"object","properties":{}}`),
+	}})
+	require.NoError(t, err)
+
+	resp, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: "user", Content: "Reply with the single word OK. Do not call any tool."}},
+	}, tools, "auto")
+
+	require.NoError(t, err)
+	assert.Contains(t, strings.ToUpper(resp.Content), "OK")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"/v1/chat/completions", "/v1/responses"}, paths)
+}

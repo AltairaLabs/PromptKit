@@ -120,8 +120,11 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	for _, opt := range opts {
 		opt(p)
 	}
+	if err := checkResourceName(p.ProviderModel); err != nil {
+		return nil, err
+	}
 
-	dims, batch := familyDefaults(p.ProviderModel)
+	dims, batch := familyDefaults(modelID(p.ProviderModel))
 	p.BatchSize = batch
 	if p.batchSize > 0 {
 		p.BatchSize = p.batchSize
@@ -146,10 +149,59 @@ func familyDefaults(model string) (dims, batch int) {
 	}
 }
 
+// resourcePrefix marks a model given as a full Vertex resource name.
+const resourcePrefix = "projects/"
+
 // predictURL builds the :predict URL for a model. The model is part of the
 // path, so a per-request override changes the URL rather than the body.
+//
+// A model ID is appended to the base URL, the publisher's models collection.
+// A full resource name (projects/.../publishers/<p>/models/<m>, or
+// projects/.../endpoints/<id> for a tuned or self-deployed model) is sent to
+// POST /v1/{name}:predict on the base URL's host, as Vertex documents for
+// both.
 func (p *EmbeddingProvider) predictURL(model string) string {
-	return strings.TrimSuffix(p.BaseURL, "/") + "/" + model + ":predict"
+	base := strings.TrimSuffix(p.BaseURL, "/")
+	if strings.HasPrefix(model, resourcePrefix) {
+		return apiRoot(base) + "/" + model + ":predict"
+	}
+	return base + "/" + model + ":predict"
+}
+
+// apiRoot returns the base URL up to and including its /v1 segment, or the
+// base URL with /v1 added when it has none (an explicit endpoint given as a
+// bare host).
+func apiRoot(base string) string {
+	if i := strings.Index(base, "/v1/"); i >= 0 {
+		return base[:i+len("/v1")]
+	}
+	if strings.HasSuffix(base, "/v1") {
+		return base
+	}
+	return base + "/v1"
+}
+
+// modelID returns the model ID inside a publisher model's resource name, so
+// the family rule can read it; any other model string is returned unchanged.
+func modelID(model string) string {
+	if strings.HasPrefix(model, resourcePrefix) {
+		if i := strings.LastIndex(model, "/models/"); i >= 0 {
+			return model[i+len("/models/"):]
+		}
+	}
+	return model
+}
+
+// checkResourceName refuses a resource name that has no :predict method: a
+// model-registry model (projects/.../models/<id>) is served only through an
+// endpoint it is deployed to.
+func checkResourceName(model string) error {
+	if !strings.HasPrefix(model, resourcePrefix) ||
+		strings.Contains(model, "/publishers/") || strings.Contains(model, "/endpoints/") {
+		return nil
+	}
+	return fmt.Errorf("vertex embedding model %q has no :predict method; deploy it and use its endpoint "+
+		"(projects/<project>/locations/<location>/endpoints/<id>) as the model", model)
 }
 
 // predictInstance is one text to embed. task_type is omitted when unset so a

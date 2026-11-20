@@ -72,6 +72,7 @@ verified:
     - runtime/providers/openai/context_window_table.go
     - runtime/providers/openai/openai.go
     - runtime/providers/openai/openai_multimodal.go
+    - runtime/providers/openai/openai_tools.go
     - runtime/providers/openai/realtime_config.go
     - runtime/providers/openai/realtime_platform.go
     - runtime/providers/openai/responses_learning.go
@@ -353,6 +354,9 @@ Several providers decided behavior from the model name alone, which fails for an
 | Use a Bedrock embedding inference profile or ARN | provider construction fails, as before, with an error that names `embedding_format` | set `additional_config.embedding_format` to `titan` or `cohere` |
 | Use a Vertex embedding model outside `text-embedding`, `textembedding-gecko` and `gemini-embedding` | the provider builds, sends one text per request and takes the size from the first response, where construction failed | set `dimensions` and `batch_size` if the defaults do not fit |
 | Use an ElevenLabs model that takes inline tags under an ID not starting with `eleven_v3` | tags stripped, as before | set `additional_config.inline_tags: true` |
+| Give a Vertex embedding provider a full resource name (`projects/…/publishers/google/models/<m>` or `projects/…/endpoints/<id>`) | requests go to `POST /v1/<name>:predict` on the configured host, where the name was appended to the publisher's models collection; a publisher model's family defaults apply | nothing |
+| Give a Vertex embedding provider a model-registry name (`projects/…/models/<id>`) | provider construction fails: that resource has no `:predict` method | deploy the model and use its endpoint name |
+| Match the error text of a failed tool call on OpenAI Chat Completions (non-streaming) or Ollama | `*providers.ProviderHTTPError`, reading `API request to <url> failed with status <n>: <body>`, where it was a plain `API error (status <n>): <body>`. `Send` now returns it as a `*sdk.ProviderError` with `StatusCode` set, and `providers.IsTransient` reports a 429 or 5xx as transient, as on every other request path | match with `errors.As` instead of on the text |
 
 #### Gemini applies a response schema only to the answering round
 

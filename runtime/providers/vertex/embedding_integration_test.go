@@ -149,3 +149,33 @@ func TestLive_UnknownFamilyTakesSizeFromFirstResponse(t *testing.T) {
 	assert.NotEmpty(t, resp.Embeddings[0])
 	assert.Equal(t, len(resp.Embeddings[0]), p.EmbeddingDimensions())
 }
+
+// A publisher model given by its full resource name reaches POST
+// /v1/{name}:predict and is answered with that model's family size.
+func TestLive_PublisherResourceName(t *testing.T) {
+	project := integrationProject(t)
+	name := "projects/" + project + "/locations/" + integrationRegion() +
+		"/publishers/google/models/text-embedding-005"
+	p := liveProvider(t, name)
+	require.Equal(t, 768, p.EmbeddingDimensions())
+
+	resp, err := p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"a", "b"}})
+	require.NoError(t, err)
+
+	require.Len(t, resp.Embeddings, 2)
+	assert.Len(t, resp.Embeddings[0], 768)
+}
+
+// An endpoint resource name reaches the endpoints predict route: for an
+// endpoint that does not exist, Vertex answers that the endpoint is not
+// found, not that the URL has no route.
+func TestLive_EndpointResourceNameReachesTheEndpointsRoute(t *testing.T) {
+	project := integrationProject(t)
+	name := "projects/" + project + "/locations/" + integrationRegion() + "/endpoints/1234567890"
+	p := liveProvider(t, name)
+
+	_, err := p.Embed(context.Background(), providers.EmbeddingRequest{Texts: []string{"a"}})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Endpoint `"+name+"` not found")
+}

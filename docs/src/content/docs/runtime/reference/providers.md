@@ -1715,13 +1715,13 @@ func (b *BaseProvider) MakeJSONRequest(ctx context.Context, url string, request 
 MakeJSONRequest performs a JSON HTTP POST request with common error handling. This reduces duplication across provider implementations. providerName is used for logging purposes.
 
 <a name="BaseProvider.MakeRawRequest"></a>
-### func \(\*BaseProvider\) [MakeRawRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L1244-L1250>)
+### func \(\*BaseProvider\) [MakeRawRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/base_provider.go#L1245-L1251>)
 
 ```go
 func (b *BaseProvider) MakeRawRequest(ctx context.Context, url string, body []byte, headers RequestHeaders, providerName string) ([]byte, error)
 ```
 
-MakeRawRequest performs an HTTP POST request with pre\-marshaled body. It automatically retries on transient errors \(429, 502, 503, 504 and network errors\) according to the provider's RetryPolicy. A final status other than 200 returns an error that includes the status code and body.
+MakeRawRequest performs an HTTP POST request with pre\-marshaled body. It automatically retries on transient errors \(429, 502, 503, 504 and network errors\) according to the provider's RetryPolicy. A final status other than 200 returns a \*ProviderHTTPError carrying the status, URL, body, provider ID and any Retry\-After delay, as the other request paths do.
 
 Custom headers set with SetCustomHeaders are merged into the outgoing request headers up front, with a case\-insensitive collision check against the headers the caller passed and the headers the provider's credential sets. A collision fails before the retry loop runs, so it does not consume retries. Each attempt is authorized with the provider's credential \(see AuthorizeRequest\).
 
