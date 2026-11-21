@@ -1,7 +1,6 @@
 package a2aserver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,7 +30,7 @@ func as(t *testing.T, ts *httptest.Server, caller, method string, params any) *a
 	require.NoError(t, err)
 	body, err := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: paramsJSON})
 	require.NoError(t, err)
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req, err := newRPCRequest(context.Background(), ts.URL, method, body)
 	require.NoError(t, err)
 	req.Header.Set(a2a.HeaderVersion, "1.0")
 	if caller != "" {
@@ -133,7 +132,7 @@ func TestOwnership_AnonymousCallerIsRefused(t *testing.T) {
 
 	paramsJSON, _ := json.Marshal(a2a.GetTaskRequest{ID: "x"})
 	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1GetTask, Params: paramsJSON})
-	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	resp, err := postVersioned(ts.URL, a2a.MethodV1GetTask, body)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 )
 
 // This file holds the version-specific wire shapes.
@@ -215,11 +214,13 @@ func toV03Message(m *Message) *v03Message {
 type v03TaskStatus struct {
 	State     string      `json:"state"`
 	Message   *v03Message `json:"message,omitempty"`
-	Timestamp *time.Time  `json:"timestamp,omitempty"`
+	Timestamp string      `json:"timestamp,omitempty"`
 }
 
 func toV03Status(s *TaskStatus) v03TaskStatus {
-	return v03TaskStatus{State: s.State.V03Name(), Message: toV03Message(s.Message), Timestamp: s.Timestamp}
+	return v03TaskStatus{
+		State: s.State.V03Name(), Message: toV03Message(s.Message), Timestamp: formatTimestamp(s.Timestamp),
+	}
 }
 
 type v03Artifact struct {

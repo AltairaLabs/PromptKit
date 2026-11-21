@@ -173,7 +173,11 @@ func liveA2ASend(t *testing.T, ts *httptest.Server, contextID, text string) *a2a
 	})
 	require.NoError(t, err)
 
-	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(a2a.HeaderVersion, string(a2a.ProtocolVersion10))
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 

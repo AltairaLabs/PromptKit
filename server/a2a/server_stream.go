@@ -231,7 +231,7 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 		return
 	}
 	st.emit(TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
-		TaskID: st.taskID, ContextID: st.contextID, Status: a2a.TaskStatus{State: state, Message: msg},
+		TaskID: st.taskID, ContextID: st.contextID, Status: stamped(a2a.TaskStatus{State: state, Message: msg}),
 	}})
 }
 
@@ -241,7 +241,7 @@ func (st *streamTurn) reportActualState() {
 	if err != nil {
 		return
 	}
-	st.out.write(&a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status})
+	st.out.write(&a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: stamped(task.Status)})
 }
 
 // process consumes the conversation's events until the turn ends. It watches
@@ -452,7 +452,7 @@ func (s *Server) handleTaskSubscribe(call *rpcCall) {
 		return
 	}
 	if task, err = s.taskStore.Get(params.ID); err != nil {
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+		call.failTask(a2a.ErrCodeTaskNotFound, "Task not found", params.ID)
 		return
 	}
 	out.write(task)

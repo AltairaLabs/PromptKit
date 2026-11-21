@@ -45,7 +45,11 @@ A2A treats agents as services: each agent publishes a card describing its skills
 
 A2A uses **JSON-RPC 2.0 over HTTP**. All method calls go to a single endpoint (`POST /a2a`), and agent discovery uses a well-known URL.
 
-PromptKit speaks two versions of the protocol on the same endpoint: **A2A 1.0** and **A2A 0.3**. Each request is answered in the version it asked for. That is the `A2A-Version` header when present. Otherwise it is the version whose method name the request used. The spec reads a request with no version as 0.3.
+PromptKit speaks two versions of the protocol on the same endpoint: **A2A 1.0** and **A2A 0.3**. Each request is answered in the version its `A2A-Version` header names, or its `A2A-Version` query parameter. A request that names no version is 0.3, as A2A 1.0 §3.6.2 requires. The method name must be one that version has:
+
+- A 1.0 method name (`SendMessage`) in a 0.3 request fails with `VersionNotSupportedError` (`-32009`). That includes a request without `A2A-Version`. A 1.0 client must send the header (§3.6.1), and the official 1.0 SDKs for Python, JavaScript and Go do.
+- A 0.3 method name (`message/send`) in a 1.0 request fails with `-32601`, because 1.0 has no method by that name. The error message names the method's 1.0 name.
+- A version the server does not speak, such as `2.0`, fails with `-32009`. A patch number is ignored, so `0.3.0` is 0.3.
 
 | Operation | A2A 1.0 method | A2A 0.3 method |
 |-----------|----------------|----------------|
@@ -69,6 +73,8 @@ Every request is a JSON-RPC envelope:
 }
 ```
 
+The envelope must be a JSON-RPC 2.0 Request object: `"jsonrpc"` exactly `"2.0"`, a non-empty string `method`, and an `id` that is a string, a number or null. Anything else fails with `-32600` Invalid Request, which echoes the `id` when the `id` itself is valid. A body that is not JSON fails with `-32700` Parse error. A batch (a JSON array) also fails with `-32600`, because the server does not take batches. Every response echoes the request's `id` exactly as it was sent, so a number larger than 2^53 is not rounded.
+
 The two versions carry the same operations in different wire shapes:
 
 | | A2A 1.0 | A2A 0.3 |
@@ -79,6 +85,19 @@ The two versions carry the same operations in different wire shapes:
 | Stream events | `{"task"\|"statusUpdate"\|"artifactUpdate": {...}}` | the event, with `"kind"` and, on status updates, `"final"` |
 | File parts | `{"raw": ...}` / `{"url": ...}` with `mediaType` | `{"kind": "file", "file": {"bytes"\|"uri": ...}}` |
 | Blocking `SendMessage` | by default; `returnImmediately: true` opts out | only with `blocking: true` |
+| A2A errors (`-32001` to `-32009`) | `error.data` holds a `google.rpc.ErrorInfo` | no `error.data` |
+
+In 1.0, an A2A error carries an array in `error.data` with one `google.rpc.ErrorInfo` (A2A 1.0 §9.5). Its `reason` is the error's name in upper snake case, and its `domain` is `a2a-protocol.org`. Errors about a task name it in `metadata.taskId`:
+
+```json
+{"jsonrpc":"2.0","id":2,"error":{"code":-32001,"message":"Task not found","data":[
+  {"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"TASK_NOT_FOUND",
+   "domain":"a2a-protocol.org","metadata":{"taskId":"abc123"}}]}}
+```
+
+`VersionNotSupportedError` carries it in either version, with `requestedVersion` and `supportedVersions` (`1.0,0.3`) in its metadata, because only 1.0 defines that error. Other 0.3 errors have no `error.data`: 0.3 clients, a2a-go's among them, read it as an object, and an array would fail their decode. Standard JSON-RPC errors (`-32600`, `-32601`, `-32602`, `-32603`, `-32700`) carry no `error.data` in either version.
+
+A task status's `timestamp` is always sent in UTC with a `Z` suffix, as A2A 1.0 §5.6.1 requires, with 0, 3, 6 or 9 fractional digits, as ProtoJSON writes a timestamp. A time a custom `TaskStore` keeps in another zone is converted. Every status update a stream or subscription sends carries one.
 
 A file part sent by URL is a URL the caller chose. OpenAI and Claude hand an image URL to the vendor to fetch. The host fetches the other parts itself: every media part for Gemini, documents for Claude, audio for OpenAI, and every image for Ollama, whose server usually sits inside the host's network. The host refuses to fetch from loopback, private, link-local or otherwise non-public addresses, including redirects to them, so a caller cannot point it at the cloud metadata service or the internal network. The same applies to AG-UI messages. `sdk.WithUnsafePrivateNetworkMedia()` turns the check off; use it only when every media URL comes from a source you trust, and use your egress policy to allow specific internal destinations.
 
@@ -259,13 +278,13 @@ A task can produce several artifacts, such as a text response and a generated im
 In 1.0 each result is wrapped by what it is:
 
 ```
-data: {"jsonrpc":"2.0","id":1,"result":{"task":{"id":"abc123","contextId":"ctx456","status":{"state":"TASK_STATE_WORKING"}}}}
+data: {"jsonrpc":"2.0","id":1,"result":{"task":{"id":"abc123","contextId":"ctx456","status":{"state":"TASK_STATE_WORKING","timestamp":"2026-11-21T10:00:00.123Z"}}}}
 
 data: {"jsonrpc":"2.0","id":1,"result":{"artifactUpdate":{"taskId":"abc123","contextId":"ctx456","artifact":{"artifactId":"artifact-1","parts":[{"text":"Hello"}]}}}}
 
 data: {"jsonrpc":"2.0","id":1,"result":{"artifactUpdate":{"taskId":"abc123","contextId":"ctx456","artifact":{"artifactId":"artifact-1","parts":[{"text":" world"}]},"append":true,"lastChunk":true}}}
 
-data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"abc123","contextId":"ctx456","status":{"state":"TASK_STATE_COMPLETED"}}}}
+data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"abc123","contextId":"ctx456","status":{"state":"TASK_STATE_COMPLETED","timestamp":"2026-11-21T10:00:01.456Z"}}}}
 ```
 
 In 0.3 each result is sent bare, tagged with `"kind"` (`task`, `artifact-update`, `status-update`), and the closing status update carries `"final": true`.

@@ -2,7 +2,6 @@ package a2aserver
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -348,7 +347,7 @@ func TestStream_CallerDisconnectLeavesTheTaskRunning(t *testing.T) {
 		Params: mustMarshal(t, a2a.SendMessageRequest{Message: userMessage("ctx-drop")})})
 	require.NoError(t, err)
 	ctx, disconnect := context.WithCancel(context.Background())
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req, err := newRPCRequest(ctx, ts.URL, a2a.MethodV1SendStreamingMessage, body)
 	require.NoError(t, err)
 	req.Header.Set(a2a.HeaderVersion, "1.0")
 	resp, err := http.DefaultClient.Do(req)

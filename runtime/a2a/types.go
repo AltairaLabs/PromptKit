@@ -359,6 +359,37 @@ type TaskStatus struct {
 	Timestamp *time.Time `json:"timestamp,omitempty"`
 }
 
+// MarshalJSON implements json.Marshaler. Timestamp is written as a ProtoJSON
+// google.protobuf.Timestamp (A2A 1.0 TaskStatus.timestamp): RFC 3339 in UTC,
+// with 0, 3, 6 or 9 fractional digits, whatever zone the time is held in.
+func (s TaskStatus) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		State     TaskState `json:"state"`
+		Message   *Message  `json:"message,omitempty"`
+		Timestamp string    `json:"timestamp,omitempty"`
+	}{s.State, s.Message, formatTimestamp(s.Timestamp)})
+}
+
+// formatTimestamp writes t as a ProtoJSON google.protobuf.Timestamp: RFC 3339
+// in UTC ("Z"), with 0, 3, 6 or 9 fractional digits. A nil t is "".
+func formatTimestamp(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	u := t.UTC()
+	const base = "2006-01-02T15:04:05"
+	switch ns := u.Nanosecond(); {
+	case ns == 0:
+		return u.Format(base + "Z")
+	case ns%1_000_000 == 0:
+		return u.Format(base + ".000Z")
+	case ns%1_000 == 0:
+		return u.Format(base + ".000000Z")
+	default:
+		return u.Format(base + ".000000000Z")
+	}
+}
+
 // Task is the top-level unit of work in the A2A protocol.
 type Task struct {
 	ID        string         `json:"id"`
