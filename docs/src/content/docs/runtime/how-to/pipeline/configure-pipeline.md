@@ -245,6 +245,8 @@ duplex := stage.NewDuplexProviderStageWithTurnState(
 )
 ```
 
+To add the stages that follow a duplex provider stage (cue, transcript reorder, playout hold, recording, save, output pacing) in the SDK's order, see [Build a realtime chain](/runtime/how-to/pipeline/build-realtime-chain/).
+
 ## Verify
 
 Swap in the mock provider and run step 3. The pipeline prints the mock response without calling an API:

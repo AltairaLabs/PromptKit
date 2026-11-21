@@ -328,6 +328,9 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewRandomRouter\(name string, outputNames \[\]string\) \*RandomRouter](<#NewRandomRouter>)
   - [func \(r \*RandomRouter\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#RandomRouter.Process>)
   - [func \(r \*RandomRouter\) RegisterOutput\(name string, output chan\<\- StreamElement\)](<#RandomRouter.RegisterOutput>)
+- [type RealtimeChainConfig](<#RealtimeChainConfig>)
+- [type RealtimePacing](<#RealtimePacing>)
+- [type RealtimeSlot](<#RealtimeSlot>)
 - [type ReasoningDelta](<#ReasoningDelta>)
 - [type RecordingPosition](<#RecordingPosition>)
 - [type RecordingStage](<#RecordingStage>)
@@ -370,6 +373,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func \(s ScoredMessages\) Swap\(i, j int\)](<#ScoredMessages.Swap>)
 - [type Stage](<#Stage>)
   - [func NewDuplexCueStage\(duplex \*DuplexProviderStage, opts CueOptions\) Stage](<#NewDuplexCueStage>)
+  - [func NewRealtimeChain\(provider \*DuplexProviderStage, cfg RealtimeChainConfig\) \(\[\]Stage, error\)](<#NewRealtimeChain>)
   - [func WithNamePrefix\(prefix string, s Stage\) Stage](<#WithNamePrefix>)
 - [type StageError](<#StageError>)
   - [func NewStageError\(stageName string, stageType StageType, err error\) \*StageError](<#NewStageError>)
@@ -712,6 +716,19 @@ var (
     // the provider receives an empty system prompt. Construct them with
     // NewTemplateStageWithTurnState / NewPromptAssemblyStageWithTurnState.
     ErrTurnStateRequired = errors.New("stage requires a shared TurnState")
+)
+```
+
+<a name="ErrRealtimeChainProvider"></a>Errors returned by NewRealtimeChain.
+
+```go
+var (
+    // ErrRealtimeChainProvider is returned when the provider stage is nil or
+    // dropped.
+    ErrRealtimeChainProvider = errors.New("realtime chain: a provider stage is required")
+    // ErrRealtimeChainSlot is returned for a slot name the chain does not have,
+    // or a nil stage inserted after a slot.
+    ErrRealtimeChainSlot = errors.New("realtime chain: invalid slot")
 )
 ```
 
@@ -4889,6 +4906,127 @@ func (r *RandomRouter) RegisterOutput(name string, output chan<- StreamElement)
 
 RegisterOutput registers an output channel with a name.
 
+<a name="RealtimeChainConfig"></a>
+## type [RealtimeChainConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L79-L121>)
+
+RealtimeChainConfig is what a host varies in the realtime chain. The zero value builds the provider stage followed by the cue stage.
+
+```go
+type RealtimeChainConfig struct {
+    // Cue configures the cue stage: the TTS service that voices its clips and
+    // the cache that keeps them.
+    Cue CueOptions
+
+    // ReorderInputTranscript adds the transcript reorder stage, for a provider
+    // that delivers the caller's transcript after the reply (OpenAI Realtime).
+    ReorderInputTranscript bool
+    // InputTranscriptPlaceholder is the caller text the reorder stage writes
+    // for a turn that ends with no transcript; empty leaves the turn out.
+    InputTranscriptPlaceholder string
+
+    // PlayoutHold adds the playout hold stage, for a pipeline whose reply
+    // audio is played to a listener in real time.
+    PlayoutHold bool
+
+    // RecordingStore, when set, adds an output recording stage writing to it
+    // with Recording (its Position set to RecordingPositionOutput).
+    RecordingStore events.EventStore
+    // Recording configures the output recording stage.
+    Recording RecordingStageConfig
+
+    // AudioTap, MemoryExtraction and Save are host-built stages placed in
+    // their slots; nil leaves the slot empty.
+    AudioTap         Stage
+    MemoryExtraction Stage
+    Save             Stage
+
+    // MessageBroadcast, when set, adds a MessageBroadcastStage publishing
+    // each completed message on it.
+    MessageBroadcast *events.Emitter
+
+    // Pacing selects the output audio pacing stage.
+    Pacing RealtimePacing
+
+    // After inserts stages directly after a slot, in the order given. A slot
+    // that is empty or dropped still places its stages where it would be.
+    After map[RealtimeSlot][]Stage
+
+    // Drop removes the stage in each named slot. The provider slot cannot be
+    // dropped.
+    Drop []RealtimeSlot
+}
+```
+
+<a name="RealtimePacing"></a>
+## type [RealtimePacing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L61>)
+
+RealtimePacing selects the output audio pacing stage of the realtime chain.
+
+```go
+type RealtimePacing int
+```
+
+<a name="RealtimePacingNone"></a>
+
+```go
+const (
+    // RealtimePacingNone adds no pacing stage: the reply audio leaves the
+    // chain as fast as the provider sends it. For a consumer with no realtime
+    // speaker to protect.
+    RealtimePacingNone RealtimePacing = iota
+    // RealtimePacingFlushOnCut paces the reply audio to real time and drops
+    // the queued audio of a reply that is cut (AudioPacingStage.WithFlushOnCut).
+    // For a pipeline that plays to a listener who can barge in.
+    RealtimePacingFlushOnCut
+    // RealtimePacingPlayThrough paces the reply audio to real time and plays a
+    // cut reply's queued audio out.
+    RealtimePacingPlayThrough
+)
+```
+
+<a name="RealtimeSlot"></a>
+## type [RealtimeSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L13>)
+
+RealtimeSlot names a position in the realtime chain NewRealtimeChain builds. A host inserts its own stages after a slot \(RealtimeChainConfig.After\) and removes the stage in a slot \(RealtimeChainConfig.Drop\) by its name.
+
+```go
+type RealtimeSlot string
+```
+
+<a name="RealtimeSlotProvider"></a>The slots of the realtime chain, in chain order.
+
+```go
+const (
+    // RealtimeSlotProvider holds the DuplexProviderStage. It is always present.
+    RealtimeSlotProvider RealtimeSlot = "provider"
+    // RealtimeSlotCue holds the cue stage (NewDuplexCueStage). Present unless
+    // dropped.
+    RealtimeSlotCue RealtimeSlot = "cue"
+    // RealtimeSlotTranscriptReorder holds the TranscriptReorderStage, when
+    // RealtimeChainConfig.ReorderInputTranscript is set.
+    RealtimeSlotTranscriptReorder RealtimeSlot = "transcript-reorder"
+    // RealtimeSlotPlayoutHold holds the PlayoutHoldStage, when
+    // RealtimeChainConfig.PlayoutHold is set.
+    RealtimeSlotPlayoutHold RealtimeSlot = "playout-hold"
+    // RealtimeSlotRecording holds the output RecordingStage, when
+    // RealtimeChainConfig.RecordingStore is set.
+    RealtimeSlotRecording RealtimeSlot = "recording"
+    // RealtimeSlotAudioTap holds RealtimeChainConfig.AudioTap.
+    RealtimeSlotAudioTap RealtimeSlot = "audio-tap"
+    // RealtimeSlotMemoryExtraction holds RealtimeChainConfig.MemoryExtraction.
+    RealtimeSlotMemoryExtraction RealtimeSlot = "memory-extraction"
+    // RealtimeSlotMessageBroadcast holds the MessageBroadcastStage, when
+    // RealtimeChainConfig.MessageBroadcast is set.
+    RealtimeSlotMessageBroadcast RealtimeSlot = "message-broadcast"
+    // RealtimeSlotSave holds RealtimeChainConfig.Save.
+    RealtimeSlotSave RealtimeSlot = "save"
+    // RealtimeSlotPacing holds the output AudioPacingStage, named
+    // "audio-pacing-output", when RealtimeChainConfig.Pacing is not
+    // RealtimePacingNone.
+    RealtimeSlotPacing RealtimeSlot = "pacing"
+)
+```
+
 <a name="ReasoningDelta"></a>
 ## type [ReasoningDelta](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L68-L71>)
 
@@ -5507,6 +5645,24 @@ NewDuplexCueStage creates the stage that speaks cues for duplex's realtime sessi
 When duplex creates its session the stage learns the session's voice and output rate and starts rendering the messages of duplex's guardrails. Clips come from the first source that renders them: the session's own out\-of\-band audio \(providers.OutOfBandSpeaker, OpenAI Realtime\), in its exact voice and outside the conversation; then opts.Voice; then, with no Voice, the clips pre\-warmed for the session's voice; then a built\-in earcon \(a short tone\). The session's audio is checked against the text by its transcript \(case, punctuation and spacing aside\) and asked for once more on a miss before the text falls to the next source. Clips are kept in opts.Cache under their source and voice, so only the first session of a source and voice renders them.
 
 While a clip renders, reply output waits behind it for at most 1.5s; past that the earcon plays in its place, and the clip is kept for the next cue. A cut \(barge\-in\) while it renders drops the cue. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) renders PCM16 at 24 kHz in the voice service's default voice.
+
+<a name="NewRealtimeChain"></a>
+### func [NewRealtimeChain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L148>)
+
+```go
+func NewRealtimeChain(provider *DuplexProviderStage, cfg RealtimeChainConfig) ([]Stage, error)
+```
+
+NewRealtimeChain returns the stages of a realtime \(duplex\) pipeline from the provider stage on, in the order every host runs them:
+
+```
+provider, cue, transcript-reorder, playout-hold, recording, audio-tap,
+memory-extraction, message-broadcast, save, pacing
+```
+
+The cue stage directly follows the provider, ahead of the stages that treat its audio as reply audio. The transcript reorder stage runs before everything that reads the transcript, the playout hold before everything that records what was heard, and pacing last, so the bookkeeping stages run at full speed while the reply reaches a realtime speaker at playback rate.
+
+The host puts its own front stages \(prompt assembly, input recording, resampling, client\-side turn detection\) ahead of the returned stages and chains them with a PipelineBuilder.
 
 <a name="WithNamePrefix"></a>
 ### func [WithNamePrefix](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/rename.go#L29>)

@@ -577,32 +577,39 @@ func collectPipelineStages(
 	if err != nil {
 		return nil, err
 	}
+
+	// A realtime (ASM) pipeline's chain from the provider stage on is the
+	// runtime's (stage.NewRealtimeChain), the one every host builds.
+	if duplex := duplexProviderStage(providerStages); duplex != nil {
+		chain, chainErr := stage.NewRealtimeChain(duplex, realtimeChainConfig(cfg, stateStoreConfig))
+		if chainErr != nil {
+			return nil, chainErr
+		}
+		return append(stages, chain...), nil
+	}
 	stages = append(stages, providerStages...)
 
-	// 5.2-5.8 Cue, transcript reorder, playout hold, output recording and
-	// audio tap, memory extraction and live broadcast.
-	stages = appendPostProviderStages(stages, providerStages, cfg)
-
-	// 6. State store save stage - saves conversation state LAST
-	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
-
-	// 6.5 Turn observer - reports each reply once the save stage has stored
-	// it, for the conversation's per-turn evals and session hooks. After the
-	// save stage, which stores a turn before forwarding the element ending it.
-	if cfg.TurnReporter != nil {
-		wait := cfg.LateTranscriptWait
-		if wait == 0 {
-			wait = DefaultLateTranscriptWait
-		}
-		stages = append(stages, newTurnObserverStage(cfg.TurnReporter, wait))
+	// 5.4 Transcript reorder - emit each turn's user text before its assistant
+	// text, for providers that deliver the user transcript late.
+	if cfg.ReorderInputTranscript {
+		stages = append(stages, stage.NewTranscriptReorderStage(cfg.InputTranscriptPlaceholder))
 	}
+
+	// 5.5-6.5 Output recording, audio tap, memory extraction, live broadcast,
+	// state save and turn observer, in the realtime chain's order.
+	stages = appendNonNil(stages,
+		outputRecordingStage(cfg),
+		outputAudioTapStage(cfg),
+		memoryExtractionStage(cfg),
+		messageBroadcastStage(cfg),
+		stateStoreSaveStage(cfg, stateStoreConfig),
+		turnObserverFor(cfg),
+	)
 
 	// 7. Output audio pacing (realtime playback only). Placed last so the emitted
 	// response stream reaches a realtime sink at real-time cadence while the
 	// upstream bookkeeping stages (recording, memory, save) still run at full
-	// speed. Without this, a streaming provider's whole-reply burst overruns the
-	// speaker's jitter buffer and the oldest audio is dropped (audible stutter).
-	// The "-output" suffix routes its health metrics to the output direction.
+	// speed.
 	if cfg.PaceOutputAudio {
 		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output").WithFlushOnCut())
 	}
@@ -610,76 +617,108 @@ func collectPipelineStages(
 	return stages, nil
 }
 
-// appendPostProviderStages appends the stages between the provider stage and
-// the state store save stage, in order (5.2-5.8 in collectPipelineStages).
-func appendPostProviderStages(stages, providerStages []stage.Stage, cfg *Config) []stage.Stage {
-	// 5.2 Cue stage - plays a pre-rendered clip (a guardrail's spoken message)
-	// for each cue the realtime provider stage emits. Directly after the
-	// provider stage, before transcript reorder (which can hold the Text
-	// element a cue rides on), playout hold, recording and pacing, which treat
-	// its audio as reply audio.
-	stages = appendCueStage(stages, providerStages, cfg)
-
-	// 5.4 Transcript reorder - for providers that deliver the user transcript late
-	// (OpenAI Realtime), emit each turn's user text before its assistant text.
-	// Placed right after the provider so every downstream consumer (recording,
-	// state save, output) sees the corrected order.
-	if cfg.ReorderInputTranscript {
-		stages = append(stages, stage.NewTranscriptReorderStage(cfg.InputTranscriptPlaceholder))
+// duplexProviderStage returns the realtime provider stage among the provider
+// stages, or nil when the pipeline is not realtime (text, VAD, composition).
+func duplexProviderStage(providerStages []stage.Stage) *stage.DuplexProviderStage {
+	for _, st := range providerStages {
+		if duplex, ok := st.(*stage.DuplexProviderStage); ok {
+			return duplex
+		}
 	}
+	return nil
+}
 
-	// 5.45 Playout hold - a realtime reply reaches the transcript (recording,
-	// memory, broadcast, save) once the caller has heard it, with what was
-	// heard when they barged in. Only when the audio is played to someone in
-	// real time (a paced speaker, or the host says so): otherwise it would mark
-	// replies nobody played. After the reorder stage, so it holds the
-	// transcript in its corrected order.
-	if cfg.holdsPlayout() {
-		stages = append(stages, stage.NewPlayoutHoldStage())
+// realtimeChainConfig maps the SDK config onto the runtime's realtime chain.
+//
+// The cue stage plays a guardrail's spoken message with the cue voice and
+// clip cache. The playout hold makes a reply reach the transcript once the
+// caller has heard it; only when the audio is played to someone in real time.
+// The live message broadcast is gated only on an emitter: a consumer that
+// supplied a bus watches the conversation whether or not it persists one.
+// The turn observer reports each reply once the save stage has stored it, so
+// it goes after the save slot.
+func realtimeChainConfig(cfg *Config, stateStoreConfig *rtpipeline.StateStoreConfig) stage.RealtimeChainConfig {
+	chain := stage.RealtimeChainConfig{
+		Cue:                        stage.CueOptions{Voice: cfg.CueVoice, Cache: cfg.CueClipCache},
+		ReorderInputTranscript:     cfg.ReorderInputTranscript,
+		InputTranscriptPlaceholder: cfg.InputTranscriptPlaceholder,
+		PlayoutHold:                cfg.holdsPlayout(),
+		AudioTap:                   outputAudioTapStage(cfg),
+		MemoryExtraction:           memoryExtractionStage(cfg),
+		MessageBroadcast:           cfg.EventEmitter,
+		Save:                       stateStoreSaveStage(cfg, stateStoreConfig),
 	}
-
-	// 5.5 Output recording stage - captures assistant output with full binary data
 	if cfg.RecordingConfig != nil && cfg.RecordingStore != nil {
-		outputCfg := *cfg.RecordingConfig
-		outputCfg.Position = stage.RecordingPositionOutput
-		stages = append(stages, stage.NewRecordingStage(cfg.RecordingStore, outputCfg))
+		chain.RecordingStore = cfg.RecordingStore
+		chain.Recording = *cfg.RecordingConfig
 	}
-	// 5.6 Output audio monitor tap - observes the agent's audio
-	if cfg.AudioTap != nil {
-		stages = append(stages, newAudioTapStage(stage.RecordingPositionOutput, cfg.AudioTap))
+	if cfg.PaceOutputAudio {
+		chain.Pacing = stage.RealtimePacingFlushOnCut
 	}
+	if observer := turnObserverFor(cfg); observer != nil {
+		chain.After = map[stage.RealtimeSlot][]stage.Stage{stage.RealtimeSlotSave: {observer}}
+	}
+	return chain
+}
 
-	// 5.7 Memory extraction stage - extract memories from conversation
-	if cfg.MemoryExtractor != nil && cfg.MemoryStore != nil {
-		stages = append(stages, stage.NewMemoryExtractionStage(
-			cfg.MemoryExtractor, cfg.MemoryStore, cfg.MemoryScope).WithCaller(cfg.Caller))
-	}
-
-	// 5.8 Live message broadcast - publishes message.created on the bus as each
-	// complete message arrives. Gated ONLY on an emitter: a consumer that
-	// supplied a bus wants to watch the conversation whether or not it persists
-	// or records one, so this must not sit behind the state store or
-	// WithRecording. Placed before the save sink so a message is broadcast as
-	// soon as it exists.
-	if cfg.EventEmitter != nil {
-		stages = append(stages, stage.NewMessageBroadcastStage(cfg.EventEmitter))
+// appendNonNil appends each stage that is not nil.
+func appendNonNil(stages []stage.Stage, add ...stage.Stage) []stage.Stage {
+	for _, st := range add {
+		if st != nil {
+			stages = append(stages, st)
+		}
 	}
 	return stages
 }
 
-// appendCueStage adds the cue stage after a realtime (ASM) provider stage
-// (DuplexProviderStage), wired to it, with the cue voice and clip cache
-// configured. Other pipelines (text, VAD, composition) have none, and no cues.
-func appendCueStage(stages, providerStages []stage.Stage, cfg *Config) []stage.Stage {
-	for _, st := range providerStages {
-		if duplex, ok := st.(*stage.DuplexProviderStage); ok {
-			return append(stages, stage.NewDuplexCueStage(duplex, stage.CueOptions{
-				Voice: cfg.CueVoice,
-				Cache: cfg.CueClipCache,
-			}))
-		}
+// outputRecordingStage captures the assistant output with full binary data,
+// when recording is configured with a store; nil otherwise.
+func outputRecordingStage(cfg *Config) stage.Stage {
+	if cfg.RecordingConfig == nil || cfg.RecordingStore == nil {
+		return nil
 	}
-	return stages
+	outputCfg := *cfg.RecordingConfig
+	outputCfg.Position = stage.RecordingPositionOutput
+	return stage.NewRecordingStage(cfg.RecordingStore, outputCfg)
+}
+
+// outputAudioTapStage observes the agent's audio, when an audio tap is set.
+func outputAudioTapStage(cfg *Config) stage.Stage {
+	if cfg.AudioTap == nil {
+		return nil
+	}
+	return newAudioTapStage(stage.RecordingPositionOutput, cfg.AudioTap)
+}
+
+// memoryExtractionStage extracts memories from the conversation, when an
+// extractor and a store are set.
+func memoryExtractionStage(cfg *Config) stage.Stage {
+	if cfg.MemoryExtractor == nil || cfg.MemoryStore == nil {
+		return nil
+	}
+	return stage.NewMemoryExtractionStage(cfg.MemoryExtractor, cfg.MemoryStore, cfg.MemoryScope).WithCaller(cfg.Caller)
+}
+
+// messageBroadcastStage publishes message.created on the bus as each complete
+// message arrives, when an emitter is set.
+func messageBroadcastStage(cfg *Config) stage.Stage {
+	if cfg.EventEmitter == nil {
+		return nil
+	}
+	return stage.NewMessageBroadcastStage(cfg.EventEmitter)
+}
+
+// turnObserverFor reports each reply once the save stage has stored it, for
+// the conversation's per-turn evals and session hooks; nil without a reporter.
+func turnObserverFor(cfg *Config) stage.Stage {
+	if cfg.TurnReporter == nil {
+		return nil
+	}
+	wait := cfg.LateTranscriptWait
+	if wait == 0 {
+		wait = DefaultLateTranscriptWait
+	}
+	return newTurnObserverStage(cfg.TurnReporter, wait)
 }
 
 // holdsPlayout reports whether the pipeline gets the playout hold stage: a
@@ -918,17 +957,13 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 	return nil, nil
 }
 
-// appendStateStoreSaveStages adds the state store save stage.
-// Always uses IncrementalSaveStage — it falls back to a full save when the
-// store doesn't implement MessageAppender, and otherwise uses the typed
-// append path. RAG-only fields (MessageIndex, Summarizer) stay nil-safe.
-func appendStateStoreSaveStages(
-	stages []stage.Stage,
-	cfg *Config,
-	stateStoreConfig *rtpipeline.StateStoreConfig,
-) []stage.Stage {
+// stateStoreSaveStage returns the state store save stage, or nil without a
+// state store. Always an IncrementalSaveStage — it falls back to a full save
+// when the store doesn't implement MessageAppender, and otherwise uses the
+// typed append path. RAG-only fields (MessageIndex, Summarizer) stay nil-safe.
+func stateStoreSaveStage(cfg *Config, stateStoreConfig *rtpipeline.StateStoreConfig) stage.Stage {
 	if stateStoreConfig == nil {
-		return stages
+		return nil
 	}
 	// A realtime (ASM) session's provider stage has no per-round write-through,
 	// so the save stage persists its messages whether or not a MessageLog is
@@ -937,7 +972,7 @@ func appendStateStoreSaveStages(
 	if cfg.StreamInputProvider != nil {
 		messageLog = nil
 	}
-	return append(stages, stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
+	return stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{
 		StateStoreConfig:   stateStoreConfig,
 		MessageIndex:       cfg.MessageIndex,
 		Summarizer:         cfg.Summarizer,
@@ -947,7 +982,7 @@ func appendStateStoreSaveStages(
 		// A duplex session's input stays open for the whole session: persist
 		// each turn as it completes, not at hang-up.
 		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil || cfg.Ingestion != nil,
-	}))
+	})
 }
 
 // buildContextBuilderPolicy creates a ContextBuilderPolicy from pipeline config.
