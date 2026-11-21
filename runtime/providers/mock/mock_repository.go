@@ -70,6 +70,21 @@ type Turn struct {
 	// from a mock config file), for tests that need a reply split at a given
 	// point.
 	StreamChunks []string `yaml:"-"`
+
+	// ReasoningChunks, when set, is the model's reasoning for the reply, as a
+	// reasoning model returns it: streamed one chunk per entry, as its
+	// Reasoning, before the reply's text, and returned whole as the response's
+	// Reasoning when the reply does not stream. It is set in code only.
+	ReasoningChunks []string `yaml:"-"`
+}
+
+// reasoning is the reasoning trace a turn scripts, or nil when it scripts
+// none.
+func (t *Turn) reasoning() *types.ReasoningTrace {
+	if len(t.ReasoningChunks) == 0 {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: strings.Join(t.ReasoningChunks, "")}
 }
 
 // streamedText is the reply text of a turn that scripts its stream chunks:

@@ -167,6 +167,7 @@ func (m *Provider) Predict(ctx context.Context, req providers.PredictionRequest)
 		Parts:        parts,
 		CostInfo:     &costBreakdown,
 		FinishReason: types.FinishReasonStop,
+		Reasoning:    turn.reasoning(),
 	}, nil
 }
 
@@ -223,6 +224,11 @@ func (m *Provider) handleStreamRequest(
 
 	inputTokens := m.calculateInputTokens(req.Messages)
 	outputTokens := m.calculateOutputTokens(responseText)
+
+	// The scripted reasoning streams first, as a reasoning model's does.
+	for _, r := range turn.ReasoningChunks {
+		outChan <- providers.StreamChunk{Reasoning: r}
+	}
 
 	chunk := m.createStreamChunk(responseText, parts, inputTokens, outputTokens)
 	if scripted {

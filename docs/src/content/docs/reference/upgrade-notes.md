@@ -300,6 +300,20 @@ With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that tak
 | Render AG-UI text an output guardrail cut | the streamed message ends, and the guardrail's message follows as a new text message | nothing |
 | Read `stage.ElementMetadata` or `providers.StreamChunk` from a pipeline yourself | elements and chunks carrying only `RoundMessages` during a tool loop with a streaming provider, on the `ExecuteSync` / `Send` path as well as the streamed one (`StreamPipeline.ExecuteSync` ignores them) | skip them, or use them to report the rounds |
 
+#### AG-UI runs carry reasoning, state deltas, usage and pending calls
+
+The AG-UI adapter now sends the model's reasoning as `REASONING_*` events, state changes as `STATE_DELTA`, the run's token usage on `RUN_FINISHED` and `RUN_ERROR`, and the frontend tool calls a run left unanswered as `pendingToolCallIds` on a `success` outcome. `WithMessagesSnapshot(true)` adds a `MESSAGES_SNAPSHOT` before `RUN_FINISHED`. `sdk.WithStreamReasoning()` makes `Stream` and `ResumeStream` send the model's reasoning as new `ChunkReasoning` chunks, and the AG-UI adapter streams it from them. The AG-UI Go SDK is bumped to a newer `main` pseudo-version that carries `pendingToolCallIds` and `cacheWriteInputTokens`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Serve AG-UI from a conversation whose provider returns reasoning (a Claude `thinking_budget`, Gemini `include_thoughts`, OpenAI `reasoning_summary`) | `REASONING_START`, `REASONING_MESSAGE_*` and `REASONING_END` events carrying the reasoning's text | render or ignore them; pass `agui.WithReasoning(false)` to keep the reasoning from the client |
+| Want the reasoning to reach an AG-UI client as it streams | each round's reasoning sent whole once the turn's text is complete | open the conversation with `sdk.WithStreamReasoning()` |
+| Configure a `StateProvider` | `Snapshot` called after each `TOOL_CALL_RESULT` and before the run finishes, and a `STATE_DELTA` for each change; a provider that returns nil sends no `STATE_SNAPSHOT`, where it sent an invalid one | make `Snapshot` safe to call while the turn's tools run, and cheap enough to call per tool result |
+| Read `RUN_FINISHED` for a run that stopped on a frontend tool call | a `success` outcome with `pendingToolCallIds`, where the outcome was absent | nothing; both mean the run completed |
+| Read `RUN_FINISHED` or `RUN_ERROR` | `usage`, one entry per provider id, input including cache reads and writes, output including reasoning | sum `totalTokens` for a total |
+| Switch on `StreamChunk.Type` for a conversation opened with `sdk.WithStreamReasoning()` | `ChunkReasoning` chunks, with the delta in `Reasoning` and no `Text` | handle or skip them; `StreamRaw` and the A2A server drop them |
+| Script `mock.Turn` values in tests | a new `ReasoningChunks` field the mock providers stream as reasoning | nothing |
+
 ### Caller identity
 
 #### The caller travels on the request, set by `WithCaller`

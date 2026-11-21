@@ -87,9 +87,10 @@ const toolPackJSON = `{
 	}
 }`
 
-func openConv(t *testing.T, provider providers.Provider) *sdk.Conversation {
+func openConv(t *testing.T, provider providers.Provider, opts ...sdk.Option) *sdk.Conversation {
 	t.Helper()
-	conv, err := sdk.Open(writePack(t, toolPackJSON), "chat", sdk.WithProvider(provider), sdk.WithSkipSchemaValidation())
+	opts = append([]sdk.Option{sdk.WithProvider(provider), sdk.WithSkipSchemaValidation()}, opts...)
+	conv, err := sdk.Open(writePack(t, toolPackJSON), "chat", opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conv.Close() })
 	return conv

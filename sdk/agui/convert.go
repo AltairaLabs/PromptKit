@@ -5,10 +5,14 @@
 //
 // Text streams as the model writes it for a conversation that streams
 // (*sdk.Conversation); a workflow conversation's text arrives in one
-// TEXT_MESSAGE_CONTENT per message. Not produced: reasoning events,
-// STATE_DELTA, MESSAGES_SNAPSHOT, and the pendingToolCallIds of a run that
-// leaves frontend tool calls unanswered. Message ids are minted per conversion, so converting
-// the same message twice gives two ids.
+// TEXT_MESSAGE_CONTENT per message. A run also carries the model's reasoning
+// (REASONING_* events), the state's changes (STATE_DELTA), its token usage
+// and the frontend tool calls it left unanswered (pendingToolCallIds) on
+// RUN_FINISHED, and, with [WithMessagesSnapshot], a MESSAGES_SNAPSHOT. Not
+// produced: RUN_STARTED's protocolVersion, which the Go SDK cannot encode,
+// REASONING_ENCRYPTED_VALUE, and activity and subagent events. Message ids
+// are minted per conversion, so converting the same message twice gives two
+// ids.
 package agui
 
 import (

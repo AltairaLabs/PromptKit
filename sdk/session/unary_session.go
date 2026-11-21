@@ -400,6 +400,12 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 		p.accumulateMessage(elem.Message)
 	}
 
+	// Reasoning text streams as its own chunk, never as part of the text; its
+	// opaque round-trip tokens stay in the turn's messages.
+	if elem.Reasoning != nil && elem.Reasoning.Text != "" {
+		p.sendChunk(&providers.StreamChunk{Reasoning: elem.Reasoning.Text})
+	}
+
 	if elem.Text != nil && *elem.Text != "" {
 		// A replacement is the turn's whole text from here on.
 		if elem.Meta.ReplacesText {

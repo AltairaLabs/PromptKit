@@ -102,9 +102,22 @@ func describeEvent(ev aguievents.Event, alias func(string) string) string {
 		return "TOOL_CALL_END " + e.ToolCallID
 	case *aguievents.ToolCallResultEvent:
 		return "TOOL_CALL_RESULT " + e.ToolCallID + " " + e.Content
+	case *aguievents.ReasoningStartEvent:
+		return "REASONING_START " + alias(e.MessageID)
+	case *aguievents.ReasoningMessageStartEvent:
+		return "REASONING_MESSAGE_START " + alias(e.MessageID) + " " + e.Role
+	case *aguievents.ReasoningMessageContentEvent:
+		return "REASONING_MESSAGE_CONTENT " + alias(e.MessageID) + " " + e.Delta
+	case *aguievents.ReasoningMessageEndEvent:
+		return "REASONING_MESSAGE_END " + alias(e.MessageID)
+	case *aguievents.ReasoningEndEvent:
+		return "REASONING_END " + alias(e.MessageID)
 	case *aguievents.RunFinishedEvent:
 		if e.Outcome == nil {
 			return "RUN_FINISHED"
+		}
+		if e.Outcome.Type == aguievents.RunFinishedOutcomeTypeSuccess {
+			return "RUN_FINISHED success pending=" + strings.Join(e.Outcome.PendingToolCallIDs, ",")
 		}
 		var held []string
 		for _, in := range e.Outcome.Interrupts {
@@ -364,7 +377,7 @@ func TestRunSend_StreamsAFrontendToolRoundTrip(t *testing.T) {
 		"TOOL_CALL_START call_0_get_location get_location parent=m1",
 		`TOOL_CALL_ARGS call_0_get_location {"q":"a"}`,
 		"TOOL_CALL_END call_0_get_location",
-		"RUN_FINISHED",
+		"RUN_FINISHED success pending=call_0_get_location",
 	}, describeRun(first))
 
 	input := []aguitypes.Message{

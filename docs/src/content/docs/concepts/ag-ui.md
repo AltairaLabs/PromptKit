@@ -8,7 +8,12 @@ verified:
   sources:
     - sdk/agui/adapter.go
     - sdk/agui/adapter_stream.go
+    - sdk/agui/adapter_reasoning.go
+    - sdk/agui/adapter_state.go
+    - sdk/agui/adapter_usage.go
+    - sdk/agui/adapter_messages.go
     - sdk/agui/convert.go
+    - sdk/streaming.go
     - sdk/conversation_tools.go
     - sdk/workflow.go
 ---
@@ -99,15 +104,15 @@ data: {"type":"RUN_FINISHED","threadId":"thread-abc123","runId":"run-xyz789"}
 
 ## Event Types
 
-AG-UI defines events for the whole lifecycle of a run. The ones below are those PromptKit's adapter emits; the protocol also defines state deltas, message snapshots, reasoning, activity and subagent events, which it does not.
+AG-UI defines events for the whole lifecycle of a run. The ones below are those PromptKit's adapter emits; the protocol also defines activity and subagent events, which it does not.
 
 ### Lifecycle Events
 
 | Event | Description |
 |-------|-------------|
 | `RUN_STARTED` | Agent run has begun |
-| `RUN_FINISHED` | Agent run ended without failing. An `interrupt` outcome means it stopped to ask for outside input |
-| `RUN_ERROR` | Agent run failed |
+| `RUN_FINISHED` | Agent run ended without failing, with the run's token `usage`. An `interrupt` outcome means it stopped to ask for outside input; a `success` outcome with `pendingToolCallIds` names the frontend tool calls it left unanswered |
+| `RUN_ERROR` | Agent run failed, with the `usage` of the model calls it made before failing |
 
 ### Text Message Events
 
@@ -116,6 +121,16 @@ AG-UI defines events for the whole lifecycle of a run. The ones below are those 
 | `TEXT_MESSAGE_START` | New assistant message beginning |
 | `TEXT_MESSAGE_CONTENT` | A chunk of the message's text; the chunks of a message make up its text |
 | `TEXT_MESSAGE_END` | Assistant message complete |
+
+### Reasoning Events
+
+| Event | Description |
+|-------|-------------|
+| `REASONING_START` | A span of the model's reasoning begins |
+| `REASONING_MESSAGE_START` | A reasoning message begins, with role `reasoning` |
+| `REASONING_MESSAGE_CONTENT` | A chunk of the reasoning's text |
+| `REASONING_MESSAGE_END` | The reasoning message is complete |
+| `REASONING_END` | The span ends |
 
 ### Tool Call Events
 
@@ -131,6 +146,8 @@ AG-UI defines events for the whole lifecycle of a run. The ones below are those 
 | Event | Description |
 |-------|-------------|
 | `STATE_SNAPSHOT` | Full state snapshot |
+| `STATE_DELTA` | A change to the state, as an RFC 6902 JSON Patch against the state the client holds |
+| `MESSAGES_SNAPSHOT` | The conversation's history as the agent holds it. Emitted only with `WithMessagesSnapshot(true)` |
 
 ### Step Events
 
@@ -174,16 +191,19 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. For an `*sdk.Con
 | PromptKit Activity | AG-UI Event(s) |
 |--------------------|----------------|
 | Turn starts | `RUN_STARTED` |
-| State provider configured | `STATE_SNAPSHOT`, omitted if the provider returns an error |
+| State provider configured | `STATE_SNAPSHOT` of the state, omitted if the provider returns an error or no state |
 | Workflow conversation | `STEP_STARTED` naming the workflow state the run starts in |
+| The model reasons, on a conversation opened with `sdk.WithStreamReasoning` | `REASONING_START` → `REASONING_MESSAGE_START` → a `REASONING_MESSAGE_CONTENT` for each chunk of reasoning the model streams → `REASONING_MESSAGE_END` → `REASONING_END`, closed when the round's text or tool calls start |
 | Each assistant message in the turn | `TEXT_MESSAGE_START` → a `TEXT_MESSAGE_CONTENT` for each chunk of text the model streams → `TEXT_MESSAGE_END` |
 | Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` (when the call has arguments) → `TOOL_CALL_END`, once the round's reply has streamed |
-| Each result of a tool the agent ran | `TOOL_CALL_RESULT` carrying what the tool returned |
+| Each result of a tool the agent ran | `TOOL_CALL_RESULT` carrying what the tool returned, then `STATE_DELTA` when the state changed |
 | Workflow transition committed | `STEP_FINISHED` for the old state, `STEP_STARTED` for the new one |
 | `WithRuntimeEvents` set | `RAW` for each runtime event the conversation's event bus delivers while the run is open |
-| Turn completes | `STEP_FINISHED` for the open step, then `RUN_FINISHED` |
+| Reasoning that did not stream | The same reasoning events, carrying the round's reasoning whole: after the turn's text when the turn streamed, before the round's text when it did not |
+| Turn completes | `STATE_DELTA` when the state changed, `STEP_FINISHED` for the open step, `MESSAGES_SNAPSHOT` when `WithMessagesSnapshot(true)` is set, then `RUN_FINISHED` with the run's `usage` |
+| Turn left frontend tool calls unanswered | `RUN_FINISHED` with a `success` outcome whose `pendingToolCallIds` name them |
 | Turn held for tool approval | `RUN_FINISHED` with an `interrupt` outcome naming the held calls |
-| Error occurs | `TEXT_MESSAGE_END` for a message still streaming, then `RUN_ERROR` |
+| Error occurs | `TEXT_MESSAGE_END` for a message still streaming, then `RUN_ERROR` with the `usage` of the model calls made before the error |
 
 A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them:
 
@@ -209,6 +229,24 @@ When an output guardrail cuts a reply that has started to stream, the client has
 For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`. A workflow conversation does not stream: each turn runs to completion, then its messages are emitted, each message's text as one `TEXT_MESSAGE_CONTENT`. Each run then opens a step named after the workflow state it starts in and closes it before `RUN_FINISHED`; a turn that moves the workflow to another state finishes that step and starts one for the new state. `WithWorkflowSteps(false)` leaves the steps out.
 
 A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`""` for an empty string).
+
+### Reasoning
+
+A provider configured to return its reasoning (a Claude `thinking_budget`, Gemini's `include_thoughts`, OpenAI's `reasoning_summary`) gives each round of the turn a reasoning trace, and the run sends it as one reasoning span holding one reasoning message per round. On a conversation opened with `sdk.WithStreamReasoning()` it streams as the model produces it, ahead of the round's text. Without that option the stream carries no reasoning, and each round's reasoning is sent whole: after the turn's text when the turn streamed, so it never lands inside an open text message, or before the round's text when the conversation runs through `Send`.
+
+Only the reasoning's text is sent. Opaque reasoning, the signatures and encrypted or redacted blocks a provider needs back on the next call, stays in the conversation and is not sent as `REASONING_ENCRYPTED_VALUE`. `WithReasoning(false)` keeps the reasoning from the client whatever the provider returns.
+
+### State
+
+A `StateProvider` sends the state at the start of each run as `STATE_SNAPSHOT`. The adapter reads it again after each `TOOL_CALL_RESULT` and before the run finishes, and sends what changed as a `STATE_DELTA`: an RFC 6902 JSON Patch against the state the client holds, with one `add`, `remove` or `replace` per changed value. A change a patch cannot carry is sent as a new `STATE_SNAPSHOT`: one that replaces the whole state, or sets a value to `null`, which the AG-UI Go SDK cannot encode in an operation. A state that does not change sends nothing. `Snapshot` can be called while the turn's tools run, so it must be safe for concurrent use.
+
+### Usage
+
+`RUN_FINISHED` carries the token usage of every model call the run made, one entry per provider, labelled with the provider's id. The counts follow AG-UI's accounting: `inputTokens` includes cache reads and writes, `outputTokens` includes reasoning, and `cachedInputTokens`, `cacheWriteInputTokens` and `reasoningTokens` are parts of them, set only when the provider reported them. A run that resumes a turn reports only the calls it made. A run that fails reports the calls made before the failure on `RUN_ERROR`. Usage carries no cost; read `Response.Cost()` for that.
+
+### Messages Snapshot
+
+`WithMessagesSnapshot(true)` ends each run with a `MESSAGES_SNAPSHOT` restating the conversation's history as the agent holds it, for a client that reconnects, or one whose copy of the history drifted from the agent's (a guardrail that replaced a streamed reply, say). AG-UI reconciles a snapshot by message id and drops the client's messages that it does not name. PromptKit's messages carry no id, so each is keyed by the thread id and its position in the history (`thread-1-0`, `thread-1-1`, ...), and a later run's snapshot replaces the earlier one's messages in place. The messages streamed during the run had ids of their own, and the snapshot replaces them too. The history keeps no reasoning, so the snapshot restates the reasoning of the run's own turns, each as a reasoning message before the assistant message it led to; since AG-UI reads that as the complete set of reasoning messages, the client drops the reasoning of earlier runs. The snapshot is available for an `*sdk.Conversation`, which exposes its history.
 
 `WithRuntimeEvents` forwards the conversation's [runtime events](/architecture/runtime-events/) as `RAW` events, with the `events.Event` as the payload. Name event types to forward only those, such as `events.EventToolCallStarted`; with none, every event is forwarded. By default none are. The bus delivers asynchronously, so a `RAW` event is not ordered against the run's other events, and an event the bus delivers after `RUN_FINISHED` or `RUN_ERROR` is not sent. A bus shared by several conversations carries all of their events; filter on the payload's `SessionID` or `ConversationID`.
 
@@ -251,7 +289,7 @@ The integration in the [tutorial](/sdk/tutorials/11-ag-ui-integration/) uses eac
 | `tools` | Marked as client tools when the pack's prompt declares a tool of the same name |
 | `resume` | Approves or rejects the held calls before `RunContinue` |
 | `context` | Not passed to the model. If the prompt template declares a variable for it, set it with `conv.SetVar` before the run |
-| `state` | Not read. A `StateProvider` sends the server's state at the start of each run |
+| `state` | Not read. A `StateProvider` sends the server's state at the start of each run, and its changes as `STATE_DELTA` |
 | `forwardedProps` | Left to the application: read it in the handler |
 
 ### Delivery
@@ -264,9 +302,10 @@ Read `Events()` while the run is in progress, from another goroutine. Once its b
 
 - Stream every run. `RunSend` and `RunResume` stream an `*sdk.Conversation`'s turn. A workflow conversation's turn, a `RunContinue` run and the turn a `ToolResultProvider` resumes inside a run are emitted once they have run, each message's text as one `TEXT_MESSAGE_CONTENT`.
 - Order runtime events against the run's messages, tool calls and steps. Those come from the turn itself, which keeps them ordered.
-- Emit `STATE_DELTA`, `MESSAGES_SNAPSHOT`, or reasoning events.
-- Name pending calls on `RUN_FINISHED`. A run that ends with a frontend tool call unanswered finishes without an outcome, which means success; a consumer finds the pending calls as the calls that received no `TOOL_CALL_RESULT`.
-- Keep message ids stable. The converters mint a new id each time they convert a message.
+- Send `protocolVersion` on `RUN_STARTED`: the AG-UI Go SDK has no field for it.
+- Send `REASONING_ENCRYPTED_VALUE`, activity or subagent events.
+- Label usage with a model, or report its cost.
+- Keep message ids stable across runs, except in a `MESSAGES_SNAPSHOT`. The converters mint a new id each time they convert a message.
 - Read the whole history from the input. A PromptKit conversation keeps its own history, so the integration in the [tutorial](/sdk/tutorials/11-ag-ui-integration/) passes only the new input to it. History a client edits or replaces is not reflected.
 
 ---
