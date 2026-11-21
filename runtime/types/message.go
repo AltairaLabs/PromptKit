@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Message represents a single message in a conversation.
@@ -134,6 +136,38 @@ const (
 // Message.Metadata. It is stored with the message and carried on its
 // message.created event, and never sent to a provider.
 const MetaMessageMetadata = "message_metadata"
+
+// MetaMessageID is the Message.Meta key holding the message's stable id: a
+// string the runtime assigns when it first stores the message (see
+// EnsureMessageID), kept with the message in every state store, so the
+// message reads back under the same id however often the history is loaded.
+// A message stored before ids were assigned has none; ID returns "" for it.
+const MetaMessageID = "_message_id"
+
+// ID returns the message's stable id (MetaMessageID), or "" when it has none.
+func (m *Message) ID() string {
+	if m == nil {
+		return ""
+	}
+	id, _ := m.Meta[MetaMessageID].(string)
+	return id
+}
+
+// EnsureMessageID returns msg carrying a stable id: msg itself when it has one
+// (ID), otherwise a copy with a new, random id under MetaMessageID. The copy
+// gets its own Meta map, so the id never reaches another holder of msg's Meta.
+func EnsureMessageID(msg Message) Message {
+	if msg.ID() != "" {
+		return msg
+	}
+	meta := make(map[string]interface{}, len(msg.Meta)+1)
+	for k, v := range msg.Meta {
+		meta[k] = v
+	}
+	meta[MetaMessageID] = "msg_" + uuid.NewString()
+	msg.Meta = meta
+	return msg
+}
 
 // Metadata returns a copy of the metadata an application attached to the
 // message (see MetaMessageMetadata), or nil when there is none. The copy is

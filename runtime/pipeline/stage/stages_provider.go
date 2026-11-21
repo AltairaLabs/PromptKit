@@ -1965,6 +1965,7 @@ func (tl *toolLoop) preSeedLog(ctx context.Context) {
 	if len(history) == 0 {
 		return
 	}
+	stampMessageIDs(history)
 	newTotal, err := cfg.MessageLog.LogAppend(ctx, cfg.MessageLogConvID, 0, history)
 	if err != nil {
 		logger.Warn("message log pre-seed failed", "error", err)
@@ -1977,6 +1978,15 @@ func (tl *toolLoop) preSeedLog(ctx context.Context) {
 	// messages in subsequent persistMessages calls.
 	if newTotal > tl.lastPersistedSeq {
 		tl.lastPersistedSeq = newTotal
+	}
+}
+
+// stampMessageIDs gives each message without a stable id one, in place, before
+// the MessageLog stores it: the turn's messages carry on from here, so the id
+// the log holds is the id the turn reports.
+func stampMessageIDs(msgs []types.Message) {
+	for i := range msgs {
+		msgs[i] = types.EnsureMessageID(msgs[i])
 	}
 }
 
@@ -1995,6 +2005,7 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	if len(newMsgs) == 0 {
 		return
 	}
+	stampMessageIDs(newMsgs)
 	newTotal, err := cfg.MessageLog.LogAppend(ctx, cfg.MessageLogConvID, tl.lastPersistedSeq, newMsgs)
 	if err != nil {
 		logger.Warn("message log append failed", "round", round, "error", err)

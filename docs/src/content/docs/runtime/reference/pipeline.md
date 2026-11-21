@@ -821,7 +821,7 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="IsTranscriptMessage"></a>
-## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L260>)
+## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L265>)
 
 ```go
 func IsTranscriptMessage(elem *StreamElement) bool
@@ -6171,7 +6171,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3112>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3123>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement

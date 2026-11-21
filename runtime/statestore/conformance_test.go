@@ -450,3 +450,34 @@ func TestStoreConformance_MessagesKeepEveryField(t *testing.T) {
 		assert.Equal(t, want, recent, "AppendMessages then LoadRecentMessages")
 	})
 }
+
+// A message's stable id (types.MetaMessageID) reads back unchanged from every
+// write path of every store: an AG-UI snapshot keys the message by it.
+func TestStoreConformance_MessageIDsPersist(t *testing.T) {
+	withID := func(role, content, id string) types.Message {
+		return types.Message{Role: role, Content: content, Meta: map[string]interface{}{types.MetaMessageID: id}}
+	}
+	ids := func(msgs []types.Message) []string {
+		out := make([]string, len(msgs))
+		for i := range msgs {
+			out[i] = msgs[i].ID()
+		}
+		return out
+	}
+	eachStore(t, func(t *testing.T, s fullStore) {
+		ctx := context.Background()
+		require.NoError(t, s.Save(ctx, &statestore.ConversationState{
+			ID: "saved", Messages: []types.Message{withID("user", "a", "id-a")},
+		}))
+		require.NoError(t, s.AppendMessages(ctx, "saved", []types.Message{withID("assistant", "b", "id-b")}))
+		_, err := s.LogAppend(ctx, "saved", 2, []types.Message{withID("user", "c", "id-c")})
+		require.NoError(t, err)
+
+		state, err := s.Load(ctx, "saved")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"id-a", "id-b", "id-c"}, ids(state.Messages), "Load")
+		logged, err := s.LogLoad(ctx, "saved", 0)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"id-a", "id-b", "id-c"}, ids(logged), "LogLoad")
+	})
+}

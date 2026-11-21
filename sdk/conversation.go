@@ -139,6 +139,9 @@ type Conversation struct {
 	clientHandlers   map[string]ClientToolHandler
 	clientHandlersMu sync.RWMutex
 
+	// frontend holds the client tools offered at runtime (OfferClientTools).
+	frontend frontendTools
+
 	// Async tool handlers for HITL
 	asyncHandlers map[string]sdktools.AsyncToolCheck
 	// approvalExecs run a held call once it is approved: the execution
@@ -555,7 +558,16 @@ func (c *Conversation) preloadedSkillInstructions() string {
 // admits none (#2326). Read per build, not fixed at registration, because a
 // transition the model makes mid-turn changes the filter between rounds.
 func (c *Conversation) describeTool(d *tools.ToolDescriptor) *tools.ToolDescriptor {
-	if d == nil || d.Name != skills.SkillActivateTool {
+	if d == nil {
+		return nil
+	}
+	// A client tool offered at runtime is described as this conversation
+	// offered it: a host registry shared by several conversations holds one
+	// descriptor per name, perhaps another conversation's.
+	if own := c.frontend.describe(d.Name); own != nil {
+		return own
+	}
+	if d.Name != skills.SkillActivateTool {
 		return d
 	}
 	sc := c.skillsCapability()
@@ -789,7 +801,7 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionStrategy:    c.config.compactionStrategy,
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
-		ToolGrants:            c.skillToolGrants,
+		ToolGrants:            c.toolGrants,
 		DescribeTool:          c.describeTool,
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalGate:          c.newApprovalGate(),
@@ -1768,6 +1780,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	if c.config != nil {
 		fork.sessionHooks.caller = c.config.caller
 	}
+	c.frontend.copyTo(&fork.frontend, forkRegistry)
 	// A fork gets its own active skills and memory scope: what it activates
 	// must not reach the conversation it was forked from, and vice versa.
 	fork.initConversationState()

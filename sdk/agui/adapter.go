@@ -138,6 +138,15 @@ type adapterConfig struct {
 	// messagesSnapshot ends each run with a MESSAGES_SNAPSHOT of the
 	// conversation (WithMessagesSnapshot).
 	messagesSnapshot bool
+	// clientHistory replaces the conversation's history before RunSend sends
+	// (WithClientHistory), when clientHistorySet.
+	clientHistory    []aguitypes.Message
+	clientHistorySet bool
+	// inputContext opens RunSend's message as a context block
+	// (WithInputContext).
+	inputContext []aguitypes.Context
+	// frontendTools are offered to the model for the run (WithFrontendTools).
+	frontendTools []aguitypes.Tool
 }
 
 // rawEventSource is the RAW event source naming PromptKit's runtime events.
@@ -261,13 +270,15 @@ func WithReasoning(enabled bool) AdapterOption {
 // holds it: for a client reconnecting to the thread, or one whose copy has
 // drifted from the agent's. Off by default.
 //
-// The client replaces its messages with the snapshot's. PromptKit's messages
-// carry no id, so each is keyed by the thread id and its position in the
-// history ("<thread>-0", "<thread>-1", ...), which a later run's snapshot
-// gives it again; the messages the run streamed under ids of their own are
-// replaced too. The ids are stable across runs only when the thread id is: set
-// it with [WithThreadID] from the input's threadId, or each run's adapter
-// generates a new one. The history keeps no reasoning: with [WithReasoning]
+// The client replaces its messages with the snapshot's. Each message is keyed
+// by its stable id (types.MetaMessageID), which a later run's snapshot gives
+// it again: the id the client gave it, for a message that came from the
+// client, or the one the conversation gave it when storing it. A message
+// stored before ids were assigned is keyed by the thread id and its position
+// in the history ("<thread>-0", "<thread>-1", ...), stable across runs only
+// when the thread id is: set it with [WithThreadID] from the input's
+// threadId. The messages the run streamed under ids of their own are replaced
+// too. The history keeps no reasoning: with [WithReasoning]
 // on, the snapshot restates the reasoning of the run's own turns, as reasoning
 // messages before the assistant messages they led to, which AG-UI reads as
 // the complete set of reasoning messages. A run whose history reads back
@@ -409,6 +420,11 @@ func (a *EventAdapter) RunID() string {
 // replaces it, is sent as a new text message holding the reply: the client has
 // already shown the streamed text, which AG-UI cannot take back.
 //
+// Before the model is called, the run offers the input's frontend tools
+// ([WithFrontendTools]), replaces the conversation's history with the
+// client's ([WithClientHistory]) and opens msg with the input's context
+// ([WithInputContext]), each only when its option is set.
+//
 // On error, a RUN_ERROR ends the run, with the token usage of the model calls
 // made before the error. The events channel is always closed when RunSend
 // returns.
@@ -418,10 +434,14 @@ func (a *EventAdapter) RunID() string {
 // lets the run finish before reading blocks there.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	return a.run(ctx, false, func(ctx context.Context, st *runState) (*sdk.Response, error) {
-		if s, ok := a.sender.(streamer); ok {
-			return st.consume(s.Stream(ctx, msg))
+		if err := a.replaceHistory(ctx); err != nil {
+			return nil, err
 		}
-		return a.sender.Send(ctx, msg)
+		sent := a.withInputContext(msg)
+		if s, ok := a.sender.(streamer); ok {
+			return st.consume(s.Stream(ctx, sent))
+		}
+		return a.sender.Send(ctx, sent)
 	})
 }
 
@@ -517,6 +537,13 @@ func (a *EventAdapter) run(
 	defer st.runtime.stop()
 	st.syncState()
 	st.syncStep()
+
+	withdraw, err := a.offerFrontendTools()
+	if err != nil {
+		st.finish(st.runError(err))
+		return err
+	}
+	defer withdraw()
 
 	resp, err := start(ctx, st)
 	if err != nil {
