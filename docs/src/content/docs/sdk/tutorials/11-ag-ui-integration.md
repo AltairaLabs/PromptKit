@@ -103,7 +103,7 @@ The same thread ID now returns the same conversation, which keeps the thread's h
 	agui.WithFrontendTools(input.Tools),
 ```
 
-The tools are offered only while the run lasts, so each run passes its own input's tools. A tool named like one the pack declares fails the run, so a client cannot replace a server tool with its own; [Frontend tools](/concepts/ag-ui/#frontend-tools) covers the rules.
+The tools are offered for the turn the run starts, so each run passes its own input's tools. A tool named like one the pack declares fails the run, so a client cannot replace a server tool with its own; [Frontend tools](/concepts/ag-ui/#frontend-tools) covers the rules.
 
 ## Step 4: Choose the run
 

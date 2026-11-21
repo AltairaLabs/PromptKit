@@ -1,29 +1,15 @@
 package agui
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
-
-// historyReplacer is implemented by conversations whose history can be
-// replaced (*sdk.Conversation does).
-type historyReplacer interface {
-	ReplaceHistory(ctx context.Context, msgs []types.Message) error
-}
-
-// clientToolOfferer is implemented by conversations that offer the model
-// client tools at runtime (*sdk.Conversation does).
-type clientToolOfferer interface {
-	OfferClientTools(descs []*tools.ToolDescriptor) error
-}
 
 var (
 	errHistoryUnsupported = errors.New("agui: the conversation cannot replace its history (WithClientHistory)")
@@ -57,14 +43,25 @@ const contextBlockFooter = "\n</context>"
 // messages are dropped too, so reasoning the conversation did not produce is
 // never replayed to the provider.
 //
-// The messages keep their AG-UI ids (types.MetaMessageID), so a
+// The conversation's own copy of a message wins over the client's (see
+// sdk.Conversation.ReplaceHistory): a message it holds, by id, by position
+// while the client repeats the stored history, or as one it keeps out of
+// model context, is taken as stored, with its metadata, its provider's
+// tool-call metadata and its media. A turn an input guardrail blocked and an
+// interrupted reply stay out of model context however the client echoes
+// them. A message the conversation does not hold is new, and is the client's
+// to write: input guardrails judge only the run's new message, never one the
+// client adds to its history.
+//
+// New messages keep their AG-UI ids (types.MetaMessageID), so a
 // MESSAGES_SNAPSHOT names them as the client does. A history the
 // conversation refuses (a tool result answering no call, a call left without
-// a result; see sdk.Conversation.ReplaceHistory) fails the run with
-// RUN_ERROR, before the model is called. It needs a conversation whose
-// history can be replaced (*sdk.Conversation); for any other, RunSend fails.
-// RunResume and RunContinue continue the turn the conversation suspended and
-// do not read it.
+// a result, a history over the size limits) fails the run with RUN_ERROR,
+// before the model is called. The history is replaced inside the run's turn
+// (sdk.WithHistory), so no other turn on the conversation runs between the
+// replacement and the turn. It needs an *sdk.Conversation; for any other
+// conversation, RunSend fails. RunResume and RunContinue continue the turn
+// the conversation suspended and do not read it.
 func WithClientHistory(history []aguitypes.Message) AdapterOption {
 	return func(c *adapterConfig) {
 		c.clientHistory = history
@@ -81,21 +78,23 @@ func WithClientHistory(history []aguitypes.Message) AdapterOption {
 // <context> and </context>. JSON encoding escapes "<" and ">", so a value
 // cannot close the block early. The context is part of the user's turn, never
 // of the system prompt: the client supplies it, and it carries no more
-// authority than the user's own words. The block is stored with the message,
-// so later turns see the context the message was sent with; MessageToAGUI and
-// MESSAGES_SNAPSHOT give the message back without it. No entries, or a run
-// other than RunSend, adds nothing.
+// authority than the user's own words. Everything that reads the user's
+// message reads the block as part of it: input guardrails, evals, skill and
+// tool selectors, memory extraction, retrieval, and the message size limit.
+// The block is stored with the message, so later turns see the context the
+// message was sent with; MessageToAGUI and MESSAGES_SNAPSHOT give the message
+// back without it. No entries, or a run other than RunSend, adds nothing.
 func WithInputContext(entries []aguitypes.Context) AdapterOption {
 	return func(c *adapterConfig) {
 		c.inputContext = entries
 	}
 }
 
-// WithFrontendTools sets the RunAgentInput.tools the run offers the model, for
-// the run's turn, as client tools: a call to one ends the run with the call
-// pending (pendingToolCallIds on RUN_FINISHED) for the application to execute
-// and answer in the next run (RunResume). By default, and with no tools, only
-// the tools the pack's prompt declares are offered.
+// WithFrontendTools sets the RunAgentInput.tools RunSend offers the model,
+// for the turn it starts, as client tools: a call to one ends the run with
+// the call pending (pendingToolCallIds on RUN_FINISHED) for the application to
+// execute and answer in the next run (RunResume). By default, and with no
+// tools, only the tools the pack's prompt declares are offered.
 //
 // The model sees each tool's name, description and parameters as the client
 // sent them. A tool named like a tool the conversation already has (one the
@@ -103,41 +102,74 @@ func WithInputContext(entries []aguitypes.Context) AdapterOption {
 // workflow__) is refused: the run fails with RUN_ERROR before the model is
 // called, so a client cannot shadow a server tool. To let the application
 // execute a client tool the pack declares, bind it with
-// sdk.Conversation.DeferClientTool and leave it out of these tools. The tools
-// are offered while the run lasts (sdk.Conversation.OfferClientTools), and
-// the next run offers its own input's tools: pass the option on every run of
-// the thread. It needs a conversation that offers client tools
-// (*sdk.Conversation); for any other, the run fails.
+// sdk.Conversation.DeferClientTool and leave it out of these tools.
+//
+// The tools are the turn's own (sdk.WithClientTools): a RunResume or
+// RunContinue of the turn offers them still, whatever its own options, and
+// the next RunSend offers its own input's tools, so pass the option on every
+// RunSend of the thread. Two runs on one conversation never offer each
+// other's tools. Each tool is registered on the conversation's own tool
+// registry, never on a shared host registry, and a call's arguments are
+// checked against the client's schema. A ToolResultProvider is never asked
+// to answer a call to one of them. It needs an *sdk.Conversation; for any
+// other conversation, RunSend fails.
 func WithFrontendTools(frontend []aguitypes.Tool) AdapterOption {
 	return func(c *adapterConfig) {
 		c.frontendTools = frontend
 	}
 }
 
-// replaceHistory replaces the conversation's history with the client's
-// (WithClientHistory), without its system, developer and reasoning messages.
-func (a *EventAdapter) replaceHistory(ctx context.Context) error {
-	if !a.cfg.clientHistorySet {
-		return nil
+// runInputOptions are the send options RunSend passes for the run's input:
+// the client's history (WithClientHistory), without its system, developer and
+// reasoning messages, and the frontend tools (WithFrontendTools), each applied
+// by the conversation inside the turn, so no other turn runs between the
+// history's replacement and the turn, and the tools are the turn's own. Both
+// need an *sdk.Conversation.
+func (a *EventAdapter) runInputOptions() ([]sdk.SendOption, error) {
+	var opts []sdk.SendOption
+	_, isConv := a.sender.(*sdk.Conversation)
+	if a.cfg.clientHistorySet {
+		if !isConv {
+			return nil, errHistoryUnsupported
+		}
+		opts = append(opts, sdk.WithHistory(MessagesFromAGUI(trustedHistory(a.cfg.clientHistory))))
 	}
-	hr, ok := a.sender.(historyReplacer)
-	if !ok {
-		return errHistoryUnsupported
+	if len(a.cfg.frontendTools) > 0 {
+		if !isConv {
+			return nil, errToolsUnsupported
+		}
+		opts = append(opts, sdk.WithClientTools(ToolsFromAGUI(a.cfg.frontendTools)...))
 	}
-	kept := make([]aguitypes.Message, 0, len(a.cfg.clientHistory))
+	return opts, nil
+}
+
+// trustedHistory is the client's history without the messages it may not
+// contribute.
+func trustedHistory(history []aguitypes.Message) []aguitypes.Message {
+	kept := make([]aguitypes.Message, 0, len(history))
 	dropped := 0
-	for i := range a.cfg.clientHistory {
-		if untrustedHistoryRole(a.cfg.clientHistory[i].Role) {
+	for i := range history {
+		if untrustedHistoryRole(history[i].Role) {
 			dropped++
 			continue
 		}
-		kept = append(kept, a.cfg.clientHistory[i])
+		kept = append(kept, history[i])
 	}
 	if dropped > 0 {
 		logger.Warn("AG-UI: dropped client history messages the model is not given",
 			"count", dropped, "reason", "system, developer and reasoning messages are not accepted from the client")
 	}
-	return hr.ReplaceHistory(ctx, MessagesFromAGUI(kept))
+	return kept
+}
+
+// isFrontendTool reports whether name is one of the run's frontend tools.
+func (a *EventAdapter) isFrontendTool(name string) bool {
+	for i := range a.cfg.frontendTools {
+		if a.cfg.frontendTools[i].Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // untrustedHistoryRole reports whether a client history message of role is
@@ -145,22 +177,6 @@ func (a *EventAdapter) replaceHistory(ctx context.Context) error {
 // reasoning the conversation did not produce is not replayed.
 func untrustedHistoryRole(role aguitypes.Role) bool {
 	return role == aguitypes.RoleSystem || role == aguitypes.RoleDeveloper || role == aguitypes.RoleReasoning
-}
-
-// offerFrontendTools offers the run's frontend tools (WithFrontendTools). The
-// returned func withdraws them when the run ends.
-func (a *EventAdapter) offerFrontendTools() (func(), error) {
-	if len(a.cfg.frontendTools) == 0 {
-		return func() {}, nil
-	}
-	o, ok := a.sender.(clientToolOfferer)
-	if !ok {
-		return nil, errToolsUnsupported
-	}
-	if err := o.OfferClientTools(ToolsFromAGUI(a.cfg.frontendTools)); err != nil {
-		return nil, fmt.Errorf("agui: frontend tools: %w", err)
-	}
-	return func() { _ = o.OfferClientTools(nil) }, nil
 }
 
 // withInputContext returns msg opening with the run's context block
@@ -177,7 +193,9 @@ func (a *EventAdapter) withInputContext(msg *types.Message) *types.Message {
 		cp.Parts = append(cp.Parts, types.NewTextPart(msg.Content))
 	}
 	cp.Parts = append(cp.Parts, msg.Parts...)
-	cp.Content = ""
+	if len(msg.Parts) == 0 {
+		cp.Content = "" // now the second part
+	}
 	cp.Meta = make(map[string]interface{}, len(msg.Meta)+1)
 	for k, v := range msg.Meta {
 		cp.Meta[k] = v

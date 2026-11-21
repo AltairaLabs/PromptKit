@@ -92,6 +92,10 @@ type Registry struct {
 	// names this registry does not hold; registration never writes to it. Set
 	// once at construction and read-only thereafter, so it needs no lock.
 	parent *Registry
+	// local holds the descriptors registered with RegisterLocal: this
+	// registry's own, never a parent's, and resolved only after the parent
+	// chain's (see lookupTool).
+	local map[string]*ToolDescriptor
 }
 
 // NewRegistry creates an empty tool registry.
@@ -160,6 +164,7 @@ func (r *Registry) Fork() *Registry {
 		defaultTimeoutMs:  r.defaultTimeoutMs,
 		maxToolResultSize: r.maxToolResultSize,
 		rateLimiter:       r.rateLimiter,
+		local:             maps.Clone(r.local),
 	}
 }
 

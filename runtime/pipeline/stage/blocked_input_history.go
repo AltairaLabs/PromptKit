@@ -169,6 +169,25 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message {
 	return withoutMasked(withoutInterrupted(msgs))
 }
 
+// ModelContextMask reports, for each message of msgs, whether
+// ExcludeFromModelContext leaves it out: an interrupted reply, or a message of
+// a blocked input turn. It returns nil when it leaves none out. A host that
+// rebuilds a history from another copy of it uses the mask to keep what the
+// transcript holds out of model context out of it still.
+func ModelContextMask(msgs []types.Message) []bool {
+	mask := blockedInputTurns(msgs)
+	for i := range msgs {
+		if !msgs[i].IsInterrupted() {
+			continue
+		}
+		if mask == nil {
+			mask = make([]bool, len(msgs))
+		}
+		mask[i] = true
+	}
+	return mask
+}
+
 // withoutInterrupted returns msgs without interrupted replies, and the
 // blocked input turns of what is left as a mask aligned with it (nil when
 // there are none).

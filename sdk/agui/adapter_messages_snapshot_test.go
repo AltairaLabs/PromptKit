@@ -324,3 +324,22 @@ func TestRunSend_NoMessagesSnapshotWhenTheStoreFails(t *testing.T) {
 	assert.Equal(t, "RUN_FINISHED", describeRun(evts)[len(evts)-1])
 	assert.Nil(t, conv.Messages(context.Background()), "the history read fails")
 }
+
+// A positional id that a client's own id already took gets a suffix, so no
+// two snapshot messages share an id.
+func TestRunSend_MessagesSnapshotPositionalIDNeverCollides(t *testing.T) {
+	withID := func(m types.Message, id string) types.Message {
+		m.Meta = map[string]interface{}{types.MetaMessageID: id}
+		return m
+	}
+	history := []types.Message{withID(types.NewUserMessage("mine"), "th-1"), assistantMsg("Old.")}
+	sender := &historySender{mockSender: mockSender{resp: sdk.NewResponseForTest("Old.", nil)}, history: history}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{},
+		WithThreadID("th"), WithMessagesSnapshot(true)), "mine")
+	require.NoError(t, err)
+	assert.Equal(t, []map[string]any{
+		{"id": "th-1", "role": "user", "content": "mine"},
+		{"id": "th-1-2", "role": "assistant", "content": "Old."},
+	}, snapshotJSON(t, evts))
+}

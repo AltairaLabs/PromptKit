@@ -217,7 +217,8 @@ func WithWorkflowSteps(enabled bool) AdapterOption {
 //
 // Use it only for tools the server itself can answer. A frontend tool, one the
 // application advertised in RunAgentInput.tools, must not be answered by the
-// producer.
+// producer: a call to a tool listed in [WithFrontendTools] is never handed to
+// the callback, and the run ends with it pending.
 func WithToolResultProvider(provider ToolResultProvider) AdapterOption {
 	return func(c *adapterConfig) {
 		c.toolResultProvider = provider
@@ -434,14 +435,15 @@ func (a *EventAdapter) RunID() string {
 // lets the run finish before reading blocks there.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	return a.run(ctx, false, func(ctx context.Context, st *runState) (*sdk.Response, error) {
-		if err := a.replaceHistory(ctx); err != nil {
+		opts, err := a.runInputOptions()
+		if err != nil {
 			return nil, err
 		}
 		sent := a.withInputContext(msg)
 		if s, ok := a.sender.(streamer); ok {
-			return st.consume(s.Stream(ctx, sent))
+			return st.consume(s.Stream(ctx, sent, opts...))
 		}
-		return a.sender.Send(ctx, sent)
+		return a.sender.Send(ctx, sent, opts...)
 	})
 }
 
@@ -537,13 +539,6 @@ func (a *EventAdapter) run(
 	defer st.runtime.stop()
 	st.syncState()
 	st.syncStep()
-
-	withdraw, err := a.offerFrontendTools()
-	if err != nil {
-		st.finish(st.runError(err))
-		return err
-	}
-	defer withdraw()
 
 	resp, err := start(ctx, st)
 	if err != nil {
@@ -928,9 +923,22 @@ func describeMedia(parts []types.ContentPart) string {
 // and resolves them. When every call is answered it resumes the turn and
 // returns the resumed response; otherwise it returns nil, leaving the rest
 // for the application to answer in the next run.
+//
+// A call to one of the run's frontend tools (WithFrontendTools) is never given
+// to the provider: the application executes it, and answers it in the next
+// run, so the run ends with it pending.
 func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Response, error) {
 	a := st.a
-	results, err := a.cfg.toolResultProvider(st.ctx, pending)
+	serverSide := make([]sdk.PendingClientTool, 0, len(pending))
+	for i := range pending {
+		if !a.isFrontendTool(pending[i].ToolName) {
+			serverSide = append(serverSide, pending[i])
+		}
+	}
+	if len(serverSide) == 0 {
+		return nil, nil
+	}
+	results, err := a.cfg.toolResultProvider(st.ctx, serverSide)
 	if err != nil {
 		return nil, err
 	}

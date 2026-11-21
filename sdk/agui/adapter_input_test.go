@@ -3,16 +3,20 @@ package agui
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 
+	aguievents "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	aguitypes "github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
 // These drive RunSend and RunResume with the RunAgentInput options over real
@@ -402,4 +406,132 @@ func TestRunSend_InputContextBeforeAMessageOfParts(t *testing.T) {
 	moved := types.Message{Role: "user", Parts: []types.ContentPart{types.NewTextPart(block), types.NewTextPart("x")},
 		Meta: map[string]interface{}{metaContextBlock: "another block"}}
 	assert.Equal(t, block+"x", MessageToAGUI(&moved).Content)
+}
+
+// A ToolResultProvider answers only the server's client tools: a frontend
+// tool call is never handed to it, and the run ends with that call pending,
+// after reporting the provider's answer to the other.
+func TestRunSend_ToolResultProviderNeverAnswersAFrontendTool(t *testing.T) {
+	provider := newInputRecorder(say("", call("call-1", "get_location", `{}`), call("call-2", "confirm_order", `{"id":"42"}`)))
+	conv := openConv(t, provider)
+	bindClientTool(t, conv, "get_location")
+	var asked [][]string
+	answer := func(_ context.Context, pending []sdk.PendingClientTool) ([]ToolResult, error) {
+		var names []string
+		var results []ToolResult
+		for _, p := range pending {
+			names = append(names, p.ToolName)
+			results = append(results, ToolResult{CallID: p.CallID, Result: "Paris"})
+		}
+		asked = append(asked, names)
+		return results, nil
+	}
+	a := NewEventAdapter(conv, WithFrontendTools([]aguitypes.Tool{confirmTool}), WithToolResultProvider(answer))
+	evts, err := sendAndCollect(t, a, "where am I, and confirm 42")
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]string{{"get_location"}}, asked, "the provider is asked only for the server's tool")
+	run := describeRun(evts)
+	assert.Contains(t, run, "TOOL_CALL_RESULT call-1 Paris")
+	assert.Equal(t, "RUN_FINISHED success pending=call-2", run[len(run)-1])
+	assert.Len(t, provider.recorded(), 1, "the turn waits for the frontend tool")
+}
+
+// Only frontend tool calls pending: the provider is not called at all.
+func TestRunSend_ToolResultProviderNotCalledForFrontendToolsAlone(t *testing.T) {
+	provider := newInputRecorder(say("", call("call-2", "confirm_order", `{"id":"42"}`)))
+	conv := openConv(t, provider)
+	called := false
+	a := NewEventAdapter(conv, WithFrontendTools([]aguitypes.Tool{confirmTool}),
+		WithToolResultProvider(func(context.Context, []sdk.PendingClientTool) ([]ToolResult, error) {
+			called = true
+			return nil, nil
+		}))
+	evts, err := sendAndCollect(t, a, "confirm 42")
+	require.NoError(t, err)
+	assert.False(t, called)
+	assert.Equal(t, "RUN_FINISHED success pending=call-2", describeRun(evts)[len(evts)-1])
+}
+
+// Two runs on one conversation at once each offer the model only their own
+// frontend tools.
+func TestRunSend_OverlappingRunsOfferTheirOwnFrontendTools(t *testing.T) {
+	provider := newInputRecorder(say("One."), say("Two."))
+	conv := openConv(t, provider)
+	var wg sync.WaitGroup
+	for _, name := range []string{"first_tool", "second_tool"} {
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			a := NewEventAdapter(conv, WithFrontendTools([]aguitypes.Tool{{Name: name}}))
+			_, err := sendAndCollect(t, a, name)
+			assert.NoError(t, err)
+		}(name)
+	}
+	wg.Wait()
+	calls := provider.recorded()
+	require.Len(t, calls, 2)
+	for _, c := range calls {
+		user := c.messages[len(c.messages)-1].GetContent()
+		assert.ElementsMatch(t, []string{user, "get_location", "lookup", "send_message"}, c.toolNames(), user)
+	}
+}
+
+// brunoHook blocks a turn whose latest message mentions Bruno, as an input
+// guardrail does.
+type brunoHook struct{}
+
+func (brunoHook) Name() string { return "bruno" }
+
+func (brunoHook) BeforeCall(_ context.Context, req *hooks.ProviderRequest) hooks.Decision {
+	if n := len(req.Messages); n > 0 && strings.Contains(req.Messages[n-1].GetContent(), "Bruno") {
+		req.Replacement = "We don't talk about Bruno."
+		return hooks.Enforced("mentions Bruno", nil)
+	}
+	return hooks.Allow
+}
+
+func (brunoHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
+	return hooks.Allow
+}
+
+// A turn the input guardrail blocked stays out of model context when the
+// client echoes it back in its history, with the ids it knows (its own for
+// the user message, the streamed one for the canned reply).
+func TestRunSend_ClientHistoryKeepsABlockedTurnOut(t *testing.T) {
+	provider := newInputRecorder(say("Next."))
+	conv := openConv(t, provider, sdk.WithProviderHook(brunoHook{}))
+	blocked := MessageFromAGUI(&aguitypes.Message{ID: "u-1", Role: aguitypes.RoleUser, Content: "tell me about Bruno"})
+	first := NewEventAdapter(conv)
+	evts, err := runAndCollect(t, first, func(ctx context.Context) error { return first.RunSend(ctx, &blocked) })
+	require.NoError(t, err)
+	starts := eventsOf[*aguievents.TextMessageStartEvent](evts)
+	require.Len(t, starts, 1)
+
+	history := []aguitypes.Message{
+		{ID: "u-1", Role: aguitypes.RoleUser, Content: "tell me about Bruno"},
+		{ID: starts[0].MessageID, Role: aguitypes.RoleAssistant, Content: "We don't talk about Bruno."},
+	}
+	next := MessageFromAGUI(&aguitypes.Message{ID: "u-2", Role: aguitypes.RoleUser, Content: "what about the weather?"})
+	second := NewEventAdapter(conv, WithClientHistory(history))
+	_, err = runAndCollect(t, second, func(ctx context.Context) error { return second.RunSend(ctx, &next) })
+	require.NoError(t, err)
+
+	calls := provider.recorded()
+	require.Len(t, calls, 1, "the blocked turn never called the model")
+	assert.Equal(t, []string{"user: what about the weather?"}, onTheWire(calls[0].messages))
+}
+
+// A message with both parts and legacy content keeps its content when the
+// context block is added: only the parts change.
+func TestRunSend_InputContextKeepsContentBesideParts(t *testing.T) {
+	provider := newInputRecorder(say("Ok."))
+	conv := openConv(t, provider)
+	msg := &types.Message{Role: "user", Content: "legacy", Parts: []types.ContentPart{types.NewTextPart("look")}}
+	a := NewEventAdapter(conv, WithInputContext([]aguitypes.Context{{Description: "d", Value: "v"}}))
+	_, err := runAndCollect(t, a, func(ctx context.Context) error { return a.RunSend(ctx, msg) })
+	require.NoError(t, err)
+	stored := conv.Messages(context.Background())
+	assert.Equal(t, "legacy", stored[0].Content)
+	assert.Equal(t, "look", MessageToAGUI(&stored[0]).Content)
 }

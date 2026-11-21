@@ -205,7 +205,7 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		c.mu.RUnlock()
 
 		// Build user message with options
-		userMsg, sendCfg, err := c.buildStreamMessage(message, opts)
+		userMsg, sendCfg, err := c.startStreamTurn(ctx, message, opts)
 		if err != nil {
 			select {
 			case ch <- StreamChunk{Error: err}:
@@ -228,6 +228,21 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 	}()
 
 	return ch
+}
+
+// startStreamTurn builds the stream's user message and applies its
+// WithHistory and WithClientTools, as Send does.
+func (c *Conversation) startStreamTurn(
+	ctx context.Context, message any, opts []SendOption,
+) (*types.Message, *sendConfig, error) {
+	userMsg, sendCfg, err := c.buildStreamMessage(message, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := c.startTurnInput(ctx, sendCfg); err != nil {
+		return nil, nil, err
+	}
+	return userMsg, sendCfg, nil
 }
 
 // buildStreamMessage constructs a user message from input and options. It
