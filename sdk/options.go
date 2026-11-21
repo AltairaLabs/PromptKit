@@ -1744,12 +1744,14 @@ func WithStreamReasoning() Option {
 	}
 }
 
-// WithMaxHistorySize caps the history [Conversation.ReplaceHistory] and
-// [WithHistory] accept: at most messages messages, of at most bytes bytes
-// together (counted as the message size limit counts them). A larger history
-// is refused with [ErrInvalidHistory]. The defaults are 1000 messages and
-// 16 MiB. Each message is also held to the conversation's message size limit
-// (WithMaxMessageSize).
+// WithMaxHistorySize caps what a history [Conversation.ReplaceHistory] and
+// [WithHistory] accept adds to the conversation: at most messages messages it
+// does not already hold, of at most bytes bytes together (counted as the
+// message size limit counts them). The stored messages an echo repeats are
+// not counted, so a long thread echoed back is not refused for its length. A
+// history over a limit is refused with [ErrInvalidHistory], naming the limit.
+// The defaults are 1000 messages and 16 MiB. Each added message is also held
+// to the conversation's message size limit (WithMaxMessageSize).
 func WithMaxHistorySize(messages, bytes int) Option {
 	return func(c *config) error {
 		if messages <= 0 || bytes <= 0 {

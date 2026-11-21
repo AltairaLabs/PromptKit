@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1242,7 +1243,7 @@ func (r *toolRunner) offer(allowed []string, excluded map[string]bool) []*tools.
 	if r.registry == nil || r.toolsDisabled() {
 		return nil
 	}
-	return r.collectDescriptors(r.withGrantedTools(allowed), excluded)
+	return r.collectOffer(allowed, r.grantedTools(), excluded)
 }
 
 // offeredAmong reports which of the registered tools called offer(allowed,
@@ -1259,10 +1260,10 @@ func (r *toolRunner) offeredAmong(allowed []string, called []*tools.ToolDescript
 	if r.registry == nil || r.toolsDisabled() {
 		return offered
 	}
-	entries := r.withGrantedTools(allowed)
+	grants := r.grantedTools()
 	view := r.viewState().lastView()
 	for _, tool := range called {
-		if !offerSelects(entries, tool.Name) {
+		if !offerSelects(allowed, tool.Name) && !slices.Contains(grants, tool.Name) {
 			continue
 		}
 		kept, described := view[tool.Name]
@@ -1343,8 +1344,20 @@ func (r *toolRunner) toolsDisabled() bool {
 // busts prompt caching entirely, re-billing the full context at full price
 // every round. Sorting by name keeps the prefix byte-stable so caching
 // actually engages.
+//
+//nolint:unused // tests call it on the runner
 func (r *toolRunner) collectDescriptors(
 	allowedTools []string, excluded map[string]bool,
+) []*tools.ToolDescriptor {
+	return r.collectOffer(allowedTools, nil, excluded)
+}
+
+// collectOffer is collectDescriptors for an offer that also holds grants:
+// tool names (ProviderConfig.ToolGrants) offered exactly as named. A grant is
+// never expanded as a pattern, so one ending in "*" names no tool and offers
+// nothing: no grant can widen the offer beyond the tools it names.
+func (r *toolRunner) collectOffer(
+	allowedTools, grants []string, excluded map[string]bool,
 ) []*tools.ToolDescriptor {
 	c := &descriptorCollector{
 		registry: r.registry, describe: r.cfg.DescribeTool, excluded: excluded, seen: make(map[string]bool),
@@ -1359,6 +1372,9 @@ func (r *toolRunner) collectDescriptors(
 	//    so authors can't enumerate exact names.
 	for _, entry := range allowedTools {
 		c.addAllowedEntry(entry)
+	}
+	for _, name := range grants {
+		c.addExact(name)
 	}
 
 	// 2. Implicit capability tools (skill__, a2a__, workflow__, memory__, media),
@@ -1422,6 +1438,16 @@ func (c *descriptorCollector) addAllowedEntry(entry string) {
 	c.add(tool)
 }
 
+// addExact adds the tool registered under name, never expanding a pattern.
+func (c *descriptorCollector) addExact(name string) {
+	if c.skip(name) {
+		return
+	}
+	if tool := c.registry.Get(name); tool != nil {
+		c.add(tool)
+	}
+}
+
 // add records what the model is offered of tool — its name, description and
 // input schema — passing it through describe when one is configured; a nil
 // result withholds the tool.
@@ -1460,6 +1486,8 @@ func (r *toolRunner) grantedTools() []string {
 
 // withGrantedTools returns allowedTools extended with the currently granted
 // tools that it does not already name. The input slice is not mutated.
+//
+//nolint:unused // tests call it on the stage
 func (r *toolRunner) withGrantedTools(allowedTools []string) []string {
 	grants := r.grantedTools()
 	if len(grants) == 0 {

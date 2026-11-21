@@ -35,6 +35,14 @@ type StreamChunk struct {
 	// before the message.
 	ReplacesText bool
 
+	// MessageID is the stable id (types.MetaMessageID) of the assistant
+	// message a ChunkText's text, a ChunkReasoning's reasoning or a
+	// ChunkToolCall's call belongs to: the id
+	// the conversation stores the message under, so a client streaming the
+	// reply names it as the history does. Empty when the pipeline does not
+	// know it, as for a provider that does not stream.
+	MessageID string
+
 	// Tool call (for ChunkToolCall type)
 	ToolCall *types.MessageToolCall
 
@@ -514,7 +522,7 @@ func (c *Conversation) emitStreamChunk(
 	state *streamState,
 ) {
 	if c.config.streamReasoning && chunk.Reasoning != "" {
-		sendChunk(ctx, outCh, StreamChunk{Type: ChunkReasoning, Reasoning: chunk.Reasoning})
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkReasoning, Reasoning: chunk.Reasoning, MessageID: chunk.MessageID})
 	}
 	emitTextDelta(ctx, chunk, outCh, state)
 
@@ -576,7 +584,7 @@ func emitRoundMessages(ctx context.Context, msgs []types.Message, outCh chan<- S
 		}
 		for j := range msg.ToolCalls {
 			call := msg.ToolCalls[j]
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &call, Round: state.round})
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &call, Round: state.round, MessageID: msg.ID()})
 		}
 		if msg.ToolResult != nil {
 			result := *msg.ToolResult
@@ -596,7 +604,9 @@ func emitTextDelta(ctx context.Context, chunk *providers.StreamChunk, outCh chan
 		state.contentBuilder.Reset()
 	}
 	state.contentBuilder.WriteString(chunk.Delta)
-	sendChunk(ctx, outCh, StreamChunk{Type: ChunkText, Text: chunk.Delta, ReplacesText: chunk.ReplacesText})
+	sendChunk(ctx, outCh, StreamChunk{
+		Type: ChunkText, Text: chunk.Delta, ReplacesText: chunk.ReplacesText, MessageID: chunk.MessageID,
+	})
 }
 
 // buildPendingClientToolFromExecution converts a tools.PendingToolExecution to a PendingClientTool.

@@ -845,7 +845,7 @@ func (st *runState) settleRound(index int, msg *types.Message) {
 			st.lateReasoning = append(st.lateReasoning, lateReasoning{r, msg.Reasoning})
 		}
 	} else {
-		r = st.newRound()
+		r = st.newRound(msg.ID())
 		// A round that did not stream reports its reasoning before its text.
 		st.settleReasoning(r, msg.Reasoning)
 	}

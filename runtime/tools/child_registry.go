@@ -55,7 +55,7 @@ func (r *Registry) lookupTool(name string) (*ToolDescriptor, bool) {
 			return tool, true
 		}
 	}
-	if tool := r.Local(name); tool != nil {
+	if tool := r.localTool(name); tool != nil {
 		return tool, true
 	}
 	return nil, false
@@ -100,8 +100,8 @@ func (r *Registry) UnregisterLocal(name string) bool {
 	return ok
 }
 
-// Local returns the descriptor RegisterLocal registered under name, or nil.
-func (r *Registry) Local(name string) *ToolDescriptor {
+// localTool returns the descriptor RegisterLocal registered under name, or nil.
+func (r *Registry) localTool(name string) *ToolDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.local[name]

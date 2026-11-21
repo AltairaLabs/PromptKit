@@ -3,6 +3,7 @@ package sdk
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"sync"
 
@@ -25,6 +26,10 @@ const (
 	// together, in bytes.
 	maxClientToolBytes = 64 << 10
 )
+
+// clientToolName is the form a client tool's name must take: a plain
+// function name, so it can never be read as an allowed_tools pattern.
+var clientToolName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // toolModeClientName is the mode of a tool the caller executes.
 const toolModeClientName = "client"
@@ -62,7 +67,8 @@ type turnTools struct {
 // A tool whose name the conversation already has (a pack tool, a host or MCP
 // tool) or that is in a system namespace (skill__, workflow__, a2a__,
 // memory__, mcp__, ...) fails the Send with [ErrToolNameConflict] before the
-// turn runs. So does a tool with no name or one listed twice, more than 128
+// turn runs. So does a name that is not 1 to 64 of A-Z, a-z, 0-9, _ and -
+// (a "*" would read as a pattern), a tool listed twice, more than 128
 // tools, or a tool whose description and schema exceed 64 KiB. A tool a host
 // registers under an offered name later wins: from then on the model is not
 // offered the client's tool, and a call by that name is the host's.
@@ -85,20 +91,8 @@ func (c *Conversation) checkClientTools(descs []*tools.ToolDescriptor) (map[stri
 	}
 	offered := make(map[string]*tools.ToolDescriptor, len(descs))
 	for _, d := range descs {
-		if d == nil || d.Name == "" {
-			return nil, errors.New("client tools: a tool has no name")
-		}
-		if _, dup := offered[d.Name]; dup {
-			return nil, fmt.Errorf("client tools: tool %q is listed twice", d.Name)
-		}
-		if size := len(d.Description) + len(d.InputSchema); size > maxClientToolBytes {
-			return nil, fmt.Errorf("client tools: tool %q is %d bytes, at most %d", d.Name, size, maxClientToolBytes)
-		}
-		if tools.IsSystemTool(d.Name) {
-			return nil, fmt.Errorf("client tools: %q is in a system namespace: %w", d.Name, ErrToolNameConflict)
-		}
-		if existing := c.toolRegistry.Get(d.Name); existing != nil && existing != c.turnTools.get(d.Name) {
-			return nil, fmt.Errorf("client tools: %q: %w", d.Name, ErrToolNameConflict)
+		if err := c.checkClientTool(d, offered); err != nil {
+			return nil, err
 		}
 		offered[d.Name] = &tools.ToolDescriptor{
 			Name:        d.Name,
@@ -108,6 +102,30 @@ func (c *Conversation) checkClientTools(descs []*tools.ToolDescriptor) (map[stri
 		}
 	}
 	return offered, nil
+}
+
+// checkClientTool checks one WithClientTools tool against the rules and the
+// tools offered before it in the set.
+func (c *Conversation) checkClientTool(d *tools.ToolDescriptor, offered map[string]*tools.ToolDescriptor) error {
+	if d == nil || d.Name == "" {
+		return errors.New("client tools: a tool has no name")
+	}
+	if !clientToolName.MatchString(d.Name) {
+		return fmt.Errorf("client tools: %q is not a valid tool name (1 to 64 of A-Z, a-z, 0-9, _ and -)", d.Name)
+	}
+	if _, dup := offered[d.Name]; dup {
+		return fmt.Errorf("client tools: tool %q is listed twice", d.Name)
+	}
+	if size := len(d.Description) + len(d.InputSchema); size > maxClientToolBytes {
+		return fmt.Errorf("client tools: tool %q is %d bytes, at most %d", d.Name, size, maxClientToolBytes)
+	}
+	if tools.IsSystemTool(d.Name) {
+		return fmt.Errorf("client tools: %q is in a system namespace: %w", d.Name, ErrToolNameConflict)
+	}
+	if existing := c.toolRegistry.Get(d.Name); existing != nil && existing != c.turnTools.get(d.Name) {
+		return fmt.Errorf("client tools: %q: %w", d.Name, ErrToolNameConflict)
+	}
+	return nil
 }
 
 // setTurnTools makes offered the turn's client tools, replacing the previous

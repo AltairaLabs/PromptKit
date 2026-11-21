@@ -419,7 +419,7 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 	// Reasoning text streams as its own chunk, never as part of the text; its
 	// opaque round-trip tokens stay in the turn's messages.
 	if p.streamReasoning && elem.Reasoning != nil && elem.Reasoning.Text != "" {
-		p.sendChunk(&providers.StreamChunk{Reasoning: elem.Reasoning.Text})
+		p.sendChunk(&providers.StreamChunk{Reasoning: elem.Reasoning.Text, MessageID: elem.Meta.MessageID})
 	}
 
 	if elem.Text != nil && *elem.Text != "" {
@@ -428,7 +428,9 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 			p.sb.Reset()
 		}
 		p.sb.WriteString(*elem.Text)
-		p.sendChunk(&providers.StreamChunk{Delta: *elem.Text, ReplacesText: elem.Meta.ReplacesText})
+		p.sendChunk(&providers.StreamChunk{
+			Delta: *elem.Text, ReplacesText: elem.Meta.ReplacesText, MessageID: elem.Meta.MessageID,
+		})
 	}
 
 	if len(elem.Meta.RoundMessages) > 0 {

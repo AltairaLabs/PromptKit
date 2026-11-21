@@ -142,7 +142,6 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(r \*Registry\) IterateTools\(fn func\(name string, tool \*ToolDescriptor\)\)](<#Registry.IterateTools>)
   - [func \(r \*Registry\) List\(\) \[\]string](<#Registry.List>)
   - [func \(r \*Registry\) LoadToolFromBytes\(filename string, data \[\]byte\) error](<#Registry.LoadToolFromBytes>)
-  - [func \(r \*Registry\) Local\(name string\) \*ToolDescriptor](<#Registry.Local>)
   - [func \(r \*Registry\) MaxToolResultSize\(\) int](<#Registry.MaxToolResultSize>)
   - [func \(r \*Registry\) Register\(descriptor \*ToolDescriptor\) error](<#Registry.Register>)
   - [func \(r \*Registry\) RegisterExecutor\(executor Executor\)](<#Registry.RegisterExecutor>)
@@ -1615,15 +1614,6 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
 ```
 
 LoadToolFromBytes loads a tool descriptor from raw bytes data. A filename ending in .yaml or .yml selects the YAML parser, which requires the Kubernetes manifest form \(apiVersion, kind: Tool, metadata, spec\); any other filename selects JSON. The descriptor must have a name, description, input schema, output schema and a valid mode, or an error is returned. A TimeoutMs of 0 is replaced with the registry default. The filename is used for the parser choice and in error messages.
-
-<a name="Registry.Local"></a>
-### func \(\*Registry\) [Local](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L104>)
-
-```go
-func (r *Registry) Local(name string) *ToolDescriptor
-```
-
-Local returns the descriptor RegisterLocal registered under name, or nil.
 
 <a name="Registry.MaxToolResultSize"></a>
 ### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L431>)

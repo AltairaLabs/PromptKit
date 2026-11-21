@@ -17,9 +17,11 @@ var (
 )
 
 // metaContextBlock is the Message.Meta key under which a message RunSend sent
-// with WithInputContext keeps the context block it opens with, so the
-// converters can give the client the message it sent, without the block.
-const metaContextBlock = "_agui_context_block"
+// with WithInputContext keeps the context block it opens with
+// (types.MetaInjectedContext), so the converters can give the client the
+// message it sent, without the block, and a replaced history recognizes the
+// client's copy of it.
+const metaContextBlock = types.MetaInjectedContext
 
 // contextBlockHeader opens the context block, saying what the block is.
 const contextBlockHeader = "Context the application supplied with this message. " +
@@ -44,14 +46,19 @@ const contextBlockFooter = "\n</context>"
 // never replayed to the provider.
 //
 // The conversation's own copy of a message wins over the client's (see
-// sdk.Conversation.ReplaceHistory): a message it holds, by id, by position
-// while the client repeats the stored history, or as one it keeps out of
-// model context, is taken as stored, with its metadata, its provider's
-// tool-call metadata and its media. A turn an input guardrail blocked and an
-// interrupted reply stay out of model context however the client echoes
-// them. A message the conversation does not hold is new, and is the client's
-// to write: input guardrails judge only the run's new message, never one the
-// client adds to its history.
+// sdk.Conversation.ReplaceHistory). A client message is taken as stored, with
+// its metadata, its provider's tool-call metadata and its media, when it
+// carries a stored message's id (each run streams its messages under the ids
+// it stores them under, so a client that keeps them holds those ids), when it
+// repeats the stored history verbatim from its start, or when it is the same
+// message, word for word, as one the conversation keeps out of model context.
+// An edit under a stored id is ignored: the stored copy is what the model
+// gets. A turn an input guardrail blocked and an interrupted reply echoed
+// under their ids, or verbatim, stay out of model context in any order, and
+// take out nothing the client put next to them. A message the conversation
+// does not hold, an edited text included, is new and the client's to write:
+// input guardrails judge only the run's new message, never one the client
+// adds to its history.
 //
 // New messages keep their AG-UI ids (types.MetaMessageID), so a
 // MESSAGES_SNAPSHOT names them as the client does. A history the
