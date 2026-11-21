@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,9 +37,11 @@ func fetchCardRaw(t *testing.T, ts *httptest.Server, path string, headers map[st
 	return resp, string(body)
 }
 
+// contentETag is the weak tag the server derives from a card body: weak,
+// because a host's compression middleware may re-encode the bytes.
 func contentETag(body string) string {
 	sum := sha256.Sum256([]byte(body))
-	return `"` + hex.EncodeToString(sum[:]) + `"`
+	return `W/"` + hex.EncodeToString(sum[:]) + `"`
 }
 
 func TestCard_ServedWithoutWithCardNamesEveryRequiredField(t *testing.T) {
@@ -78,7 +81,8 @@ func TestCard_CachingHeadersAndConditionalGet(t *testing.T) {
 	resp, body := fetchCardRaw(t, ts, a2a.AgentCardPath, v1)
 	etag := resp.Header.Get("ETag")
 
-	for _, match := range []string{etag, "W/" + etag, `"other", ` + etag, "*"} {
+	strong := strings.TrimPrefix(etag, "W/")
+	for _, match := range []string{etag, strong, `"other", ` + etag, "*"} {
 		notModified, empty := fetchCardRaw(t, ts, a2a.AgentCardPath,
 			map[string]string{a2a.HeaderVersion: "1.0", "If-None-Match": match})
 		assert.Equal(t, http.StatusNotModified, notModified.StatusCode, match)
@@ -130,6 +134,79 @@ func TestCard_ETagChangesWithTheCard(t *testing.T) {
 	assert.Contains(t, body, `"version":"2"`)
 	assert.Equal(t, contentETag(body), resp.Header.Get("ETag"))
 	assert.NotEqual(t, etag, resp.Header.Get("ETag"))
+}
+
+func TestCard_IfNoneMatchAcrossHeaderLinesAndHEAD(t *testing.T) {
+	_, ts := newTestServer(nopOpener, WithCard(&a2a.AgentCard{Name: "agent"}))
+	defer ts.Close()
+	get, body := fetchCardRaw(t, ts, a2a.AgentCardPath, nil)
+	etag := get.Header.Get("ETag")
+
+	// A tag on the second If-None-Match line still matches.
+	req, err := http.NewRequest(http.MethodGet, ts.URL+a2a.AgentCardPath, http.NoBody)
+	require.NoError(t, err)
+	req.Header.Add("If-None-Match", `"other"`)
+	req.Header.Add("If-None-Match", etag)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusNotModified, resp.StatusCode)
+
+	// HEAD answers with GET's headers and no body, and honours the tag too.
+	head := func(match string) *http.Response {
+		r, err := http.NewRequest(http.MethodHead, ts.URL+a2a.AgentCardPath, http.NoBody)
+		require.NoError(t, err)
+		if match != "" {
+			r.Header.Set("If-None-Match", match)
+		}
+		resp, err := http.DefaultClient.Do(r)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		got, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		return resp
+	}
+	plain := head("")
+	assert.Equal(t, http.StatusOK, plain.StatusCode)
+	assert.Equal(t, contentETag(body), plain.Header.Get("ETag"))
+	assert.Equal(t, "max-age=300", plain.Header.Get("Cache-Control"))
+	assert.Equal(t, http.StatusNotModified, head(etag).StatusCode)
+}
+
+func TestCard_VaryKeepsAWrappingMiddlewaresValues(t *testing.T) {
+	srv := NewServer(nopOpener, WithCard(&a2a.AgentCard{Name: "agent"}))
+	cors := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Vary", "Origin")
+		srv.Handler().ServeHTTP(w, r)
+	})
+	ts := httptest.NewServer(cors)
+	defer ts.Close()
+
+	resp, _ := fetchCardRaw(t, ts, a2a.AgentCardPath, nil)
+	assert.Equal(t, []string{"Origin", a2a.HeaderVersion}, resp.Header.Values("Vary"))
+}
+
+func TestCard_DynamicProviderIsRevalidatedUnlessMaxAgeIsSet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts []Option
+		want string
+	}{
+		{"dynamic provider", []Option{WithCardProvider(&versionedCard{version: "1"})}, "no-cache"},
+		{"dynamic provider with max-age", []Option{
+			WithCardMaxAge(time.Minute), WithCardProvider(&versionedCard{version: "1"}),
+		}, "max-age=60"},
+		{"static card as provider", []Option{WithCardProvider(&StaticCard{Card: a2a.AgentCard{Name: "s"}})}, "max-age=300"},
+		{"no card", nil, "max-age=300"},
+	} {
+		_, ts := newTestServer(nopOpener, tc.opts...)
+		first, _ := fetchCardRaw(t, ts, a2a.AgentCardPath, nil)
+		again, _ := fetchCardRaw(t, ts, a2a.AgentCardPath, map[string]string{"If-None-Match": first.Header.Get("ETag")})
+		ts.Close()
+		assert.Equal(t, tc.want, first.Header.Get("Cache-Control"), tc.name)
+		assert.Equal(t, http.StatusNotModified, again.StatusCode, "%s: the tag still revalidates", tc.name)
+	}
 }
 
 func TestCard_WithCardMaxAge(t *testing.T) {

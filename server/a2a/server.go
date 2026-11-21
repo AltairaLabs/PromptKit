@@ -79,6 +79,11 @@ type Authenticator interface {
 // AgentCardProvider returns the agent card to serve at
 // /.well-known/agent-card.json (and the legacy /.well-known/agent.json). The
 // server completes the returned card as WithCard describes.
+//
+// A card from a provider may differ per request (by tenant, cookie or
+// forwarded header), so unless WithCardMaxAge is set it is served with
+// Cache-Control: no-cache: clients revalidate every fetch, and its ETag makes
+// an unchanged card a 304. A *StaticCard is cached like a WithCard card.
 type AgentCardProvider interface {
 	AgentCard(r *http.Request) (*a2a.AgentCard, error)
 }
@@ -115,11 +120,15 @@ func WithCardProvider(p AgentCardProvider) Option {
 
 // WithCardMaxAge sets the max-age of the Cache-Control header on the served
 // agent card (A2A 1.0 §8.6): how long a client or cache may reuse the card
-// before asking again. The default is five minutes. Zero or less sends
-// "no-cache", so clients revalidate every time; the card's ETag keeps that to
-// a 304 while the card is unchanged.
+// before asking again. Without it, a card set with WithCard (or none) gets
+// five minutes and a card from a dynamic AgentCardProvider gets "no-cache".
+// Zero or less sends "no-cache", so clients revalidate every time; the card's
+// ETag keeps that to a 304 while the card is unchanged.
 func WithCardMaxAge(d time.Duration) Option {
-	return func(s *Server) { s.cardMaxAge = d }
+	return func(s *Server) {
+		s.cardMaxAge = d
+		s.cardMaxAgeSet = true
+	}
 }
 
 // WithPort sets the TCP port for ListenAndServe. It has no effect on Serve.
@@ -249,6 +258,7 @@ type Server struct {
 	taskStore     TaskStore
 	cardProvider  AgentCardProvider
 	cardMaxAge    time.Duration
+	cardMaxAgeSet bool
 	authenticator Authenticator
 	port          int
 	httpSrv       *http.Server
@@ -363,7 +373,6 @@ func newServer(opts ...Option) *Server {
 		readTimeout: defaultReadTimeout,
 		idleTimeout: defaultIdleTimeout,
 		maxBodySize: defaultMaxBodySize,
-		cardMaxAge:  defaultCardMaxAge,
 		taskTTL:     defaultTaskTTL,
 		convTTL:     defaultConversationTTL,
 		stopCh:      make(chan struct{}),
@@ -593,7 +602,20 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body = append(body, '\n')
-	writeCacheable(w, r, body, s.cardMaxAge)
+	writeCacheable(w, r, body, s.cardCacheMaxAge())
+}
+
+// cardCacheMaxAge is the served card's max-age: WithCardMaxAge when set,
+// otherwise the default for a static card and none (no-cache) for a dynamic
+// provider's, which may vary per request.
+func (s *Server) cardCacheMaxAge() time.Duration {
+	if s.cardMaxAgeSet {
+		return s.cardMaxAge
+	}
+	if _, static := s.cardProvider.(*StaticCard); s.cardProvider != nil && !static {
+		return 0
+	}
+	return defaultCardMaxAge
 }
 
 // card returns the agent card this server publishes for r.
