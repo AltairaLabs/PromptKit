@@ -226,12 +226,19 @@ type holdSession struct {
 	model  *pacedModel
 	judge  *holdJudge
 	log    *holdLog
+	bus    *events.EventBus
 	mu     sync.Mutex
 	events []*events.Event
 	tools  atomic.Int32
 }
 
+// eventsOf is the events of type et the session published, read once the turn
+// is over. The bus delivers asynchronously, so an event published before the
+// turn's last chunk may still be on its way to the listener when the test
+// reads; closing the bus waits for every published event to be delivered, so
+// what is read is everything the turn published, not however much had arrived.
 func (s *holdSession) eventsOf(et events.EventType) []*events.Event {
+	s.bus.Close()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []*events.Event
@@ -249,8 +256,8 @@ func openHold(
 	t *testing.T, model *pacedModel, judge *holdJudge, params map[string]any, opts ...Option,
 ) *holdSession {
 	t.Helper()
-	s := &holdSession{model: model, judge: judge, log: judge.log}
 	bus := events.NewEventBus()
+	s := &holdSession{model: model, judge: judge, log: judge.log, bus: bus}
 	for _, et := range []events.EventType{
 		events.EventStreamHoldReleased, events.EventStreamHoldCut, events.EventValidationFailed,
 		events.EventValidationPassed,
