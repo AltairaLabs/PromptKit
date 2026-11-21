@@ -247,7 +247,9 @@ type ProviderConfig struct {
 	// merges the grants into allowedTools on every build and rebuilds the
 	// tools array after any tool round that changed them. Grants are
 	// applied after ToolSelector narrowing, so a selector never hides a tool
-	// the model was just told it gained.
+	// the model was just told it gained. Each grant is a tool name, matched
+	// exactly: unlike an allowed_tools entry, a trailing "*" is not a
+	// wildcard, so a grant offers at most the one tool it names.
 	ToolGrants func() []string
 
 	// DescribeTool, when set, returns the descriptor to offer the model for a
@@ -365,6 +367,10 @@ type streamingRoundParams struct {
 type roundRef struct {
 	round          int
 	providerCallID string
+	// messageID is the stable id of the round's reply (types.MetaMessageID),
+	// set before it streams: its text elements carry it, and the reply is
+	// stored under it.
+	messageID string
 }
 
 // newProviderCallID mints an identifier for one provider call. Shared by the
@@ -1965,6 +1971,7 @@ func (tl *toolLoop) preSeedLog(ctx context.Context) {
 	if len(history) == 0 {
 		return
 	}
+	stampMessageIDs(history)
 	newTotal, err := cfg.MessageLog.LogAppend(ctx, cfg.MessageLogConvID, 0, history)
 	if err != nil {
 		logger.Warn("message log pre-seed failed", "error", err)
@@ -1977,6 +1984,29 @@ func (tl *toolLoop) preSeedLog(ctx context.Context) {
 	// messages in subsequent persistMessages calls.
 	if newTotal > tl.lastPersistedSeq {
 		tl.lastPersistedSeq = newTotal
+	}
+}
+
+// withStableID gives msg the stable id id (types.MetaMessageID), on a Meta
+// of its own, unless it has one.
+func withStableID(msg *types.Message, id string) {
+	if msg.ID() != "" || id == "" {
+		return
+	}
+	meta := make(map[string]interface{}, len(msg.Meta)+1)
+	for k, v := range msg.Meta {
+		meta[k] = v
+	}
+	meta[types.MetaMessageID] = id
+	msg.Meta = meta
+}
+
+// stampMessageIDs gives each message without a stable id one, in place, before
+// the MessageLog stores it: the turn's messages carry on from here, so the id
+// the log holds is the id the turn reports.
+func stampMessageIDs(msgs []types.Message) {
+	for i := range msgs {
+		msgs[i] = types.EnsureMessageID(msgs[i])
 	}
 }
 
@@ -1995,6 +2025,7 @@ func (tl *toolLoop) persistMessages(ctx context.Context, round int) {
 	if len(newMsgs) == 0 {
 		return
 	}
+	stampMessageIDs(newMsgs)
 	newTotal, err := cfg.MessageLog.LogAppend(ctx, cfg.MessageLogConvID, tl.lastPersistedSeq, newMsgs)
 	if err != nil {
 		logger.Warn("message log append failed", "round", round, "error", err)
@@ -2294,7 +2325,7 @@ func (s *ProviderStage) executeStreamingRound(
 		"messages", len(params.messages),
 		"tools", params.providerTools != nil)
 
-	rr := roundRef{round: params.round, providerCallID: params.providerCallID}
+	rr := roundRef{round: params.round, providerCallID: params.providerCallID, messageID: types.NewMessageID()}
 
 	// Emit provider call started event
 	s.emitProviderCallStarted(ctx, prov, len(params.messages), toolCount, rr)
@@ -2323,7 +2354,9 @@ func (s *ProviderStage) executeStreamingRound(
 	if err != nil {
 		// Emit provider call failed event
 		s.emitProviderCallFailed(ctx, prov, err, duration, rr)
-		return s.keptInterruptedReply(ctx, params, &got, duration, err), false, err
+		kept := s.keptInterruptedReply(ctx, params, &got, duration, err)
+		withStableID(&kept, rr.messageID)
+		return kept, false, err
 	}
 
 	// Emit provider call completed event with cost info from streaming response
@@ -2358,6 +2391,7 @@ func (s *ProviderStage) executeStreamingRound(
 		Validations:  chunkValidations,
 	}
 	s.stampToolsOffered(&responseMsg)
+	withStableID(&responseMsg, rr.messageID)
 	if got.cut != nil {
 		// The reply an output guardrail cut mid-stream is the one its verdict
 		// leaves; it has no tool calls (interceptChunk).
@@ -2699,7 +2733,7 @@ func (s *ProviderStage) processHeldStreamChunks(
 	rs.drained = true // the range ended because the provider closed the channel
 
 	// The reply has ended, so nothing can complete what is still held.
-	if err := s.flushHeld(ctx, &rs.text, &rs.acc, output, suppressText); err != nil {
+	if err := s.flushHeld(ctx, &rs.text, &rs.acc, output, suppressText, rr.messageID); err != nil {
 		return rs.acc.collected(), err
 	}
 
@@ -2776,7 +2810,7 @@ func (s *ProviderStage) cutStream(ctx context.Context, rs *roundStream) (streame
 	if rs.hold != nil && !rs.acc.replaced {
 		return s.holdTruncation(ctx, rs)
 	}
-	if err := s.emitCutText(ctx, &rs.acc, &rs.text, rs.output, rs.suppressText); err != nil {
+	if err := s.emitCutText(ctx, &rs.acc, &rs.text, rs.output, rs.suppressText, rs.rr.messageID); err != nil {
 		return rs.acc.collected(), err
 	}
 	var late <-chan *types.CostInfo
@@ -2789,7 +2823,8 @@ func (s *ProviderStage) cutStream(ctx context.Context, rs *roundStream) (streame
 // flushHeld emits what is still held when a stream ends without a finish
 // reason, then the media that waited behind it.
 func (s *ProviderStage) flushHeld(
-	ctx context.Context, text *holdController, acc *streamAccumulator, output chan<- StreamElement, suppressText bool,
+	ctx context.Context, text *holdController, acc *streamAccumulator, output chan<- StreamElement,
+	suppressText bool, messageID string,
 ) error {
 	text.clearAll()
 	if rest := text.release(); rest != "" && !suppressText {
@@ -2797,7 +2832,9 @@ func (s *ProviderStage) flushHeld(
 		if acc.finishReason != "" {
 			finish = &acc.finishReason
 		}
-		if err := sendStreamElement(ctx, textDeltaElement(rest, finish), output); err != nil {
+		elem := textDeltaElement(rest, finish)
+		elem.Meta.MessageID = messageID
+		if err := sendStreamElement(ctx, elem, output); err != nil {
 			return err
 		}
 	}
@@ -2817,7 +2854,8 @@ func (s *ProviderStage) flushHeld(
 // alone is the turn's text, so a caller swaps any clean text it already showed
 // for it.
 func (s *ProviderStage) emitCutText(
-	ctx context.Context, acc *streamAccumulator, text *holdController, output chan<- StreamElement, suppressText bool,
+	ctx context.Context, acc *streamAccumulator, text *holdController, output chan<- StreamElement,
+	suppressText bool, messageID string,
 ) error {
 	cut := acc.content
 	if !acc.replaced {
@@ -2835,6 +2873,7 @@ func (s *ProviderStage) emitCutText(
 	fr := types.FinishReasonSafety
 	elem := textDeltaElement(cut, &fr)
 	elem.Meta.ReplacesText = acc.replaced
+	elem.Meta.MessageID = messageID
 	return sendStreamElement(ctx, elem, output)
 }
 
@@ -3078,7 +3117,10 @@ func (s *ProviderStage) emitChunkElement(
 			s.emitter.ReasoningDeltaCtx(ctx, chunk.Reasoning, rr.round, rr.providerCallID)
 		}
 		select {
-		case output <- StreamElement{Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning}}:
+		case output <- StreamElement{
+			Reasoning: &ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning},
+			Meta:      ElementMetadata{MessageID: rr.messageID},
+		}:
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -3100,6 +3142,7 @@ func (s *ProviderStage) emitChunkElement(
 	if text != "" && !suppressText {
 		elem := textDeltaElement(text, chunk.FinishReason)
 		elem.Meta.TokenCount = chunk.TokenCount
+		elem.Meta.MessageID = rr.messageID
 		if err := sendStreamElement(ctx, elem, output); err != nil {
 			return err
 		}
@@ -3321,7 +3364,9 @@ func (s *ProviderStage) emitBlockedTurnText(
 	if blocked == nil || blocked.Content == "" {
 		return nil
 	}
+	*blocked = types.EnsureMessageID(*blocked)
 	elem := NewTextElement(blocked.Content)
+	elem.Meta.MessageID = blocked.ID()
 	elem.Timestamp = timeNow()
 	elem.Priority = PriorityNormal
 	elem.Meta.StreamingDelta = true

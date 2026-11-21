@@ -2,6 +2,8 @@ package stage
 
 import (
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
 // These cover the provider-stage half of #1957: ProviderConfig.ToolGrants is a
@@ -115,5 +117,28 @@ func TestStringSlicesEqual(t *testing.T) {
 		if got := stringSlicesEqual(c.a, c.b); got != c.want {
 			t.Errorf("stringSlicesEqual(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
 		}
+	}
+}
+
+// A grant is a tool name, never a pattern: a granted "*" or "b*" offers no
+// tool and lets the model call none, so a grant cannot widen the offer to
+// registry tools the prompt does not allow. A grant naming a registered tool
+// is offered and callable.
+func TestToolGrants_AreExactNames(t *testing.T) {
+	s := newGrantsTestStage(t, func() []string { return []string{"*", "b*", "c"} })
+	r := s.runner()
+
+	var offered []string
+	for _, d := range r.offer([]string{"a"}, nil) {
+		offered = append(offered, d.Name)
+	}
+	if len(offered) != 2 || offered[0] != "a" || offered[1] != "c" {
+		t.Fatalf("expected the allowed tool and the exact grant [a c], got %v", offered)
+	}
+
+	called := []*tools.ToolDescriptor{{Name: "a"}, {Name: "b"}, {Name: "c"}}
+	got := r.offeredAmong([]string{"a"}, called)
+	if !got["a"] || got["b"] || !got["c"] {
+		t.Fatalf("expected a and c callable and b refused, got %v", got)
 	}
 }

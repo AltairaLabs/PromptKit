@@ -13,7 +13,7 @@ import "github.com/AltairaLabs/PromptKit/sdk/v2/agui"
 
 Package agui serves PromptKit conversations over the AG\-UI protocol \(1.0\), using the AG\-UI community Go SDK's types. It provides bidirectional converters between PromptKit and AG\-UI messages and tools, and an EventAdapter that turns one conversation turn into one AG\-UI run.
 
-Text streams as the model writes it for a conversation that streams \(\*sdk.Conversation\); a workflow conversation's text arrives in one TEXT\_MESSAGE\_CONTENT per message. A run also carries the model's reasoning \(REASONING\_\* events\), the state's changes \(STATE\_DELTA\), its token usage and the frontend tool calls it left unanswered \(pendingToolCallIds\) on RUN\_FINISHED, and, with [WithMessagesSnapshot](<#WithMessagesSnapshot>), a MESSAGES\_SNAPSHOT. Not produced: RUN\_STARTED's protocolVersion, which the Go SDK cannot encode, REASONING\_ENCRYPTED\_VALUE, and activity and subagent events. Message ids are minted per conversion, so converting the same message twice gives two ids.
+Text streams as the model writes it for a conversation that streams \(\*sdk.Conversation\); a workflow conversation's text arrives in one TEXT\_MESSAGE\_CONTENT per message. A run also carries the model's reasoning \(REASONING\_\* events\), the state's changes \(STATE\_DELTA\), its token usage and the frontend tool calls it left unanswered \(pendingToolCallIds\) on RUN\_FINISHED, and, with [WithMessagesSnapshot](<#WithMessagesSnapshot>), a MESSAGES\_SNAPSHOT. Not produced: RUN\_STARTED's protocolVersion, which the Go SDK cannot encode, REASONING\_ENCRYPTED\_VALUE, and activity and subagent events. A message's id is its stable id \(types.MetaMessageID\), so it is the same in every run; a message stored before ids were assigned gets a new id per conversion.
 
 ## Index
 
@@ -25,6 +25,9 @@ Text streams as the model writes it for a conversation that streams \(\*sdk.Conv
 - [func ToolsFromAGUI\(aguiTools \[\]aguitypes.Tool\) \[\]\*tools.ToolDescriptor](<#ToolsFromAGUI>)
 - [func ToolsToAGUI\(descs \[\]tools.ToolDescriptor\) \[\]aguitypes.Tool](<#ToolsToAGUI>)
 - [type AdapterOption](<#AdapterOption>)
+  - [func WithClientHistory\(history \[\]aguitypes.Message\) AdapterOption](<#WithClientHistory>)
+  - [func WithFrontendTools\(frontend \[\]aguitypes.Tool\) AdapterOption](<#WithFrontendTools>)
+  - [func WithInputContext\(entries \[\]aguitypes.Context\) AdapterOption](<#WithInputContext>)
   - [func WithMessagesSnapshot\(enabled bool\) AdapterOption](<#WithMessagesSnapshot>)
   - [func WithReasoning\(enabled bool\) AdapterOption](<#WithReasoning>)
   - [func WithRunID\(id string\) AdapterOption](<#WithRunID>)
@@ -63,7 +66,7 @@ var ErrContinueUnsupported = errors.New("agui: conversation does not support Con
 ```
 
 <a name="MessageFromAGUI"></a>
-## func [MessageFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L144>)
+## func [MessageFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L160>)
 
 ```go
 func MessageFromAGUI(msg *aguitypes.Message) types.Message
@@ -72,6 +75,8 @@ func MessageFromAGUI(msg *aguitypes.Message) types.Message
 MessageFromAGUI converts an AG\-UI Message to a PromptKit Message. It maps roles, content \(text or multimodal\), tool calls, and tool call IDs. The developer role becomes system, and an unrecognized role becomes user.
 
 A reasoning message becomes an assistant message whose Reasoning holds the text, never user input. [MessagesFromAGUI](<#MessagesFromAGUI>) folds it into the assistant message that follows it instead.
+
+The message's AG\-UI id becomes its stable id \(types.MetaMessageID\), which the conversation stores it under, so [MessageToAGUI](<#MessageToAGUI>) and MESSAGES\_SNAPSHOT give it back under the id the client gave it.
 
 <details><summary>Example</summary>
 <p>
@@ -109,7 +114,7 @@ assistant -> Hi there!
 </details>
 
 <a name="MessageToAGUI"></a>
-## func [MessageToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L91>)
+## func [MessageToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L98>)
 
 ```go
 func MessageToAGUI(msg *types.Message) aguitypes.Message
@@ -118,6 +123,8 @@ func MessageToAGUI(msg *types.Message) aguitypes.Message
 MessageToAGUI converts a PromptKit Message to an AG\-UI Message. It maps roles, content, tool calls, and tool results.
 
 User and tool messages carry content parts \(text, image, audio, video, document\) when they hold media; assistant and system content is text, as AG\-UI 1.0 defines it. A media part whose bytes are neither inline nor at a URL \(a local file path or a storage reference\) has no AG\-UI form and is dropped with a warning.
+
+The id is the message's stable id \(types.MetaMessageID\), which the conversation gives each message it stores, so converting a stored message gives the same id every time. A message with none \(one stored before ids were assigned, or one not stored yet\) gets a new id on each conversion. A user message RunSend sent with [WithInputContext](<#WithInputContext>) is given back without the context block it opened with.
 
 <details><summary>Example</summary>
 <p>
@@ -151,7 +158,7 @@ user -> Hello!
 </details>
 
 <a name="MessagesFromAGUI"></a>
-## func [MessagesFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L213>)
+## func [MessagesFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L232>)
 
 ```go
 func MessagesFromAGUI(msgs []aguitypes.Message) []types.Message
@@ -162,7 +169,7 @@ MessagesFromAGUI converts a slice of AG\-UI Messages to PromptKit Messages. A to
 A reasoning message is attached to the assistant message that follows it, as that message's Reasoning; with no assistant message after it, it is dropped. Activity messages are UI material that AG\-UI says never travels back to the agent, and are dropped too.
 
 <a name="MessagesToAGUI"></a>
-## func [MessagesToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L197>)
+## func [MessagesToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L216>)
 
 ```go
 func MessagesToAGUI(msgs []types.Message) []aguitypes.Message
@@ -171,7 +178,7 @@ func MessagesToAGUI(msgs []types.Message) []aguitypes.Message
 MessagesToAGUI converts a slice of PromptKit Messages to AG\-UI Messages.
 
 <a name="ToolsFromAGUI"></a>
-## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L325>)
+## func [ToolsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L344>)
 
 ```go
 func ToolsFromAGUI(aguiTools []aguitypes.Tool) []*tools.ToolDescriptor
@@ -182,7 +189,7 @@ ToolsFromAGUI converts a slice of AG\-UI Tool definitions to PromptKit ToolDescr
 The tools in RunAgentInput.tools are the application's own, executed by the application, so each descriptor has Mode "client": a call to one suspends the turn until the application answers it.
 
 <a name="ToolsToAGUI"></a>
-## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L297>)
+## func [ToolsToAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L316>)
 
 ```go
 func ToolsToAGUI(descs []tools.ToolDescriptor) []aguitypes.Tool
@@ -199,8 +206,47 @@ AdapterOption configures an EventAdapter.
 type AdapterOption func(*adapterConfig)
 ```
 
+<a name="WithClientHistory"></a>
+### func [WithClientHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L72>)
+
+```go
+func WithClientHistory(history []aguitypes.Message) AdapterOption
+```
+
+WithClientHistory sets the history the run's new message follows, as the client holds it: RunSend replaces the conversation's history with it before sending its message. Pass RunAgentInput.messages without the last message, the new one RunSend sends. By default \(and with a nil history\) the conversation keeps its own history and the client's is not read.
+
+AG\-UI has the client send the whole history with each run. Honoring it is a trust decision for the host: the client then decides what the model is told the user, the assistant and each tool said, including replies the model never gave. Set it only for a client entitled to edit its conversation. Even then, its system and developer messages are dropped, never sent: the pack's system prompt stays the only system instruction. Its reasoning messages are dropped too, so reasoning the conversation did not produce is never replayed to the provider.
+
+The conversation's own copy of a message wins over the client's \(see sdk.Conversation.ReplaceHistory\). A client message is taken as stored, with its metadata, its provider's tool\-call metadata and its media, when it carries a stored message's id \(each run streams its messages under the ids it stores them under, so a client that keeps them holds those ids\), when it repeats the stored history verbatim from its start, or when it is the same message, word for word, as one the conversation keeps out of model context. An edit under a stored id is ignored: the stored copy is what the model gets. A turn an input guardrail blocked and an interrupted reply echoed under their ids, or verbatim, stay out of model context in any order, and take out nothing the client put next to them. A message the conversation does not hold, an edited text included, is new and the client's to write: input guardrails judge only the run's new message, never one the client adds to its history.
+
+New messages keep their AG\-UI ids \(types.MetaMessageID\), so a MESSAGES\_SNAPSHOT names them as the client does. A history the conversation refuses \(a tool result answering no call, a call left without a result, a history over the size limits\) fails the run with RUN\_ERROR, before the model is called. The history is replaced inside the run's turn \(sdk.WithHistory\), so no other turn on the conversation runs between the replacement and the turn. It needs an \*sdk.Conversation; for any other conversation, RunSend fails. RunResume and RunContinue continue the turn the conversation suspended and do not read it.
+
+<a name="WithFrontendTools"></a>
+### func [WithFrontendTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L123>)
+
+```go
+func WithFrontendTools(frontend []aguitypes.Tool) AdapterOption
+```
+
+WithFrontendTools sets the RunAgentInput.tools RunSend offers the model, for the turn it starts, as client tools: a call to one ends the run with the call pending \(pendingToolCallIds on RUN\_FINISHED\) for the application to execute and answer in the next run \(RunResume\). By default, and with no tools, only the tools the pack's prompt declares are offered.
+
+The model sees each tool's name, description and parameters as the client sent them. A tool named like a tool the conversation already has \(one the pack declares, a host or MCP tool, or a capability tool such as skill\_\_ or workflow\_\_\) is refused: the run fails with RUN\_ERROR before the model is called, so a client cannot shadow a server tool. To let the application execute a client tool the pack declares, bind it with sdk.Conversation.DeferClientTool and leave it out of these tools.
+
+The tools are the turn's own \(sdk.WithClientTools\): a RunResume or RunContinue of the turn offers them still, whatever its own options, and the next RunSend offers its own input's tools, so pass the option on every RunSend of the thread. Two runs on one conversation never offer each other's tools. Each tool is registered on the conversation's own tool registry, never on a shared host registry, and a call's arguments are checked against the client's schema. A ToolResultProvider is never asked to answer a call to one of them. It needs an \*sdk.Conversation; for any other conversation, RunSend fails.
+
+<a name="WithInputContext"></a>
+### func [WithInputContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L94>)
+
+```go
+func WithInputContext(entries []aguitypes.Context) AdapterOption
+```
+
+WithInputContext sets the RunAgentInput.context entries RunSend gives the model with its message. By default the context is not read.
+
+The entries open the user's message, as one text block: a line saying the block is the application's context and not an instruction, then the entries as a JSON array of \{"description", "value"\} objects between \<context\> and \</context\>. JSON encoding escapes "\<" and "\>", so a value cannot close the block early. The context is part of the user's turn, never of the system prompt: the client supplies it, and it carries no more authority than the user's own words. Everything that reads the user's message reads the block as part of it: input guardrails, evals, skill and tool selectors, memory extraction, retrieval, and the message size limit. The block is stored with the message, so later turns see the context the message was sent with; MessageToAGUI and MESSAGES\_SNAPSHOT give the message back without it. No entries, or a run other than RunSend, adds nothing.
+
 <a name="WithMessagesSnapshot"></a>
-### func [WithMessagesSnapshot](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L278>)
+### func [WithMessagesSnapshot](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L290>)
 
 ```go
 func WithMessagesSnapshot(enabled bool) AdapterOption
@@ -208,10 +254,10 @@ func WithMessagesSnapshot(enabled bool) AdapterOption
 
 WithMessagesSnapshot sets whether each run ends with a MESSAGES\_SNAPSHOT, immediately before RUN\_FINISHED, restating the conversation's history as the agent holds it: for a client reconnecting to the thread, or one whose copy has drifted from the agent's. Off by default.
 
-The client replaces its messages with the snapshot's. PromptKit's messages carry no id, so each is keyed by the thread id and its position in the history \("\<thread\>\-0", "\<thread\>\-1", ...\), which a later run's snapshot gives it again; the messages the run streamed under ids of their own are replaced too. The ids are stable across runs only when the thread id is: set it with [WithThreadID](<#WithThreadID>) from the input's threadId, or each run's adapter generates a new one. The history keeps no reasoning: with [WithReasoning](<#WithReasoning>) on, the snapshot restates the reasoning of the run's own turns, as reasoning messages before the assistant messages they led to, which AG\-UI reads as the complete set of reasoning messages. A run whose history reads back empty, or shorter than the run's own turn \(a store that failed or does not keep it\), sends no snapshot rather than one that would clear the client. It needs a conversation that exposes its history \(\*sdk.Conversation does\); for any other the option does nothing.
+The client replaces its messages with the snapshot's. Each message is keyed by its stable id \(types.MetaMessageID\), which a later run's snapshot gives it again: the id the client gave it, for a message that came from the client, or the one the conversation gave it when storing it. A message stored before ids were assigned is keyed by the thread id and its position in the history \("\<thread\>\-0", "\<thread\>\-1", ...\), stable across runs only when the thread id is: set it with [WithThreadID](<#WithThreadID>) from the input's threadId. The messages the run streamed under ids of their own are replaced too. The history keeps no reasoning: with [WithReasoning](<#WithReasoning>) on, the snapshot restates the reasoning of the run's own turns, as reasoning messages before the assistant messages they led to, which AG\-UI reads as the complete set of reasoning messages. A run whose history reads back empty, or shorter than the run's own turn \(a store that failed or does not keep it\), sends no snapshot rather than one that would clear the client. It needs a conversation that exposes its history \(\*sdk.Conversation does\); for any other the option does nothing.
 
 <a name="WithReasoning"></a>
-### func [WithReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L253>)
+### func [WithReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L263>)
 
 ```go
 func WithReasoning(enabled bool) AdapterOption
@@ -222,7 +268,7 @@ WithReasoning sets whether the run sends the model's reasoning as AG\-UI REASONI
 Only the reasoning's text is sent. A reply an output guardrail blocks keeps no reasoning, so a settled reply never sends the reasoning behind it. But reasoning that streams \(sdk.WithStreamReasoning\) goes out as the model produces it, before the output guardrails judge the reply it leads to: enable streamed reasoning only for a client that may see what a guardrail would block.
 
 <a name="WithRunID"></a>
-### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L156>)
+### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L165>)
 
 ```go
 func WithRunID(id string) AdapterOption
@@ -231,7 +277,7 @@ func WithRunID(id string) AdapterOption
 WithRunID sets the AG\-UI run ID for emitted events. By default the adapter generates one.
 
 <a name="WithRuntimeEvents"></a>
-### func [WithRuntimeEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L231>)
+### func [WithRuntimeEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L241>)
 
 ```go
 func WithRuntimeEvents(eventTypes ...events.EventType) AdapterOption
@@ -242,7 +288,7 @@ WithRuntimeEvents forwards the conversation's runtime events, read from its even
 The bus delivers asynchronously, so a RAW event is not ordered against the run's other events, and only events delivered while the run is open are forwarded: one the bus delivers after the run's RUN\_FINISHED or RUN\_ERROR is not sent. For a workflow conversation the bus is the active conversation's when the run starts. A bus shared by several conversations \(sdk.WithEventBus\) carries all of their events; filter on the payload's SessionID or ConversationID to keep one conversation's.
 
 <a name="WithStateAfterEachTool"></a>
-### func [WithStateAfterEachTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L183>)
+### func [WithStateAfterEachTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L192>)
 
 ```go
 func WithStateAfterEachTool(enabled bool) AdapterOption
@@ -253,7 +299,7 @@ WithStateAfterEachTool sets whether the run also reads the StateProvider after e
 The turn is still running then: its next tool calls can be executing, so Snapshot is called concurrently with the tools that change the state, and must be safe for that \(guard the state with a lock the tools take too\).
 
 <a name="WithStateProvider"></a>
-### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L170>)
+### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L179>)
 
 ```go
 func WithStateProvider(sp StateProvider) AdapterOption
@@ -262,7 +308,7 @@ func WithStateProvider(sp StateProvider) AdapterOption
 WithStateProvider sets a provider of the state the run keeps in sync with the client. The run sends the state as a STATE\_SNAPSHOT at its start, and reads it again once the turn has run, before RUN\_FINISHED, sending the change as a STATE\_DELTA: an RFC 6902 JSON Patch against the state the client holds. A change a patch cannot carry \(one replacing the whole state, or setting a value to null, which the AG\-UI Go SDK cannot encode\) is sent as a new STATE\_SNAPSHOT. Snapshot is never called while the turn runs; see [WithStateAfterEachTool](<#WithStateAfterEachTool>) to send changes as each tool's result arrives.
 
 <a name="WithThreadID"></a>
-### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L148>)
+### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L157>)
 
 ```go
 func WithThreadID(id string) AdapterOption
@@ -271,7 +317,7 @@ func WithThreadID(id string) AdapterOption
 WithThreadID sets the AG\-UI thread ID for emitted events. By default the adapter generates one.
 
 <a name="WithToolResultProvider"></a>
-### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L212>)
+### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L222>)
 
 ```go
 func WithToolResultProvider(provider ToolResultProvider) AdapterOption
@@ -279,10 +325,10 @@ func WithToolResultProvider(provider ToolResultProvider) AdapterOption
 
 WithToolResultProvider sets a callback that answers pending client tools on the server, inside the run. When the callback answers every pending call, the adapter resolves them, emits a TOOL\_CALL\_RESULT for each, and resumes the turn. Calls it leaves unanswered stay pending: the run finishes with them unanswered, as AG\-UI requires for a frontend tool, and the application answers them in the next run \(see [EventAdapter.RunResume](<#EventAdapter.RunResume>)\). The answers it gave are reported before the run finishes; when the conversation has a ToolResultRewriter, each is reported as the model will be given it, rewritten.
 
-Use it only for tools the server itself can answer. A frontend tool, one the application advertised in RunAgentInput.tools, must not be answered by the producer.
+Use it only for tools the server itself can answer. A frontend tool, one the application advertised in RunAgentInput.tools, must not be answered by the producer: a call to a tool listed in [WithFrontendTools](<#WithFrontendTools>) is never handed to the callback, and the run ends with it pending.
 
 <a name="WithWorkflowSteps"></a>
-### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L193>)
+### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L202>)
 
 ```go
 func WithWorkflowSteps(enabled bool) AdapterOption
@@ -291,7 +337,7 @@ func WithWorkflowSteps(enabled bool) AdapterOption
 WithWorkflowSteps enables STEP\_STARTED / STEP\_FINISHED events naming the workflow state a run executes in. It has an effect only when the conversation runs a workflow, as one passed to [NewWorkflowEventAdapter](<#NewWorkflowEventAdapter>) does; [NewWorkflowEventAdapter](<#NewWorkflowEventAdapter>) enables it by default.
 
 <a name="EventAdapter"></a>
-## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L288-L296>)
+## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L300-L308>)
 
 EventAdapter bridges a PromptKit conversation to an AG\-UI event channel. It runs one conversation turn and translates the turn's messages into AG\-UI protocol events. An adapter carries one run: its channel closes when the run ends.
 
@@ -302,7 +348,7 @@ type EventAdapter struct {
 ```
 
 <a name="NewEventAdapter"></a>
-### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L301-L305>)
+### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L313-L317>)
 
 ```go
 func NewEventAdapter(conv interface {
@@ -314,7 +360,7 @@ func NewEventAdapter(conv interface {
 NewEventAdapter creates a new EventAdapter for the given conversation. The conversation must implement both Sender and EventBusProvider. \*sdk.Conversation satisfies both interfaces.
 
 <a name="NewWorkflowEventAdapter"></a>
-### func [NewWorkflowEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L316>)
+### func [NewWorkflowEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L328>)
 
 ```go
 func NewWorkflowEventAdapter(wc *sdk.WorkflowConversation, opts ...AdapterOption) *EventAdapter
@@ -325,7 +371,7 @@ NewWorkflowEventAdapter creates an EventAdapter for a workflow conversation. Eac
 Client\-tool results and approval resolutions go to the workflow's active conversation, the one serving the current state.
 
 <a name="EventAdapter.Events"></a>
-### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L347>)
+### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L359>)
 
 ```go
 func (a *EventAdapter) Events() <-chan aguievents.Event
@@ -336,7 +382,7 @@ Events returns the read\-only channel of AG\-UI events. The channel is closed wh
 Drain it concurrently with RunSend, RunResume or RunContinue, for example from another goroutine. The adapter never drops an event. When the channel's buffer is full it waits for the reader, so a reader that stops reading holds the run until the run's context is canceled; cancel it \(an HTTP handler's request context is canceled when the client disconnects\) to release the run.
 
 <a name="EventAdapter.RunContinue"></a>
-### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L468>)
+### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L490>)
 
 ```go
 func (a *EventAdapter) RunContinue(ctx context.Context) error
@@ -351,7 +397,7 @@ The held calls' results are emitted as TOOL\_CALL\_RESULT events, since only the
 It returns [ErrContinueUnsupported](<#ErrContinueUnsupported>) \(after a RUN\_ERROR\) when the conversation has no Continue method.
 
 <a name="EventAdapter.RunID"></a>
-### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L357>)
+### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L369>)
 
 ```go
 func (a *EventAdapter) RunID() string
@@ -360,7 +406,7 @@ func (a *EventAdapter) RunID() string
 RunID returns the run ID used by this adapter.
 
 <a name="EventAdapter.RunResume"></a>
-### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L444>)
+### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L466>)
 
 ```go
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error
@@ -375,7 +421,7 @@ In AG\-UI the application answers a frontend tool call in the next run's input, 
 A conversation that streams a resumed turn \(sdk.Conversation.ResumeStream\) sends it as RunSend sends a streamed turn.
 
 <a name="EventAdapter.RunSend"></a>
-### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L419>)
+### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L436>)
 
 ```go
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error
@@ -405,12 +451,14 @@ A conversation that streams \(\*sdk.Conversation, through sdk.Conversation.Strea
 
 A reply that ends differently from what streamed, as when a guardrail replaces it, is sent as a new text message holding the reply: the client has already shown the streamed text, which AG\-UI cannot take back.
 
+Before the model is called, the run offers the input's frontend tools \([WithFrontendTools](<#WithFrontendTools>)\), replaces the conversation's history with the client's \([WithClientHistory](<#WithClientHistory>)\) and opens msg with the input's context \([WithInputContext](<#WithInputContext>)\), each only when its option is set.
+
 On error, a RUN\_ERROR ends the run, with the token usage of the model calls made before the error. The events channel is always closed when RunSend returns.
 
 Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the reader once the channel's buffer of 64 events is full, so a caller that lets the run finish before reading blocks there.
 
 <a name="EventAdapter.ThreadID"></a>
-### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L352>)
+### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L364>)
 
 ```go
 func (a *EventAdapter) ThreadID() string
@@ -472,7 +520,7 @@ type ToolResult struct {
 ```
 
 <a name="ToolResultsFromAGUI"></a>
-### func [ToolResultsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L263>)
+### func [ToolResultsFromAGUI](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/convert.go#L282>)
 
 ```go
 func ToolResultsFromAGUI(msgs []aguitypes.Message) []ToolResult

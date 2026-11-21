@@ -415,6 +415,7 @@ func (s *ProviderStage) releaseHeld(ctx context.Context, rs *roundStream, finish
 	if text != "" && !rs.suppressText {
 		elem := textDeltaElement(text, finish)
 		elem.Meta.SegmentEnd = last || slices.Contains(rs.hold.seg.segments(), rs.text.sent.Len())
+		elem.Meta.MessageID = rs.rr.messageID
 		if err := sendStreamElement(ctx, elem, rs.output); err != nil {
 			return err
 		}
@@ -468,13 +469,16 @@ func (s *ProviderStage) finishStreamedText(
 		if rest == "" {
 			return nil
 		}
-		return sendStreamElement(ctx, textDeltaElement(rest, &fr), output)
+		elem := textDeltaElement(rest, &fr)
+		elem.Meta.MessageID = msg.ID()
+		return sendStreamElement(ctx, elem, output)
 	}
 	if msg.Content == "" {
 		return nil
 	}
 	elem := textDeltaElement(msg.Content, &fr)
 	elem.Meta.ReplacesText = true
+	elem.Meta.MessageID = msg.ID()
 	return sendStreamElement(ctx, elem, output)
 }
 

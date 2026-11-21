@@ -10,6 +10,8 @@ verified:
     - sdk/agui/adapter.go
     - sdk/agui/adapter_stream.go
     - sdk/agui/convert.go
+    - sdk/agui/adapter_input.go
+    - sdk/frontend_tools.go
     - sdk/client_tools.go
     - sdk/conversation_tools.go
     - sdk/inference_integration_test.go
@@ -18,7 +20,7 @@ verified:
 
 ## What we will build
 
-In this tutorial we build an HTTP endpoint that accepts AG-UI `RunAgentInput` requests and streams AG-UI events over Server-Sent Events (SSE), powered by a PromptKit SDK conversation. We keep one conversation per AG-UI thread, run each turn with the `EventAdapter`, mark the application's tools as frontend tools, continue turns held for tool approval, send the server's state with each run, and call the endpoint from a JavaScript client.
+In this tutorial we build an HTTP endpoint that accepts AG-UI `RunAgentInput` requests and streams AG-UI events over Server-Sent Events (SSE), powered by a PromptKit SDK conversation. We keep one conversation per AG-UI thread, run each turn with the `EventAdapter`, offer the model the application's own tools, continue turns held for tool approval, send the server's state with each run, and call the endpoint from a JavaScript client.
 
 ## Prerequisites
 
@@ -95,17 +97,13 @@ The same thread ID now returns the same conversation, which keeps the thread's h
 
 ## Step 3: Offer the frontend tools
 
-`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. `Conversation.DeferClientTool` binds a tool on this conversation as a client tool: a call to it suspends the turn until the application answers, and no other conversation is affected. We bind each tool the input lists:
+`RunAgentInput.tools` lists the application's own tools. The application executes them, not the server, so a call to one must suspend the turn rather than run here. The adapter option `agui.WithFrontendTools` offers the input's tools to the model for one run, as client tools: a call to one ends the run with the call pending, for the application to answer in the next run. We pass it when we create the adapter in Step 5:
 
 ```go
-func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
-	for _, tool := range tools {
-		conv.DeferClientTool(tool.Name)
-	}
-}
+	agui.WithFrontendTools(input.Tools),
 ```
 
-The model is offered only the tools the pack's prompt declares, so a frontend tool must be declared there too (its name, description and parameters). This tutorial's pack declares none, so the binding has an effect only once you add one to the pack.
+The tools are offered for the turn the run starts, so each run passes its own input's tools. A tool named like one the pack declares fails the run, so a client cannot replace a server tool with its own; [Frontend tools](/concepts/ag-ui/#frontend-tools) covers the rules.
 
 ## Step 4: Choose the run
 
@@ -153,12 +151,13 @@ Here a `resolved` entry approves the call and a `cancelled` one rejects it. `app
 
 ## Step 5: Stream SSE events
 
-We create the adapter with the input's thread and run IDs, start the run in a goroutine, and write events as they arrive:
+We create the adapter with the input's thread and run IDs and its frontend tools, start the run in a goroutine, and write events as they arrive:
 
 ```go
 	adapter := agui.NewEventAdapter(conv,
 		agui.WithThreadID(input.ThreadID),
 		agui.WithRunID(input.RunID),
+		agui.WithFrontendTools(input.Tools),
 	)
 	run := runFor(adapter, &input)
 
@@ -241,7 +240,6 @@ func handleAGUI(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to open conversation", http.StatusInternalServerError)
 		return
 	}
-	bindFrontendTools(conv, input.Tools)
 	if err := applyResume(r.Context(), conv, input.Resume); err != nil {
 		http.Error(w, "cannot resume: "+err.Error(), http.StatusConflict)
 		return
@@ -250,6 +248,7 @@ func handleAGUI(w http.ResponseWriter, r *http.Request) {
 	adapter := agui.NewEventAdapter(conv,
 		agui.WithThreadID(input.ThreadID),
 		agui.WithRunID(input.RunID),
+		agui.WithFrontendTools(input.Tools),
 	)
 	run := runFor(adapter, &input)
 
@@ -288,12 +287,6 @@ func conversationFor(threadID string) (*sdk.Conversation, error) {
 	}
 	sessions[threadID] = conv
 	return conv, nil
-}
-
-func bindFrontendTools(conv *sdk.Conversation, tools []aguiTypes.Tool) {
-	for _, tool := range tools {
-		conv.DeferClientTool(tool.Name)
-	}
 }
 
 func applyResume(ctx context.Context, conv *sdk.Conversation, entries []aguiTypes.ResumeEntry) error {

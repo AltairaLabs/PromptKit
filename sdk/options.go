@@ -402,6 +402,10 @@ type config struct {
 
 	// Maximum user message size in bytes (0 = use default)
 	maxMessageSize int
+	// maxHistoryMessages and maxHistoryBytes cap a history ReplaceHistory or
+	// WithHistory takes (WithMaxHistorySize); 0 is the default.
+	maxHistoryMessages int
+	maxHistoryBytes    int
 
 	// Custom logger for SDK consumers
 	logger *slog.Logger
@@ -1776,6 +1780,24 @@ func WithGuardrailTimeout(d time.Duration) Option {
 func WithStreamReasoning() Option {
 	return func(c *config) error {
 		c.streamReasoning = true
+		return nil
+	}
+}
+
+// WithMaxHistorySize caps what a history [Conversation.ReplaceHistory] and
+// [WithHistory] accept adds to the conversation: at most messages messages it
+// does not already hold, of at most bytes bytes together (counted as the
+// message size limit counts them). The stored messages an echo repeats are
+// not counted, so a long thread echoed back is not refused for its length. A
+// history over a limit is refused with [ErrInvalidHistory], naming the limit.
+// The defaults are 1000 messages and 16 MiB. Each added message is also held
+// to the conversation's message size limit (WithMaxMessageSize).
+func WithMaxHistorySize(messages, bytes int) Option {
+	return func(c *config) error {
+		if messages <= 0 || bytes <= 0 {
+			return fmt.Errorf("WithMaxHistorySize: limits must be positive, got %d messages, %d bytes", messages, bytes)
+		}
+		c.maxHistoryMessages, c.maxHistoryBytes = messages, bytes
 		return nil
 	}
 }
@@ -3700,6 +3722,14 @@ type sendConfig struct {
 	// messageMetadata is the application metadata from WithMessageMetadata,
 	// attached to this send's user message.
 	messageMetadata map[string]any
+
+	// clientTools are the client tools this send's turn offers
+	// (WithClientTools).
+	clientTools []*tools.ToolDescriptor
+	// history replaces the conversation's history before the turn
+	// (WithHistory), when historySet.
+	history    []types.Message
+	historySet bool
 }
 
 // SendOption configures a single Send call.

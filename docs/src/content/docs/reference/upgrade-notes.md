@@ -322,11 +322,31 @@ The AG-UI adapter now sends state changes as `STATE_DELTA`, the run's token usag
 | Configure a `StateProvider` | `Snapshot` called again once the turn has run, and a `STATE_DELTA` for the change; a provider that returns nil sends no `STATE_SNAPSHOT`, where it sent an invalid one | nothing; pass `agui.WithStateAfterEachTool(true)` for a delta after each tool result, with a `Snapshot` safe to call while tools run |
 | Read `RUN_FINISHED` for a run that stopped on a frontend tool call | a `success` outcome with `pendingToolCallIds`, where the outcome was absent | nothing; both mean the run completed |
 | Read `RUN_FINISHED` or `RUN_ERROR` | `usage`, one entry per provider and model, input including cache reads and writes, output including reasoning | sum `totalTokens` for a total |
-| Use `agui.WithMessagesSnapshot(true)` | snapshot message ids keyed by the thread id | set `agui.WithThreadID` from the input's `threadId`, so the ids stay stable across runs |
+| Use `agui.WithMessagesSnapshot(true)` | each message keyed by its stable id (see the next entry), or by the thread id and its position for a message stored without one | set `agui.WithThreadID` from the input's `threadId`, so those positional ids stay stable across runs |
 | Read `types.CostInfo` | a new `Model` field naming the model a call was served with, set on text turns | nothing |
 | Switch on `StreamChunk.Type` for a conversation opened with `sdk.WithStreamReasoning()` | `ChunkReasoning` chunks, with the delta in `Reasoning` and no `Text` | handle or skip them; `StreamRaw` and the A2A server drop them |
 | Stream from a `session.UnarySession` yourself | reasoning-only `providers.StreamChunk`s only with the new `UnarySessionConfig.StreamReasoning` | nothing |
 | Script `mock.Turn` values in tests | a new `ReasoningChunks` field the mock providers stream as reasoning | nothing |
+
+#### Stored messages carry stable ids, and AG-UI runs can read the client's history, context and tools
+
+Every message a conversation stores now carries a stable id, under the new `types.MetaMessageID` Meta key, read with the new `Message.ID()` and assigned by the new `types.EnsureMessageID`. The id is kept by every shipped state store and reads back the same on every load. `agui.MessageToAGUI` and `MESSAGES_SNAPSHOT` use it, and `agui.MessageFromAGUI` keeps an AG-UI message's id as the message's stable id. Messages stored before the upgrade have no id and are not rewritten: a snapshot keys each by its thread and position, as before, and `MessageToAGUI` mints an id for it on each call.
+
+Three new adapter options read the rest of `RunAgentInput`, each off by default. `agui.WithClientHistory` replaces the conversation's history with the client's, dropping its system, developer and reasoning messages, through the new `sdk.WithHistory` send option (also `Conversation.ReplaceHistory`). The conversation's own copy of each message it holds wins over the client's, so blocked input turns and interrupted replies stay out of model context and stored metadata survives the echo. `agui.WithInputContext` opens the new message with a delimited context block. `agui.WithFrontendTools` offers the client's tools to the model for the turn through the new `sdk.WithClientTools` send option, refusing a name that is already a tool's with the new `sdk.ErrToolNameConflict`; the tools are registered with the new `tools.Registry.RegisterLocal`, on the conversation's own registry only. `sdk.WithMaxHistorySize` caps what a replaced history adds beyond the stored messages, and the new `stage.ModelContextMask` reports which messages `stage.ExcludeFromModelContext` leaves out, including each one marked with the new `types.MetaExcludedFromModel`. A client tool's name must be 1 to 64 of `A-Z`, `a-z`, `0-9`, `_` and `-`. A streamed round carries its stored id on its text, reasoning and tool-call chunks (the new `StreamChunk.MessageID` in `sdk` and `providers`, `stage.ElementMetadata.MessageID`), and the AG-UI adapter streams each message under it. `types.NewMessageID` mints an id, and `types.MetaInjectedContext` marks a context block a host put in front of a user message.
+
+| If you | You will see | Change |
+|---|---|---|
+| Use `agui.WithMessagesSnapshot(true)` | each message keyed by its stable id, the same in every run whatever the thread id; `<thread>-<position>` only for a message stored before the upgrade | nothing |
+| Read `Message.Meta` of stored or reported messages | a `_message_id` key holding a string | ignore it, or read it with `Message.ID()` |
+| Compare stored messages field by field in tests | the `_message_id` Meta key on each | compare without it |
+| Convert AG-UI messages with `MessageFromAGUI` | the message's `id` under `Meta["_message_id"]` | nothing |
+| Want the model to see the client's history, as AG-UI's whole-history `messages` intend | the conversation's own history, as before | pass `agui.WithClientHistory(input.Messages[:len(input.Messages)-1])` to `RunSend`, only for a client entitled to edit its conversation |
+| Want the model to see `RunAgentInput.context` | nothing from it, as before | pass `agui.WithInputContext(input.Context)` |
+| Declare frontend tools in the pack only so the model is offered them | the same, as before | pass `agui.WithFrontendTools(input.Tools)` on every `RunSend` instead; a name the pack also declares fails the run, so leave pack tools out |
+| Set `ProviderConfig.ToolGrants` (or `DuplexToolConfig.ToolGrants`) to entries ending in `*` | each grant is matched as an exact tool name, never as a wildcard | grant the tool names; patterns belong in the prompt's `allowed_tools` |
+| Read the AG-UI `TEXT_MESSAGE_START` / `TOOL_CALL_START` parent ids of a streamed turn | the ids the conversation stores the messages under, where each was a new random id | nothing |
+| Read `Meta` of a reply an output guardrail cut mid-stream | its `_message_id` kept beside the guardrail's metadata | nothing |
+| Send a `*types.Message` that carries tool calls or a tool result, with `WithMaxMessageSize` set | the size limit counts the tool calls' arguments and the tool result's parts too | raise the limit if such a message is now refused |
 
 ### Caller identity
 

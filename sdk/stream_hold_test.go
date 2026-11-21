@@ -747,3 +747,26 @@ func TestStreamHold_TruncationWaitsForTheHoldingJudge(t *testing.T) {
 	assert.Equal(t, []string{holdMessage}, turn.deltas, "none of the truncated reply reached the caller")
 	assert.Equal(t, holdMessage, turn.resp.Text())
 }
+
+// Every delta a stream_hold releases, and the message that replaces a held
+// reply, names the id the reply is stored under (StreamChunk.MessageID).
+func TestStreamHold_DeltasCarryTheStoredMessageID(t *testing.T) {
+	for name, pass := range map[string]bool{"released": true, "replaced": false} {
+		t.Run(name, func(t *testing.T) {
+			judge := newHoldJudge(&holdLog{}, pass)
+			model := newPacedModel(false, mock.Turn{Type: "text", StreamChunks: weatherChunks})
+			s := openHold(t, model, judge, map[string]any{"stream_hold": "turn"})
+			var ids []string
+			for c := range s.conv.Stream(context.Background(), "what is the weather?") {
+				require.NoError(t, c.Error)
+				if c.Type == ChunkText {
+					ids = append(ids, c.MessageID)
+				}
+			}
+			require.Len(t, ids, 1)
+			stored := lastAssistant(t, s.conv)
+			require.NotEmpty(t, stored.ID())
+			assert.Equal(t, []string{stored.ID()}, ids)
+		})
+	}
+}

@@ -216,7 +216,12 @@ func (s *IncrementalSaveStage) collectAndForward(
 	for elem := range input {
 		newMessage := IsTranscriptMessage(&elem)
 		if newMessage {
-			collected.messages = append(collected.messages, *elem.Message)
+			// The message is stored with its stable id, and goes on carrying
+			// it, so what follows this stage (the caller's Response) reads the
+			// id the history holds. A copy: the message may be the caller's.
+			stamped := types.EnsureMessageID(*elem.Message)
+			elem.Message = &stamped
+			collected.messages = append(collected.messages, stamped)
 		}
 
 		// Always forward error elements unconditionally

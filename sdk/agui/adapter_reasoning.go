@@ -17,13 +17,13 @@ import (
 // liveReasoning sends a delta of the current round's reasoning, opening the
 // round's reasoning when none is open. Reasoning after the round's calls is
 // the next round's.
-func (st *runState) liveReasoning(delta string) {
+func (st *runState) liveReasoning(delta, messageID string) {
 	if delta == "" || !st.a.cfg.showReasoning {
 		return
 	}
 	r := st.lastRound()
 	if r == nil || r.called {
-		r = st.newRound()
+		r = st.newRound(messageID)
 	}
 	st.openReasoning(r)
 	st.emit(aguievents.NewReasoningMessageContentEvent(r.reasoningMsgID, delta))

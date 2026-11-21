@@ -39,6 +39,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func DescribeCapabilities\(stage Stage\) string](<#DescribeCapabilities>)
 - [func ExcludeFromModelContext\(msgs \[\]types.Message\) \[\]types.Message](<#ExcludeFromModelContext>)
 - [func IsTranscriptMessage\(elem \*StreamElement\) bool](<#IsTranscriptMessage>)
+- [func ModelContextMask\(msgs \[\]types.Message\) \[\]bool](<#ModelContextMask>)
 - [func NewCompositionStepExecutor\(deps CompositionExecutorDeps\) engine.StepExecutor](<#NewCompositionStepExecutor>)
 - [func NewFileSchemaResolver\(configDir string\) func\(path string\) \(json.RawMessage, error\)](<#NewFileSchemaResolver>)
 - [func NormalizeEmbedding\(embedding \[\]float32\) \[\]float32](<#NormalizeEmbedding>)
@@ -812,22 +813,31 @@ func DescribeCapabilities(stage Stage) string
 DescribeCapabilities returns a human\-readable description of a stage's capabilities. Useful for debugging and logging.
 
 <a name="ExcludeFromModelContext"></a>
-## func [ExcludeFromModelContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L168>)
+## func [ExcludeFromModelContext](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L176>)
 
 ```go
 func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ```
 
-ExcludeFromModelContext returns msgs without what never goes back to a model: interrupted replies \(types.ExcludeInterrupted\) and blocked input turns, the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
+ExcludeFromModelContext returns msgs without what never goes back to a model, the messages ModelContextMask marks: interrupted replies \(types.ExcludeInterrupted\), blocked input turns \(the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered\), and each message marked Meta\[types.MetaExcludedFromModel\]. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="IsTranscriptMessage"></a>
-## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L260>)
+## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L265>)
 
 ```go
 func IsTranscriptMessage(elem *StreamElement) bool
 ```
 
 IsTranscriptMessage reports whether the save stage stores elem's Message in the transcript: a message this pipeline produced \(not history loaded from the store, a summary or a retrieved message\) that is not held for playout. A held Message is stored from its PlayoutRelease element instead. A stage after the save stage counts these to know how far the transcript reaches.
+
+<a name="ModelContextMask"></a>
+## func [ModelContextMask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L186>)
+
+```go
+func ModelContextMask(msgs []types.Message) []bool
+```
+
+ModelContextMask reports, for each message of msgs, whether ExcludeFromModelContext leaves it out: an interrupted reply, a message of a blocked input turn, or one marked Meta\[types.MetaExcludedFromModel\]. It returns nil when it leaves none out. A host that rebuilds a history from another copy of it uses the mask to keep what the transcript holds out of model context out of it still.
 
 <a name="NewCompositionStepExecutor"></a>
 ## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L143>)
@@ -2430,7 +2440,7 @@ type DuplexToolConfig struct {
     // Caller is who the conversation acts for (ProviderConfig.Caller).
     Caller types.Caller
     // ToolGrants returns the tools granted beyond the prompt's
-    // (ProviderConfig.ToolGrants).
+    // (ProviderConfig.ToolGrants): exact names, never patterns.
     ToolGrants func() []string
     // DescribeTool shapes how a tool is described to the model
     // (ProviderConfig.DescribeTool).
@@ -2445,7 +2455,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L400>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L406>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2504,6 +2514,12 @@ type ElementMetadata struct {
     // that works a segment at a time (speech output) can take it at once,
     // without waiting for the text after it.
     SegmentEnd bool
+
+    // MessageID is the stable id (types.MetaMessageID) of the assistant
+    // message a text element is part of: the round's reply, which is stored
+    // under it, so a consumer streaming the text can name the message as the
+    // history will (providers.StreamChunk.MessageID).
+    MessageID string
 
     // InterruptedTurnComplete marks the element that closes an
     // interrupted turn (downstream cleanup signal).
@@ -3700,7 +3716,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L403-L414>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L409-L420>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -4623,7 +4639,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L322>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L324>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4698,7 +4714,9 @@ type ProviderConfig struct {
     // merges the grants into allowedTools on every build and rebuilds the
     // tools array after any tool round that changed them. Grants are
     // applied after ToolSelector narrowing, so a selector never hides a tool
-    // the model was just told it gained.
+    // the model was just told it gained. Each grant is a tool name, matched
+    // exactly: unlike an allowed_tools entry, a trailing "*" is not a
+    // wildcard, so a grant offers at most the one tool it names.
     ToolGrants func() []string
 
     // DescribeTool, when set, returns the descriptor to offer the model for a
@@ -4774,7 +4792,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L335>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L337>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4783,7 +4801,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L325>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L327>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4808,7 +4826,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L382-L387>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L388-L393>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4817,7 +4835,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L394-L400>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L400-L406>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4826,7 +4844,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L407-L414>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L413-L420>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4835,7 +4853,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L421-L429>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L427-L435>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4844,7 +4862,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L688-L692>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L694-L698>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4853,7 +4871,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L379>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L385>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -6171,7 +6189,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3112>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3155>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6776,7 +6794,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L430-L433>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L436-L439>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -7080,7 +7098,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L417-L426>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L423-L432>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

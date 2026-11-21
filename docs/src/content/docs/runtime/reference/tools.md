@@ -145,7 +145,9 @@ Tools load from YAML or JSON files with Registry.LoadToolFromBytes, or are regis
   - [func \(r \*Registry\) MaxToolResultSize\(\) int](<#Registry.MaxToolResultSize>)
   - [func \(r \*Registry\) Register\(descriptor \*ToolDescriptor\) error](<#Registry.Register>)
   - [func \(r \*Registry\) RegisterExecutor\(executor Executor\)](<#Registry.RegisterExecutor>)
+  - [func \(r \*Registry\) RegisterLocal\(descriptor \*ToolDescriptor\) error](<#Registry.RegisterLocal>)
   - [func \(r \*Registry\) Unregister\(name string\) bool](<#Registry.Unregister>)
+  - [func \(r \*Registry\) UnregisterLocal\(name string\) bool](<#Registry.UnregisterLocal>)
 - [type RegistryOption](<#RegistryOption>)
   - [func WithDefaultTimeout\(ms int\) RegistryOption](<#WithDefaultTimeout>)
   - [func WithMaxToolResultSize\(bytes int\) RegistryOption](<#WithMaxToolResultSize>)
@@ -742,7 +744,7 @@ func (m *DefaultResponseMapper) MapResponse(response json.RawMessage, jmespathEx
 MapResponse applies a JMESPath expression to extract or reshape a JSON response.
 
 <a name="DeferringExecutor"></a>
-## type [DeferringExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L735-L737>)
+## type [DeferringExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L740-L742>)
 
 DeferringExecutor is implemented by an executor that can defer a call without running it, for the host to settle later, as a client tool with no handler does. ExecuteCallAsyncAdmitted and ExecuteAsyncAdmitted ask Defer first: when it returns true, its result \(status ToolStatusPending\) is returned as the call's, the executor does not run, and neither the admit gate nor the registry's rate limit counts the call; both count it when the host settles it \(AdmitSettled\). The deferred calls of one round therefore never take each other's room. Defer is given the call with its coerced, validated arguments, and must decide and build the pending result from one look at its own state, so a call it does not defer is run \(and counted\) normally.
 
@@ -1366,7 +1368,7 @@ func (p PendingToolInfo) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the pending tool call's args \(empty \-\> \{\}\).
 
 <a name="Registry"></a>
-## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L82-L95>)
+## type [Registry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L82-L99>)
 
 Registry manages tool descriptors and provides access to executors. All map access is protected by mu \(RWMutex\) for safe concurrent use.
 
@@ -1422,7 +1424,7 @@ func main() {
 </details>
 
 <a name="NewRegistry"></a>
-### func [NewRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L98>)
+### func [NewRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L102>)
 
 ```go
 func NewRegistry(opts ...RegistryOption) *Registry
@@ -1431,7 +1433,7 @@ func NewRegistry(opts ...RegistryOption) *Registry
 NewRegistry creates an empty tool registry.
 
 <a name="NewRegistryWithRepository"></a>
-### func [NewRegistryWithRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L104>)
+### func [NewRegistryWithRepository](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L108>)
 
 ```go
 func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Registry
@@ -1440,7 +1442,7 @@ func NewRegistryWithRepository(repo ToolRepository, opts ...RegistryOption) *Reg
 NewRegistryWithRepository creates a tool registry preloaded with every descriptor the repository lists. The repository is not retained.
 
 <a name="Registry.AdmitSettled"></a>
-### func \(\*Registry\) [AdmitSettled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L707>)
+### func \(\*Registry\) [AdmitSettled](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L712>)
 
 ```go
 func (r *Registry) AdmitSettled(toolName string, admit func() error) error
@@ -1449,7 +1451,7 @@ func (r *Registry) AdmitSettled(toolName string, admit func() error) error
 AdmitSettled admits a deferred call to toolName \(one its executor returned ToolStatusPending for\) when the host settles it: it counts the call under the registry's rate limit \(WithRateLimit\) and, when admit is not nil, calls admit under the limit's lock, as ExecuteAsyncAdmitted does for a call it runs. Over the registry's limit it returns an error wrapping ErrRateLimitExceeded; if admit refuses, its error, and the registry does not count the call. A deferred call is counted by the registry's limit only here, never when it is dispatched.
 
 <a name="Registry.AdmitSettledRelease"></a>
-### func \(\*Registry\) [AdmitSettledRelease](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L716>)
+### func \(\*Registry\) [AdmitSettledRelease](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L721>)
 
 ```go
 func (r *Registry) AdmitSettledRelease(toolName string, admit func() error) (release func(), err error)
@@ -1458,7 +1460,7 @@ func (r *Registry) AdmitSettledRelease(toolName string, admit func() error) (rel
 AdmitSettledRelease is AdmitSettled, also returning release, which takes the registry's count of the call back: for a settled call whose result is then never used \(its turn was abandoned\). release is nil when the call is refused. It does not take back what admit counted.
 
 <a name="Registry.CheckResult"></a>
-### func \(\*Registry\) [CheckResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L883-L885>)
+### func \(\*Registry\) [CheckResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L888-L890>)
 
 ```go
 func (r *Registry) CheckResult(toolName string, content json.RawMessage, parts []types.ContentPart) (*ToolExecutionResult, error)
@@ -1469,7 +1471,7 @@ CheckResult holds content \(and parts\), a result produced for a call to toolNam
 It is for a host that runs a call itself, such as a held call it approved, so its result is held to the same contract as one the registry ran.
 
 <a name="Registry.Child"></a>
-### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L21>)
+### func \(\*Registry\) [Child](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L23>)
 
 ```go
 func (r *Registry) Child(opts ...RegistryOption) *Registry
@@ -1484,7 +1486,7 @@ Executor lookup falls through to the parent only for names the child never regis
 Child is nil\-receiver safe: a nil parent yields a standalone registry, so a caller can write reg = hostRegistry.Child\(\) without checking whether the host supplied one. The child takes the parent's default timeout, result size limit and rate limiter, and options passed to Child override them.
 
 <a name="Registry.Execute"></a>
-### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L463-L465>)
+### func \(\*Registry\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L468-L470>)
 
 ```go
 func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMessage) (*ToolResult, error)
@@ -1493,7 +1495,7 @@ func (r *Registry) Execute(ctx context.Context, toolName string, args json.RawMe
 Execute runs a tool with the given arguments. It is ExecuteCall for a call with no ID and no caller.
 
 <a name="Registry.ExecuteAsync"></a>
-### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L602-L604>)
+### func \(\*Registry\) [ExecuteAsync](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L607-L609>)
 
 ```go
 func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.RawMessage) (*ToolExecutionResult, error)
@@ -1502,7 +1504,7 @@ func (r *Registry) ExecuteAsync(ctx context.Context, toolName string, args json.
 ExecuteAsync is Execute for executors that may suspend a call. If the tool's executor implements AsyncToolExecutor, the result can have status ToolStatusPending; otherwise the call runs synchronously. Failures are reported as status ToolStatusFailed with a nil error, as for Execute.
 
 <a name="Registry.ExecuteAsyncAdmitted"></a>
-### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L619-L621>)
+### func \(\*Registry\) [ExecuteAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L624-L626>)
 
 ```go
 func (r *Registry) ExecuteAsyncAdmitted(ctx context.Context, toolName string, args json.RawMessage, admit func() error) (*ToolExecutionResult, error)
@@ -1511,7 +1513,7 @@ func (r *Registry) ExecuteAsyncAdmitted(ctx context.Context, toolName string, ar
 ExecuteAsyncAdmitted is ExecuteAsync with an admission gate. admit, when not nil, is called once the call has passed every check of its own \(the tool exists, its arguments are valid, it has an executor, and the registry's rate limit allows it\), immediately before the executor runs. If admit returns an error, the executor does not run, the registry's rate limit does not count the call, and that error is returned unchanged. A call that fails one of the registry's checks never reaches admit, and neither does one its executor defers \(DeferringExecutor\): that call is admitted, and counted by the registry's rate limit, when the host settles it \(AdmitSettled\). A call an executor defers only once it runs has its count under the registry's rate limit taken back then.
 
 <a name="Registry.ExecuteCall"></a>
-### func \(\*Registry\) [ExecuteCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L478>)
+### func \(\*Registry\) [ExecuteCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L483>)
 
 ```go
 func (r *Registry) ExecuteCall(ctx context.Context, call ToolCall) (*ToolResult, error)
@@ -1520,7 +1522,7 @@ func (r *Registry) ExecuteCall(ctx context.Context, call ToolCall) (*ToolResult,
 ExecuteCall runs a tool call. It coerces the call's arguments toward the input schema, validates them, applies the rate limit, and runs the executor the tool's mode selects, under the tool's TimeoutMs. An executor that implements CallExecutor is given the call with the coerced arguments, so it sees the call ID and the caller. An unknown tool, invalid arguments, or a missing executor return an error. An executor failure, a timeout, a rate\-limit refusal, or a result that fails the output schema is reported in ToolResult.Error with a nil error. Results of tools in mcp mode are not validated against the output schema. The result's ID is the call's ID.
 
 <a name="Registry.ExecuteCallAsyncAdmitted"></a>
-### func \(\*Registry\) [ExecuteCallAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L632-L634>)
+### func \(\*Registry\) [ExecuteCallAsyncAdmitted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L637-L639>)
 
 ```go
 func (r *Registry) ExecuteCallAsyncAdmitted(ctx context.Context, call ToolCall, admit func() error) (*ToolExecutionResult, error)
@@ -1529,7 +1531,7 @@ func (r *Registry) ExecuteCallAsyncAdmitted(ctx context.Context, call ToolCall, 
 ExecuteCallAsyncAdmitted is ExecuteAsyncAdmitted for a whole call, so the executor can see its ID and caller. The executor is given the call with its coerced, validated arguments through the first entry point it implements: AsyncCallExecutor's ExecuteCallAsync, AsyncToolExecutor's ExecuteAsync \(which can suspend the call but does not see the call or its caller\), then the synchronous entry points in the order ExecuteCall uses \(CallExecutor, MultimodalExecutor, Executor\).
 
 <a name="Registry.Fork"></a>
-### func \(\*Registry\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L153>)
+### func \(\*Registry\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L157>)
 
 ```go
 func (r *Registry) Fork() *Registry
@@ -1542,7 +1544,7 @@ Use this to give each concurrent run its own per\-run dispatch state: a per\-run
 Memory cost is two shallow map copies; descriptor and executor values are pointer\-typed so the underlying objects are shared.
 
 <a name="Registry.Get"></a>
-### func \(\*Registry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L226>)
+### func \(\*Registry\) [Get](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L231>)
 
 ```go
 func (r *Registry) Get(name string) *ToolDescriptor
@@ -1551,7 +1553,7 @@ func (r *Registry) Get(name string) *ToolDescriptor
 Get retrieves a tool descriptor by name, or nil when none is registered.
 
 <a name="Registry.GetByNamespace"></a>
-### func \(\*Registry\) [GetByNamespace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L383>)
+### func \(\*Registry\) [GetByNamespace](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L388>)
 
 ```go
 func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor
@@ -1560,7 +1562,7 @@ func (r *Registry) GetByNamespace(ns string) []*ToolDescriptor
 GetByNamespace returns all tool descriptors in the given namespace.
 
 <a name="Registry.GetTool"></a>
-### func \(\*Registry\) [GetTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L341>)
+### func \(\*Registry\) [GetTool](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L346>)
 
 ```go
 func (r *Registry) GetTool(name string) (*ToolDescriptor, error)
@@ -1569,7 +1571,7 @@ func (r *Registry) GetTool(name string) (*ToolDescriptor, error)
 GetTool retrieves a tool descriptor by name.
 
 <a name="Registry.GetTools"></a>
-### func \(\*Registry\) [GetTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L352>)
+### func \(\*Registry\) [GetTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L357>)
 
 ```go
 func (r *Registry) GetTools() map[string]*ToolDescriptor
@@ -1578,7 +1580,7 @@ func (r *Registry) GetTools() map[string]*ToolDescriptor
 GetTools returns all loaded tool descriptors. The returned map is a shallow copy \(safe to iterate/delete keys\), but the \*ToolDescriptor pointers are shared with the registry. Callers must not mutate the returned descriptors.
 
 <a name="Registry.GetToolsByNames"></a>
-### func \(\*Registry\) [GetToolsByNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L370>)
+### func \(\*Registry\) [GetToolsByNames](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L375>)
 
 ```go
 func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error)
@@ -1587,7 +1589,7 @@ func (r *Registry) GetToolsByNames(names []string) ([]*ToolDescriptor, error)
 GetToolsByNames returns tool descriptors for the specified names
 
 <a name="Registry.IterateTools"></a>
-### func \(\*Registry\) [IterateTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L363>)
+### func \(\*Registry\) [IterateTools](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L368>)
 
 ```go
 func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor))
@@ -1596,7 +1598,7 @@ func (r *Registry) IterateTools(fn func(name string, tool *ToolDescriptor))
 IterateTools calls fn for each loaded tool descriptor while holding the read lock. This avoids the map copy that GetTools performs, which matters when the registry is large and the caller only needs to inspect each tool once \(e.g. building a provider tool list\). The callback must not call back into the Registry.
 
 <a name="Registry.List"></a>
-### func \(\*Registry\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L232>)
+### func \(\*Registry\) [List](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L237>)
 
 ```go
 func (r *Registry) List() []string
@@ -1605,7 +1607,7 @@ func (r *Registry) List() []string
 List returns the names of every registered tool, sorted.
 
 <a name="Registry.LoadToolFromBytes"></a>
-### func \(\*Registry\) [LoadToolFromBytes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L249>)
+### func \(\*Registry\) [LoadToolFromBytes](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L254>)
 
 ```go
 func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
@@ -1614,7 +1616,7 @@ func (r *Registry) LoadToolFromBytes(filename string, data []byte) error
 LoadToolFromBytes loads a tool descriptor from raw bytes data. A filename ending in .yaml or .yml selects the YAML parser, which requires the Kubernetes manifest form \(apiVersion, kind: Tool, metadata, spec\); any other filename selects JSON. The descriptor must have a name, description, input schema, output schema and a valid mode, or an error is returned. A TimeoutMs of 0 is replaced with the registry default. The filename is used for the parser choice and in error messages.
 
 <a name="Registry.MaxToolResultSize"></a>
-### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L426>)
+### func \(\*Registry\) [MaxToolResultSize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L431>)
 
 ```go
 func (r *Registry) MaxToolResultSize() int
@@ -1623,7 +1625,7 @@ func (r *Registry) MaxToolResultSize() int
 MaxToolResultSize returns the configured maximum tool result size in bytes.
 
 <a name="Registry.Register"></a>
-### func \(\*Registry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L170>)
+### func \(\*Registry\) [Register](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L175>)
 
 ```go
 func (r *Registry) Register(descriptor *ToolDescriptor) error
@@ -1632,7 +1634,7 @@ func (r *Registry) Register(descriptor *ToolDescriptor) error
 Register adds a tool descriptor to the registry, replacing any descriptor of the same name, and sets its Namespace from its name. Unlike LoadToolFromBytes, it does not check the descriptor's required fields. On a registry made with Child, the descriptor is registered on the parent.
 
 <a name="Registry.RegisterExecutor"></a>
-### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L404>)
+### func \(\*Registry\) [RegisterExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L409>)
 
 ```go
 func (r *Registry) RegisterExecutor(executor Executor)
@@ -1644,8 +1646,19 @@ A registry holds exactly one executor per name, so registering a second one unde
 
 RegisterExecutor logs the replacement at Warn. Give each conversation its own executors with [Registry.Child](<#Registry.Child>). A nil executor is ignored.
 
+<a name="Registry.RegisterLocal"></a>
+### func \(\*Registry\) [RegisterLocal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L75>)
+
+```go
+func (r *Registry) RegisterLocal(descriptor *ToolDescriptor) error
+```
+
+RegisterLocal registers a descriptor on this registry alone: unlike Register, never on the parent of a registry made with Child, so it is invisible to the parent and to the parent's other children. Get, GetTool and tool execution resolve it, after every descriptor the registry and its parent chain hold, so one registered there under the same name, even later, wins over it. List, GetTools, IterateTools and GetByNamespace do not include it. It replaces a local descriptor of the same name, and sets its Namespace from its name.
+
+It is for a descriptor that belongs to one conversation's run, such as a tool an application offers the model at runtime.
+
 <a name="Registry.Unregister"></a>
-### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L208>)
+### func \(\*Registry\) [Unregister](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L213>)
 
 ```go
 func (r *Registry) Unregister(name string) bool
@@ -1656,6 +1669,15 @@ Unregister removes a tool descriptor by name. Returns true if a descriptor was r
 The workflow runtime uses it when a state machine transitions into a terminal state, to remove the previous state's workflow\_\_transition descriptor so the model cannot call it against a dead state. Safe to call concurrently with Get/List.
 
 Removal is final for every read path: Get, GetTool and List all read the same store. There is no repository fallback that restores the descriptor. On a registry made with Child, the descriptor is removed from the parent.
+
+<a name="Registry.UnregisterLocal"></a>
+### func \(\*Registry\) [UnregisterLocal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/child_registry.go#L95>)
+
+```go
+func (r *Registry) UnregisterLocal(name string) bool
+```
+
+UnregisterLocal removes a descriptor RegisterLocal registered, and reports whether there was one.
 
 <a name="RegistryOption"></a>
 ## type [RegistryOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/registry.go#L48>)
