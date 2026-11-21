@@ -131,6 +131,7 @@ type heldPlayoutSession struct {
 	// held audio. HeldAudioDropped clears it and counts dropped.
 	interrupted bool
 	dropped     int
+	droppedGens []int64
 	// interruptAfter, when set, has the caller speak (interrupted) once that
 	// many audio chunks were released.
 	interruptAfter int
@@ -150,8 +151,12 @@ func (p *heldPlayoutSession) ReleaseAudio(c *providers.StreamChunk) bool {
 	return true
 }
 func (p *heldPlayoutSession) OutputTranscriptLag() time.Duration { return p.lag }
-func (p *heldPlayoutSession) HeldAudioInterrupted() bool         { return p.interrupted }
-func (p *heldPlayoutSession) HeldAudioDropped()                  { p.interrupted = false; p.dropped++ }
+func (p *heldPlayoutSession) HeldAudioInterrupted(int64) bool    { return p.interrupted }
+func (p *heldPlayoutSession) HeldAudioDropped(gen int64) {
+	p.interrupted = false
+	p.dropped++
+	p.droppedGens = append(p.droppedGens, gen)
+}
 
 // holdStage is a duplex stage holding replies in mode for hook, on a
 // heldPlayoutSession.

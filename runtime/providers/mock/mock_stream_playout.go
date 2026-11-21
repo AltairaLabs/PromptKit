@@ -45,7 +45,7 @@ func (m *MockStreamSession) ReleasedAudio() []byte {
 // HeldAudioInterrupted implements providers.PlayoutHolder: whether the test
 // had the caller speak over held audio (InterruptHeldAudio) since the
 // pipeline last dropped what it held.
-func (m *MockStreamSession) HeldAudioInterrupted() bool {
+func (m *MockStreamSession) HeldAudioInterrupted(_ int64) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.heldInterrupted
@@ -53,7 +53,7 @@ func (m *MockStreamSession) HeldAudioInterrupted() bool {
 
 // HeldAudioDropped implements providers.PlayoutHolder, clearing
 // HeldAudioInterrupted and counting the drop (HeldDrops).
-func (m *MockStreamSession) HeldAudioDropped() {
+func (m *MockStreamSession) HeldAudioDropped(_ int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.heldInterrupted = false

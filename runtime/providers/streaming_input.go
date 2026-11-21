@@ -280,8 +280,8 @@ type PlayoutHolder interface {
 	// then releases none of it. The check and the count are one step, so a
 	// barge-in cannot fall between them.
 	ReleaseAudio(chunk *StreamChunk) bool
-	HeldAudioInterrupted() bool
-	HeldAudioDropped()
+	HeldAudioInterrupted(generation int64) bool
+	HeldAudioDropped(generation int64)
 }
 
 // TranscriptLagger is an optional StreamInputSession interface for a session

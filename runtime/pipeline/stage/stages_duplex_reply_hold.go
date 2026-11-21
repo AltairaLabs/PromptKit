@@ -246,7 +246,7 @@ func (s *DuplexProviderStage) replyHoldInterrupted() bool {
 		return true
 	}
 	if s.playoutHeld != nil {
-		h.interrupted = s.playoutHeld.HeldAudioInterrupted()
+		h.interrupted = s.playoutHeld.HeldAudioInterrupted(h.gen)
 	}
 	return h.interrupted
 }
@@ -415,7 +415,7 @@ func (s *DuplexProviderStage) settleReplyHold(
 		return nil
 	}
 	// The reply's turn is over: nothing of it is held any longer.
-	defer s.heldAudioDropped()
+	defer s.heldAudioDropped(s.chunkGen)
 	h := s.replyHold
 	if h == nil {
 		return nil
@@ -474,10 +474,11 @@ func keepHeardReply(elem *StreamElement, h *duplexReplyHold) {
 }
 
 // heldAudioDropped tells a session that counts released audio that nothing
-// of the reply is held any longer (providers.PlayoutHolder).
-func (s *DuplexProviderStage) heldAudioDropped() {
+// of reply generation is held any longer (providers.PlayoutHolder); 0, for a
+// provider that does not number its replies, is every reply.
+func (s *DuplexProviderStage) heldAudioDropped(generation int64) {
 	if s.playoutHeld != nil {
-		s.playoutHeld.HeldAudioDropped()
+		s.playoutHeld.HeldAudioDropped(generation)
 	}
 }
 
@@ -507,7 +508,7 @@ func (s *DuplexProviderStage) dropReplyHold(heardText bool) {
 	if h == nil {
 		return
 	}
-	s.heldAudioDropped()
+	s.heldAudioDropped(h.gen)
 	s.replyHold = nil
 	h.judge.stop()
 	if h.passed {

@@ -2419,7 +2419,7 @@ func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSe
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
 
 <a name="DuplexProviderStage.SetStreamHold"></a>
-### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1159>)
+### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1167>)
 
 ```go
 func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)

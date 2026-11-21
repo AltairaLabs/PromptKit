@@ -54,6 +54,10 @@ type callerTurns struct {
 	// audioSince and toolsSince record caller audio and tool results sent
 	// since the latest reply began.
 	audioSince, toolsSince bool
+	// barged is set once a barge-in on the latest reply was recorded: one
+	// reported again (by the stage dropping the reply, then by the
+	// provider) is the same barge-in.
+	barged bool
 }
 
 // callerTurn is one caller turn.
@@ -242,6 +246,7 @@ func (c *callerTurns) replyBegins(input string) callerTurn {
 	}
 	c.answered = true
 	c.replying = true
+	c.barged = false
 	c.audioSince, c.toolsSince = false, false
 	return c.reply
 }
@@ -265,6 +270,13 @@ func (c *callerTurns) takeNamedLocked(input string) bool {
 // bargeIn records that the caller barged in: the reply in progress ends, cut
 // short, and the caller is speaking a turn of their own.
 func (c *callerTurns) bargeIn() {
+	c.mu.Lock()
+	again := c.barged
+	c.barged = true
+	c.mu.Unlock()
+	if again {
+		return
+	}
 	c.replyEnds()
 	c.heardSpeech("", false)
 }

@@ -339,9 +339,7 @@ func (s *StreamSession) handleInterrupted() error {
 		p.Stop()
 		// Audio the pipeline still holds of the reply is interrupted
 		// with it: none of it is to be released, and none still waits.
-		if s.heldPending != 0 {
-			s.heldInterrupted, s.heldPending = true, 0
-		}
+		s.interruptHeldLocked()
 	})
 	s.turnOpen = false // the interruption ends the turn; later usage is its
 	if s.barged {

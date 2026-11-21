@@ -586,7 +586,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		if chunk.MediaData != nil {
 			// A blocked reply has no hold (blockTurn dropped it): its audio
 			// is dropped here, and none of it waits for the caller.
-			s.heldAudioDropped()
+			s.heldAudioDropped(chunk.Generation)
 		}
 		dropAssistantOutput(chunk, isOutputTranscription)
 		return
@@ -1091,9 +1091,17 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 
 	req := s.hookRequest(s.history.snapshot())
 	v := s.guardrailOutcomeAt(req.TurnIndex).judgeResponse(ctx, req, msg, 0, msg.LatencyMs, false)
-	if !v.blocks() || s.replyHoldInterrupted() {
+	if !v.blocks() {
+		return false
+	}
+	if s.replyHoldInterrupted() {
 		// A held reply the caller spoke over while it was judged is theirs
-		// to drop: its judgment changes nothing they heard.
+		// to drop: its judgment changes nothing they heard. A model that
+		// keeps the reply in its context, the session unable to cut it, is
+		// still told it was withheld.
+		if _, cuts := s.session.(providers.ResponseInterrupter); !cuts {
+			s.noteBlock(v.decision, hooks.DirectionOutput, s.replyGeneration())
+		}
 		return false
 	}
 	s.noteBlock(v.decision, hooks.DirectionOutput, s.replyGeneration())

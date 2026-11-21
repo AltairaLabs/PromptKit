@@ -76,10 +76,13 @@ func (s *RealtimeSession) HoldPlayout() {
 func (s *RealtimeSession) ReleaseAudio(chunk *providers.StreamChunk) bool {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	if s.heldInterrupted {
+	if chunk == nil {
+		return !s.interruptedFor(0)
+	}
+	if s.interruptedFor(chunk.Generation) {
 		return false
 	}
-	if chunk == nil || chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
+	if chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
 		return true
 	}
 	itemID, _ := chunk.Metadata[keyItemID].(string)
@@ -146,11 +149,35 @@ func (s *RealtimeSession) holdItemAudio(itemID string, contentIndex int, d time.
 // interrupted (HeldAudioInterrupted) and cuts the model's copy of each held
 // item to what was released of it. Called with recvMu held.
 func (s *RealtimeSession) interruptHeldAudio() bool {
-	if !s.cutHeldItems(nil) {
-		return false
+	waiting := s.markHeldInterrupted()
+	s.cutHeldItems(nil)
+	return waiting
+}
+
+// markHeldInterrupted marks each response whose held audio still waits for
+// the caller interrupted (HeldAudioInterrupted), and reports whether there
+// was one. Called with recvMu held.
+func (s *RealtimeSession) markHeldInterrupted() bool {
+	found := false
+	for _, it := range s.heldItems {
+		if !it.cut && it.delivered > it.released {
+			if s.heldInterrupted == nil {
+				s.heldInterrupted = map[int64]bool{}
+			}
+			s.heldInterrupted[it.gen] = true
+			found = true
+		}
 	}
-	s.heldInterrupted = true
-	return true
+	return found
+}
+
+// interruptedFor reports whether the caller spoke over held audio of
+// response generation, or of any response for 0. Called with recvMu held.
+func (s *RealtimeSession) interruptedFor(generation int64) bool {
+	if generation == 0 {
+		return len(s.heldInterrupted) > 0
+	}
+	return s.heldInterrupted[generation]
 }
 
 // cutHeldItems cuts the model's copy of each held item some of whose audio
@@ -174,38 +201,27 @@ func (s *RealtimeSession) cutHeldItems(cut map[heldItemKey]bool) bool {
 	return found
 }
 
-// holdingAudio reports whether audio the pipeline holds still waits for the
-// caller. Called with recvMu held.
-func (s *RealtimeSession) holdingAudio() bool {
-	for _, it := range s.heldItems {
-		if !it.cut && it.delivered > it.released {
-			return true
-		}
-	}
-	return false
-}
-
 // HeldAudioInterrupted implements providers.PlayoutHolder: whether the caller
-// began speaking over audio the pipeline still held, since it last dropped
-// what it held.
-func (s *RealtimeSession) HeldAudioInterrupted() bool {
+// began speaking over audio of response generation (any, for 0) the pipeline
+// still held, since it dropped what it held of it.
+func (s *RealtimeSession) HeldAudioInterrupted(generation int64) bool {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	return s.heldInterrupted
+	return s.interruptedFor(generation)
 }
 
 // HeldAudioDropped implements providers.PlayoutHolder: nothing of a reply is
 // held any longer, so none of it waits for the caller.
-func (s *RealtimeSession) HeldAudioDropped() {
+func (s *RealtimeSession) HeldAudioDropped(generation int64) {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	// What was never released was never heard: the model's copy is cut to
-	// what was. Each response that has ended, even one the response in
-	// progress superseded, is cut now; the response in progress is cut once
-	// it is canceled (InterruptResponse) or ends and is dropped in turn.
+	// What was never released of the dropped response was never heard: its
+	// copy is cut to what was, now, or, while it is still in progress, once
+	// it is canceled (InterruptResponse) or ends and is dropped again.
+	// Other responses' audio, a newer one's above all, is left as it is.
 	kept := s.heldItems[:0]
 	for _, it := range s.heldItems {
-		if s.responseActive && it.gen == s.gen {
+		if generation != 0 && it.gen != generation || s.responseActive && it.gen == s.gen {
 			kept = append(kept, it)
 			continue
 		}
@@ -214,5 +230,9 @@ func (s *RealtimeSession) HeldAudioDropped() {
 		}
 	}
 	s.heldItems = kept
-	s.heldInterrupted = false
+	if generation == 0 {
+		s.heldInterrupted = nil
+	} else {
+		delete(s.heldInterrupted, generation)
+	}
 }

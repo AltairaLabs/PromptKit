@@ -113,13 +113,13 @@ func TestLiveReplyHold_HeldPlayoutCountsFromRelease(t *testing.T) {
 				}
 			}
 			if tc.drop {
-				s.HeldAudioDropped()
+				s.HeldAudioDropped(0)
 			}
 			*now = t0.Add(tc.speakAt)
 			process(t, s, callerSays("wait"))
 
 			assert.Equal(t, tc.wantBarg, barged(s))
-			assert.Equal(t, tc.wantHeld, s.HeldAudioInterrupted())
+			assert.Equal(t, tc.wantHeld, s.HeldAudioInterrupted(0))
 			want := 0
 			if tc.wantBarg {
 				want = 1
@@ -163,7 +163,7 @@ func TestLiveReplyHold_SpeechAfterGenerationCompleteOverHeldAudioBargesIn(t *tes
 	process(t, s, callerSays("wait"))
 
 	assert.True(t, barged(s))
-	assert.True(t, s.HeldAudioInterrupted())
+	assert.True(t, s.HeldAudioInterrupted(0))
 	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
 }
 
@@ -178,7 +178,7 @@ func TestLiveReplyHold_ServerInterruptionEndsTheHeldWait(t *testing.T) {
 		&ServerMessage{ServerContent: &ServerContent{Interrupted: true}},
 		&ServerMessage{ServerContent: &ServerContent{TurnComplete: true}})
 	assert.True(t, barged(s), "Gemini's interruption")
-	assert.True(t, s.HeldAudioInterrupted())
+	assert.True(t, s.HeldAudioInterrupted(0))
 	drainChunks(t, s)
 	*now = t0.Add(3 * time.Second)
 	process(t, s, callerSays("and another thing"))
@@ -199,7 +199,7 @@ func TestLiveReplyHold_SpeechWhileAHeldReplyGeneratesIsLeftToGemini(t *testing.T
 	process(t, s, callerSays("wait"))
 
 	assert.False(t, barged(s))
-	assert.False(t, s.HeldAudioInterrupted())
+	assert.False(t, s.HeldAudioInterrupted(0))
 }
 
 // Speech over a passed reply still playing, after its generation completed
@@ -261,4 +261,42 @@ func TestLiveReplyHold_ASecondInterruptionStillCarriesTheUsage(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, costs)
+}
+
+// Dropping an older reply's hold leaves a newer reply's held audio waiting
+// for the caller, and its interruption standing.
+func TestLiveReplyHold_DroppingAReplyLeavesANewerOnesHeldAudio(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	s.HoldPlayout()
+	process(t, s, audioSecond(), &ServerMessage{ServerContent: &ServerContent{TurnComplete: true}})
+	first := drainChunks(t, s)[0].Generation
+	process(t, s, audioSecond(), generationComplete())
+	second := drainChunks(t, s)[0].Generation
+	require.NotEqual(t, first, second)
+	s.HeldAudioDropped(first)
+	*now = t0.Add(2 * time.Second)
+	process(t, s, callerSays("wait"))
+
+	assert.True(t, barged(s), "the newer reply's audio still waited")
+	s.HeldAudioDropped(first)
+	assert.True(t, s.HeldAudioInterrupted(second))
+	assert.False(t, s.ReleaseAudio(&providers.StreamChunk{Generation: second}))
+}
+
+// A reply after one the session reported interrupted has its own
+// interruption by Gemini reported.
+func TestLiveReplyHold_ALaterReplysInterruptionIsReported(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	s.HoldPlayout()
+	process(t, s, audioSecond(), generationComplete())
+	for _, c := range drainChunks(t, s) {
+		s.ReleaseAudio(&c)
+	}
+	*now = t0.Add(500 * time.Millisecond)
+	process(t, s, callerSays("wait"))
+	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
+	process(t, s, audioSecond(), &ServerMessage{ServerContent: &ServerContent{Interrupted: true}})
+	assert.Equal(t, 1, interrupted(drainChunks(t, s)), "the later reply's interruption")
 }

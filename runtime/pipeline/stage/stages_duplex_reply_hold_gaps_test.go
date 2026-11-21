@@ -382,8 +382,8 @@ func (h *speakingJudgeHook) AfterCall(ctx context.Context, req *hooks.ProviderRe
 }
 
 // A reply the caller speaks over while its judge runs is theirs to drop, not
-// the judge's to block: no guardrail message plays, no note is left for the
-// model, and the failed judgment is not recorded on a turn.
+// the judge's to block: no guardrail message plays, and the failed judgment
+// is not recorded on a turn.
 func TestReplyHold_AJudgmentTheCallerSpokeOverIsDiscarded(t *testing.T) {
 	msg := prompt.DefaultBlockedMessage
 	hook := &speakingJudgeHook{replyHoldHook: replyHoldHook{mode: hooks.StreamHoldTurn, failOn: "Bruno"}}
@@ -395,7 +395,6 @@ func TestReplyHold_AJudgmentTheCallerSpokeOverIsDiscarded(t *testing.T) {
 	for _, e := range elems {
 		assert.Nil(t, e.Message, "no turn of the unheard reply")
 	}
-	assert.Empty(t, r.s.pendingNotes, "no note for the model")
 	assert.Equal(t, []string{"About Bruno."}, hook.calls(), "the judgment ran")
 }
 
@@ -415,4 +414,78 @@ func TestReplyHold_BargeInAfterAPassKeepsTheHeardLateTranscript(t *testing.T) {
 	}
 	require.NotNil(t, m)
 	assert.Equal(t, "Sunny skies. Mild later.", m.Content)
+}
+
+// notingHeldSession is a heldPlayoutSession that takes the guardrails' notes
+// to the model (providers.ContextNoter), recording them.
+type notingHeldSession struct {
+	*heldPlayoutSession
+	notes []string
+}
+
+func (n *notingHeldSession) AddContextNote(_ context.Context, text string) error {
+	n.notes = append(n.notes, text)
+	return nil
+}
+
+// cuttingHeldSession is a notingHeldSession that can also cut its model's
+// copy of a reply (providers.ResponseInterrupter), as OpenAI Realtime can.
+type cuttingHeldSession struct{ *notingHeldSession }
+
+func (c *cuttingHeldSession) InterruptResponse(context.Context, int64) error { return nil }
+
+// A judgment the caller spoke over still fails a reply the model said: on a
+// session that cannot cut its copy of the reply (Gemini Live), the model is
+// told it was withheld; one that can cut it gets no note.
+func TestReplyHold_ADiscardedFailingJudgmentNotesAModelThatKeepsTheReply(t *testing.T) {
+	for name, cuts := range map[string]bool{"keeps the reply": false, "cuts the reply": true} {
+		t.Run(name, func(t *testing.T) {
+			msg := prompt.DefaultBlockedMessage
+			hook := &speakingJudgeHook{replyHoldHook: replyHoldHook{mode: hooks.StreamHoldTurn, failOn: "Bruno"}}
+			r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+			hook.sess = sess
+			noting := &notingHeldSession{heldPlayoutSession: sess}
+			r.s.session = noting
+			if cuts {
+				r.s.session = &cuttingHeldSession{noting}
+			}
+			r.feed(transcriptChunk("About Bruno.", pcm(10)))
+			assert.NotContains(t, r.feed(stopChunk()), "text:"+msg, "the caller hears no message")
+			if cuts {
+				assert.Empty(t, noting.notes)
+			} else {
+				require.Len(t, noting.notes, 1, "the model is told")
+				assert.Contains(t, noting.notes[0], "withheld")
+			}
+		})
+	}
+}
+
+// The session is told which reply's held audio was dropped, so a newer
+// reply's is left alone: whether the completed reply's check or a chunk
+// check drops it.
+func TestReplyHold_ADropNamesItsReply(t *testing.T) {
+	assert.Equal(t, []int64{7}, dropsOfAFailingReply(t, false), "the completed reply's check")
+	assert.Equal(t, []int64{7, 7}, dropsOfAFailingReply(t, true), "a chunk check's cut, then the turn's end")
+}
+
+// dropsOfAFailingReply runs a held reply, generation 7, that a guardrail
+// fails, with chunkCheck by a chunk check, and returns the generations the
+// session was told were dropped.
+func dropsOfAFailingReply(t *testing.T, chunkCheck bool) []int64 {
+	t.Helper()
+	hs := []hooks.ProviderHook{&replyHoldHook{mode: hooks.StreamHoldTurn, failOn: "Bruno"}}
+	if chunkCheck {
+		excl, err := guardrails.NewGuardrailHook("content_excludes", map[string]any{"patterns": []any{"Bruno"}})
+		require.NoError(t, err)
+		hs = append(hs, excl)
+	}
+	r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hs...)
+	for _, c := range []providers.StreamChunk{
+		transcriptChunk("Sunny skies.", pcm(10)), transcriptChunk(" About Bruno.", pcm(10)), stopChunk(),
+	} {
+		c.Generation = 7
+		r.feed(c)
+	}
+	return sess.droppedGens
 }

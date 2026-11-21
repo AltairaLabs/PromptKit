@@ -28,11 +28,11 @@ func TestMockStreamSession_RecordsHeldPlayout(t *testing.T) {
 // counts each drop.
 func TestMockStreamSession_RecordsSpeechOverHeldAudio(t *testing.T) {
 	s := NewMockStreamSession()
-	assert.False(t, s.HeldAudioInterrupted())
+	assert.False(t, s.HeldAudioInterrupted(0))
 	s.InterruptHeldAudio()
-	assert.True(t, s.HeldAudioInterrupted())
-	s.HeldAudioDropped()
-	assert.False(t, s.HeldAudioInterrupted())
-	s.HeldAudioDropped()
+	assert.True(t, s.HeldAudioInterrupted(0))
+	s.HeldAudioDropped(0)
+	assert.False(t, s.HeldAudioInterrupted(0))
+	s.HeldAudioDropped(0)
 	assert.Equal(t, 2, s.HeldDrops())
 }

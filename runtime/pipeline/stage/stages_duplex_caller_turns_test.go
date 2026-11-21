@@ -239,3 +239,18 @@ func TestCallerTurns_UnnamedSpeechJoinsTheWaitingSpokenTurn(t *testing.T) {
 	assert.Equal(t, 1, c.transcriptTurn("in-5", false))
 	assert.Equal(t, 2, hear(c, "in-6", true), "another named input: another turn")
 }
+
+// A reply cut short by a barge-in reported twice (the stage dropping it
+// unheard, then the provider's Interrupted chunk), with a typed turn between
+// the two, is one barge-in: the second adds no turn.
+func TestCallerTurns_ABargeInReportedTwiceIsOneTurn(t *testing.T) {
+	c := &callerTurns{}
+	c.start(0)
+	assert.Equal(t, 0, c.typed())
+	assert.Equal(t, 0, c.replyBegins("").index)
+	c.bargeIn() // the caller's spoken turn 1
+	assert.Equal(t, 2, c.typed())
+	c.bargeIn() // the same barge-in, reported again
+	assert.Equal(t, []int{1, 2}, c.replies("", ""))
+	assert.Equal(t, 3, c.typed(), "no turn was added between")
+}

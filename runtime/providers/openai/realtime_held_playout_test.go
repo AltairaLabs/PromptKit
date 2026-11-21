@@ -73,7 +73,7 @@ func runHeldPlayout(t *testing.T, r heldRun) playoutRun {
 		session.ReleaseAudio(&held[i])
 	}
 	if dropped {
-		session.HeldAudioDropped()
+		session.HeldAudioDropped(0)
 	}
 	clock.set(t0.Add(speakAfter))
 	close(ps.speak)
@@ -90,9 +90,9 @@ func runHeldPlayout(t *testing.T, r heldRun) playoutRun {
 		run.barged = true
 	default:
 	}
-	run.heldInterrupted = session.HeldAudioInterrupted()
+	run.heldInterrupted = session.HeldAudioInterrupted(0)
 	if r.dropAfter {
-		session.HeldAudioDropped()
+		session.HeldAudioDropped(0)
 	}
 	require.NoError(t, session.CommitAudioBuffer())
 	select {
@@ -286,7 +286,7 @@ func TestRealtimeHeldPlayout_DroppingASupersededReplyCutsItAtOnce(t *testing.T) 
 	}
 	audioOf("R1")
 	audioOf("R2") // R2 is in progress
-	session.HeldAudioDropped()
+	session.HeldAudioDropped(0)
 	require.NoError(t, session.CommitAudioBuffer())
 	var clients []map[string]any
 	select {
@@ -304,11 +304,13 @@ func TestRealtimeHeldPlayout_DroppingASupersededReplyCutsItAtOnce(t *testing.T) 
 // caller: later speech is a new turn, not a barge-in on it.
 func TestRealtimeHeldPlayout_CutItemsWaitForNothing(t *testing.T) {
 	s := &RealtimeSession{}
-	s.heldItems = []heldItem{{key: heldItemKey{itemID: "a"}, delivered: time.Second, cut: true}}
-	assert.False(t, s.holdingAudio())
+	s.heldItems = []heldItem{{key: heldItemKey{itemID: "a"}, gen: 1, delivered: time.Second, cut: true}}
 	assert.False(t, s.interruptHeldAudio())
-	s.heldItems = append(s.heldItems, heldItem{key: heldItemKey{itemID: "b"}, delivered: time.Second})
-	assert.True(t, s.holdingAudio())
+	assert.False(t, s.HeldAudioInterrupted(1))
+	s.heldItems = append(s.heldItems, heldItem{key: heldItemKey{itemID: "b"}, gen: 2, delivered: time.Second})
+	assert.True(t, s.markHeldInterrupted())
+	assert.False(t, s.HeldAudioInterrupted(1), "only the reply still waiting")
+	assert.True(t, s.HeldAudioInterrupted(2))
 }
 
 // Once the caller spoke over the held audio, releasing more of it is refused
@@ -316,8 +318,64 @@ func TestRealtimeHeldPlayout_CutItemsWaitForNothing(t *testing.T) {
 func TestRealtimeHeldPlayout_ReleaseAfterInterruptionIsRefused(t *testing.T) {
 	s := &RealtimeSession{now: func() time.Time { return time.Unix(0, 0) }}
 	s.HoldPlayout()
-	s.heldInterrupted = true
+	s.heldInterrupted = map[int64]bool{1: true}
 	assert.False(t, s.ReleaseAudio(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
 		Data: make([]byte, 480), SampleRate: 24000, Channels: 1}}))
 	assert.False(t, s.playoutEstimate().Playing())
+}
+
+// Dropping a reply's hold cuts that reply's audio alone: a later reply that
+// ended meanwhile, released and heard after, keeps its copy.
+func TestRealtimeHeldPlayout_DroppingAReplyCutsOnlyItsOwnAudio(t *testing.T) {
+	ps := newSupersedeServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	config := DefaultRealtimeSessionConfig()
+	session, err := newRealtimeSession(ctx, "test-key", &config, realtimeSessionOpts{endpoint: bargeInWSURL(ps.srv)})
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+	session.HoldPlayout()
+	next := func() providers.StreamChunk {
+		select {
+		case c, ok := <-session.Response():
+			require.True(t, ok, "Response() closed")
+			return c
+		case <-ctx.Done():
+			t.Fatal("timed out")
+			return providers.StreamChunk{}
+		}
+	}
+	gens := map[string]int64{}
+	close(ps.speak) // R2 completes too
+	for {
+		c := next()
+		if c.MediaData != nil {
+			gens[c.Metadata[keyResponseID].(string)] = c.Generation
+		}
+		if c.FinishReason != nil && c.Metadata[keyResponseID] == "R2" {
+			break
+		}
+	}
+	require.NotEqual(t, gens["R1"], gens["R2"])
+	session.HeldAudioDropped(gens["R1"])
+	require.NoError(t, session.CommitAudioBuffer())
+	var clients []map[string]any
+	select {
+	case clients = <-ps.client:
+	case <-ctx.Done():
+		t.Fatal("the server never saw the commit")
+	}
+	assert.Equal(t, []map[string]any{{"type": "conversation.item.truncate", "item_id": "item_R1",
+		"content_index": float64(0), "audio_end_ms": float64(0)}}, truncateEvents(clients), "R2 keeps its copy")
+}
+
+// Dropping one reply's hold leaves a newer reply's interruption standing: the
+// caller spoke over that one too.
+func TestRealtimeHeldPlayout_DroppingAReplyLeavesANewerOnesInterruption(t *testing.T) {
+	s := &RealtimeSession{heldInterrupted: map[int64]bool{1: true, 2: true}}
+	s.HeldAudioDropped(1)
+	assert.False(t, s.HeldAudioInterrupted(1))
+	assert.True(t, s.HeldAudioInterrupted(2))
+	assert.False(t, s.ReleaseAudio(&providers.StreamChunk{Generation: 2}))
+	assert.True(t, s.ReleaseAudio(&providers.StreamChunk{Generation: 1}))
 }

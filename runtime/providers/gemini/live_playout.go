@@ -93,10 +93,10 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	s.withPlayout(func(p *audio.Playout) {
 		if playing = p.Playing(); playing {
 			p.Stop()
-		} else if s.heldPending != 0 {
+		} else {
 			// Audio the pipeline still holds waits for the caller, though
 			// they hear nothing of it yet: speech now is over it.
-			playing, s.heldInterrupted, s.heldPending = true, true, 0
+			playing = s.interruptHeldLocked()
 		}
 	})
 	if !playing {
@@ -104,7 +104,9 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	}
 	// Gemini's own interruption of it, should it follow, is not reported
 	// again (handleInterrupted); one that came first stopped the playout.
-	s.barged = true
+	// The reply is over: the next output starts a new one, whose own
+	// interruption is reported.
+	s.barged, s.turnOpen = true, false
 	logger.Debug("StreamSession: barge-in while the finished reply is still playing")
 	s.Barge()
 	marker := providers.BargeMarker()
@@ -122,7 +124,7 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 func (s *StreamSession) awaitingCaller() bool {
 	s.playoutMu.Lock()
 	defer s.playoutMu.Unlock()
-	return s.playoutHeld && (s.heldPending != 0 || s.playoutEstimate().Playing())
+	return s.playoutHeld && (len(s.heldPending) != 0 || s.playoutEstimate().Playing())
 }
 
 // withPlayout runs fn on the playout estimate under playoutMu.
@@ -137,7 +139,10 @@ func (s *StreamSession) withPlayout(fn func(*audio.Playout)) {
 func (s *StreamSession) countDeliveredAudio(d time.Duration) {
 	s.withPlayout(func(p *audio.Playout) {
 		if s.playoutHeld {
-			s.heldPending += d
+			if s.heldPending == nil {
+				s.heldPending = map[int64]time.Duration{}
+			}
+			s.heldPending[s.gen] += d
 			return
 		}
 		p.Add("", 0, d)
@@ -164,7 +169,11 @@ func (s *StreamSession) HoldPlayout() {
 func (s *StreamSession) ReleaseAudio(chunk *providers.StreamChunk) bool {
 	released := false
 	s.withPlayout(func(p *audio.Playout) {
-		if s.heldInterrupted {
+		var gen int64
+		if chunk != nil {
+			gen = chunk.Generation
+		}
+		if s.interruptedForLocked(gen) {
 			return
 		}
 		released = true
@@ -174,7 +183,11 @@ func (s *StreamSession) ReleaseAudio(chunk *providers.StreamChunk) bool {
 		m := chunk.MediaData
 		d := audio.PCM16Duration(len(m.Data), m.SampleRate, m.Channels)
 		p.Add("", 0, d)
-		s.heldPending = max(0, s.heldPending-d)
+		if left := s.heldPending[gen] - d; left > 0 {
+			s.heldPending[gen] = left
+		} else {
+			delete(s.heldPending, gen)
+		}
 	})
 	return released
 }
@@ -191,17 +204,46 @@ func (s *StreamSession) OutputTranscriptLag() time.Duration { return outputTrans
 // HeldAudioInterrupted implements providers.PlayoutHolder: whether the caller
 // began speaking over audio the pipeline still held, since it last dropped
 // what it held.
-func (s *StreamSession) HeldAudioInterrupted() bool {
+func (s *StreamSession) HeldAudioInterrupted(generation int64) bool {
 	s.playoutMu.Lock()
 	defer s.playoutMu.Unlock()
-	return s.heldInterrupted
+	return s.interruptedForLocked(generation)
 }
 
-// HeldAudioDropped implements providers.PlayoutHolder: nothing of a reply is
-// held any longer, so none of it waits for the caller.
-func (s *StreamSession) HeldAudioDropped() {
+// HeldAudioDropped implements providers.PlayoutHolder: nothing of reply
+// generation (of any, for 0) is held any longer, so none of it waits for the
+// caller. A newer reply's held audio is left as it is.
+func (s *StreamSession) HeldAudioDropped(generation int64) {
 	s.playoutMu.Lock()
 	defer s.playoutMu.Unlock()
-	s.heldPending = 0
-	s.heldInterrupted = false
+	if generation == 0 {
+		s.heldPending, s.heldInterrupted = nil, nil
+		return
+	}
+	delete(s.heldPending, generation)
+	delete(s.heldInterrupted, generation)
+}
+
+// interruptHeldLocked marks each reply whose held audio still waits for the
+// caller interrupted, for the caller is speaking over it, and reports whether
+// there was one. None waits any longer. Called with playoutMu held.
+func (s *StreamSession) interruptHeldLocked() bool {
+	for gen := range s.heldPending {
+		if s.heldInterrupted == nil {
+			s.heldInterrupted = map[int64]bool{}
+		}
+		s.heldInterrupted[gen] = true
+	}
+	found := len(s.heldPending) > 0
+	s.heldPending = nil
+	return found
+}
+
+// interruptedForLocked reports whether the caller spoke over held audio of
+// reply generation, or of any reply for 0. Called with playoutMu held.
+func (s *StreamSession) interruptedForLocked(generation int64) bool {
+	if generation == 0 {
+		return len(s.heldInterrupted) > 0
+	}
+	return s.heldInterrupted[generation]
 }

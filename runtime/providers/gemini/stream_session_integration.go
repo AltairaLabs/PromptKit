@@ -119,8 +119,8 @@ type StreamSession struct {
 	// heldPending is the reply audio delivered while playout is held that the
 	// pipeline has not released, and heldInterrupted is set once the caller
 	// spoke over some of it (live_playout.go). Guarded by playoutMu.
-	heldPending     time.Duration
-	heldInterrupted bool
+	heldPending     map[int64]time.Duration
+	heldInterrupted map[int64]bool
 	replyDone       bool
 	// generationDone is set once the reply in progress reported
 	// generationComplete; its turn completes later. barged is set once the

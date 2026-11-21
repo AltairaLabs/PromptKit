@@ -102,7 +102,7 @@ type RealtimeSession struct {
 	// and heldInterrupted is set once the caller spoke over some of it still
 	// held (realtime_playout.go). Guarded by recvMu.
 	heldItems       []heldItem
-	heldInterrupted bool
+	heldInterrupted map[int64]bool
 	truncates       truncateTracker
 	// cancels tracks the response.cancel events InterruptResponse sent, so
 	// one the server rejects (the response had ended) is not a session error.
@@ -860,7 +860,7 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 		"response_active", s.responseActive, "playing", playing)
 	// Speech over a reply whose audio is still held is over the held audio
 	// too: none of it is to be released.
-	s.heldInterrupted = s.heldInterrupted || s.holdingAudio()
+	s.markHeldInterrupted()
 	s.Barge()
 	s.emit(providers.BargeMarker())
 	s.truncateHeard()
