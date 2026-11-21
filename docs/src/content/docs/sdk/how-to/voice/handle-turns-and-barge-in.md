@@ -88,13 +88,21 @@ if err != nil {
 In VAD mode, speech counts as barge-in from the moment the user's turn ends until
 the reply's audio would have finished playing. That covers the model generating
 the reply, synthesis, and playback, where the session assumes your player starts
-each audio chunk as it arrives. A turn the user finishes in that window is
-barge-in too, even when it was too short for the voice activity detector to call
-it speech. The pipeline cancels whatever is still in flight: the model call, the
-sentence being synthesized, and the sentences after it. It drops the
-reply's remaining audio. Audio already delivered is in your
-player's buffer, so the session tells you to flush it: a chunk on `Response()`
-arrives with `Interrupted` set.
+each audio chunk as it arrives. Speech the voice activity detector calls speech
+barges in as soon as it starts. A turn the user finishes in that window without
+the detector ever calling it speech is barge-in too, once it transcribes to
+words: a short reply such as "That's that." is, and a cough or a door that
+transcribes to nothing leaves the reply alone. The pipeline cancels whatever is
+still in flight: the model call, the sentence being synthesized, and the
+sentences after it. It drops the reply's remaining audio. Audio already
+delivered is in your player's buffer, so the session tells you to flush it: a
+chunk on `Response()` arrives with `Interrupted` set.
+
+The conversation records the interrupted reply as the user heard it: the
+sentences that had played, then the share of the words of the sentence playing
+that its audio had played. The stored message has `FinishReason` `interrupted`,
+and `Meta` keys `heard_ms`, `audio_ms`, `played_fraction` and `playout_cut`
+(`barge-in`).
 
 In ASM mode the same window applies. OpenAI Realtime and Gemini Live send a
 reply's audio faster than it plays, so most of a long reply is still playing

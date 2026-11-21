@@ -128,6 +128,14 @@ type SynthesisConfig struct {
 	// Model is the TTS model to use (provider-specific). If empty, the service's
 	// configured model is used. For OpenAI: ModelTTS1, ModelTTS1HD or ModelGPT4oMiniTTS.
 	Model string
+
+	// PreviousText and NextText are the text spoken just before and just
+	// after this text, when it is one segment of a longer reply synthesized a
+	// segment at a time: a service can use them to keep the speech's prosody
+	// continuous across segments. Empty when there is none, or it is not known
+	// yet. Only ElevenLabsService sends them (previous_text and next_text).
+	PreviousText string
+	NextText     string
 }
 
 // DefaultSynthesisConfig returns sensible defaults for synthesis.

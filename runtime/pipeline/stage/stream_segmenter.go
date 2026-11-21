@@ -118,15 +118,24 @@ func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, 
 	if first {
 		minLen = cfg.firstMinChars
 	}
-	sc := segmentScanner{text: text, inFence: strings.Count(text[:from], codeFence)%2 == 1}
+	fenceOpen := strings.Count(text[:from], codeFence)&1 == 1 // an odd count: inside a fence
+	sc := segmentScanner{text: text, inFence: fenceOpen}
 	for i := from; i < len(text); {
 		end, size := sc.step(i)
-		if end > 0 && utf8.RuneCountInString(text[from:end]) >= max(minLen, 1) {
-			return end, true
+		if end > 0 {
+			n := utf8.RuneCountInString(text[from:end])
+			if cfg.maxChars > 0 && n > cfg.maxChars {
+				// The sentence runs past the cap, though it arrived whole:
+				// cut it at the cap, as if it were still arriving.
+				break
+			}
+			if n >= max(minLen, 1) {
+				return end, true
+			}
 		}
 		i += size
 	}
-	return capSegmentEnd(text, from, sc.inFence, cfg.maxChars)
+	return capSegmentEnd(text, from, fenceOpen, cfg.maxChars)
 }
 
 // segmentScanner tracks the markdown context a boundary is suppressed in.
@@ -276,6 +285,7 @@ func capSegmentEnd(text string, from int, fenceOpen bool, maxChars int) (int, bo
 	if n < maxChars {
 		return 0, false
 	}
+	capEnd = outsideFenceMarker(text, from, capEnd)
 	window := text[from:capEnd]
 	inFence := fenceOpen || strings.Contains(window, codeFence)
 	cut := strings.LastIndexByte(window, '\n')
@@ -287,4 +297,20 @@ func capSegmentEnd(text string, from int, fenceOpen bool, maxChars int) (int, bo
 		return from + cut + size, true
 	}
 	return capEnd, true
+}
+
+// outsideFenceMarker moves a cut at end back before a code fence marker it
+// would split, so the segments on either side each hold whole markers and the
+// fence state at every segment start (an odd count of markers before it) stays
+// true. A marker that starts at from cannot move back; the cut goes after it.
+func outsideFenceMarker(text string, from, end int) int {
+	for start := max(end-len(codeFence)+1, from); start < end; start++ {
+		if strings.HasPrefix(text[start:], codeFence) {
+			if start == from {
+				return min(from+len(codeFence), len(text))
+			}
+			return start
+		}
+	}
+	return end
 }

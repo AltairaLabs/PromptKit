@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"time"
-	"unicode"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -18,152 +16,6 @@ import (
 // reads before it hands a piece of a segment on, so a segment starts playing
 // while the service is still synthesizing the rest of it.
 const segmentAudioChunk = 100 * time.Millisecond
-
-// replySpeech is the state of the reply TTSStageWithInterruption is speaking
-// as it streams: the text the provider stage released to the caller (its
-// streaming deltas) is split into segments (speechSegmenter), and each is
-// synthesized as soon as it is complete. The provider stage releases only
-// text its output guardrails have cleared, so held text is never spoken.
-//
-// When the reply's completed Message arrives, its text is matched against the
-// released text: what the deltas already spoke is not spoken again, and a
-// Message whose text is not what was released (a guardrail replaced the reply
-// after it streamed) has what was not yet spoken dropped and is spoken in its
-// place. The synthesis cost of the segments is stamped on the Message.
-//
-// A reply a guardrail replaces after some of it was spoken is stored as what
-// the caller heard: the spoken segments, then the guardrail's message. Those
-// segments had passed the guardrails before they were released.
-type replySpeech struct {
-	seg speechSegmenter
-	// active is set once the turn has released text: its Messages are then
-	// matched against it rather than spoken whole.
-	active bool
-	// unmatched is the released text no completed Message has accounted for.
-	unmatched string
-	// billed is the text of the segments synthesized and not yet priced on a
-	// Message, and latency the time their synthesis took.
-	billed  strings.Builder
-	latency time.Duration
-	// err is the first synthesis failure; the reply speaks nothing after it,
-	// and its next Message carries it.
-	err error
-	// heard is the text of the segments whose audio reached the caller.
-	heard []string
-	// heardBeforeCut is what the caller had heard when a guardrail replaced
-	// the reply, for the replaced Message to record.
-	heardBeforeCut string
-}
-
-// release takes text the provider stage released and returns the segments it
-// completes. A replacement (ReplacesText) discards what was released but not
-// yet spoken; it and the text that ends a reply (final) are spoken whole.
-func (r *replySpeech) release(text string, replaces, final bool) []string {
-	r.active = true
-	if replaces {
-		r.cut()
-	}
-	r.unmatched += text
-	segs := r.seg.add(text)
-	if replaces || final {
-		segs = appendNonEmpty(segs, r.seg.flush())
-	}
-	return segs
-}
-
-// complete accounts for a completed assistant Message whose text is text and
-// returns the segments still to speak for it.
-func (r *replySpeech) complete(text string) []string {
-	released := strings.TrimLeftFunc(r.unmatched, unicode.IsSpace)
-	text = strings.TrimLeftFunc(text, unicode.IsSpace)
-	switch {
-	case strings.HasPrefix(released, text):
-		// Already released. Text after it belongs to a later Message (a
-		// later round of the tool loop), so the segmenter keeps any partial
-		// segment for it.
-		r.unmatched = released[len(text):]
-		if strings.TrimSpace(r.unmatched) != "" {
-			return nil
-		}
-		r.unmatched = ""
-		return appendNonEmpty(nil, r.seg.flush())
-	case strings.HasPrefix(text, released):
-		// The Message goes on past what was released: speak the rest.
-		r.unmatched = ""
-		return appendNonEmpty(r.seg.add(text[len(released):]), r.seg.flush())
-	default:
-		// The completed reply is not the text released: a guardrail replaced
-		// it after it streamed. What was not yet spoken is dropped.
-		r.cut()
-		return appendNonEmpty(r.seg.add(text), r.seg.flush())
-	}
-}
-
-// cut drops what was released and not yet spoken, as a guardrail replaced
-// the reply, and records what the caller had heard of it.
-func (r *replySpeech) cut() {
-	r.seg.reset()
-	r.unmatched = ""
-	if len(r.heard) > 0 {
-		r.heardBeforeCut = strings.Join(r.heard, " ")
-	}
-}
-
-// heardWith returns msg as the caller heard it: after a cut, the segments
-// spoken before it and then msg's text, on a copy; else msg unchanged.
-func (r *replySpeech) heardWith(msg *types.Message) *types.Message {
-	if r.heardBeforeCut == "" || msg == nil {
-		return msg
-	}
-	heard := *msg
-	heard.Content = r.heardBeforeCut + " " + strings.TrimLeftFunc(msg.Content, unicode.IsSpace)
-	heard.Parts = nil
-	r.heardBeforeCut = ""
-	return &heard
-}
-
-// end returns what is left to speak when the turn ends.
-func (r *replySpeech) end() []string {
-	return appendNonEmpty(nil, r.seg.flush())
-}
-
-// bill records a segment the service synthesized in full: it is priced.
-func (r *replySpeech) bill(text string, took time.Duration) {
-	r.billed.WriteString(text)
-	r.latency += took
-}
-
-// takeCost returns the cost of the segments billed since the last call, the
-// cost of their text as one request (pricing is per character, so this is
-// the sum of theirs), or nil when none was billed or the service is unpriced.
-func (r *replySpeech) takeCost(service tts.Service) *types.CostInfo {
-	if r.billed.Len() == 0 {
-		return nil
-	}
-	cost := tts.ComputeTTSCost(service, r.billed.String(), r.latency)
-	r.billed.Reset()
-	r.latency = 0
-	return cost
-}
-
-// reset forgets the reply: the turn ended, or a barge-in cut it.
-func (r *replySpeech) reset() {
-	r.seg.reset()
-	r.active = false
-	r.unmatched = ""
-	r.billed.Reset()
-	r.latency = 0
-	r.err = nil
-	r.heard = nil
-	r.heardBeforeCut = ""
-}
-
-func appendNonEmpty(segs []string, s string) []string {
-	if s == "" {
-		return segs
-	}
-	return append(segs, s)
-}
 
 // speakDelta forwards a streaming delta, the reply's text as the caller sees
 // it, then speaks the segments it completes.
@@ -184,8 +36,11 @@ func (s *TTSStageWithInterruption) speakDelta(
 }
 
 // speakStreamedMessage handles a completed assistant Message of a reply that
-// streamed: it speaks what of it was not yet spoken, then forwards it with the
-// synthesis cost of the reply's segments, and a synthesis failure, if any.
+// streamed: it speaks what of it was not yet spoken, waits for its audio to
+// play, then forwards it with the synthesis cost of the reply's segments, and
+// a synthesis failure, if any. A Message the caller did not hear in full (a
+// barge-in cut the reply, or the provider stage kept it as interrupted) is
+// forwarded as heard, and nothing more of the reply is spoken.
 func (s *TTSStageWithInterruption) speakStreamedMessage(
 	forwardCtx, synthCtx context.Context, reply *replySpeech, elem *StreamElement, output chan<- StreamElement,
 ) error {
@@ -195,16 +50,28 @@ func (s *TTSStageWithInterruption) speakStreamedMessage(
 		// price, and the text released so far belongs to a later Message.
 		return s.forwardElement(forwardCtx, *elem, output)
 	}
-	segs := reply.complete(text)
-	if err := s.speakSegments(forwardCtx, synthCtx, reply, segs, output); err != nil {
-		return err
+	interrupted := elem.Message.FinishReason == types.FinishReasonInterrupted
+	if !interrupted {
+		if err := s.speakSegments(forwardCtx, synthCtx, reply, reply.complete(text), output); err != nil {
+			return err
+		}
+		// Handed on before its audio has played, the Message would be stored
+		// whole though a barge-in may yet cut it.
+		s.waitUntil(synthCtx, reply.ended, reply.playout.until)
 	}
 	out := *elem
-	out.Message = withTTSCost(reply.heardWith(elem.Message), reply.takeCost(s.service))
+	if interrupted || reply.stopped || synthCtx.Err() != nil {
+		out.Message = reply.cutMessage(elem.Message, reply.interruptedAt(s.clock.now()))
+		reply.stop()
+	} else {
+		out.Message = reply.heardWith(elem.Message)
+	}
+	out.Message = withTTSCost(out.Message, reply.takeCost(s.service))
 	if reply.err != nil {
 		out.Error = reply.err
 		reply.err = nil
 	}
+	reply.messageDone(text)
 	return s.forwardElement(forwardCtx, out, output)
 }
 
@@ -226,37 +93,67 @@ func (s *TTSStageWithInterruption) endReply(
 	return nil
 }
 
-// speakSegments synthesizes segs in order. A reply a barge-in canceled, or
-// whose synthesis failed, speaks nothing more.
+// speakSegments synthesizes segs in order, one segment ahead of the audio
+// playing: a segment is synthesized once the one before it starts to play,
+// so a long reply is not synthesized (and its unheard audio handed on) far
+// ahead of the caller. A reply a barge-in canceled, or whose synthesis
+// failed, speaks nothing more.
 func (s *TTSStageWithInterruption) speakSegments(
 	forwardCtx, synthCtx context.Context, reply *replySpeech, segs []string, output chan<- StreamElement,
 ) error {
-	for _, seg := range segs {
-		if reply.err != nil || synthCtx.Err() != nil {
+	for i, seg := range segs {
+		if reply.err != nil || reply.stopped || synthCtx.Err() != nil {
 			return nil
 		}
 		if s.shouldSkipText(seg) {
 			continue
 		}
-		if err := s.speakSegment(forwardCtx, synthCtx, reply, seg, output); err != nil {
+		if !s.waitUntil(synthCtx, reply.ended, reply.playout.lastStart()) {
+			return nil
+		}
+		next := ""
+		if i+1 < len(segs) {
+			next = segs[i+1]
+		}
+		if err := s.speakSegment(forwardCtx, synthCtx, reply, seg, next, output); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// speakSegment synthesizes one segment and emits its audio as the service
-// delivers it. A segment read to its end is billed, even when a barge-in then
-// drops its audio; one a barge-in canceled earlier is not. The returned error
-// is only the pipeline's: a failed synthesis is recorded on reply.
+// waitUntil waits for the stage's clock to reach t, and reports whether it
+// did before ctx ended (a barge-in). A time already reached returns at once,
+// and so does every wait once the input has ended (ended): the session is
+// ending, so the reply is no longer paced to its playback.
+func (s *TTSStageWithInterruption) waitUntil(ctx context.Context, ended <-chan struct{}, t time.Time) bool {
+	if !t.After(s.clock.now()) {
+		return ctx.Err() == nil
+	}
+	select {
+	case <-s.clock.until(t):
+	case <-ended:
+	case <-ctx.Done():
+	}
+	return ctx.Err() == nil
+}
+
+// speakSegment synthesizes one segment, with the text spoken before it and
+// next, and emits its audio as the service delivers it. A segment read to its
+// end is billed, even when a barge-in then drops its audio; one a barge-in
+// canceled earlier is not. The returned error is only the pipeline's: a
+// failed synthesis is recorded on reply.
 func (s *TTSStageWithInterruption) speakSegment(
-	forwardCtx, synthCtx context.Context, reply *replySpeech, text string, output chan<- StreamElement,
+	forwardCtx, synthCtx context.Context, reply *replySpeech, text, next string, output chan<- StreamElement,
 ) error {
 	s.setBotSpeaking(true)
 	defer s.setBotSpeaking(false)
 
+	config := s.synthesisConfig()
+	config.PreviousText, config.NextText = reply.last, next
+	reply.last = text
 	start := time.Now()
-	reader, err := tts.SynthesizeWithRetry(synthCtx, s.service, text, s.synthesisConfig(), s.config.Retry)
+	reader, err := tts.SynthesizeWithRetry(synthCtx, s.service, text, config, s.config.Retry)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || synthCtx.Err() != nil {
 			logger.Debug("TTSStageWithInterruption: segment synthesis canceled (barge-in/shutdown)")
@@ -272,7 +169,7 @@ func (s *TTSStageWithInterruption) speakSegment(
 		}
 	}()
 
-	heard, complete, err := s.streamSegmentAudio(forwardCtx, synthCtx, text, reader, output)
+	heard, complete, err := s.streamSegmentAudio(forwardCtx, synthCtx, reply, text, reader, output)
 	if heard {
 		reply.heard = append(reply.heard, text)
 	}
@@ -287,7 +184,8 @@ func (s *TTSStageWithInterruption) speakSegment(
 // canceled. The first piece carries the segment's text. heard reports that
 // some of the segment's audio was handed on.
 func (s *TTSStageWithInterruption) streamSegmentAudio(
-	forwardCtx, synthCtx context.Context, text string, reader io.Reader, output chan<- StreamElement,
+	forwardCtx, synthCtx context.Context, reply *replySpeech, text string, reader io.Reader,
+	output chan<- StreamElement,
 ) (heard, complete bool, err error) {
 	buf := make([]byte, s.segmentChunkBytes())
 	for {
@@ -298,7 +196,7 @@ func (s *TTSStageWithInterruption) streamSegmentAudio(
 				return heard, false, nil
 			}
 			pcm := append([]byte(nil), buf[:n]...)
-			if err := s.emitSegmentAudio(forwardCtx, text, pcm, !heard, output); err != nil {
+			if err := s.emitSegmentAudio(forwardCtx, reply, text, pcm, !heard, output); err != nil {
 				return heard, false, err
 			}
 			heard = true
@@ -322,11 +220,12 @@ func (s *TTSStageWithInterruption) segmentChunkBytes() int {
 	return max(samples, 1) * bytesPerSample16Bit
 }
 
-// emitSegmentAudio emits one piece of a segment's audio. The first piece of a
-// segment carries the segment's text and the text the service reports it
-// spoke; the text already reached the caller as deltas (SynthesizedSpeech).
+// emitSegmentAudio emits one piece of a segment's audio and records when it
+// plays. The first piece of a segment carries the segment's text and the text
+// the service reports it spoke; the text already reached the caller as deltas
+// (SynthesizedSpeech).
 func (s *TTSStageWithInterruption) emitSegmentAudio(
-	ctx context.Context, text string, pcm []byte, first bool, output chan<- StreamElement,
+	ctx context.Context, reply *replySpeech, text string, pcm []byte, first bool, output chan<- StreamElement,
 ) error {
 	samples, sampleRate := s.toOutputRate(pcm)
 	out := StreamElement{
@@ -347,8 +246,10 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 	}
 	// The caller plays this after it is handed over, so the bot is still
 	// speaking, and interruptible, until it would have finished.
+	d := audio.PCM16Duration(len(samples), sampleRate, 1)
+	reply.playout.add(text, first, s.clock.now(), d)
 	if s.interruption != nil {
-		s.interruption.ExtendPlayback(audio.PCM16Duration(len(samples), sampleRate, 1))
+		s.interruption.ExtendPlayback(d)
 	}
 	return s.forwardElement(ctx, out, output)
 }
@@ -359,9 +260,10 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 // (and cancels the turn) at once. Order is preserved.
 func queueCancelingOnInterrupt(
 	ctx context.Context, input <-chan StreamElement, work chan<- StreamElement, c *turnCanceller,
+	now func() time.Time, ended chan<- struct{},
 ) {
 	defer close(work)
-	q := elementQueue{in: input}
+	q := elementQueue{in: input, now: now, ended: ended}
 	for q.open() {
 		select {
 		case elem, ok := <-q.in:
@@ -370,6 +272,7 @@ func queueCancelingOnInterrupt(
 			q.pop()
 		case <-ctx.Done():
 			// The stage has stopped; keep reading so upstream is not blocked.
+			q.endInput()
 			q.drainInput()
 			return
 		}
@@ -381,6 +284,19 @@ func queueCancelingOnInterrupt(
 type elementQueue struct {
 	in    <-chan StreamElement
 	items []StreamElement
+	// now is the clock an Interrupt's arrival is timed on.
+	now func() time.Time
+	// ended is closed once the input has ended, so a reply waiting for its
+	// audio to play stops waiting: nothing more will be played.
+	ended chan<- struct{}
+}
+
+// endInput closes ended, once.
+func (q *elementQueue) endInput() {
+	if q.ended != nil {
+		close(q.ended)
+		q.ended = nil
+	}
 }
 
 // open reports whether there is more to hand on.
@@ -391,10 +307,11 @@ func (q *elementQueue) open() bool { return q.in != nil || len(q.items) > 0 }
 func (q *elementQueue) receive(elem StreamElement, ok bool, c *turnCanceller) {
 	if !ok {
 		q.in = nil
+		q.endInput()
 		return
 	}
 	if elem.Interrupt {
-		c.interrupt()
+		c.interruptAt(q.now())
 	}
 	q.items = append(q.items, elem)
 }

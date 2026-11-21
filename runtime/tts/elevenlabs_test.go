@@ -386,3 +386,46 @@ func TestElevenLabsService_ModelName(t *testing.T) {
 		t.Errorf("ModelName() = %q, want %q after WithElevenLabsModel", got, ElevenLabsModelTurbo)
 	}
 }
+
+// A segment of a longer reply goes out with the text spoken around it
+// (previous_text, next_text), which ElevenLabs uses to keep the prosody
+// continuous; a request without them sends neither.
+func TestElevenLabsService_Synthesize_SendsNeighbourText(t *testing.T) {
+	var bodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("audio"))
+	}))
+	defer server.Close()
+
+	service := NewElevenLabs("k", base.WithBaseURL(server.URL))
+	for _, cfg := range []SynthesisConfig{
+		{Voice: "v", PreviousText: "The fox woke early.", NextText: "Then it slept."},
+		{Voice: "v"},
+	} {
+		reader, err := service.Synthesize(context.Background(), "It ran to the river.", cfg)
+		if err != nil {
+			t.Fatalf("Synthesize: %v", err)
+		}
+		_, _ = io.ReadAll(reader)
+		_ = reader.Close()
+	}
+
+	if len(bodies) != 2 {
+		t.Fatalf("got %d requests, want 2", len(bodies))
+	}
+	if bodies[0]["previous_text"] != "The fox woke early." || bodies[0]["next_text"] != "Then it slept." {
+		t.Errorf("neighbour text not sent: %v", bodies[0])
+	}
+	if _, ok := bodies[1]["previous_text"]; ok {
+		t.Errorf("an empty previous_text is not sent: %v", bodies[1])
+	}
+	if _, ok := bodies[1]["next_text"]; ok {
+		t.Errorf("an empty next_text is not sent: %v", bodies[1])
+	}
+}

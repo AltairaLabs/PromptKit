@@ -45,6 +45,11 @@ type ttsCall struct {
 type segmentTTS struct {
 	convMockTTSService
 	blockFirst bool
+	// blockSecond makes the second call wait for its context (a barge-in
+	// while the second sentence is synthesized); second closes when it starts.
+	blockSecond bool
+	second      chan struct{}
+	secondOnce  sync.Once
 
 	mu    sync.Mutex
 	calls []ttsCall
@@ -53,7 +58,8 @@ type segmentTTS struct {
 }
 
 func newSegmentTTS() *segmentTTS {
-	return &segmentTTS{convMockTTSService: *newConvMockTTSService(), first: make(chan struct{})}
+	return &segmentTTS{convMockTTSService: *newConvMockTTSService(), first: make(chan struct{}),
+		second: make(chan struct{})}
 }
 
 func (s *segmentTTS) Synthesize(ctx context.Context, text string, _ tts.SynthesisConfig) (io.ReadCloser, error) {
@@ -65,6 +71,13 @@ func (s *segmentTTS) Synthesize(ctx context.Context, text string, _ tts.Synthesi
 	if s.blockFirst && ordinal == 1 {
 		<-ctx.Done()
 		return nil, ctx.Err()
+	}
+	if ordinal == 2 {
+		s.secondOnce.Do(func() { close(s.second) })
+		if s.blockSecond {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
 	}
 	return io.NopCloser(bytes.NewReader(markerPCM(ordinal))), nil
 }
@@ -580,4 +593,135 @@ func TestVADMode_SegmentHeldReplyIsSpokenOnlyAsItIsReleased(t *testing.T) {
 	require.Len(t, stored, 1)
 	assert.Equal(t, "The weather is mild today. "+holdMessage, stored[0].Content,
 		"the stored reply is what the caller heard")
+}
+
+// sttCalls is how many turns the scripted STT has transcribed.
+func (m *scriptedSTTService) sttCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
+}
+
+// blip sends a noise: 60ms loud, then silence long enough to end a turn. The
+// VAD (startingOnlyVAD) calls it Starting and never Speaking, as it would a
+// cough or a door.
+func blip(t *testing.T, conv *Conversation) {
+	t.Helper()
+	ctx := context.Background()
+	send := func(pcm []byte) {
+		require.NoError(t, conv.SendChunk(ctx, &providers.StreamChunk{
+			MediaData: &providers.StreamMediaData{MIMEType: "audio/pcm", Data: pcm},
+		}))
+	}
+	const frame = 20 * time.Millisecond
+	for i := 0; i < 3; i++ {
+		send(pcmSpeech(frame, perTurnTestSampleRate))
+	}
+	for i := 0; i < 30; i++ {
+		send(pcmSilence(frame, perTurnTestSampleRate))
+	}
+}
+
+// blipWithin sends a blip, failing the test if the session stops taking audio.
+func blipWithin(t *testing.T, conv *Conversation) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		blip(t, conv)
+	}()
+	awaitClosed(t, done, "the session stopped taking the caller's audio")
+}
+
+// Noise while a reply is pending (the model has not answered yet), or while
+// it plays, is not a barge-in: it transcribes to nothing, and the reply is
+// spoken and stored in full, its model call never canceled.
+func TestVADMode_NoiseDuringAReplyLeavesIt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives real VAD turns")
+	}
+	for _, tc := range []struct {
+		name string
+		// noiseAfter is how many sentences are synthesized before the noise.
+		noiseAfter int
+	}{{"pending", 0}, {"playing", 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ttsSvc := newSegmentTTS()
+			release := make(chan struct{})
+			provider := &storyProvider{
+				turns: [][]string{{"The fox woke early. ", "It ran to the river. ", "Then it slept."}},
+				gate:  release, gateAt: tc.noiseAfter, gateWait: streamingSpeechBound,
+			}
+			sttSvc := newScriptedSTT("tell me a story", "")
+			store := statestore.NewMemoryStore()
+			conv, rec := openStreamingSpeechConv(t, provider, sttSvc, ttsSvc,
+				WithStateStore(store), WithVAD(&startingOnlyVAD{}))
+			convID := conv.ID()
+
+			speak(t, conv)
+			require.True(t, provider.waitForTurns(1, streamingSpeechBound), "the request never reached the model")
+			if tc.noiseAfter > 0 {
+				awaitClosed(t, ttsSvc.first, "the first sentence was never synthesized")
+			}
+			blipWithin(t, conv)
+			require.True(t, waitFor(func() bool { return sttSvc.sttCalls() >= 2 }, streamingSpeechBound),
+				"the noise was never transcribed")
+			close(release)
+
+			require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, streamingSpeechBound),
+				"the reply never completed")
+			assert.False(t, rec.sawInterrupt(), "noise does not interrupt the reply")
+			assert.Equal(t, []string{"The fox woke early.", "It ran to the river.", "Then it slept."}, ttsSvc.texts(),
+				"the reply is spoken in full")
+			assert.Equal(t, 1, provider.turnCount(), "the noise is not a turn the model answers")
+
+			require.NoError(t, closeWithin(t, conv))
+			stored := storedAssistant(t, store, convID)
+			require.Len(t, stored, 1)
+			assert.Equal(t, "The fox woke early. It ran to the river. Then it slept.", stored[0].Content)
+			assert.NotEqual(t, types.FinishReasonInterrupted, stored[0].FinishReason, "the reply was not cut")
+			assert.NotContains(t, stored[0].Meta, types.MetaPlayoutCut)
+		})
+	}
+}
+
+// A barge-in stores the reply as the caller heard it: the sentence that had
+// played, not the sentence being synthesized or the rest the model wrote,
+// marked interrupted with how much of its audio was heard (#2846).
+func TestVADMode_BargeInStoresWhatTheCallerHeard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives real VAD turns")
+	}
+	ttsSvc := newSegmentTTS()
+	ttsSvc.blockSecond = true
+	provider := &storyProvider{
+		turns:     [][]string{{"The fox woke early. ", "It ran to the river. ", "Then it"}, {"Paris."}},
+		holdAfter: 3,
+		canceled:  make(chan struct{}),
+	}
+	store := statestore.NewMemoryStore()
+	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me a story", "what is the capital"),
+		ttsSvc, WithStateStore(store))
+	convID := conv.ID()
+
+	speak(t, conv)
+	awaitClosed(t, ttsSvc.second, "the second sentence was never synthesized")
+	require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound))
+	time.Sleep(40 * time.Millisecond) // the first sentence's 20ms of audio has played
+
+	speak(t, conv) // talks over the reply
+	awaitClosed(t, provider.canceled, "caller speech must cancel the model call")
+	require.True(t, provider.waitForTurns(2, streamingSpeechBound))
+	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, streamingSpeechBound),
+		"the next turn's reply never completed")
+
+	require.NoError(t, closeWithin(t, conv))
+	stored := storedAssistant(t, store, convID)
+	require.Len(t, stored, 2)
+	cut := stored[0]
+	assert.Equal(t, "The fox woke early.", cut.Content, "what the caller heard, and nothing after it")
+	assert.Equal(t, types.FinishReasonInterrupted, cut.FinishReason)
+	assert.Equal(t, types.PlayoutCutBargeIn, cut.Meta[types.MetaPlayoutCut])
+	assert.EqualValues(t, 20, cut.Meta[types.MetaHeardMs], "the first sentence's 20ms")
+	assert.Equal(t, "Paris.", stored[1].Content)
 }

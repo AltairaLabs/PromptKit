@@ -379,6 +379,13 @@ type ElementMetadata struct {
 	// or the Message (TTSStage), never both.
 	StreamingDelta bool
 
+	// BargeInIfTranscribed marks a caller turn's audio that ended while the
+	// bot was engaged in a reply but that the VAD never reported as speech
+	// (Speaking): a short word, or a cough or a door. AudioTurnStage leaves
+	// the reply alone; the STT stage interrupts it once the turn transcribes
+	// to words, so noise never cuts a reply off.
+	BargeInIfTranscribed bool
+
 	// TokenCount is the per-chunk token count emitted by streaming providers.
 	// Zero when the chunk did not include a token count.
 	TokenCount int

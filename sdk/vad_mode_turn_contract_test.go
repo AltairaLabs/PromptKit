@@ -26,6 +26,8 @@ type vadContractEvent struct {
 type vadContractRecorder struct {
 	mu     sync.Mutex
 	events []vadContractEvent
+	// audio counts the chunks that carried reply audio.
+	audio int
 }
 
 func (r *vadContractRecorder) consume(ch <-chan providers.StreamChunk) {
@@ -35,6 +37,11 @@ func (r *vadContractRecorder) consume(ch <-chan providers.StreamChunk) {
 		ev.turnComplete, _ = chunk.Metadata["assistant_turn_complete"].(bool)
 		ev.finishReason, _ = chunk.Metadata["finish_reason"].(string)
 		ev.interrupted = chunk.Interrupted
+		if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+			r.mu.Lock()
+			r.audio++
+			r.mu.Unlock()
+		}
 		if ev.transcript == "" && !ev.turnComplete && !ev.interrupted {
 			continue
 		}
@@ -42,6 +49,13 @@ func (r *vadContractRecorder) consume(ch <-chan providers.StreamChunk) {
 		r.events = append(r.events, ev)
 		r.mu.Unlock()
 	}
+}
+
+// audioChunks is how many chunks of reply audio arrived.
+func (r *vadContractRecorder) audioChunks() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.audio
 }
 
 func (r *vadContractRecorder) snapshot() []vadContractEvent {

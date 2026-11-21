@@ -193,3 +193,91 @@ func TestInterruptionHandler_DefaultClock(t *testing.T) {
 		t.Fatal("a negative duration must not shorten the window")
 	}
 }
+
+// Each turn's end owes a reply of its own: a turn that ends while an earlier
+// reply is still owed, and then turns out to need none (noise transcribed to
+// nothing), ends only its own, and the earlier reply is still owed until its
+// own turn ends.
+func TestInterruptionHandler_RepliesOwedAreCounted(t *testing.T) {
+	h := NewInterruptionHandler(InterruptionImmediate, nil)
+	h.BeginResponse() // the reply to the caller's question
+	h.BeginResponse() // a cough's turn
+	h.EndResponse()   // the cough transcribed to nothing
+	if !h.IsBotSpeaking() {
+		t.Fatal("the reply to the question is still owed")
+	}
+	h.EndResponse() // the reply's turn ends
+	if h.IsBotSpeaking() {
+		t.Fatal("nothing is owed once both have ended")
+	}
+	h.EndResponse() // an extra end does not go below nothing owed
+	h.BeginResponse()
+	if !h.IsBotSpeaking() {
+		t.Fatal("a reply begun after an extra end is owed")
+	}
+}
+
+// WouldInterrupt tells a stage whether speech now would barge in, without
+// firing anything: only while the bot is engaged, with the immediate
+// strategy, before a barge-in has fired.
+func TestInterruptionHandler_WouldInterruptFiresNothing(t *testing.T) {
+	h := NewInterruptionHandler(InterruptionImmediate, nil)
+	if h.WouldInterrupt() {
+		t.Fatal("an idle bot is not interrupted")
+	}
+	h.BeginResponse()
+	if !h.WouldInterrupt() {
+		t.Fatal("a bot owing a reply is interrupted")
+	}
+	if h.WasInterrupted() {
+		t.Fatal("asking fires nothing")
+	}
+	h.Interrupt()
+	if h.WouldInterrupt() {
+		t.Fatal("a barge-in already fired is not fired again")
+	}
+	deferred := NewInterruptionHandler(InterruptionDeferred, nil)
+	deferred.BeginResponse()
+	if deferred.WouldInterrupt() {
+		t.Fatal("the deferred strategy does not interrupt at once")
+	}
+}
+
+// BargeIn interrupts the reply in progress and keeps the reply owed to the
+// interrupting turn, whose end began it before the barge-in fired: the Reset
+// that closes the interrupted reply leaves it owed.
+func TestInterruptionHandler_BargeInKeepsTheInterruptingTurnsReply(t *testing.T) {
+	h := NewInterruptionHandler(InterruptionImmediate, nil)
+	h.BeginResponse() // the reply in progress
+	h.BeginResponse() // the interrupting turn's end
+	h.BargeIn()
+	select {
+	case <-h.Interrupted():
+	default:
+		t.Fatal("BargeIn fires the interruption")
+	}
+	h.Reset()
+	if !h.IsBotSpeaking() {
+		t.Fatal("the interrupting turn's reply is still owed after the Reset")
+	}
+
+	idle := NewInterruptionHandler(InterruptionImmediate, nil)
+	idle.BargeIn()
+	idle.Reset()
+	if idle.IsBotSpeaking() {
+		t.Fatal("with no reply owed, none survives the Reset")
+	}
+}
+
+// A reply begun during an interruption and ended before its Reset is not
+// still owed after the Reset.
+func TestInterruptionHandler_ReplyEndedBeforeTheResetIsNotKept(t *testing.T) {
+	h := NewInterruptionHandler(InterruptionImmediate, nil)
+	h.Interrupt()
+	h.BeginResponse()
+	h.EndResponse() // e.g. the turn transcribed to nothing
+	h.Reset()
+	if h.IsBotSpeaking() {
+		t.Fatal("no reply is owed after the Reset")
+	}
+}

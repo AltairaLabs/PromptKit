@@ -191,16 +191,19 @@ func TestVADMode_SpeechDuringPlaybackInterrupts(t *testing.T) {
 	conv, rec := openBargeInConv(t, provider, sttSvc, newSizedPCMTTS(5*time.Second))
 
 	speakOneUtterance(t, conv)
-	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, 8*time.Second),
-		"the first reply never completed; got %+v", rec.snapshot())
+	// The reply's audio arrives at once; its turn ends only once it would
+	// have played, 5s on.
+	require.True(t, waitFor(func() bool { return rec.audioChunks() > 0 }, 8*time.Second),
+		"the first reply's audio never arrived; got %+v", rec.snapshot())
 
 	speakOneUtterance(t, conv) // the 5s reply is still playing
 
 	require.True(t, waitFor(rec.sawInterrupt, 8*time.Second),
 		"speech while the reply plays must interrupt it; got %+v", rec.snapshot())
-	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, 8*time.Second),
-		"the interrupting speech must be answered; got %+v", rec.snapshot())
+	require.True(t, provider.waitForTurns(2, 8*time.Second), "the interrupting speech must be answered")
+	require.True(t, waitFor(func() bool { return len(rec.transcripts()) >= 2 }, 8*time.Second))
 	assert.Equal(t, []string{"first question", "second question"}, rec.transcripts())
+	assert.Equal(t, "interrupted", rec.snapshot()[1].finishReason, "the cut reply's turn ends interrupted")
 
 	// speakOneUtterance speaks 600ms of tone. All of it must reach STT: the
 	// barge-in used to drop the audio buffered up to the moment it fired.

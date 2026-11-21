@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -318,7 +318,8 @@ func TestTTSStageWithInterruption_SynthesisErrorAfterBargeInIsNotAFailure(t *tes
 	r.send(t, assistant("One."), stage.NewInterruptElement())
 	got := r.finish(t)
 
-	require.Equal(t, []string{"delta:One. ", "message:One.", "interrupt"}, kinds(got))
+	require.Equal(t, []string{"delta:One. ", "message:", "interrupt"}, kinds(got),
+		"the caller heard none of the reply")
 	assert.NoError(t, got[1].Error, "a canceled synthesis does not fail the reply")
 }
 
@@ -553,9 +554,13 @@ func TestTTSStageWithInterruption_InterruptStopsTheStreamedReply(t *testing.T) {
 
 	assert.Equal(t, []string{"One."}, svc.spoken(), "nothing after the barge-in is synthesized")
 	assert.Equal(t, []string{
-		"delta:One. ", "delta:Two. Three. ", "message:One. Two. Three.", "end", "interrupt",
-	}, kinds(got))
-	assert.Equal(t, float64(-1), ttsCostUSD(got[2].Message), "a canceled segment is not priced")
+		"delta:One. ", "delta:Two. Three. ", "message:", "end", "interrupt",
+	}, kinds(got), "the caller heard none of the reply, so its Message records none of it")
+	msg := got[2].Message
+	assert.Equal(t, float64(-1), ttsCostUSD(msg), "a canceled segment is not priced")
+	assert.Equal(t, types.FinishReasonInterrupted, msg.FinishReason)
+	assert.Equal(t, types.PlayoutCutBargeIn, msg.Meta[types.MetaPlayoutCut])
+	assert.Equal(t, int64(0), msg.Meta[types.MetaHeardMs])
 }
 
 // blockAfterReader yields first, then blocks until ctx ends.
@@ -593,8 +598,14 @@ func TestTTSStageWithInterruption_InterruptMidSegmentStopsItsAudio(t *testing.T)
 	r.send(t, assistant("A long sentence."), stage.NewInterruptElement())
 	rest := r.finish(t)[2:]
 
-	assert.Equal(t, []string{"message:A long sentence.", "interrupt"}, kinds(rest))
-	assert.Equal(t, float64(-1), ttsCostUSD(rest[0].Message), "a segment cut short is not priced")
+	require.Len(t, rest, 2)
+	assert.True(t, rest[1].Interrupt)
+	msg := rest[0].Message
+	require.NotNil(t, msg)
+	assert.Equal(t, float64(-1), ttsCostUSD(msg), "a segment cut short is not priced")
+	assert.Equal(t, types.FinishReasonInterrupted, msg.FinishReason)
+	assert.True(t, strings.HasPrefix("A long sentence.", msg.Content),
+		"the Message records at most what the caller heard: %q", msg.Content)
 }
 
 // A read failure mid-segment ends that segment, unpriced, without failing the
@@ -616,47 +627,4 @@ func TestTTSStageWithInterruption_ReadFailureEndsOnlyThatSegment(t *testing.T) {
 	require.NotNil(t, msg)
 	assert.NoError(t, results[len(results)-1].Error)
 	assert.InDelta(t, float64(len("Two."))*0.0001, ttsCostUSD(msg), 1e-12, "only the segment read in full is priced")
-}
-
-// A turn completed while the bot owes a reply interrupts it, even though the
-// VAD only ever reported the utterance as Starting.
-func TestAudioTurnStage_TurnDuringAPendingReplyInterrupts(t *testing.T) {
-	run := func(t *testing.T, engaged, turnBased bool) []stage.StreamElement {
-		t.Helper()
-		config := stage.DefaultAudioTurnConfig()
-		config.EmitEndOfTurn = turnBased
-		config.MinSpeechDuration = 50 * time.Millisecond
-		config.SilenceDuration = 100 * time.Millisecond
-		config.VAD = &mockVADAnalyzer{states: []audio.VADState{
-			audio.VADStateStarting, audio.VADStateStarting, audio.VADStateQuiet, audio.VADStateQuiet,
-		}}
-		handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
-		if engaged {
-			handler.BeginResponse()
-		}
-		config.InterruptionHandler = handler
-		s, err := stage.NewAudioTurnStage(config)
-		require.NoError(t, err)
-		var inputs []stage.StreamElement
-		for i := 0; i < 4; i++ {
-			inputs = append(inputs, makeAudioElement(generateTestPCMAudio(3200), 16000))
-		}
-		return runStage(t, s, inputs, 2*time.Second)
-	}
-
-	got := run(t, true, true)
-	require.GreaterOrEqual(t, len(got), 2)
-	assert.True(t, got[0].Interrupt, "the interrupt goes ahead of the turn's audio")
-	assert.NotNil(t, got[1].Audio)
-
-	for _, tc := range []struct {
-		name               string
-		engaged, turnBased bool
-	}{{"bot idle", false, true}, {"not turn-based", true, false}} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, e := range run(t, tc.engaged, tc.turnBased) {
-				assert.False(t, e.Interrupt, "no reply to interrupt")
-			}
-		})
-	}
 }

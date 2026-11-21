@@ -3,6 +3,7 @@ package stage
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // interruptWorkBuffer bounds the in-flight element queue between an input reader
@@ -25,6 +26,9 @@ type turnCanceller struct {
 	mu     sync.Mutex
 	ctx    context.Context
 	cancel context.CancelFunc
+	// cutAt is when an interrupt canceled the current turn context, for the
+	// stages that record what the caller heard before it; zero when none has.
+	cutAt time.Time
 }
 
 func newTurnCanceller(parent context.Context) *turnCanceller {
@@ -41,6 +45,28 @@ func (c *turnCanceller) refresh() {
 		c.cancel()
 	}
 	c.ctx, c.cancel = context.WithCancel(c.parent)
+	c.cutAt = time.Time{}
+}
+
+// interruptAt is interrupt for an interrupt that arrived at t, recording it
+// (the first, when several arrive before the next refresh).
+func (c *turnCanceller) interruptAt(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cutAt.IsZero() {
+		c.cutAt = t
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+}
+
+// interruptedAt is when an interrupt canceled the current turn context, zero
+// when none has since the last refresh.
+func (c *turnCanceller) interruptedAt() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.cutAt
 }
 
 // interrupt cancels the in-flight turn context without rolling a new one.

@@ -192,6 +192,9 @@ type audioTurnState struct {
 	// fired, so forward everything" from "the VAD is working and this is just
 	// trailing silence".
 	emittedTurn bool
+	// bargeInIfTranscribed is set on a turn that ends while the bot is engaged
+	// in a reply, for its audio to carry to the STT stage.
+	bargeInIfTranscribed bool
 }
 
 // liveAudio returns the audio currently retained, excluding any dead prefix
@@ -336,19 +339,18 @@ func (s *AudioTurnStage) processAudioElement(
 	return nil
 }
 
-// completeTurn emits the turn the caller has finished: an Interrupt first when
-// it talks over a reply, then its audio, then its EndOfTurn boundary.
+// completeTurn emits the turn the caller has finished: its audio, then its
+// EndOfTurn boundary.
 func (s *AudioTurnStage) completeTurn(ctx context.Context, state *audioTurnState, output chan<- StreamElement) error {
-	// A turn the caller completes while the bot is engaged in a reply
-	// interrupts it, even when the VAD never called the utterance Speaking: a
+	// A turn the caller completes while the bot is engaged in a reply barges
+	// in on it, even when the VAD never called the utterance Speaking: a
 	// short one ("That's that.") can end while the VAD still reports
 	// Starting, and it used to be queued as the next turn and answered only
-	// after the whole reply had played.
-	if s.interruptOnTurn(ctx) {
-		if err := s.emitInterrupt(ctx, output); err != nil {
-			return err
-		}
-	}
+	// after the whole reply had played. Speech the VAD did call Speaking
+	// barged in as it started (checkInterruption). This turn might instead be
+	// a cough or a door, so it does not interrupt here: its audio carries the
+	// barge-in to the STT stage, which interrupts once it transcribes to words.
+	state.bargeInIfTranscribed = s.bargesInOnTranscript()
 	// The bot owes this turn a reply from now until that reply ends, and
 	// speech in that window interrupts it. Marked before the audio leaves,
 	// so a downstream stage that finds there will be no reply (the STT
@@ -407,16 +409,12 @@ func (s *AudioTurnStage) checkInterruption(ctx context.Context) bool {
 	return interrupted
 }
 
-// interruptOnTurn reports whether a turn completing now interrupts the bot: an
-// utterance long enough to be a turn is speech, whatever state the VAD reached.
-// The handler decides as it does for speech mid-utterance (engaged, strategy,
-// not already interrupted), so a barge-in already fired is not fired twice.
-func (s *AudioTurnStage) interruptOnTurn(ctx context.Context) bool {
-	if s.interruption == nil || !s.config.EmitEndOfTurn {
-		return false
-	}
-	interrupted, _ := s.interruption.ProcessVADState(ctx, audio.VADStateSpeaking)
-	return interrupted
+// bargesInOnTranscript reports whether a turn completing now barges in on a
+// reply once it transcribes to words: the stage is turn-based (a reply per
+// turn) and the handler would interrupt now (engaged, immediate strategy, no
+// barge-in already fired for this utterance).
+func (s *AudioTurnStage) bargesInOnTranscript() bool {
+	return s.interruption != nil && s.config.EmitEndOfTurn && s.interruption.WouldInterrupt()
 }
 
 // beginResponse marks, on the shared interruption handler, that the bot owes
@@ -611,6 +609,7 @@ func (s *AudioTurnStage) emitTurnAudio(
 		},
 		Timestamp: time.Now(),
 	}
+	elem.Meta.BargeInIfTranscribed = state.bargeInIfTranscribed
 
 	select {
 	case output <- elem:
@@ -729,6 +728,7 @@ func (s *AudioTurnStage) resetState(state *audioTurnState) {
 	state.silenceSamples = 0
 	state.turnSamples = 0
 	state.speechStartOffset = -1
+	state.bargeInIfTranscribed = false
 	s.vad.Reset()
 	if s.turnDetector != nil {
 		s.turnDetector.Reset()
@@ -865,6 +865,15 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 
 	logger.Debug("STTStage: transcribed", "textLength", len(text))
 
+	// The turn ended while the bot was engaged in a reply, and it is words,
+	// not noise: it barges in on the reply now, ahead of its transcript.
+	if elem.Meta.BargeInIfTranscribed {
+		if err := s.bargeIn(ctx, output); err != nil {
+			return err
+		}
+		elem.Meta.BargeInIfTranscribed = false
+	}
+
 	// Publish the transcription so subscribers and session export can see it.
 	// Optional: a stage built without an emitter behaves exactly as before.
 	if s.emitter != nil {
@@ -872,6 +881,18 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 	}
 
 	return sendStreamElement(ctx, transcriptElement(text, elem.Meta, sttResp.Cost), output)
+}
+
+// bargeIn interrupts the reply the bot is engaged in, for a turn that
+// AudioTurnStage could not tell from noise until it was transcribed: it fires
+// the interruption on the shared handler (keeping the reply this turn is
+// owed) and sends the Interrupt the provider and TTS stages cancel the reply
+// on.
+func (s *STTStage) bargeIn(ctx context.Context, output chan<- StreamElement) error {
+	if h := s.config.InterruptionHandler; h != nil {
+		h.BargeIn()
+	}
+	return sendStreamElement(ctx, NewInterruptElement(), output)
 }
 
 // endResponse ends the reply AudioTurnStage marked as owed for a turn that
@@ -998,6 +1019,8 @@ type TTSStageWithInterruption struct {
 	interruption *audio.InterruptionHandler
 	// serviceRate is the rate the service returns tts.FormatPCM16 audio at.
 	serviceRate int
+	// clock times a streamed reply's playout; tests replace it.
+	clock holdClock
 }
 
 // NewTTSStageWithInterruption creates a new TTS stage with interruption support.
@@ -1011,6 +1034,7 @@ func NewTTSStageWithInterruption(
 		config:       config,
 		interruption: config.InterruptionHandler,
 		serviceRate:  pcmSampleRate(service),
+		clock:        realHoldClock,
 	}
 }
 
@@ -1046,9 +1070,10 @@ func (s *TTSStageWithInterruption) Process(
 	defer canceller.stop()
 
 	work := make(chan StreamElement)
-	go queueCancelingOnInterrupt(ctx, input, work, canceller)
+	ended := make(chan struct{})
+	go queueCancelingOnInterrupt(ctx, input, work, canceller, s.clock.now, ended)
 
-	reply := &replySpeech{}
+	reply := &replySpeech{cutAt: canceller.interruptedAt, ended: ended}
 	for elem := range work {
 		if elem.Interrupt {
 			// In-flight synthesis was already canceled out of band by the
@@ -1058,7 +1083,7 @@ func (s *TTSStageWithInterruption) Process(
 			// synthesis, then forward the Interrupt downstream so playback
 			// can flush too.
 			canceller.refresh()
-			reply.reset()
+			reply.interrupted()
 			if s.interruption != nil {
 				s.interruption.Reset()
 			}
@@ -1088,6 +1113,12 @@ func (s *TTSStageWithInterruption) processTurnElement(
 	output chan<- StreamElement,
 ) error {
 	if elem.EndOfTurn || elem.EndOfStream {
+		if reply.stopped && elem.EndOfTurn {
+			// The reply was cut short: its turn ends interrupted, as its
+			// Message does.
+			fr := types.FinishReasonInterrupted
+			elem.Meta.FinishReason = &fr
+		}
 		if err := s.endReply(forwardCtx, synthCtx, reply, output); err != nil {
 			return err
 		}

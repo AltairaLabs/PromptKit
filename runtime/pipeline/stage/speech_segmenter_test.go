@@ -3,18 +3,35 @@ package stage
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
 // segmentAll feeds deltas to a segmenter one at a time and returns the segments
-// it completed along the way, then what flush leaves.
+// it completed along the way, then what flush leaves. A segmenter that makes
+// no progress loops forever, so the run is bounded.
 func segmentAll(maxRunes int, deltas ...string) (completed []string, rest string) {
-	g := speechSegmenter{maxRunes: maxRunes}
-	for _, d := range deltas {
-		completed = append(completed, g.add(d)...)
+	type result struct {
+		completed []string
+		rest      string
 	}
-	return completed, g.flush()
+	done := make(chan result, 1)
+	go func() {
+		g := speechSegmenter{maxRunes: maxRunes}
+		var r result
+		for _, d := range deltas {
+			r.completed = append(r.completed, g.add(d)...)
+		}
+		r.rest = g.flush()
+		done <- r
+	}()
+	select {
+	case r := <-done:
+		return r.completed, r.rest
+	case <-time.After(holdTestDeadline):
+		panic("the speech segmenter made no progress")
+	}
 }
 
 func TestSpeechSegmenter_SplitsAtSentenceEnds(t *testing.T) {
