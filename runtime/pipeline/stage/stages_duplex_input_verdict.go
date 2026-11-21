@@ -73,7 +73,11 @@ func (s *DuplexProviderStage) judgeSpokenInput(
 		}
 		return nil
 	}
-	v := &spokenVerdict{req: s.hookRequest(messages), inputID: inputID, done: make(chan struct{}), late: late}
+	req := s.hookRequest(messages)
+	// The transcript is judged at the turn of the speech it transcribes, which
+	// may no longer be the current one.
+	req.TurnIndex = s.callers.transcriptTurn(inputID, late != nil)
+	v := &spokenVerdict{req: req, inputID: inputID, done: make(chan struct{}), late: late}
 	go func() {
 		defer close(v.done)
 		defer keepIdleAlive(ctx)()

@@ -111,6 +111,8 @@ type duplexTurnHarness struct {
 type turnIndexHook struct {
 	mu      sync.Mutex
 	replies []guardedReply
+	// inputs are the caller turns it judged (BeforeCall), with their text.
+	inputs []guardedReply
 }
 
 type guardedReply struct {
@@ -119,8 +121,32 @@ type guardedReply struct {
 }
 
 func (h *turnIndexHook) Name() string { return "turn-index" }
-func (h *turnIndexHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+func (h *turnIndexHook) BeforeCall(_ context.Context, req *hooks.ProviderRequest) hooks.Decision {
+	if n := len(req.Messages); n > 0 && req.Messages[n-1].Role == "user" {
+		h.mu.Lock()
+		h.inputs = append(h.inputs, guardedReply{TurnIndex: req.TurnIndex, Text: req.Messages[n-1].GetContent()})
+		h.mu.Unlock()
+	}
 	return hooks.Allow
+}
+
+// inputIndex waits for the guardrail to judge the caller turn saying text and
+// returns the turn index it was judged at.
+func (h *turnIndexHook) inputIndex(t *testing.T, text string) int {
+	t.Helper()
+	var idx int
+	require.Eventually(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		for _, in := range h.inputs {
+			if in.Text == text {
+				idx = in.TurnIndex
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 2*time.Millisecond, "the guardrail never judged %q", text)
+	return idx
 }
 func (h *turnIndexHook) AfterCall(_ context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
 	h.mu.Lock()
@@ -955,4 +981,93 @@ func TestDuplexTurnIndex_GreetingWithALateTranscriberDoesNotWait(t *testing.T) {
 		time.Second, 2*time.Millisecond)
 	assert.Less(t, time.Since(start), 500*time.Millisecond)
 	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
+}
+
+// namedReply has the session stream a reply answering the caller input named
+// input, as OpenAI Realtime names it, and end it.
+func (h *duplexTurnHarness) namedReply(text, input string) {
+	meta := map[string]any{"type": "output_transcription", providers.ReplyToInputKey: input}
+	h.sess.EmitChunk(&providers.StreamChunk{Delta: text, Metadata: meta})
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop, Metadata: meta})
+}
+
+// transcribe has the session deliver the final transcript of caller input
+// named input.
+func (h *duplexTurnHarness) transcribe(text, input string) {
+	h.sess.EmitChunk(&providers.StreamChunk{Metadata: map[string]any{
+		"type": "input_transcription", "transcription": text, "transcription_final": true,
+		providers.InputItemIDKey: input}})
+}
+
+// A spoken session's turns are stored with their caller-turn index, so a
+// session that resumes it goes on from them, though no transcript of them was
+// stored; a stored conversation without them goes on from its user turns.
+func TestDuplexTurnIndex_ResumeAfterUntranscribedTurns(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	first := openDuplexTurnHarness(t, WithStateStore(store), WithConversationID("spoken-1"))
+	convDrain(t, first.conv)
+	for i := 0; i < 2; i++ {
+		first.speak(t, i+1)
+		first.reply("Reply.")
+		require.Eventually(t, func() bool { return len(first.col.byTrigger(evals.TriggerEveryTurn)) == i+1 },
+			2*time.Second, 2*time.Millisecond)
+	}
+	assert.Equal(t, []int{0, 1}, first.turnEvals(t, 2))
+	require.NoError(t, first.conv.Close())
+
+	resumed := openDuplexTurnHarness(t, WithStateStore(store), WithConversationID("spoken-1"))
+	convDrain(t, resumed.conv)
+	resumed.speak(t, 1)
+	resumed.reply("Again.")
+	assert.Equal(t, []int{2}, resumed.turnEvals(t, 1))
+	assert.Equal(t, []int{2}, resumed.guard.indices())
+
+	old := statestore.NewMemoryStore()
+	require.NoError(t, old.Save(context.Background(), &statestore.ConversationState{ID: "old-1",
+		Messages: []types.Message{{Role: "user", Content: "a"}, {Role: "assistant", Content: "b"}}}))
+	legacy := openDuplexTurnHarness(t, WithStateStore(old), WithConversationID("old-1"))
+	convDrain(t, legacy.conv)
+	legacy.speak(t, 1)
+	legacy.reply("c")
+	assert.Equal(t, []int{1}, legacy.turnEvals(t, 1), "a transcript stored without the index counts its user turns")
+}
+
+// A late transcript is judged at the turn of the speech it transcribes, even
+// once the caller has typed their next turn.
+func TestDuplexTurnIndex_LateTranscriptJudgedAtItsTurn(t *testing.T) {
+	sess := mock.NewMockStreamSession()
+	prov := &lateTranscriptProvider{heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false),
+		sess: sess}}
+	h := openDuplexTurnHarnessOn(t, prov, sess, &providers.StreamingInputConfig{
+		Config:   types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		Metadata: map[string]any{"input_transcription": true, "input_transcript_ordering": "passthrough"},
+	})
+	convDrain(t, h.conv)
+	h.speak(t, 1)
+	h.namedReply("Sure.", "item-1")
+	require.Eventually(t, func() bool { return len(h.guard.indices()) == 1 }, 2*time.Second, 2*time.Millisecond,
+		"the reply never completed")
+	h.say(t, "and then?", 1)
+	h.transcribe("hello there", "item-1")
+	assert.Equal(t, 0, h.guard.inputIndex(t, "hello there"))
+	assert.Equal(t, 1, h.guard.inputIndex(t, "and then?"))
+}
+
+// Speech the provider takes as new input while a reply plays, without
+// cutting the reply (OpenAI Realtime with interrupt_response off), is the
+// next turn: its guardrail and the reply that answers it report it.
+func TestDuplexTurnIndex_SpeechOverAReplyIsTheNextTurn(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+	h.speak(t, 1)
+	meta := map[string]any{"type": "output_transcription", providers.ReplyToInputKey: "item-1"}
+	h.sess.EmitChunk(&providers.StreamChunk{Delta: "Let me think.", Metadata: meta})
+	h.transcribe("actually, never mind", "item-2")
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop, Metadata: meta})
+	h.namedReply("Okay.", "item-2")
+	assert.Equal(t, []int{0, 1}, h.turnEvals(t, 2))
+	assert.Equal(t, []int{0, 1}, h.guard.indices())
+	assert.Equal(t, 1, h.guard.inputIndex(t, "actually, never mind"))
 }

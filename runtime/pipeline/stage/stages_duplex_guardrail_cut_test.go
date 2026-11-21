@@ -178,7 +178,8 @@ func TestDuplexGuardrailCut_AfterCallDenyEndsTheTurnOnly(t *testing.T) {
 	assert.Equal(t, 2, sess.interruptCount())
 	msg, _ := turnMessage(t, elems)
 	assert.Equal(t, []string{"test_output"}, validationTypes(msg.Validations))
-	assert.Equal(t, map[string]interface{}{"validator_type": "test_output", finishReasonMetaKey: types.FinishReasonSafety},
+	assert.Equal(t, map[string]interface{}{"validator_type": "test_output", finishReasonMetaKey: types.FinishReasonSafety,
+		types.MetaCallerTurn: 0},
 		msg.Meta, "the blocked turn carries the decision's metadata, as a blocked typed turn does")
 }
 

@@ -1,26 +1,35 @@
 package stage
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
 
 // callerTurns places a realtime session's replies against the caller's turns:
 // it counts the caller's input turns and gives each reply the 0-based index of
 // the caller turn it answers. That index is what the session's guardrails
 // (ProviderRequest.TurnIndex) and its turn evals (ElementMetadata.CallerTurn)
-// report, so both place a reply in the same turn.
+// report, so both place a reply in the same turn, and it is stored on each
+// reply (types.MetaCallerTurn), so a session that resumes the conversation
+// goes on from it.
 //
 // A caller turn is input the caller gave: a typed message, or speech the
 // provider took as a turn. Speech is known by the first of: the caller
 // barging in, a transcript of a new utterance, the provider naming a new
 // input the reply answers (providers.ReplyToInputKey), or, when the provider
 // says neither, caller audio sent since the last reply began. A transcript is
-// not needed: a spoken turn with none is still a turn.
+// not needed: a spoken turn with none is still a turn. Speech the provider
+// names as an input other than the reply in progress is a turn of its own,
+// even while that reply plays on (a provider that does not cut a reply when
+// the caller speaks over it).
 //
 // A reply with no new caller input since the last reply began answers the
 // same turn: a tool round's further reply, or a second reply to the same
 // words. A reply before the caller has said anything (a greeting) is a turn
 // of its own, so the caller's first turn after it is the next. A session that
 // opens on a stored conversation goes on from the caller turns stored
-// (TurnState.TurnIndex when it opened).
+// (resumedCallerTurns).
 //
 // Safe for concurrent use: the input goroutine adds caller turns while the
 // response goroutine places replies.
@@ -40,6 +49,8 @@ type callerTurns struct {
 	// replyInput is the provider's ID of the caller input the latest reply
 	// answered, when it named one.
 	replyInput string
+	// byInput is the caller turn of each input the provider named.
+	byInput map[string]int
 	// audioSince and toolsSince record caller audio and tool results sent
 	// since the latest reply began.
 	audioSince, toolsSince bool
@@ -56,17 +67,46 @@ type callerTurn struct {
 	heard bool
 	// transcribed is set once the turn's transcript has arrived.
 	transcribed bool
+	// input is the provider's ID for the turn's speech, when it named one.
+	input string
 }
 
-// start sets the caller turns the transcript held when the session opened,
+// resumedCallerTurns is how many caller turns a stored conversation already
+// holds: its user turns (userTurns), or, when more, one past the highest
+// caller turn stored on its replies (types.MetaCallerTurn), which counts the
+// spoken turns no transcript was stored for.
+func resumedCallerTurns(prior []types.Message, userTurns int) int {
+	turns := userTurns
+	for i := range prior {
+		if idx, ok := storedCallerTurn(&prior[i]); ok {
+			turns = max(turns, idx+1)
+		}
+	}
+	return turns
+}
+
+// storedCallerTurn reads the caller turn stored on m, in whatever numeric
+// form the store gave it back.
+func storedCallerTurn(m *types.Message) (int, bool) {
+	if m.Role != roleAssistant {
+		return 0, false
+	}
+	switch v := m.Meta[types.MetaCallerTurn].(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	}
+	return 0, false
+}
+
+// start sets the caller turns the conversation held when the session opened,
 // once.
 func (c *callerTurns) start(prior int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.startLocked(prior)
-}
-
-func (c *callerTurns) startLocked(prior int) {
 	if c.started {
 		return
 	}
@@ -74,39 +114,81 @@ func (c *callerTurns) startLocked(prior int) {
 	c.next = prior
 }
 
-// pushLocked adds a new caller turn and returns its index.
-func (c *callerTurns) pushLocked(heard, transcribed bool) int {
-	t := callerTurn{index: c.next, heard: heard, transcribed: transcribed}
+// pushLocked adds a new caller turn and returns it.
+func (c *callerTurns) pushLocked(t callerTurn) callerTurn {
+	t.index = c.next
 	c.next++
 	c.queue = append(c.queue, t)
-	return t.index
+	c.nameLocked(t)
+	return t
+}
+
+// nameLocked records the turn of t's input, when it has one.
+func (c *callerTurns) nameLocked(t callerTurn) {
+	if t.input == "" {
+		return
+	}
+	if c.byInput == nil {
+		c.byInput = map[string]int{}
+	}
+	c.byInput[t.input] = t.index
 }
 
 // typed adds a typed caller turn and returns its index.
 func (c *callerTurns) typed() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.pushLocked(false, false)
+	return c.pushLocked(callerTurn{}).index
 }
 
-// spoken records that the caller is speaking a new turn (a barge-in, or the
-// transcript of a new utterance, when transcribed): a turn is added unless
-// one is already waiting for its reply. A transcript that arrives while a
-// reply is in progress is that reply's turn's.
-func (c *callerTurns) spoken(transcribed bool) {
+// heardSpeech records the caller's speech: a barge-in (not transcribed) or a
+// transcript of it (transcribed), with input the provider's ID for it ("" when
+// it names none). The speech belongs to:
+//
+//   - the turn of an input the provider named before;
+//   - the reply in progress, for its transcript (the reply's own input, or,
+//     unnamed, a transcript that trails into the reply);
+//   - the newest spoken turn still waiting for its reply, for the same
+//     utterance;
+//   - else a new turn.
+func (c *callerTurns) heardSpeech(input string, transcribed bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if transcribed && c.replying {
-		c.reply.transcribed = true
+	if idx, ok := c.byInput[input]; ok {
+		c.markLocked(idx, transcribed)
 		return
 	}
-	if n := len(c.queue); n > 0 {
-		if transcribed {
-			c.queue[n-1].transcribed = true
+	if transcribed && c.replying && (input == "" || input == c.replyInput) {
+		c.reply.transcribed = true
+		c.reply.input = input
+		c.nameLocked(c.reply)
+		return
+	}
+	if n := len(c.queue); n > 0 && c.queue[n-1].heard && (c.queue[n-1].input == "" || input == "") {
+		tail := &c.queue[n-1]
+		tail.transcribed = tail.transcribed || transcribed
+		if input != "" {
+			tail.input = input
+			c.nameLocked(*tail)
 		}
 		return
 	}
-	c.pushLocked(true, transcribed)
+	c.pushLocked(callerTurn{heard: true, transcribed: transcribed, input: input})
+}
+
+// markLocked records a transcript, when transcribed, for turn index.
+func (c *callerTurns) markLocked(index int, transcribed bool) {
+	if !transcribed {
+		return
+	}
+	if c.reply.index == index {
+		c.reply.transcribed = true
+	}
+	for i := range c.queue {
+		if c.queue[i].index == index {
+			c.queue[i].transcribed = true
+		}
+	}
 }
 
 // audio records caller audio sent to the session.
@@ -123,24 +205,30 @@ func (c *callerTurns) toolResults() {
 	c.toolsSince = true
 }
 
-// replyBegins places the reply that begins now and returns its turn. inputID
-// is the provider's ID of the caller input it answers, "" when it names none.
+// replyBegins places the reply that begins now and returns its turn. input is
+// the provider's ID of the caller input it answers, "" when it names none.
 // Calling it again before replyEnds returns the same turn.
-func (c *callerTurns) replyBegins(inputID string) callerTurn {
+func (c *callerTurns) replyBegins(input string) callerTurn {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.replying {
 		return c.reply
 	}
 	switch {
-	case c.answered && inputID != "" && inputID == c.replyInput:
+	case c.answered && input != "" && input == c.replyInput:
 		// The same input again: a further reply in the turn.
+	case c.takeNamedLocked(input):
 	case len(c.queue) > 0:
 		c.reply = c.queue[0]
 		c.queue = c.queue[1:]
-	case inputID != "":
-		c.reply = callerTurn{index: c.next, heard: true}
+		if input != "" && c.reply.input == "" {
+			c.reply.input = input
+			c.nameLocked(c.reply)
+		}
+	case input != "":
+		c.reply = callerTurn{index: c.next, heard: true, input: input}
 		c.next++
+		c.nameLocked(c.reply)
 	case c.audioSince && !c.toolsSince:
 		c.reply = callerTurn{index: c.next}
 		c.next++
@@ -149,8 +237,8 @@ func (c *callerTurns) replyBegins(inputID string) callerTurn {
 		c.reply = callerTurn{index: c.next}
 		c.next++
 	}
-	if inputID != "" {
-		c.replyInput = inputID
+	if input != "" {
+		c.replyInput = input
 	}
 	c.answered = true
 	c.replying = true
@@ -158,11 +246,27 @@ func (c *callerTurns) replyBegins(inputID string) callerTurn {
 	return c.reply
 }
 
+// takeNamedLocked makes the waiting turn of input, when there is one, the
+// reply's, and reports whether there was.
+func (c *callerTurns) takeNamedLocked(input string) bool {
+	if input == "" {
+		return false
+	}
+	for i, t := range c.queue {
+		if t.input == input {
+			c.reply = t
+			c.queue = append(c.queue[:i], c.queue[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // bargeIn records that the caller barged in: the reply in progress ends, cut
 // short, and the caller is speaking a turn of their own.
 func (c *callerTurns) bargeIn() {
 	c.replyEnds()
-	c.spoken(false)
+	c.heardSpeech("", false)
 }
 
 // replyEnds ends the reply in progress.
@@ -184,6 +288,24 @@ func (c *callerTurns) answer(index int) {
 			return
 		}
 	}
+}
+
+// transcriptTurn is the turn a caller transcript is judged at: the turn of
+// the input the provider named for it, else, for a transcript that arrived
+// after the reply to it (late), the turn the latest reply answered, else the
+// current turn.
+func (c *callerTurns) transcriptTurn(input string, late bool) int {
+	c.mu.Lock()
+	idx, named := c.byInput[input]
+	answered, reply := c.answered, c.reply.index
+	c.mu.Unlock()
+	switch {
+	case named:
+		return idx
+	case late && answered:
+		return reply
+	}
+	return c.current()
 }
 
 // current is the index of the turn a guardrail check made now belongs to: the

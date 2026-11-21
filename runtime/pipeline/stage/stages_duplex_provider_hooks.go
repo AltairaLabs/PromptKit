@@ -262,15 +262,32 @@ func (s *DuplexProviderStage) beginReplyTurn(chunk *providers.StreamChunk) {
 // still to come (AwaitsTranscript), and ends the reply. An element already
 // marked (a blocked turn's, with its own input's turn) is left as it is.
 func (s *DuplexProviderStage) stampCallerTurn(elem *StreamElement) {
-	if elem.Meta.CallerTurn != nil || !endsReply(elem) {
+	if elem.Meta.CallerTurn == nil {
+		if !endsReply(elem) {
+			return
+		}
+		turn := s.callers.replyBegins("")
+		s.callers.replyEnds()
+		index := turn.index
+		elem.Meta.CallerTurn = &index
+		elem.Meta.AwaitsTranscript = turn.heard && !turn.transcribed
+		s.turnState.setCallerTurn(index)
+	}
+	storeCallerTurn(elem.Message, *elem.Meta.CallerTurn)
+}
+
+// storeCallerTurn records caller turn index on reply m (types.MetaCallerTurn),
+// for the transcript, on a Meta of its own. Nil-safe.
+func storeCallerTurn(m *types.Message, index int) {
+	if m == nil || m.Role != roleAssistant {
 		return
 	}
-	turn := s.callers.replyBegins("")
-	s.callers.replyEnds()
-	index := turn.index
-	elem.Meta.CallerTurn = &index
-	elem.Meta.AwaitsTranscript = turn.heard && !turn.transcribed
-	s.turnState.setCallerTurn(index)
+	meta := make(map[string]interface{}, len(m.Meta)+1)
+	for k, v := range m.Meta {
+		meta[k] = v
+	}
+	meta[types.MetaCallerTurn] = index
+	m.Meta = meta
 }
 
 // endsReply reports whether elem ends a reply: an assistant Message on a turn

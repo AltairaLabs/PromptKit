@@ -9,7 +9,15 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
+
+// hear records speech (callerTurns.heardSpeech) and returns the turn it was
+// placed in: the turn a transcript of it is judged at, while it is early.
+func hear(c *callerTurns, input string, transcribed bool) int {
+	c.heardSpeech(input, transcribed)
+	return c.transcriptTurn(input, false)
+}
 
 // replies places n replies, each named by the input id it answers (""
 // for none), and returns each reply's turn index.
@@ -78,17 +86,17 @@ func TestCallerTurns_GreetingAndResume(t *testing.T) {
 func TestCallerTurns_SpokenTurns(t *testing.T) {
 	c := &callerTurns{}
 	c.start(0)
-	c.spoken(false) // barge-in
-	c.spoken(true)  // its transcript: the same utterance
+	hear(c, "", false) // barge-in
+	hear(c, "", true)  // its transcript: the same utterance
 	assert.Equal(t, 0, c.current())
 	turn := c.replyBegins("")
 	assert.Equal(t, callerTurn{index: 0, heard: true, transcribed: true}, turn)
-	c.spoken(true) // a transcript that trails into the reply
+	hear(c, "", true) // a transcript that trails into the reply
 	assert.Equal(t, 0, c.current(), "a reply in progress is the current turn")
 	c.replyEnds()
 	assert.True(t, c.reply.transcribed)
 
-	c.spoken(false)
+	hear(c, "", false)
 	turn = c.replyBegins("")
 	assert.Equal(t, callerTurn{index: 1, heard: true}, turn, "heard, no transcript yet")
 	// A barge-in during that reply ends it and starts the caller's next turn,
@@ -111,7 +119,7 @@ func TestCallerTurns_SpokenOrNot(t *testing.T) {
 	c.audio()
 	assert.Equal(t, callerTurn{index: 2}, c.replyBegins(""), "audio the provider named no turn for")
 	c.replyEnds()
-	assert.Equal(t, callerTurn{index: 3, heard: true}, c.replyBegins("in-9"), "a named input")
+	assert.Equal(t, callerTurn{index: 3, heard: true, input: "in-9"}, c.replyBegins("in-9"), "a named input")
 	c.replyEnds()
 }
 
@@ -157,4 +165,77 @@ func TestDuplexStage_RecordsTheCallerTurnOnTurnState(t *testing.T) {
 	_, ok = none.CallerTurn()
 	assert.False(t, ok, "a nil TurnState has none")
 	assert.Equal(t, 0, none.SessionTurns())
+}
+
+// A stored conversation resumes from its user turns, or from one past the
+// highest caller turn stored on its replies when that is more, in any numeric
+// form a store returns it; a caller turn on anything but a reply is ignored.
+func TestCallerTurns_ResumedFromTheTranscript(t *testing.T) {
+	reply := func(turn any) types.Message {
+		return types.Message{Role: roleAssistant, Meta: map[string]interface{}{types.MetaCallerTurn: turn}}
+	}
+	assert.Equal(t, 2, resumedCallerTurns(nil, 2))
+	assert.Equal(t, 2, resumedCallerTurns([]types.Message{{Role: roleAssistant}}, 2), "no stored turn")
+	assert.Equal(t, 5, resumedCallerTurns([]types.Message{reply(1), reply(4)}, 2))
+	assert.Equal(t, 4, resumedCallerTurns([]types.Message{reply(int64(3))}, 0))
+	assert.Equal(t, 7, resumedCallerTurns([]types.Message{reply(float64(6))}, 0), "as JSON decodes it")
+	assert.Equal(t, 3, resumedCallerTurns([]types.Message{reply(1)}, 3), "fewer than the user turns")
+	assert.Equal(t, 0, resumedCallerTurns([]types.Message{reply("9")}, 0), "not a number")
+	user := types.Message{Role: roleUser, Meta: map[string]interface{}{types.MetaCallerTurn: 8}}
+	assert.Equal(t, 1, resumedCallerTurns([]types.Message{user}, 1), "only a reply's counts")
+}
+
+// Speech the provider names belongs to its input's turn wherever it lands:
+// a transcript of a reply's own input is the reply's; one of another input
+// while a reply plays is a new turn, which the reply naming it answers, ahead
+// of turns queued before it; a late one is judged at its own turn.
+func TestCallerTurns_NamedSpeech(t *testing.T) {
+	c := &callerTurns{}
+	c.start(0)
+	c.audio()
+	assert.Equal(t, 0, c.replyBegins("in-1").index)
+	assert.Equal(t, 0, hear(c, "in-1", true), "the reply's own input")
+	assert.Equal(t, 1, hear(c, "in-2", true), "speech over the reply: the next turn")
+	assert.Equal(t, 0, c.current(), "the reply is still the current turn")
+	c.replyEnds()
+
+	typed := c.typed()
+	assert.Equal(t, 2, typed)
+	assert.Equal(t, callerTurn{index: 1, heard: true, transcribed: true, input: "in-2"}, c.replyBegins("in-2"))
+	c.replyEnds()
+	assert.Equal(t, typed, c.replyBegins("").index, "then the typed one")
+	c.replyEnds()
+
+	// Typed, then speech over the reply to it: the reply naming the speech
+	// answers it, though the typed turn queued first.
+	d := &callerTurns{}
+	d.start(0)
+	d.audio()
+	d.replyBegins("in-1")
+	first := d.typed()
+	spoken := hear(d, "in-2", true)
+	d.replyEnds()
+	assert.Equal(t, spoken, d.replyBegins("in-2").index)
+	d.replyEnds()
+	assert.Equal(t, first, d.replyBegins("").index)
+	d.replyEnds()
+
+	assert.Equal(t, 1, c.transcriptTurn("in-2", true), "a named transcript, judged at its own turn")
+	assert.Equal(t, typed, c.transcriptTurn("", true), "an unnamed late one, at the latest reply's")
+	c.typed()
+	assert.Equal(t, 3, c.transcriptTurn("", false), "an early one, at the current turn")
+	assert.Equal(t, 0, hear(c, "in-1", true), "a named input already placed")
+}
+
+// An unnamed transcript joins the spoken turn waiting for its reply, which a
+// named one then names; it does not join a typed turn.
+func TestCallerTurns_UnnamedSpeechJoinsTheWaitingSpokenTurn(t *testing.T) {
+	c := &callerTurns{}
+	c.start(0)
+	assert.Equal(t, 0, c.typed())
+	assert.Equal(t, 1, hear(c, "", false), "speech is not the typed turn's")
+	assert.Equal(t, 1, hear(c, "", true))
+	assert.Equal(t, 1, hear(c, "in-5", true), "named now")
+	assert.Equal(t, 1, c.transcriptTurn("in-5", false))
+	assert.Equal(t, 2, hear(c, "in-6", true), "another named input: another turn")
 }

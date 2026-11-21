@@ -963,6 +963,9 @@ func (s *ProviderStage) fireStreamingTurn(
 	// messages (pending) were already emitted above, so emit only the new reply.
 	newStart := priorLen + len(pending)
 	if newStart <= len(full) {
+		for i := newStart; i < len(full); i++ {
+			storeCallerTurn(&full[i], turn)
+		}
 		if emitErr := s.emitResponseMessages(forwardCtx, full[newStart:], output); emitErr != nil {
 			return emitErr
 		}

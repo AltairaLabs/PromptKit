@@ -513,6 +513,8 @@ func (s *DuplexProviderStage) createSessionLazily(
 	if !ok && len(held) == 0 {
 		return nil, errors.New("duplex provider stage: input channel closed before receiving first element")
 	}
+	// The session goes on from the caller turns the conversation holds.
+	s.callers.start(resumedCallerTurns(prior, s.turnState.TurnIndex()))
 
 	systemPrompt := ""
 	if s.turnState != nil {
@@ -2088,7 +2090,8 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 	}
 	if transcript, ok := chunk.Metadata["transcription"].(string); ok && transcript != "" {
 		// The caller's words: a turn of theirs, with its transcript.
-		s.callers.spoken(true)
+		input, _ := chunk.Metadata[providers.InputItemIDKey].(string)
+		s.callers.heardSpeech(input, true)
 		s.inputTranscription.WriteString(transcript)
 		if id, ok := chunk.Metadata[providers.InputItemIDKey].(string); ok && id != "" {
 			s.transcriptItemID = id
