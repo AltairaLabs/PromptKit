@@ -8,6 +8,7 @@ verified:
   sources:
     - runtime/pipeline/stage/composition_executor.go
     - sdk/agui/adapter.go
+    - sdk/agui/adapter_stream.go
     - sdk/agui/convert.go
     - sdk/client_tools.go
     - sdk/conversation_tools.go
@@ -183,7 +184,7 @@ We create the adapter with the input's thread and run IDs, start the run in a go
 	}
 ```
 
-The run must be in its own goroutine: the adapter's channel holds 64 events, and once it is full the run waits for the loop to read. The `Events()` channel closes when the run ends, so the `range` loop exits on its own.
+The run must be in its own goroutine: the adapter's channel holds 64 events, and once it is full the run waits for the loop to read. Flushing after each event is what lets the client show the reply while the model writes it: the adapter emits each chunk of text as it arrives. The `Events()` channel closes when the run ends, so the `range` loop exits on its own.
 
 ## Step 6: Run the server
 
@@ -348,7 +349,7 @@ curl -X POST http://localhost:8080/ag-ui \
   }'
 ```
 
-The response is an SSE stream that begins with `RUN_STARTED`, carries the assistant's message as `TEXT_MESSAGE_START`, one `TEXT_MESSAGE_CONTENT` with the whole reply, and `TEXT_MESSAGE_END`, and ends with `RUN_FINISHED`. The reply text is typically a short greeting.
+The response is an SSE stream that begins with `RUN_STARTED`, carries the assistant's message as `TEXT_MESSAGE_START`, a `TEXT_MESSAGE_CONTENT` for each chunk of the reply as the model streams it, and `TEXT_MESSAGE_END`, and ends with `RUN_FINISHED`. The reply text is typically a short greeting; joined, the `delta` fields of its `TEXT_MESSAGE_CONTENT` events are the whole reply.
 
 ## Step 7: Send the server's state
 

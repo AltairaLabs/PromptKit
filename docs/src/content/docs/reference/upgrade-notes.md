@@ -123,7 +123,7 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
-The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, caller identity, and providers.
+The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, streaming and AG-UI, caller identity, and providers.
 
 ### Turn numbering
 
@@ -281,6 +281,21 @@ With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that tak
 | Have the repeated-call breaker nudge a round | its other calls count toward `max_tool_calls_per_turn` and `termination.tool_called`, and a text turn whose last round is nudged ends with a `MaxRoundsError` | nothing |
 | Call `memory__recall` or `memory__list` with no match | `"memories": []`, where `null` failed the tool's own output schema | nothing |
 | Built against `main` with `Conversation.SettleClientTool`, `SettleClientToolRejection`, `HasToolResultRewriters` or `session.DuplexSessionConfig.PipelineRunsTools` | they are not exported | nothing; the AG-UI adapter uses them internally |
+
+### Streaming and AG-UI
+
+#### A streamed turn reports its tool rounds, and the AG-UI adapter streams text
+
+`Stream` and `ResumeStream` now send each tool round as it happens: a `ChunkToolCall` for each call once the round's reply has streamed, and a new `ChunkToolResult` for each result the model is given. `ChunkToolCall` was documented but never sent. `RunSend` and `RunResume` on an `*sdk.Conversation` drive the turn through them, so text reaches an AG-UI client as the model streams it.
+
+| If you | You will see | Change |
+|---|---|---|
+| Switch on `StreamChunk.Type` | `ChunkToolCall` chunks, and `ChunkToolResult` chunks with `ToolResult` set; neither carries `Text` | handle or skip them |
+| Stream a turn whose tool an `OnToolAsync` check holds | the hold in the `ChunkDone` response's `PendingTools()`, as `Send` reports it, and no `ChunkClientTool` for it | resolve it with `ResolveTool` or `RejectTool` and `Continue`, not `SendToolResult` |
+| Stream with a `SkillSelector` | the skills index narrowed to this turn's text, as `Send` narrows it | nothing |
+| Render AG-UI `TEXT_MESSAGE_CONTENT` | several per message, one per chunk the model streamed; their `delta` fields joined are the message's text | append each `delta` |
+| Render AG-UI text an output guardrail cut | the streamed message ends, and the guardrail's message follows as a new text message | nothing |
+| Read `stage.ElementMetadata` or `providers.StreamChunk` from a pipeline yourself | elements and chunks carrying only `RoundMessages` during a tool loop | skip them, or use them to report the rounds |
 
 ### Caller identity
 

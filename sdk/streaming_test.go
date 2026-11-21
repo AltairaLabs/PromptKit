@@ -286,10 +286,10 @@ func TestBuildStreamMessageWithNil(t *testing.T) {
 }
 
 // TestStreamingWithMultipleChunks verifies the unary streaming path forwards
-// text deltas to the caller and silently drops tool-call chunks for tools
-// the caller never registered. In a real conversation the provider only
-// advertises registered tools, so an unregistered tool call is defensive-only
-// — when it happens we must not leak a ChunkToolCall to the caller.
+// text deltas to the caller, then the round's tool call and the result the
+// turn fed back for it, even for a tool the caller never registered: the call
+// is in the transcript (Response.TurnMessages) with its "tool not found"
+// result, so the stream reports what the transcript holds.
 //
 // Media forwarding in the unary streaming path is a separate gap: the runtime
 // emits Audio/Video/Image elements but the session-layer converter currently
@@ -359,20 +359,27 @@ func TestStreamingWithMultipleChunks(t *testing.T) {
 	}
 
 	require.NoError(t, streamErr, "stream should complete without error")
-	assert.NotEmpty(t, receivedChunks)
-	hasText := false
-	hasToolCall := false
+	var got []string
 	for _, chunk := range receivedChunks {
-		if chunk.Type == ChunkText && chunk.Text != "" {
-			hasText = true
-		}
-		if chunk.Type == ChunkToolCall {
-			hasToolCall = true
+		switch chunk.Type {
+		case ChunkText:
+			got = append(got, "text "+chunk.Text)
+		case ChunkToolCall:
+			got = append(got, "call "+chunk.ToolCall.ID+" "+chunk.ToolCall.Name)
+		case ChunkToolResult:
+			got = append(got, "result "+chunk.ToolResult.ID+" "+chunk.ToolResult.Error)
+		case ChunkDone:
+			got = append(got, "done")
 		}
 	}
-	assert.True(t, hasText, "Should have text chunks")
-	assert.False(t, hasToolCall,
-		"Unregistered tool call should be dropped, not emitted as a chunk")
+	// The call is the model's, so it is reported, with the result the turn
+	// gave it: the tool is not registered, and the model is told so.
+	assert.Equal(t, []string{
+		"text Hello ", "text world", "text !",
+		"call call-1 get_weather",
+		"result call-1 tool not found: get_weather",
+		"done",
+	}, got)
 }
 
 // Helper to create string pointers

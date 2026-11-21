@@ -331,6 +331,15 @@ type ElementMetadata struct {
 	// must be surfaced to the caller for out-of-band completion.
 	PendingTools []tools.PendingToolExecution
 
+	// RoundMessages reports a tool round of a streamed turn as it happens:
+	// the assistant message that made tool calls, once its reply has streamed
+	// and before the calls run, then the tool results the round fed back to
+	// the model, once they ran. The element carries no Message: the turn's
+	// messages still reach the transcript stages as Message elements when the
+	// turn ends, so a stage that records the transcript ignores it. It is for a
+	// caller that shows the turn while it runs (providers.StreamChunk).
+	RoundMessages []types.Message
+
 	// SynthesizedSpeech marks an element produced by a TTS stage: it carries the
 	// spoken audio plus, for reference, the text that was submitted for synthesis.
 	// That text is the same reply already delivered as streaming Text deltas, so a

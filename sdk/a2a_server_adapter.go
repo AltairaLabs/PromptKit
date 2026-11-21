@@ -148,7 +148,8 @@ func chunkToEvent(c StreamChunk) a2aserver.StreamEvent {
 				MIMEType: c.Media.MIMEType,
 			},
 		}
-	case ChunkToolCall:
+	case ChunkToolCall, ChunkToolResult:
+		// Suppressed by the server (agent opacity), as a tool call is.
 		return a2aserver.StreamEvent{Kind: a2aserver.EventToolCall}
 	case ChunkClientTool:
 		if c.ClientTool == nil {

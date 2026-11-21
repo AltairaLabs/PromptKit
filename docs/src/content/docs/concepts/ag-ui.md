@@ -7,6 +7,7 @@ verified:
   commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
   sources:
     - sdk/agui/adapter.go
+    - sdk/agui/adapter_stream.go
     - sdk/agui/convert.go
     - sdk/conversation_tools.go
     - sdk/workflow.go
@@ -85,7 +86,9 @@ data: {"type":"RUN_STARTED","threadId":"thread-abc123","runId":"run-xyz789"}
 
 data: {"type":"TEXT_MESSAGE_START","messageId":"msg-2","role":"assistant"}
 
-data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-2","delta":"Order #1234 is currently in transit."}
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-2","delta":"Order #1234 is "}
+
+data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-2","delta":"currently in transit."}
 
 data: {"type":"TEXT_MESSAGE_END","messageId":"msg-2"}
 
@@ -111,7 +114,7 @@ AG-UI defines events for the whole lifecycle of a run. The ones below are those 
 | Event | Description |
 |-------|-------------|
 | `TEXT_MESSAGE_START` | New assistant message beginning |
-| `TEXT_MESSAGE_CONTENT` | Text of the message |
+| `TEXT_MESSAGE_CONTENT` | A chunk of the message's text; the chunks of a message make up its text |
 | `TEXT_MESSAGE_END` | Assistant message complete |
 
 ### Tool Call Events
@@ -166,15 +169,15 @@ The `sdk/agui` package targets AG-UI 1.0 through the AG-UI community Go SDK. The
 
 ### Event Mapping
 
-The `EventAdapter` runs one conversation turn as one AG-UI run. When the turn has run, it emits the messages the turn produced, in order:
+The `EventAdapter` runs one conversation turn as one AG-UI run. For an `*sdk.Conversation` it drives the turn through `Conversation.Stream` and emits each round of the turn as it happens: the reply's text as the model streams it, the round's tool calls once the reply has streamed and before they run, then their results. The events come in this order:
 
 | PromptKit Activity | AG-UI Event(s) |
 |--------------------|----------------|
 | Turn starts | `RUN_STARTED` |
 | State provider configured | `STATE_SNAPSHOT`, omitted if the provider returns an error |
 | Workflow conversation | `STEP_STARTED` naming the workflow state the run starts in |
-| Each assistant message in the turn | `TEXT_MESSAGE_START` → `TEXT_MESSAGE_CONTENT` (its whole text) → `TEXT_MESSAGE_END` |
-| Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` (when the call has arguments) → `TOOL_CALL_END` |
+| Each assistant message in the turn | `TEXT_MESSAGE_START` → a `TEXT_MESSAGE_CONTENT` for each chunk of text the model streams → `TEXT_MESSAGE_END` |
+| Each tool call the model made | `TOOL_CALL_START` → `TOOL_CALL_ARGS` (when the call has arguments) → `TOOL_CALL_END`, once the round's reply has streamed |
 | Each result of a tool the agent ran | `TOOL_CALL_RESULT` carrying what the tool returned |
 | Workflow transition committed | `STEP_FINISHED` for the old state, `STEP_STARTED` for the new one |
 | `WithRuntimeEvents` set | `RAW` for each runtime event the conversation's event bus delivers while the run is open |
@@ -186,14 +189,24 @@ A model that calls a tool and then answers produces two assistant messages in on
 
 ```text
 RUN_STARTED
-TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Let me look that up."
-TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END                lookup_order
+TEXT_MESSAGE_START                                              message 1
+TEXT_MESSAGE_CONTENT                                            "Let me "
+TEXT_MESSAGE_CONTENT                                            "look that up."
+TEXT_MESSAGE_END                                                message 1
+TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END                lookup_order, parent message 1
 TOOL_CALL_RESULT                                                what lookup_order returned
-TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END    "Your order shipped yesterday."
+TEXT_MESSAGE_START                                              message 2
+TEXT_MESSAGE_CONTENT                                            "Your order "
+TEXT_MESSAGE_CONTENT                                            "shipped yesterday."
+TEXT_MESSAGE_END                                                message 2
 RUN_FINISHED
 ```
 
-For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`. Each run then opens a step named after the workflow state it starts in and closes it before `RUN_FINISHED`; a turn that moves the workflow to another state finishes that step and starts one for the new state. `WithWorkflowSteps(false)` leaves the steps out.
+How the text is split depends on the provider: each `TEXT_MESSAGE_CONTENT` carries one chunk it streamed. A provider that does not stream sends each message's text in one `TEXT_MESSAGE_CONTENT` once its reply is complete. A round that only calls tools sends no text message, and its calls still name a parent message id.
+
+When an output guardrail cuts a reply that has started to stream, the client has already shown part of it, and AG-UI cannot take text back. The streamed message ends, and the guardrail's message follows as a new text message. The same happens whenever a reply's final text is not the text that streamed.
+
+For a pack with a workflow, open it with `sdk.OpenWorkflow` and create the adapter with `NewWorkflowEventAdapter`. A workflow conversation does not stream: each turn runs to completion, then its messages are emitted, each message's text as one `TEXT_MESSAGE_CONTENT`. Each run then opens a step named after the workflow state it starts in and closes it before `RUN_FINISHED`; a turn that moves the workflow to another state finishes that step and starts one for the new state. `WithWorkflowSteps(false)` leaves the steps out.
 
 A `TOOL_CALL_RESULT` is never empty, because the AG-UI Go SDK rejects an event with empty content. A result with no text carries its error, a description of the media it holds (such as `[image/png image]`), or the JSON encoding of its value (`""` for an empty string).
 
@@ -249,7 +262,7 @@ Read `Events()` while the run is in progress, from another goroutine. Once its b
 
 ### What the Adapter Does Not Do
 
-- Stream tokens. Each message's text arrives as one `TEXT_MESSAGE_CONTENT` once the turn has run.
+- Stream every run. `RunSend` and `RunResume` stream an `*sdk.Conversation`'s turn. A workflow conversation's turn, a `RunContinue` run and the turn a `ToolResultProvider` resumes inside a run are emitted once they have run, each message's text as one `TEXT_MESSAGE_CONTENT`.
 - Order runtime events against the run's messages, tool calls and steps. Those come from the turn itself, which keeps them ordered.
 - Emit `STATE_DELTA`, `MESSAGES_SNAPSHOT`, or reasoning events.
 - Name pending calls on `RUN_FINISHED`. A run that ends with a frontend tool call unanswered finishes without an outcome, which means success; a consumer finds the pending calls as the calls that received no `TOOL_CALL_RESULT`.

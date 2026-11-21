@@ -451,34 +451,38 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 		defer close(ch)
 		startTime := time.Now()
 
+		// Every failure ends the stream through sendFinalErrorChunk, which
+		// gives up on a caller that stopped reading instead of leaking this
+		// goroutine, and carries a failed stream's partial reply as Stream's
+		// error chunk does.
 		release, gateErr := c.turn.acquire(ctx, c)
 		if gateErr != nil {
-			ch <- StreamChunk{Error: gateErr}
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: gateErr})
 			return
 		}
 		defer release()
 		ctx = c.turn.mark(ctx, c)
 
 		if err := c.validateSendState(); err != nil {
-			ch <- StreamChunk{Error: err}
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: err})
 			return
 		}
 
 		toolMsgs, err := c.buildToolResultMessages(ctx)
 		if err != nil {
-			ch <- StreamChunk{Error: err}
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: err})
 			return
 		}
 
 		streamCh, err := c.unarySession.ResumeStreamWithToolResults(c.withConversationState(ctx), toolMsgs)
 		if err != nil {
-			ch <- StreamChunk{Error: fmt.Errorf("resume stream failed: %w", c.wrapTurnError(err))}
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: fmt.Errorf("resume stream failed: %w", c.wrapTurnError(err))})
 			return
 		}
 
 		state := &streamState{}
 		if err := c.processAndFinalizeStreamWithState(ctx, streamCh, ch, startTime, state); err != nil {
-			ch <- StreamChunk{Error: err}
+			sendFinalErrorChunk(ctx, ch, errorChunk(err))
 			return
 		}
 

@@ -113,7 +113,7 @@ func (c *Conversation) StreamWithCallback(ctx context.Context, message any, opts
 					Categories: chunk.ClientTool.Categories,
 				})
 			}
-		case ChunkToolCall, ChunkMedia:
+		case ChunkToolCall, ChunkToolResult, ChunkMedia:
 			// Pass through without event emission
 		case ChunkDone:
 			finalResp = chunk.Message

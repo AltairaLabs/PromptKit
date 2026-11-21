@@ -114,8 +114,29 @@ func writeGrantingSkill(t *testing.T, root, name string, tools ...string) {
 // A SkillSelector sees each skill's allowed-tools. One that keeps the skills
 // granting refund narrows the index to refund-processing, so that is the only
 // skill the model can see and activate: refund is offered after activation,
-// and cancel_order, which only the other skill grants, never is.
+// and cancel_order, which only the other skill grants, never is. A streamed
+// turn selects the same way as a sent one.
 func TestSkillSelector_ChoosesByAllowedTools(t *testing.T) {
+	for name, run := range map[string]func(*Conversation) error{
+		"Send": func(conv *Conversation) error {
+			_, err := conv.Send(context.Background(), "I need a refund for ORD-1")
+			return err
+		},
+		"Stream": func(conv *Conversation) error {
+			var err error
+			for chunk := range conv.Stream(context.Background(), "I need a refund for ORD-1") {
+				if chunk.Error != nil {
+					err = chunk.Error
+				}
+			}
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) { checkSelectorChoosesByAllowedTools(t, run) })
+	}
+}
+
+func checkSelectorChoosesByAllowedTools(t *testing.T, run func(*Conversation) error) {
 	root := t.TempDir()
 	writeGrantingSkill(t, root, "refund-processing", "refund")
 	writeGrantingSkill(t, root, "cancellations", "cancel_order")
@@ -133,8 +154,7 @@ func TestSkillSelector_ChoosesByAllowedTools(t *testing.T) {
 		conv.OnTool(tool, func(map[string]any) (any, error) { return "ok", nil })
 	}
 
-	_, err = conv.Send(context.Background(), "I need a refund for ORD-1")
-	require.NoError(t, err)
+	require.NoError(t, run(conv))
 
 	provider.mu.Lock()
 	defer provider.mu.Unlock()

@@ -67,6 +67,19 @@ func settlerOf(sender Sender) clienttool.Settler {
 	return clienttool.SettlerOf(sender)
 }
 
+// streamer is implemented by conversations that stream a turn as it runs
+// (*sdk.Conversation does). RunSend drives one through it, so text reaches the
+// client as the model produces it.
+type streamer interface {
+	Stream(ctx context.Context, message any, opts ...sdk.SendOption) <-chan sdk.StreamChunk
+}
+
+// resumeStreamer is implemented by conversations that stream a resumed turn
+// (*sdk.Conversation does).
+type resumeStreamer interface {
+	ResumeStream(ctx context.Context) <-chan sdk.StreamChunk
+}
+
 // workflowStateReader is implemented by conversations that run a workflow
 // state machine (*sdk.WorkflowConversation does).
 type workflowStateReader interface {
@@ -278,10 +291,11 @@ func (a *EventAdapter) RunID() string {
 //  1. RUN_STARTED
 //  2. STATE_SNAPSHOT (if a StateProvider is configured)
 //  3. STEP_STARTED for the current workflow state (workflow conversations)
-//  4. For each assistant message the turn produced, in order:
-//     TEXT_MESSAGE_START / TEXT_MESSAGE_CONTENT / TEXT_MESSAGE_END, then
+//  4. For each round of the turn (an assistant message and the tool results
+//     after it), in order: TEXT_MESSAGE_START, a TEXT_MESSAGE_CONTENT for
+//     each chunk of text as the model streams it, TEXT_MESSAGE_END; then
 //     TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END for each call it made;
-//     each tool result the turn fed back to the model is a TOOL_CALL_RESULT
+//     then a TOOL_CALL_RESULT for each result the round fed back to the model
 //  5. STEP_FINISHED / STEP_STARTED when the turn moved the workflow on
 //  6. If a ToolResultProvider answers the pending client tools: a
 //     TOOL_CALL_RESULT for each, then the resumed turn from step 4
@@ -294,8 +308,17 @@ func (a *EventAdapter) RunID() string {
 // RUN_FINISHED carrying an interrupt outcome that names the held calls; the
 // next run continues with [EventAdapter.RunContinue].
 //
-// Text arrives as one TEXT_MESSAGE_CONTENT per message once the turn has run;
-// it is not streamed token by token.
+// A conversation that streams (*sdk.Conversation, through
+// sdk.Conversation.Stream) sends each round's text as it arrives, so the
+// client shows the reply while the model writes it, and each round's calls as
+// soon as the round's reply has streamed, before they run. The deltas of a
+// message make up its text. One that does not (a workflow conversation, or
+// any other Sender) runs the turn with Send, and each message arrives as one
+// TEXT_MESSAGE_CONTENT once the turn has run.
+//
+// A reply that ends differently from what streamed, as when a guardrail
+// replaces it, is sent as a new text message holding the reply: the client has
+// already shown the streamed text, which AG-UI cannot take back.
 //
 // On error, a RUN_ERROR ends the run. The events channel is always closed when
 // RunSend returns.
@@ -304,7 +327,10 @@ func (a *EventAdapter) RunID() string {
 // the reader once the channel's buffer of 64 events is full, so a caller that
 // lets the run finish before reading blocks there.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
-	return a.run(ctx, false, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, false, func(ctx context.Context, st *runState) (*sdk.Response, error) {
+		if s, ok := a.sender.(streamer); ok {
+			return st.consume(s.Stream(ctx, msg))
+		}
 		return a.sender.Send(ctx, msg)
 	})
 }
@@ -322,10 +348,16 @@ func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 // TOOL_CALL_RESULT events. Nor does it repeat answers a ToolResultProvider
 // gave in the earlier run, which reported them then: the resumed turn feeds
 // every answer to the model, but none of them is new to the client.
+//
+// A conversation that streams a resumed turn (sdk.Conversation.ResumeStream)
+// sends it as RunSend sends a streamed turn.
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error {
-	return a.run(ctx, true, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, true, func(ctx context.Context, st *runState) (*sdk.Response, error) {
 		if err := a.resolveClientTools(ctx, results); err != nil {
 			return nil, err
+		}
+		if s, ok := a.sender.(resumeStreamer); ok {
+			return st.consume(s.ResumeStream(ctx))
 		}
 		return a.sender.Resume(ctx)
 	})
@@ -344,7 +376,7 @@ func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) erro
 // It returns [ErrContinueUnsupported] (after a RUN_ERROR) when the
 // conversation has no Continue method.
 func (a *EventAdapter) RunContinue(ctx context.Context) error {
-	return a.run(ctx, false, func(ctx context.Context) (*sdk.Response, error) {
+	return a.run(ctx, false, func(ctx context.Context, _ *runState) (*sdk.Response, error) {
 		c, ok := a.sender.(continuer)
 		if !ok {
 			return nil, ErrContinueUnsupported
@@ -360,15 +392,11 @@ type runState struct {
 	// answered holds the calls of the current round that already have a
 	// result emitted in this run. A round is an assistant message and the tool
 	// results after it; call ids are only unique within one (Gemini numbers
-	// them call_0, call_1, ... per response), so the set starts afresh with
-	// each assistant message.
+	// them call_0, call_1, ... per response), so each round has its own set.
 	answered map[string]bool
-	// resuming is set while a resumed turn's leading tool results are being
-	// read: the answers to the calls the earlier run left pending. The client
-	// already has every one of them, from its own input or from the earlier
-	// run's TOOL_CALL_RESULT, so none is emitted. It clears at the turn's
-	// first assistant message.
-	resuming bool
+	// rounds are the rounds of the turn being streamed, as they were emitted
+	// live; the turn's response settles them (emitTurn).
+	rounds   []*liveRound
 	step     string // the open step, when stepOpen
 	stepOpen bool
 	// runtime forwards bus events while the run is open (WithRuntimeEvents).
@@ -379,11 +407,11 @@ type runState struct {
 func (a *EventAdapter) run(
 	ctx context.Context,
 	resuming bool,
-	start func(ctx context.Context) (*sdk.Response, error),
+	start func(ctx context.Context, st *runState) (*sdk.Response, error),
 ) error {
 	defer a.closeEvents()
 
-	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}, resuming: resuming}
+	st := &runState{a: a, ctx: ctx, answered: map[string]bool{}}
 
 	st.emit(aguievents.NewRunStartedEvent(a.cfg.threadID, a.cfg.runID))
 	st.runtime = a.forwardRuntimeEvents(st)
@@ -395,14 +423,19 @@ func (a *EventAdapter) run(
 	}
 	st.syncStep()
 
-	resp, err := start(ctx)
+	resp, err := start(ctx, st)
 	if err != nil {
 		st.finish(aguievents.NewRunErrorEvent(err.Error()))
 		return err
 	}
 
+	// A resumed turn opens with the answers to the calls the earlier run left
+	// pending. The client already has every one of them, from its own input or
+	// from the earlier run's TOOL_CALL_RESULT, so none is emitted.
+	skipLeadingResults := resuming
 	for {
-		st.emitTurn(resp)
+		st.emitTurn(resp, skipLeadingResults)
+		skipLeadingResults = false
 		st.syncStep()
 		// A call held for approval cannot be answered here, and resuming
 		// without its result would send the model a tool call with no
@@ -517,20 +550,31 @@ func runFinished(threadID, runID string, resp *sdk.Response) *aguievents.RunFini
 	))
 }
 
-// emitTurn emits the messages a turn produced, in the order it produced them.
-func (st *runState) emitTurn(resp *sdk.Response) {
+// emitTurn emits the messages a turn produced that it has not emitted live,
+// in the order the turn produced them. With skipLeadingResults, the tool
+// results before the turn's first assistant message are not emitted.
+func (st *runState) emitTurn(resp *sdk.Response, skipLeadingResults bool) {
 	msgs := resp.TurnMessages()
 	if len(msgs) == 0 {
 		msgs = fallbackTurn(resp)
 	}
+	assistants := 0
 	for i := range msgs {
 		switch msgs[i].Role {
 		case roleAssistant:
-			st.emitAssistant(&msgs[i])
+			st.settleRound(assistants, &msgs[i])
+			assistants++
 		case roleTool:
+			if skipLeadingResults && assistants == 0 {
+				continue
+			}
 			st.emitToolMessage(&msgs[i])
 		}
 	}
+	for _, r := range st.rounds {
+		st.closeText(r)
+	}
+	st.rounds = nil
 }
 
 // fallbackTurn reconstructs a one-message turn for a response that carries no
@@ -556,34 +600,32 @@ func fallbackTurn(resp *sdk.Response) []types.Message {
 	return []types.Message{msg}
 }
 
-// emitAssistant emits one assistant message and the tool calls it made. A
-// message that only calls tools emits no text message; its calls still name it
-// as their parent.
-func (st *runState) emitAssistant(msg *types.Message) {
-	st.answered = map[string]bool{}
-	st.resuming = false
-	msgID := aguievents.GenerateMessageID()
-	text := msg.GetContent()
-	if text != "" || len(msg.ToolCalls) == 0 {
-		st.emit(aguievents.NewTextMessageStartEvent(msgID, aguievents.WithRole(roleAssistant)))
-		if text != "" {
-			st.emit(aguievents.NewTextMessageContentEvent(msgID, text))
-		}
-		st.emit(aguievents.NewTextMessageEndEvent(msgID))
+// settleRound emits what the turn's index'th assistant message, msg, adds to
+// the round streamed for it, or the whole round when none was: the rest of
+// its text and its tool calls. A message that only calls tools emits no text
+// message; its calls still name it as their parent.
+func (st *runState) settleRound(index int, msg *types.Message) {
+	var r *liveRound
+	if index < len(st.rounds) {
+		r = st.rounds[index]
+		st.answered = r.answered
+	} else {
+		r = st.newRound()
 	}
-	for _, tc := range msg.ToolCalls {
-		st.emit(aguievents.NewToolCallStartEvent(tc.ID, tc.Name, aguievents.WithParentMessageID(msgID)))
-		if len(tc.Args) > 0 {
-			st.emit(aguievents.NewToolCallArgsEvent(tc.ID, string(tc.Args)))
-		}
-		st.emit(aguievents.NewToolCallEndEvent(tc.ID))
+	st.settleText(r, msg.GetContent(), len(msg.ToolCalls) == 0)
+	if r.called {
+		return
 	}
+	for i := range msg.ToolCalls {
+		st.emitCall(r.msgID, &msg.ToolCalls[i])
+	}
+	r.called = true
 }
 
 // emitToolMessage emits the result a tool message carries, unless its call was
-// already answered in this round, or it answers a call the run resumes.
+// already answered in this round.
 func (st *runState) emitToolMessage(msg *types.Message) {
-	if msg.ToolResult == nil || st.resuming {
+	if msg.ToolResult == nil {
 		return
 	}
 	st.emitResult(msg.ToolResult.ID, toolResultText(msg.ToolResult))
