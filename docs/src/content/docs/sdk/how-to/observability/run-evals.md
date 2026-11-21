@@ -124,7 +124,7 @@ Score a conversation snapshot against the evals in a pack with `sdk.Evaluate()`.
 
 ## Run evals inline in a conversation
 
-A conversation opened with `sdk.Open` or `sdk.Resume` runs its pack's evals itself: turn evals after each `Send()`, session evals on every `Close()`, and session then conversation evals on `Complete()`. Close a conversation you will resume, such as one waiting on a human's approval, and complete it once, when it is finished:
+A conversation opened with `sdk.Open` or `sdk.Resume` runs its pack's evals itself: turn evals after each `Send()`, session evals on every `Close()`, and session then conversation evals on `Complete()`. A conversation opened with `sdk.OpenDuplex` runs its turn evals once per completed turn, when the turn's reply is in the stored transcript. Close a conversation you will resume, such as one waiting on a human's approval, and complete it once, when it is finished:
 
 ```go
 // The turn held a tool call for approval: suspend.

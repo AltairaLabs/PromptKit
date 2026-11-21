@@ -214,8 +214,7 @@ func (s *IncrementalSaveStage) collectAndForward(
 	var fwd cancelForwarder
 
 	for elem := range input {
-		// A held Message is saved from its PlayoutRelease element.
-		newMessage := elem.Message != nil && !elem.Meta.PlayoutHeld && isNewMessage(elem.Message)
+		newMessage := IsTranscriptMessage(&elem)
 		if newMessage {
 			collected.messages = append(collected.messages, *elem.Message)
 		}
@@ -226,11 +225,17 @@ func (s *IncrementalSaveStage) collectAndForward(
 			continue
 		}
 
-		fwd.forward(ctx, output, elem)
-
-		if newMessage && s.config.FlushEachTurn && elem.Message.Role == roleAssistant {
+		// The turn is stored before its assistant message goes on, so what
+		// follows this stage (the caller, the conversation's per-turn evals and
+		// session hooks) finds the turn in the transcript when the message
+		// reaches it. A caller transcript that arrives after the reply to it
+		// (LateTranscript) completes that turn: it is stored the same way.
+		if newMessage && s.config.FlushEachTurn &&
+			(elem.Message.Role == roleAssistant || elem.Meta.LateTranscript) {
 			s.flushTurn(ctx, collected)
 		}
+
+		fwd.forward(ctx, output, elem)
 	}
 	return collected
 }
@@ -245,6 +250,15 @@ func (s *IncrementalSaveStage) flushTurn(ctx context.Context, collected *increme
 		return
 	}
 	collected.messages = nil
+}
+
+// IsTranscriptMessage reports whether the save stage stores elem's Message in
+// the transcript: a message this pipeline produced (not history loaded from
+// the store, a summary or a retrieved message) that is not held for playout.
+// A held Message is stored from its PlayoutRelease element instead. A stage
+// after the save stage counts these to know how far the transcript reaches.
+func IsTranscriptMessage(elem *StreamElement) bool {
+	return elem.Message != nil && !elem.Meta.PlayoutHeld && isNewMessage(elem.Message)
 }
 
 // isNewMessage reports whether a message originated from this Send (true)

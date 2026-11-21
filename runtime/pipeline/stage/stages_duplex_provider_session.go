@@ -201,14 +201,12 @@ type DuplexProviderStage struct {
 	blockedMessage BlockedMessageFunc
 	// history is the conversation the hooks see, kept only while hooks run.
 	history duplexHistory
-	// turnMu serializes changes to the session's completed-turn count
-	// (TurnState.SessionTurns) with replyStreaming and
-	// queuedBlocked, the counts an input-side hook's turn index adds up.
-	// replyStreaming is set while an assistant turn has streamed content and
-	// not yet completed; queuedBlocked counts blocked turns not yet emitted.
-	turnMu         sync.Mutex
-	replyStreaming bool
-	queuedBlocked  int
+	// callers places the session's replies against the caller's turns, for
+	// the turn index the hooks and the turn evals report.
+	callers callerTurns
+	// typedTurn is the caller turn of the typed input being handled (input
+	// goroutine only).
+	typedTurn int
 	// turnGuard is the current turn's guardrail state (response goroutine only).
 	turnGuard duplexTurnGuard
 	// textFromDeltas is set once the current reply's text has arrived as
@@ -515,6 +513,8 @@ func (s *DuplexProviderStage) createSessionLazily(
 	if !ok && len(held) == 0 {
 		return nil, errors.New("duplex provider stage: input channel closed before receiving first element")
 	}
+	// The session goes on from the caller turns the conversation holds.
+	s.callers.start(resumedCallerTurns(prior, s.turnState.TurnIndex()))
 
 	systemPrompt := ""
 	if s.turnState != nil {
@@ -829,12 +829,17 @@ func (s *DuplexProviderStage) handleInputElement(
 		return false
 	}
 
+	s.callers.start(s.turnState.TurnIndex())
 	s.userTurnDue = false
 	if err := s.forwardInputMessages(ctx, elem, output); err != nil {
 		done <- err
 		return true
 	}
 	s.takeTextInputAsUserTurn(elem)
+	if sessionBoundText(elem) != "" {
+		// Typed input is a caller turn of its own, blocked or not.
+		s.typedTurn = s.callers.typed()
+	}
 
 	// Input guardrails gate text before it reaches the session. A blocked
 	// turn carries the user's turn with it, and opens no provider call.
@@ -1101,6 +1106,7 @@ func (s *DuplexProviderStage) sendToolResponses(ctx context.Context, toolRespons
 			"sessionType", fmt.Sprintf("%T", s.session))
 		return
 	}
+	s.callers.toolResults()
 	toolResponses = s.prepareToolResponseText(toolSession, toolResponses)
 	logger.Debug("DuplexProviderStage: sending tool responses to session",
 		"count", len(toolResponses))
@@ -1226,6 +1232,7 @@ func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *Stream
 		IsLast:    false,
 	}
 
+	s.callers.audio()
 	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
 		logger.Error("DuplexProviderStage: failed to send chunk to session", "error", err)
 	}
@@ -1640,6 +1647,28 @@ func (s *DuplexProviderStage) hasQueuedTurnID() bool {
 	return len(s.turnIDQueue) > 0
 }
 
+// endChunkTurn reports whether chunk completes its turn. A completed turn's
+// accumulation resets (after its element is built), and a completed or
+// interrupted reply stops counting as output in progress.
+func (s *DuplexProviderStage) endChunkTurn(chunk *providers.StreamChunk, elem *StreamElement) bool {
+	turnDone := completesTurn(chunk, elem)
+	if turnDone {
+		s.resetTurnAccumulation()
+	}
+	if turnDone || chunk.Interrupted {
+		s.endReplyOut()
+	}
+	return turnDone
+}
+
+// markToolCallsRunning flags elem when the stage itself answers the tool calls
+// its message carries (queueToolRound).
+func markToolCallsRunning(round *duplexToolJob, elem *StreamElement) {
+	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+		elem.Meta.ToolCallsRunning = true
+	}
+}
+
 // handleResponseChunk processes and forwards a single response chunk.
 // It accumulates text and media content across chunks within a turn,
 // then resets the accumulation when the turn completes.
@@ -1648,8 +1677,6 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	chunk *providers.StreamChunk,
 	output chan<- StreamElement,
 ) error {
-	// Whatever the chunk did to the turn, input-side hooks see it next.
-	defer s.syncReplyStreaming()
 	s.chunkGen, s.chunkCost = chunk.Generation, chunk.CostInfo
 	s.chunkIsReply = !isInputTranscriptionChunk(chunk)
 	if handled, err := s.handleSessionNotice(ctx, chunk, output); handled {
@@ -1723,6 +1750,12 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return err
 	}
 
+	// A chunk of the reply places the reply against the caller's turns
+	// before its guardrails judge it.
+	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 {
+		s.beginReplyTurn(chunk)
+	}
+
 	// Streaming guardrails check the chunk's assistant text before it is
 	// accumulated or forwarded.
 	s.guardOutputChunk(ctx, chunk, isOutputTranscription)
@@ -1731,9 +1764,6 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		return err
 	}
 	s.holdLiveText(chunk, isOutputTranscription)
-	// The reply is streaming from before it reaches the consumer, so input
-	// sent once it can be seen counts as following it.
-	s.syncReplyStreaming()
 
 	// Convert chunk to element (uses accumulated content for final chunk)
 	elem := s.chunkToElement(chunk)
@@ -1741,13 +1771,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Reset accumulation after turn completes (after creating the element)
 	// BUT: if this was an interrupted turn completion (no EndOfStream), don't reset -
 	// we need to accumulate the real response content that comes next
-	turnDone := completesTurn(chunk, &elem)
-	if turnDone {
-		s.resetTurnAccumulation()
-	}
-	if turnDone || chunk.Interrupted {
-		s.endReplyOut()
-	}
+	turnDone := s.endChunkTurn(chunk, &elem)
 
 	if err := s.settleTurnInput(ctx, &elem, turnDone, output); err != nil {
 		return err
@@ -1769,9 +1793,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// A blocked turn's note goes once the turn is over.
 	s.sendBlockNotes(ctx)
 
-	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
-		elem.Meta.ToolCallsRunning = true // the stage answers them (queueToolRound)
-	}
+	markToolCallsRunning(round, &elem)
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
 		"hasAudio", elem.Audio != nil,
@@ -1780,6 +1802,10 @@ func (s *DuplexProviderStage) handleResponseChunk(
 
 	if err := s.emit(ctx, elem, output); err != nil {
 		return err
+	}
+	if chunk.Interrupted {
+		// The caller barged in: they are speaking a turn of their own.
+		s.callers.bargeIn()
 	}
 	return s.queueToolRound(ctx, round)
 }
@@ -2077,6 +2103,9 @@ func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamC
 		return
 	}
 	if transcript, ok := chunk.Metadata["transcription"].(string); ok && transcript != "" {
+		// The caller's words: a turn of theirs, with its transcript.
+		input, _ := chunk.Metadata[providers.InputItemIDKey].(string)
+		s.callers.heardSpeech(input, true)
 		s.inputTranscription.WriteString(transcript)
 		if id, ok := chunk.Metadata[providers.InputItemIDKey].(string); ok && id != "" {
 			s.transcriptItemID = id

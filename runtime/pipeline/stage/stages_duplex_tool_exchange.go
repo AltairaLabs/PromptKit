@@ -86,6 +86,7 @@ func (d *closeDeadline) done() <-chan struct{} {
 // emit sends elem downstream, or holds it (see toolExchangeOrder). It returns
 // ctx.Err() when canceled first.
 func (s *DuplexProviderStage) emit(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
+	s.stampCallerTurn(&elem)
 	return s.exchange.send(ctx, elem, output, sendMode{})
 }
 
@@ -93,6 +94,7 @@ func (s *DuplexProviderStage) emit(ctx context.Context, elem StreamElement, outp
 // once ctx is canceled (a tool round's results, a canceled turn's partial
 // reply): it is then given partialResponseSendTimeout to be taken.
 func (s *DuplexProviderStage) emitRecorded(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
+	s.stampCallerTurn(&elem)
 	return s.exchange.send(ctx, elem, output, sendMode{recorded: true})
 }
 

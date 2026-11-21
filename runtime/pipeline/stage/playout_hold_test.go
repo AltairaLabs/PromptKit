@@ -197,6 +197,41 @@ func TestPlayoutHold_BargeInRecordsWhatWasHeard(t *testing.T) {
 	require.NoError(t, <-r.done)
 }
 
+// A reply the provider reports cut by barge-in on the element that carries
+// its partial Message ended a turn too: its release records it as a turn end.
+func TestPlayoutHold_BargedInPartialReplyIsATurnEnd(t *testing.T) {
+	r := startHold(t)
+	partial := bargeInElem()
+	partial.Message = &types.Message{Role: roleAssistant, Content: "Once upon", FinishReason: "interrupted"}
+	got := r.pass(t, replyAudio(time.Second), partial)
+	assert.True(t, got[1].Meta.PlayoutHeld, "the partial reply goes on at once, its Message held")
+	rel := r.next(t)
+	require.True(t, rel.Meta.PlayoutRelease)
+	assert.Equal(t, "Once upon", rel.Message.Content)
+	assert.True(t, rel.Meta.PlayoutTurnEnd, "the held element ended the turn")
+	assert.False(t, rel.EndOfStream, "the release is not a second turn end")
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
+// A late caller transcript held behind a playing reply keeps its mark when it
+// is released, so a stage after the hold can tell it answers that reply.
+func TestPlayoutHold_ReleasedLateTranscriptKeepsItsMark(t *testing.T) {
+	r := startHold(t)
+	late := StreamElement{Message: &types.Message{Role: roleUser, Content: "hello"}}
+	late.Meta.LateTranscript = true
+	got := r.pass(t, replyAudio(150*time.Millisecond), replyEnd("Sure."), late)
+	assert.True(t, got[2].Meta.PlayoutHeld, "held behind the reply")
+	r.clock.advance(150 * time.Millisecond)
+	first, second := r.next(t), r.next(t)
+	assert.Equal(t, "Sure.", first.Message.Content)
+	assert.False(t, first.Meta.LateTranscript)
+	assert.Equal(t, "hello", second.Message.Content)
+	assert.True(t, second.Meta.LateTranscript, "the release keeps the late-transcript mark")
+	close(r.in)
+	require.NoError(t, <-r.done)
+}
+
 // A session that ends while a reply plays releases it with what was heard so
 // far.
 func TestPlayoutHold_InputCloseReleasesWhatWasHeard(t *testing.T) {

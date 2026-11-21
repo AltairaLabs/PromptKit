@@ -1313,11 +1313,20 @@ func streamElementToStreamChunk(elem *stage.StreamElement) providers.StreamChunk
 // after an unspoken reply cut short by barge-in). EndOfStream must not be
 // borrowed for that: the session's response loop treats an EndOfStream without
 // content as a fatal empty response. (#2287)
+//
+// A reply cut short by barge-in ends its turn too, on every provider: OpenAI
+// Realtime ends it with an EndOfStream carrying the interrupted reply, while
+// a provider that reports the interruption on the chunk itself (Gemini Live)
+// has the reply's partial Message on the Interrupted element, and sends no
+// turn end of its own for it.
 func isAssistantTurnBoundary(elem *stage.StreamElement) bool {
 	if elem.EndOfTurn {
 		return true
 	}
-	return elem.EndOfStream && elem.Message != nil && elem.Message.Role == "assistant"
+	if elem.Message == nil || elem.Message.Role != "assistant" {
+		return false
+	}
+	return elem.EndOfStream || elem.Meta.Interrupted
 }
 
 // setChunkMetadata sets key on the chunk's metadata, creating the map on

@@ -794,10 +794,10 @@ func TestDuplexHooks_InputTurnIndexFollowsStreamingReply(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, h.calls, 1)
 	assert.Equal(t, 0, h.calls[0].TurnIndex)
-	// Reply A is done and blocked B still queued. C's reply has not started,
-	// so it is not counted: the index counts only what the session has shown.
+	// Each typed input is a caller turn of its own, whether or not a reply
+	// to an earlier one has started: D is the fourth.
 	send("D")
-	assert.Equal(t, []int{0, 1, 2, 2}, h.before)
+	assert.Equal(t, []int{0, 1, 2, 3}, h.before)
 	require.NotNil(t, s.nextBlockedTurn())
 }
 

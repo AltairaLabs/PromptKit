@@ -1289,6 +1289,7 @@ func TestDuplexTools_StampsTheTurnAndRecordsCalls(t *testing.T) {
 		finishReasonMetaKey:    "tool_calls",
 		types.MetaToolsOffered: []string{"forecast", "weather"},
 		workflowStateMetaKey:   map[string]any{"state": "triage"},
+		types.MetaCallerTurn:   0,
 	}, elems[0].Message.Meta)
 	assert.Equal(t, []int{2}, resolver.records())
 }
@@ -1349,7 +1350,8 @@ func TestDuplexTools_NilRegistryForwardsToolCalls(t *testing.T) {
 				msg := elems[i].Message
 				require.NotNil(t, msg)
 				assert.Equal(t, []types.MessageToolCall{weatherCall(id)}, msg.ToolCalls)
-				assert.Equal(t, map[string]interface{}{finishReasonMetaKey: "tool_calls"}, msg.Meta)
+				assert.Equal(t, map[string]interface{}{finishReasonMetaKey: "tool_calls", types.MetaCallerTurn: 0},
+					msg.Meta, "both replies answer the first caller turn")
 				assert.True(t, elems[i].EndOfStream)
 			}
 			assert.Empty(t, h.sess().sentResponses())

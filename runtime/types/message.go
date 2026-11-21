@@ -106,6 +106,14 @@ const (
 	MetaPlayoutCut = "playout_cut"
 )
 
+// MetaCallerTurn is the Message.Meta key under which a duplex (realtime or
+// voice) pipeline stores, on each reply, the 0-based index of the caller turn
+// it answers (int; a number, once a store has encoded it): the turn index its
+// guardrails and turn evals reported. A session that resumes the conversation
+// goes on from it, so a spoken turn no transcript was stored for still
+// counts.
+const MetaCallerTurn = "caller_turn"
+
 // Values of MetaPlayoutCut.
 const (
 	// PlayoutCutBargeIn: the caller barged in while the reply played.

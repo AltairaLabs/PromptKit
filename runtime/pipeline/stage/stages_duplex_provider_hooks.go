@@ -231,57 +231,69 @@ func (s *DuplexProviderStage) recordHistory(m *types.Message) {
 }
 
 // hookTurnIndex is the turn index the hooks and their events report: the
-// pipeline's turn plus the assistant turns this session has completed.
+// caller turn the reply in progress answers, or, between replies, the newest
+// caller turn (callerTurns.current).
 func (s *DuplexProviderStage) hookTurnIndex() int {
-	return s.turnState.TurnIndex() + s.turnState.SessionTurns()
+	return s.callers.current()
 }
 
-// inputTurnIndex is the turn index of the turn input sent now belongs to: it
-// comes after the reply still streaming, if any, and after the blocked turns
-// still queued, so it counts both on top of hookTurnIndex.
-func (s *DuplexProviderStage) inputTurnIndex() int {
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	idx := s.hookTurnIndex() + s.queuedBlocked
-	if s.replyStreaming {
-		idx++
-	}
-	return idx
-}
-
-// syncReplyStreaming publishes whether an assistant turn is in progress, for
-// inputTurnIndex on the input goroutine. Response goroutine only.
-func (s *DuplexProviderStage) syncReplyStreaming() {
-	inProgress := s.assistantTurnInProgress()
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	s.replyStreaming = inProgress
-}
-
-// completeAssistantTurn counts a completed assistant turn. A streamed reply
-// stops streaming in the same step, so inputTurnIndex never counts it twice.
+// completeAssistantTurn counts a completed assistant turn in the session's
+// turns (TurnState.SessionTurns, which counts replies).
 func (s *DuplexProviderStage) completeAssistantTurn() {
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
 	s.turnState.completeSessionTurn()
-	s.replyStreaming = false
 }
 
-// completeBlockedTurn counts a queued blocked turn as a completed assistant
-// turn, in one step.
+// completeBlockedTurn counts an emitted blocked turn as a completed assistant
+// turn.
 func (s *DuplexProviderStage) completeBlockedTurn() {
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
 	s.turnState.completeSessionTurn()
-	s.queuedBlocked--
 }
 
-// queueBlockedTurn counts a blocked turn as queued (delta 1) or no longer
-// queued without being emitted (delta -1).
-func (s *DuplexProviderStage) queueBlockedTurn(delta int) {
-	s.turnMu.Lock()
-	defer s.turnMu.Unlock()
-	s.queuedBlocked += delta
+// beginReplyTurn places the reply chunk belongs to against the caller's
+// turns (callerTurns.replyBegins), with the caller input the provider says it
+// answers. Response goroutine only.
+func (s *DuplexProviderStage) beginReplyTurn(chunk *providers.StreamChunk) {
+	input, _ := chunk.Metadata[providers.ReplyToInputKey].(string)
+	s.callers.replyBegins(input)
+}
+
+// stampCallerTurn marks the element that ends a reply with the caller turn the
+// reply answers (ElementMetadata.CallerTurn), whether the turn's transcript is
+// still to come (AwaitsTranscript), and ends the reply. An element already
+// marked (a blocked turn's, with its own input's turn) is left as it is.
+func (s *DuplexProviderStage) stampCallerTurn(elem *StreamElement) {
+	if elem.Meta.CallerTurn == nil {
+		if !endsReply(elem) {
+			return
+		}
+		turn := s.callers.replyBegins("")
+		s.callers.replyEnds()
+		index := turn.index
+		elem.Meta.CallerTurn = &index
+		elem.Meta.AwaitsTranscript = turn.heard && !turn.transcribed
+		s.turnState.setCallerTurn(index)
+	}
+	storeCallerTurn(elem.Message, *elem.Meta.CallerTurn)
+}
+
+// storeCallerTurn records caller turn index on reply m (types.MetaCallerTurn),
+// for the transcript, on a Meta of its own. Nil-safe.
+func storeCallerTurn(m *types.Message, index int) {
+	if m == nil || m.Role != roleAssistant {
+		return
+	}
+	meta := make(map[string]interface{}, len(m.Meta)+1)
+	for k, v := range m.Meta {
+		meta[k] = v
+	}
+	meta[types.MetaCallerTurn] = index
+	m.Meta = meta
+}
+
+// endsReply reports whether elem ends a reply: an assistant Message on a turn
+// end, or on the element of a reply barge-in cut short.
+func endsReply(elem *StreamElement) bool {
+	return elem.Message != nil && elem.Message.Role == roleAssistant && (elem.EndOfStream || elem.Meta.Interrupted)
 }
 
 // hookRequest builds the ProviderRequest for one hook call.
@@ -332,7 +344,7 @@ func (s *DuplexProviderStage) guardInputText(
 	}
 
 	req := s.hookRequest(messages)
-	req.TurnIndex = s.inputTurnIndex()
+	req.TurnIndex = s.typedTurn
 	start := time.Now()
 	d := s.hookRegistry.RunBeforeProviderCall(ctx, req)
 	if !userInHistory {
@@ -350,6 +362,7 @@ func (s *DuplexProviderStage) guardInputText(
 		decision: d,
 		duration: time.Since(start),
 		user:     s.pendingTypedUser,
+		turn:     s.typedTurn,
 	}
 	markBlockedInput(&blocked.msg)
 	s.dropTurnID(elem)
@@ -358,14 +371,11 @@ func (s *DuplexProviderStage) guardInputText(
 	}
 	// The response loop emits it, between assistant turns, so it cannot land
 	// inside a reply that is still streaming, and records it as it emits it.
-	// It is counted as queued first, so the next input's turn index follows it.
-	s.queueBlockedTurn(1)
 	select {
 	case s.blockedTurns <- blocked:
 		return true, nil
 	case <-ctx.Done():
 		// Never emitted, but the guardrail fired: its event is still reported.
-		s.queueBlockedTurn(-1)
 		s.recordBlockedFiring(blocked)
 		return true, ctx.Err()
 	}
@@ -385,13 +395,15 @@ type duplexBlockedTurn struct {
 	// turns.
 	user     *types.Message
 	userOnly bool
+	// turn is the caller turn of the blocked input.
+	turn int
 }
 
 // recordBlockedFiring records a blocked turn's guardrail firing (its
 // validation on the Message, and the validation event) at the current turn
 // index.
 func (s *DuplexProviderStage) recordBlockedFiring(turn *duplexBlockedTurn) {
-	s.guardrailOutcomeAt(s.hookTurnIndex()).record(
+	s.guardrailOutcomeAt(turn.turn).record(
 		&turn.msg.Validations, turn.decision, hooks.DirectionInput, turn.duration)
 }
 
@@ -530,6 +542,9 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	s.recordBlockedFiring(turn)
 	s.history.add(blocked)
 	s.completeBlockedTurn()
+	// The blocked message answers the blocked input's turn, not a reply.
+	s.callers.answer(turn.turn)
+	s.turnState.setCallerTurn(turn.turn)
 
 	fr := blocked.FinishReason
 	text := blocked.Content
@@ -541,6 +556,8 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	s.takeCarriedCost(blocked)
 	end := StreamElement{Message: blocked, EndOfStream: true, Timestamp: timeNow()}
 	end.Meta.FinishReason = &fr
+	callerTurn := turn.turn
+	end.Meta.CallerTurn = &callerTurn
 	return s.emit(ctx, end, output)
 }
 

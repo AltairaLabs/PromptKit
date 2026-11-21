@@ -107,6 +107,10 @@ type ProviderStage struct {
 	// published exported type and blocks every subsequent minor release.
 	offers *toolOffer
 
+	// streamTurn is the caller turn a continuous-mode turn being fired
+	// answers, plus one (0 outside one): see fireStreamingTurn.
+	streamTurn atomic.Int64
+
 	// callRate counts the calls admitted under ToolPolicy.MaxCallsPerMinute,
 	// per conversation and tool, across turns. A pointer for the same reason
 	// as offeredTools.
@@ -124,7 +128,27 @@ type ProviderStage struct {
 // counter to fall back on: counting executions here would be right only while
 // one stage instance outlives the conversation, and silently report the first
 // turn forever for any caller that rebuilds the pipeline per turn.
-func (s *ProviderStage) turnIndex() int { return max(s.turnState.TurnIndex()-1, 0) }
+//
+// A continuous-mode turn (voice, or a custom ingestion sub-graph) reports the
+// caller turn it answers instead (streamTurn): the user messages persisted
+// before it and in it are not passed through a load stage that counts them.
+func (s *ProviderStage) turnIndex() int {
+	if n := s.streamTurn.Load(); n > 0 {
+		return int(n) - 1
+	}
+	return max(s.turnState.TurnIndex()-1, 0)
+}
+
+// beginStreamTurn places a continuous-mode turn against the caller's turns:
+// every turn fired is one, so its index is the user turns of the history it
+// runs on, this one's included, less one, as the load stages count them from
+// the transcript. It returns the index.
+func (s *ProviderStage) beginStreamTurn(history, pending []types.Message) int {
+	index := max(countUserTurns(history)+countUserTurns(pending)-1, 0)
+	s.streamTurn.Store(int64(index) + 1)
+	s.turnState.setCallerTurn(index)
+	return index
+}
 
 // chooseBlocked is the text firing d blocks the turn with, in direction:
 // ProviderConfig.BlockedMessage's choice for text, else text.
@@ -899,6 +923,7 @@ func (s *ProviderStage) fireStreamingTurn(
 	// turn's messages have already passed through them by fire time, so the read
 	// is safely ordered after those writes (channel happens-before).
 	cfg := s.streamingTurnState()
+	turn := s.beginStreamTurn(*history, pending)
 
 	// Emit this turn's user transcript(s) BEFORE generation, so the UI shows what
 	// the user said immediately (and the save stage persists it) instead of the
@@ -938,13 +963,16 @@ func (s *ProviderStage) fireStreamingTurn(
 	// messages (pending) were already emitted above, so emit only the new reply.
 	newStart := priorLen + len(pending)
 	if newStart <= len(full) {
+		for i := newStart; i < len(full); i++ {
+			storeCallerTurn(&full[i], turn)
+		}
 		if emitErr := s.emitResponseMessages(forwardCtx, full[newStart:], output); emitErr != nil {
 			return emitErr
 		}
 	}
 	*history = full
 
-	return sendStreamElement(forwardCtx, endOfTurnFor(full[min(newStart, len(full)):]), output)
+	return sendStreamElement(forwardCtx, endOfTurnFor(full[min(newStart, len(full)):], turn), output)
 }
 
 // endFailedStreamingTurn ends a streaming turn whose generation returned err.
@@ -982,8 +1010,9 @@ func (s *ProviderStage) endFailedStreamingTurn(
 // endOfTurnFor builds the EndOfTurn boundary for a turn whose new messages are
 // msgs, carrying the finish reason of its last assistant reply so a caller
 // delimiting turns can tell why the reply ended.
-func endOfTurnFor(msgs []types.Message) StreamElement {
+func endOfTurnFor(msgs []types.Message, callerTurn int) StreamElement {
 	elem := NewEndOfTurnElement()
+	elem.Meta.CallerTurn = &callerTurn
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == roleAssistant {
 			if fr := msgs[i].FinishReason; fr != "" {
@@ -1014,7 +1043,7 @@ func (s *ProviderStage) keepInterruptedTurn(
 		}
 	}
 	*history = full
-	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):]), output)
+	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):], s.turnIndex()), output)
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.

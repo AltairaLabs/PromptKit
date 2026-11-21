@@ -224,6 +224,10 @@ type Conversation struct {
 	// Eval middleware for dispatching evals after Send/Close
 	evalMW *evalMiddleware
 
+	// turnReports reports a duplex session's turns (duplexTurnRecorded),
+	// and tells Close when the last has been reported.
+	turnReports *duplexTurnReporter
+
 	// turnState is the per-Turn state shared with the pipeline's stages.
 	// Owned here rather than by the builder so the eval dispatch can read the
 	// turn number the pipeline derived from the transcript, and report the
@@ -995,6 +999,13 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	// the cue voice, when one is set, and kept in the clip cache.
 	pipelineCfg.CueVoice = c.config.cueVoice
 	pipelineCfg.CueClipCache = c.config.cueCache
+	// Each turn the transcript takes runs the per-turn work a text turn runs
+	// after Send: the session update hooks and the turn evals. The transcript
+	// the session opens on is what the store holds for it now, before its
+	// pipeline has stored anything.
+	c.turnReports = newDuplexTurnReporter(c, storedMessageCount(store, conversationID))
+	pipelineCfg.TurnReporter = c.turnReports
+	pipelineCfg.LateTranscriptWait = lateTranscriptWait(streamProvider, streamConfig)
 
 	// Add VAD mode configuration if present (duplex-only)
 	if c.config.vadModeConfig != nil && c.config.sttService != nil && c.config.ttsService != nil {
@@ -1047,6 +1058,117 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	}
 
 	return c.trackPipeline(intpipeline.Build(pipelineCfg))
+}
+
+// duplexTurnRecorded runs, for a duplex turn the transcript now holds, what a
+// text turn runs once Send has its response: the turn counted, the session
+// update hooks, and the turn evals. A reply that called tools does not end the
+// caller's turn (the reply to the tools' results does), so it runs nothing.
+// The hooks and the evals see the transcript's first upTo messages, the
+// turn's transcript: the store may already hold later messages (a reply
+// released with it). The turn evals report the caller turn the provider
+// stage placed the reply in, the index its guardrails reported.
+//
+// A reply barge-in cut short is a completed turn: its evals see it as stored.
+// Cut while it still arrived, it holds the text the provider sent before the
+// cut; cut while it played (playout tracked), it keeps its full text, with
+// what the caller heard of it in Meta (heard_ms, played_fraction,
+// playout_cut). It runs on the pipeline's goroutine, after the save stage.
+func (c *Conversation) duplexTurnRecorded(ctx context.Context, turn intpipeline.TurnRecord, upTo int) {
+	if turn.Continues {
+		return
+	}
+	// The hooks and the evals' transcript read must not fail because the
+	// session is winding down: the turn is already stored.
+	ctx = context.WithoutCancel(ctx)
+	c.sessionHooks.IncrementTurn()
+	c.sessionHooks.SessionUpdateUpTo(ctx, upTo)
+	index := -1
+	if turn.HasTurn {
+		index = turn.Turn
+	}
+	c.evalMW.dispatchTurnEvalsUpTo(ctx, upTo, index)
+}
+
+// duplexLateTranscriptWait is how long a duplex turn whose caller transcript
+// has not arrived yet waits for it before it is reported (see the pipeline's
+// turn observer). A var so tests need not wait it out.
+var duplexLateTranscriptWait = intpipeline.DefaultLateTranscriptWait
+
+// lateTranscriptWait is how long a duplex turn waits for a caller transcript
+// that has not arrived: duplexLateTranscriptWait for a provider that delivers
+// transcripts after the reply (providers.LateInputTranscriber) with
+// transcription not turned off, and no wait (-1) otherwise, where a transcript
+// that has not arrived by the reply's end is not coming.
+func lateTranscriptWait(prov providers.StreamInputSupport, cfg *providers.StreamingInputConfig) time.Duration {
+	lt, ok := prov.(providers.LateInputTranscriber)
+	if !ok || !lt.EmitsLateInputTranscription() {
+		return -1
+	}
+	if cfg != nil {
+		if on, set := cfg.Metadata["input_transcription"].(bool); set && !on {
+			return -1
+		}
+	}
+	return duplexLateTranscriptWait
+}
+
+// duplexTurnReporter is the conversation's intpipeline.TurnReporter: it runs
+// duplexTurnRecorded for each turn, on the transcript the session opened on
+// (prior messages) plus what the pipeline has stored, and closes done once
+// the pipeline's turn observer has reported its last turn.
+type duplexTurnReporter struct {
+	conv    *Conversation
+	prior   int
+	begun   atomic.Bool
+	done    chan struct{}
+	endOnce sync.Once
+}
+
+func newDuplexTurnReporter(conv *Conversation, prior int) *duplexTurnReporter {
+	return &duplexTurnReporter{conv: conv, prior: prior, done: make(chan struct{})}
+}
+
+// Begin records that the turn observer has started.
+func (r *duplexTurnReporter) Begin() { r.begun.Store(true) }
+
+// TurnRecorded runs the turn's per-turn work over its transcript.
+func (r *duplexTurnReporter) TurnRecorded(ctx context.Context, turn intpipeline.TurnRecord) {
+	r.conv.duplexTurnRecorded(ctx, turn, r.prior+turn.Stored)
+}
+
+// End records that the turn observer has reported its last turn.
+func (r *duplexTurnReporter) End() { r.endOnce.Do(func() { close(r.done) }) }
+
+// await waits, at most duplexTurnReportTimeout, until the turn observer has
+// reported its last turn: their OnSessionUpdate hooks have returned and their
+// turn evals are dispatched. An observer that never started reports nothing.
+// Nil-safe.
+func (r *duplexTurnReporter) await() {
+	if r == nil || !r.begun.Load() {
+		return
+	}
+	timer := time.NewTimer(duplexTurnReportTimeout)
+	defer timer.Stop()
+	select {
+	case <-r.done:
+	case <-timer.C:
+		logger.Warn("duplex session still reporting its last turn after Close; not waiting for it",
+			"timeout", duplexTurnReportTimeout)
+	}
+}
+
+// storedMessageCount is how many messages store holds for conversationID,
+// 0 when it holds none or cannot be read.
+func storedMessageCount(store statestore.Store, conversationID string) int {
+	if store == nil {
+		return 0
+	}
+	state, err := store.Load(context.Background(), conversationID)
+	if err != nil || state == nil {
+		return 0
+	}
+	return len(state.Messages)
 }
 
 // executePipeline builds and executes the LLM pipeline.
@@ -1892,11 +2014,20 @@ func (c *Conversation) closeLocked(complete bool) (*sharedEventBus, bool, error)
 	if (c.mode == UnaryMode && c.unarySession != nil) || (c.mode == DuplexMode && c.duplexSession != nil) {
 		convID = c.ID()
 	}
-	c.finishSession(convID)
 	evalMW := c.evalMW
-	// A realtime session is drained before the evals run, so the replies it
-	// still holds (a reply still playing) reach the transcript they score.
+	c.mu.Unlock()
+
+	// A duplex session is drained before the evals and the session-end hooks
+	// run, so the replies it still holds (a reply still playing) reach the
+	// transcript they score, and the turns they complete are reported (their
+	// OnSessionUpdate hooks and turn evals) before the session ends. Neither
+	// wait holds c.mu: a session hook may call back into the conversation,
+	// which sees it closed.
 	drainErr := c.drainDuplexSession()
+	c.turnReports.await()
+
+	c.mu.Lock()
+	c.finishSession(convID)
 	c.mu.Unlock()
 
 	runCloseEvals(evalMW, complete)
@@ -1940,6 +2071,9 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 	if evalMW == nil {
 		return
 	}
+	// No turn eval starts from here on: a duplex session reports its turns
+	// from its pipeline's goroutine.
+	evalMW.stopDispatch()
 	evalMW.wait()
 	evalMW.dispatchSessionEvals(context.Background())
 	if complete {
@@ -1950,33 +2084,28 @@ func runCloseEvals(evalMW *evalMiddleware, complete bool) {
 
 // drainDuplexSession drains the duplex session, if any (graceful shutdown
 // bounded by session.DefaultDrainTimeout), returning its error. Draining a
-// session already drained or closed is a no-op. Caller must hold c.mu.
+// session already drained or closed is a no-op. Close calls it without c.mu,
+// once the conversation is marked closed.
 func (c *Conversation) drainDuplexSession() []error {
 	if c.mode != DuplexMode || c.duplexSession == nil {
 		return nil
 	}
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), session.DefaultDrainTimeout)
 	defer drainCancel()
+	var errs []error
 	if err := c.duplexSession.Drain(drainCtx); err != nil {
-		return []error{fmt.Errorf("failed to drain duplex session: %w", err)}
+		errs = append(errs, fmt.Errorf("failed to drain duplex session: %w", err))
 	}
-	return nil
+	// Drain can return with the pipeline still winding down (its playout
+	// grace, or a timeout); wait for it, bounded, so the turns it still
+	// reports are reported before the session ends.
+	c.awaitDuplexDone()
+	return errs
 }
 
-// stopDuplexSession stops the duplex session, if any, at once, and waits for
-// its pipeline to wind down: a model or TTS call in flight is canceled,
-// queued audio is dropped, and a reply still held for playout is released,
-// with what was heard, into the transcript before Done closes. The wait is
-// bounded by the session's own teardown timeout. Stopping a session already
-// stopped is a no-op. Start uses it when its context is canceled. Caller
-// must hold c.mu.
-func (c *Conversation) stopDuplexSession() []error {
-	if c.mode != DuplexMode || c.duplexSession == nil {
-		return nil
-	}
-	if err := c.duplexSession.Close(); err != nil {
-		return []error{fmt.Errorf("failed to close duplex session: %w", err)}
-	}
+// awaitDuplexDone waits, at most duplexStopTimeout, for the duplex session's
+// pipeline to end.
+func (c *Conversation) awaitDuplexDone() {
 	timer := time.NewTimer(duplexStopTimeout)
 	defer timer.Stop()
 	select {
@@ -1984,12 +2113,34 @@ func (c *Conversation) stopDuplexSession() []error {
 	case <-timer.C:
 		logger.Warn("duplex session did not end after Close; not waiting for it", "timeout", duplexStopTimeout)
 	}
+}
+
+// stopDuplexSession stops the duplex session, if any, at once, and waits for
+// its pipeline to wind down: a model or TTS call in flight is canceled,
+// queued audio is dropped, and a reply still held for playout is released,
+// with what was heard, into the transcript before Done closes. The wait is
+// bounded by the session's own teardown timeout. Stopping a session already
+// stopped is a no-op. Start uses it when its context is canceled, without
+// c.mu: the session and its Done are safe to use concurrently.
+func (c *Conversation) stopDuplexSession() []error {
+	if c.mode != DuplexMode || c.duplexSession == nil {
+		return nil
+	}
+	if err := c.duplexSession.Close(); err != nil {
+		return []error{fmt.Errorf("failed to close duplex session: %w", err)}
+	}
+	c.awaitDuplexDone()
 	return nil
 }
 
 // duplexStopTimeout is a backstop on stopDuplexSession's wait, above the
 // session's own teardown bound, for a session that never reports Done.
 const duplexStopTimeout = 2 * time.Second
+
+// duplexTurnReportTimeout bounds how long Close waits for a duplex session to
+// finish reporting its last turns (their OnSessionUpdate hooks and turn evals)
+// once its pipeline has stopped. A var so tests need not wait it out.
+var duplexTurnReportTimeout = 5 * time.Second
 
 // releaseResources closes everything the conversation holds except the event
 // bus, attempting every step and returning the errors. Caller must hold c.mu.

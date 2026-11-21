@@ -55,6 +55,26 @@ func (d *sessionHookDispatcher) SessionUpdate(ctx context.Context) {
 	})
 }
 
+// SessionUpdateUpTo is SessionUpdate with the event's transcript cut to its
+// first n messages: the turn a duplex session reports may already be followed
+// by later messages in the store.
+func (d *sessionHookDispatcher) SessionUpdateUpTo(ctx context.Context, n int) {
+	if d == nil || d.registry == nil {
+		return
+	}
+	event := d.buildEvent()
+	event.Messages = firstMessages(event.Messages, n)
+	_ = d.registry.RunSessionUpdate(ctx, event)
+}
+
+// firstMessages returns the first n of msgs, or msgs when it holds no more.
+func firstMessages(msgs []types.Message, n int) []types.Message {
+	if n >= 0 && n < len(msgs) {
+		return msgs[:n]
+	}
+	return msgs
+}
+
 // SessionEnd dispatches OnSessionEnd to all registered session hooks.
 func (d *sessionHookDispatcher) SessionEnd(ctx context.Context) {
 	if d == nil {

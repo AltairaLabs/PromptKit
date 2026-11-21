@@ -99,6 +99,10 @@ type TurnState struct {
 	// stage counts the session's own turns here, where the conversation can
 	// read them. Always 0 on the text path, where turnIndex advances per turn.
 	sessionTurns atomic.Int64
+
+	// callerTurn is the 0-based caller turn of the latest turn a duplex
+	// session completed, plus one (0 while none has): see CallerTurn.
+	callerTurn atomic.Int64
 }
 
 // TurnIndex is the 1-based number of the turn being executed, or 0 when none
@@ -150,6 +154,26 @@ func (t *TurnState) SessionTurns() int {
 func (t *TurnState) completeSessionTurn() {
 	if t != nil {
 		t.sessionTurns.Add(1)
+	}
+}
+
+// CallerTurn is the 0-based index of the caller turn the latest completed turn
+// of a duplex session answered, the index its guardrails and turn evals
+// reported, and whether one has completed. A duplex session's session evals
+// report it. The text path never sets it.
+func (t *TurnState) CallerTurn() (int, bool) {
+	if t == nil {
+		return 0, false
+	}
+	n := t.callerTurn.Load()
+	return int(n) - 1, n > 0
+}
+
+// setCallerTurn records the caller turn of a turn a duplex session completed.
+// The duplex provider stages own this.
+func (t *TurnState) setCallerTurn(index int) {
+	if t != nil {
+		t.callerTurn.Store(int64(index) + 1)
 	}
 }
 
@@ -271,9 +295,20 @@ type ElementMetadata struct {
 	// ends once for every stage.
 	PlayoutRelease bool
 
+	// CallerTurn, on the element that ends a reply (or a blocked turn's
+	// message), is the 0-based index of the caller turn it answers: the turn
+	// index the reply's guardrails reported, and its turn evals report.
+	CallerTurn *int
+
+	// AwaitsTranscript, with CallerTurn, records that the caller turn was
+	// spoken and its transcript has not arrived: a provider that delivers it
+	// late sends it after the reply (LateTranscript).
+	AwaitsTranscript bool
+
 	// PlayoutTurnEnd, on a PlayoutRelease element, records that the held
-	// element was a turn end (EndOfStream), for a stage that treats a
-	// turn-end Message differently from others.
+	// element was a turn end (EndOfStream, or the Interrupted element carrying
+	// a reply barge-in cut short), for a stage that treats a turn-end Message
+	// differently from others.
 	PlayoutTurnEnd bool
 
 	// CueAudio marks audio a cue stage played for a cue, not reply audio:

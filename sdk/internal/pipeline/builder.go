@@ -355,6 +355,15 @@ type Config struct {
 	// produces the agent's audio. Each hands audio elements to AudioTap.
 	AudioTap AudioTapFunc
 
+	// TurnReporter, when non-nil, is told each time an assistant reply of a
+	// duplex session has entered the transcript (see turnObserverStage). The
+	// conversation runs its per-turn evals and session hooks from it.
+	TurnReporter TurnReporter
+	// LateTranscriptWait bounds how long a turn whose caller transcript has
+	// not arrived waits for it (turnObserverStage). Zero is
+	// DefaultLateTranscriptWait; negative does not wait.
+	LateTranscriptWait time.Duration
+
 	// RecordingStore is the destination for recording stage writes.
 	// Required when RecordingConfig is set; without it, recording stages
 	// will not be added to the pipeline.
@@ -570,6 +579,40 @@ func collectPipelineStages(
 	}
 	stages = append(stages, providerStages...)
 
+	// 5.2-5.8 Cue, transcript reorder, playout hold, output recording and
+	// audio tap, memory extraction and live broadcast.
+	stages = appendPostProviderStages(stages, providerStages, cfg)
+
+	// 6. State store save stage - saves conversation state LAST
+	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
+
+	// 6.5 Turn observer - reports each reply once the save stage has stored
+	// it, for the conversation's per-turn evals and session hooks. After the
+	// save stage, which stores a turn before forwarding the element ending it.
+	if cfg.TurnReporter != nil {
+		wait := cfg.LateTranscriptWait
+		if wait == 0 {
+			wait = DefaultLateTranscriptWait
+		}
+		stages = append(stages, newTurnObserverStage(cfg.TurnReporter, wait))
+	}
+
+	// 7. Output audio pacing (realtime playback only). Placed last so the emitted
+	// response stream reaches a realtime sink at real-time cadence while the
+	// upstream bookkeeping stages (recording, memory, save) still run at full
+	// speed. Without this, a streaming provider's whole-reply burst overruns the
+	// speaker's jitter buffer and the oldest audio is dropped (audible stutter).
+	// The "-output" suffix routes its health metrics to the output direction.
+	if cfg.PaceOutputAudio {
+		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output").WithFlushOnCut())
+	}
+
+	return stages, nil
+}
+
+// appendPostProviderStages appends the stages between the provider stage and
+// the state store save stage, in order (5.2-5.8 in collectPipelineStages).
+func appendPostProviderStages(stages, providerStages []stage.Stage, cfg *Config) []stage.Stage {
 	// 5.2 Cue stage - plays a pre-rendered clip (a guardrail's spoken message)
 	// for each cue the realtime provider stage emits. Directly after the
 	// provider stage, before transcript reorder (which can hold the Text
@@ -621,21 +664,7 @@ func collectPipelineStages(
 	if cfg.EventEmitter != nil {
 		stages = append(stages, stage.NewMessageBroadcastStage(cfg.EventEmitter))
 	}
-
-	// 6. State store save stage - saves conversation state LAST
-	stages = appendStateStoreSaveStages(stages, cfg, stateStoreConfig)
-
-	// 7. Output audio pacing (realtime playback only). Placed last so the emitted
-	// response stream reaches a realtime sink at real-time cadence while the
-	// upstream bookkeeping stages (recording, memory, save) still run at full
-	// speed. Without this, a streaming provider's whole-reply burst overruns the
-	// speaker's jitter buffer and the oldest audio is dropped (audible stutter).
-	// The "-output" suffix routes its health metrics to the output direction.
-	if cfg.PaceOutputAudio {
-		stages = append(stages, stage.NewNamedAudioPacingStage("audio-pacing-output").WithFlushOnCut())
-	}
-
-	return stages, nil
+	return stages
 }
 
 // appendCueStage adds the cue stage after a realtime (ASM) provider stage
@@ -917,7 +946,7 @@ func appendStateStoreSaveStages(
 		MessageLog:         messageLog,
 		// A duplex session's input stays open for the whole session: persist
 		// each turn as it completes, not at hang-up.
-		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil,
+		FlushEachTurn: cfg.StreamInputProvider != nil || cfg.VADConfig != nil || cfg.Ingestion != nil,
 	}))
 }
 

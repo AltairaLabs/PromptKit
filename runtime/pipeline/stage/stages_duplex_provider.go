@@ -168,6 +168,10 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 			msg.CostInfo = chunk.CostInfo // what the cut-short turn cost so far
 			s.costPlaced = true
 			elem.Message = msg
+			// The cut-short reply enters the transcript as a turn of its own,
+			// so it is one of the session's turns: the guardrails on the next
+			// reply, and the session evals, place that reply after it.
+			s.completeAssistantTurn()
 		}
 
 		// Mark that we saw an interruption - the next unnumbered turnComplete

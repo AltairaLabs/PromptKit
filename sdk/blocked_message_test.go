@@ -207,6 +207,7 @@ func TestWithBlockedMessage_ReceivesTheFiring(t *testing.T) {
 				s.sess.EmitChunk(replyChunk("Hello."))
 				s.sess.EmitChunk(endChunk())
 				s.read(t, &cueRead{}, (*cueRead).ended)
+				s.speak(t) // the caller's second turn
 				s.sess.EmitChunk(replyChunk("Bruno"))
 				s.sess.EmitChunk(endChunk())
 				s.read(t, &cueRead{}, (*cueRead).ended)
@@ -289,7 +290,10 @@ func TestWithBlockedMessage_TurnIndexAgreesAcrossPaths(t *testing.T) {
 	live := &blockedCalls{reply: localizedBruno}
 	s := openCueSession(t, writeValidatorPack(t, jsonOnly), spokenProvider(),
 		WithCueVoice(nil, CueClipCache(cueclip.NewMemoryCache(1<<20))), WithBlockedMessage(live.fn))
-	for range 2 {
+	for i := range 2 {
+		if i > 0 {
+			s.speak(t) // the caller's second turn
+		}
 		s.sess.EmitChunk(replyChunk("Let me"))
 		s.sess.EmitChunk(endChunk())
 		s.read(t, &cueRead{}, (*cueRead).ended)
