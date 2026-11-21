@@ -154,3 +154,99 @@ func TestTranscribeWithRetry_RespectsContextCancellation(t *testing.T) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
+
+// When every attempt fails, the error returned is the last attempt's, and the
+// response is empty.
+func TestTranscribeWithRetry_ReturnsTheLastAttemptsError(t *testing.T) {
+	t.Parallel()
+	last := NewTranscriptionError("mock", "503", "third", nil, true)
+	svc := &mockSTTProvider{results: []mockResult{
+		{text: "partial", err: NewTranscriptionError("mock", "503", "first", nil, true)},
+		{text: "partial", err: NewTranscriptionError("mock", "503", "second", nil, true)},
+		{text: "partial", err: last},
+	}}
+	got, err := TranscribeWithRetry(context.Background(), svc, base.STTRequest{Audio: []byte("a")}, RetryConfig{
+		MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond,
+	})
+	if err != last {
+		t.Fatalf("err = %v, want the last attempt's error %v", err, last)
+	}
+	if got.Text != "" {
+		t.Errorf("text = %q, want empty on failure", got.Text)
+	}
+}
+
+// cancelingSTTProvider cancels the caller's context and fails retryably.
+type cancelingSTTProvider struct {
+	mockSTTProvider
+	cancel context.CancelFunc
+}
+
+func (c *cancelingSTTProvider) Transcribe(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+	c.calls.Add(1)
+	c.cancel()
+	return base.STTResponse{}, NewTranscriptionError("mock", "503", "down", nil, true)
+}
+
+// A context canceled while waiting to retry ends the retries at once with the
+// context's error.
+func TestTranscribeWithRetry_CancelDuringBackoffStopsRetrying(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := &cancelingSTTProvider{cancel: cancel}
+	start := time.Now()
+	_, err := TranscribeWithRetry(ctx, svc, base.STTRequest{Audio: []byte("a")}, RetryConfig{
+		MaxAttempts: 5, InitialDelay: time.Hour, MaxDelay: time.Hour,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if got := svc.calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v: the backoff was waited out", elapsed)
+	}
+}
+
+// A provider's Retry-After replaces the computed backoff.
+func TestTranscribeWithRetry_HonorsRetryAfter(t *testing.T) {
+	t.Parallel()
+	limited := NewTranscriptionError("mock", "429", "slow down", ErrRateLimited, true)
+	limited.RetryAfter = time.Millisecond
+	svc := &mockSTTProvider{results: []mockResult{{err: limited}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	got, err := TranscribeWithRetry(ctx, svc, base.STTRequest{Audio: []byte("a")}, RetryConfig{
+		MaxAttempts: 2, InitialDelay: time.Hour, MaxDelay: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want the retry after Retry-After to succeed", err)
+	}
+	if got.Text != "transcribed" {
+		t.Errorf("text = %q, want %q", got.Text, "transcribed")
+	}
+}
+
+// A Retry-After past MaxDelay is not waited out: the error comes back after
+// that one call, at once.
+func TestTranscribeWithRetry_RetryAfterPastMaxDelayStopsRetrying(t *testing.T) {
+	t.Parallel()
+	limited := NewTranscriptionError("mock", "429", "slow down", ErrRateLimited, true)
+	limited.RetryAfter = time.Hour
+	svc := &mockSTTProvider{results: []mockResult{{err: limited}}}
+	start := time.Now()
+	_, err := TranscribeWithRetry(context.Background(), svc, base.STTRequest{Audio: []byte("a")}, RetryConfig{
+		MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: 2 * time.Second,
+	})
+	if err != limited {
+		t.Fatalf("err = %v, want %v", err, limited)
+	}
+	if got := svc.calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("the Retry-After was waited")
+	}
+}

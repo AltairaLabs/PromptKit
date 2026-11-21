@@ -238,8 +238,10 @@ type A2AConfig struct {
 	Headers        map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
 	HeadersFromEnv []string          `json:"headers_from_env,omitempty" yaml:"headers_from_env,omitempty"`
 	Auth           *A2AAuthConfig    `json:"auth,omitempty" yaml:"auth,omitempty"`
-	RetryPolicy    *A2ARetryConfig   `json:"retry,omitempty" yaml:"retry,omitempty"`
-	SkillFilter    *A2ASkillFilter   `json:"skill_filter,omitempty" yaml:"skill_filter,omitempty"`
+	// RetryPolicy overrides the executor's retry policy for this agent, field
+	// by field; see A2ARetryConfig.
+	RetryPolicy *A2ARetryConfig `json:"retry,omitempty" yaml:"retry,omitempty"`
+	SkillFilter *A2ASkillFilter `json:"skill_filter,omitempty" yaml:"skill_filter,omitempty"`
 }
 
 // A2AAuthConfig defines authentication for an A2A agent connection.
@@ -250,7 +252,12 @@ type A2AAuthConfig struct {
 	TokenEnv string `json:"token_env,omitempty" yaml:"token_env,omitempty"` // Env var containing the token
 }
 
-// A2ARetryConfig defines per-agent retry policy overrides.
+// A2ARetryConfig defines per-agent retry policy overrides. Set on an
+// A2AConfig, each non-zero field replaces the A2A executor's own value for
+// that agent, and a zero field keeps it: MaxRetries is the number of retries
+// after the first attempt (negative: none), InitialDelayMs and MaxDelayMs the
+// backoff in milliseconds. An executor built not to retry (a2a.WithNoRetry)
+// ignores it.
 type A2ARetryConfig struct {
 	MaxRetries     int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
 	InitialDelayMs int `json:"initial_delay_ms,omitempty" yaml:"initial_delay_ms,omitempty"`

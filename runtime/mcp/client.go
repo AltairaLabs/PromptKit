@@ -17,6 +17,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	gosdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/version"
 )
@@ -115,20 +116,22 @@ func (c *sdkClient) Initialize(ctx context.Context) (*InitializeResponse, error)
 // establish connects, retrying a failure that is not the server's answer.
 // The caller holds c.mu.
 func (c *sdkClient) establish(ctx context.Context) error {
-	var err error
-	for attempt := 0; ; attempt++ {
-		if err = c.connectOnce(ctx); err == nil {
-			return nil
-		}
-		if attempt >= c.options.MaxRetries || ctx.Err() != nil || !worthRetrying(err) {
-			return err
-		}
-		logger.Warn("MCP connect failed, retrying", "server", c.config.Name, "attempt", attempt+1, "error", err)
-		if werr := sleepCtx(ctx, c.options.RetryDelay*time.Duration(1<<uint(attempt))); werr != nil {
-			return werr
-		}
-	}
+	_, err := retry.Do(ctx, retry.Policy{
+		Name:        "mcp",
+		MaxAttempts: c.options.MaxRetries + 1,
+		Backoff:     retry.Exponential(c.options.RetryDelay, maxConnectRetryDelay),
+		Classify:    func(err error) (bool, time.Duration) { return worthRetrying(err), 0 },
+		LogAttrs:    []any{"server", c.config.Name},
+	}, func(ctx context.Context) (struct{}, error) {
+		return struct{}{}, c.connectOnce(ctx)
+	})
+	return err
 }
+
+// maxConnectRetryDelay caps the wait between connect attempts. The wait starts
+// at RetryDelay and doubles per retry, lengthened by up to half at random so
+// clients that lost a server together do not reconnect in step.
+const maxConnectRetryDelay = time.Minute
 
 // worthRetrying reports whether a failed connect may succeed if repeated: not
 // when the server answered, and not when authorization was refused, which
@@ -609,15 +612,4 @@ func initializeResponseFrom(res *gosdk.InitializeResult) *InitializeResponse {
 		_ = convert(res, &out)
 	}
 	return &out
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
 }

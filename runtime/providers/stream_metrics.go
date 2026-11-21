@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 )
 
 // streamFirstChunkBuckets is tuned for reasoning-model streaming workloads.
@@ -144,9 +146,10 @@ func NewStreamMetrics(
 		providerRetriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "provider_retries_total",
-			Help: "Non-streaming provider request retries (DoWithRetry), labeled by outcome: " +
+			Help: "Non-streaming retries (DoWithRetry, A2A, TTS, STT, MCP and realtime connects), labeled by outcome: " +
 				"retry (a transient failure that is being retried), success (the call recovered " +
-				"after at least one retry) and exhausted (every attempt failed).",
+				"after at least one retry), exhausted (every attempt failed) and retry_after_too_long " +
+				"(the server asked to wait longer than the policy allows).",
 			ConstLabels: constLabels,
 		}, []string{labelProvider, labelOutcome}),
 		streamRetryBudgetAvailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -341,7 +344,9 @@ func (m *StreamMetrics) RetryAttempt(provider, outcome string) {
 	m.streamRetriesTotal.WithLabelValues(provider, outcome).Inc()
 }
 
-// ProviderRetry records one non-streaming retry event from DoWithRetry.
+// ProviderRetry records one non-streaming retry event from the shared retry
+// loop: DoWithRetry, A2A agent calls, TTS and STT requests, MCP connects and
+// realtime WebSocket connects, each under its own provider label.
 // Outcome values: "retry", "success" (recovered after retrying) and
 // "exhausted". Nil-safe.
 func (m *StreamMetrics) ProviderRetry(provider, outcome string) {
@@ -510,6 +515,8 @@ func RegisterDefaultStreamMetrics(
 		return defaultStreamMetrics
 	}
 	defaultStreamMetrics = NewStreamMetrics(registerer, namespace, constLabels)
+	m := defaultStreamMetrics
+	retry.SetObserver(func(name string, outcome retry.Outcome) { m.ProviderRetry(name, string(outcome)) })
 	return defaultStreamMetrics
 }
 
@@ -527,4 +534,5 @@ func ResetDefaultStreamMetrics() {
 	defaultStreamMetricsMu.Lock()
 	defer defaultStreamMetricsMu.Unlock()
 	defaultStreamMetrics = nil
+	retry.SetObserver(nil)
 }

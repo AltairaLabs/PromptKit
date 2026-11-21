@@ -6,18 +6,19 @@
 package streaming
 
 import (
+	"cmp"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math"
-	"math/big"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 )
 
 // Default connection constants.
@@ -34,11 +35,8 @@ const (
 // jitterFactor is the +-25% jitter applied to backoff delays.
 const jitterFactor = 0.25
 
-// jitterPrecision is the granularity for crypto/rand jitter generation.
-const jitterPrecision = 1000
-
-// jitterHalfPrecision normalizes jitter output to the range [-1, 1].
-const jitterHalfPrecision = jitterPrecision / 2
+// defaultConnName names a Conn without a Name in retry logs and metrics.
+const defaultConnName = "websocket"
 
 // ConnConfig configures the WebSocket connection behavior.
 type ConnConfig struct {
@@ -72,6 +70,10 @@ type ConnConfig struct {
 
 	// RetryBackoffMax caps the backoff delay. Defaults to DefaultRetryBackoffMax.
 	RetryBackoffMax time.Duration
+
+	// Name identifies the connection in retry logs and metrics. Defaults to
+	// "websocket".
+	Name string
 
 	// CloseGracePeriod is the deadline for writing the close frame.
 	// Defaults to DefaultCloseGracePeriod.
@@ -179,6 +181,9 @@ func (c *Conn) Connect(ctx context.Context) error {
 			_ = resp.Body.Close()
 			c.cfg.Logger.Error("WebSocket dial failed", "error", err, "status", resp.StatusCode)
 		}
+		if resp != nil {
+			err = &refusedHandshakeError{err: err, retryAfter: retry.ParseRetryAfter(resp.Header)}
+		}
 		return fmt.Errorf("failed to connect: %w", err)
 	}
 	if resp != nil && resp.Body != nil {
@@ -212,43 +217,69 @@ func (c *Conn) handshakeHeaders(ctx context.Context) (http.Header, error) {
 	return headers, nil
 }
 
-// ConnectWithRetry attempts to connect with exponential backoff and jitter.
+// ConnectWithRetry makes up to MaxRetries connection attempts, waiting a
+// jittered exponential backoff between them, or the Retry-After of a refused
+// handshake.
 func (c *Conn) ConnectWithRetry(ctx context.Context) error {
-	var lastErr error
-	backoff := c.cfg.RetryBackoffBase
-
-	for attempt := 1; attempt <= c.cfg.MaxRetries; attempt++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
+	attempt := 0
+	_, err := retry.Do(ctx, connectPolicy(&c.cfg), func(ctx context.Context) (struct{}, error) {
+		attempt++
 		err := c.Connect(ctx)
-		if err == nil {
-			return nil
+		if err != nil {
+			c.cfg.Logger.Warn("connection attempt failed",
+				"attempt", attempt, "maxAttempts", c.cfg.MaxRetries, "error", err)
 		}
-
-		lastErr = err
-
-		c.cfg.Logger.Warn("connection attempt failed",
-			"attempt", attempt, "maxAttempts", c.cfg.MaxRetries, "error", lastErr)
-
-		if attempt < c.cfg.MaxRetries {
-			delay := calculateBackoff(backoff, c.cfg.RetryBackoffMax)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-			}
-			backoff *= 2
-			if backoff > c.cfg.RetryBackoffMax {
-				backoff = c.cfg.RetryBackoffMax
-			}
-		}
+		return struct{}{}, err
+	})
+	if err == nil || errors.Is(err, ctx.Err()) {
+		return err
 	}
+	return fmt.Errorf("failed to connect after %d attempts: %w", attempt, err)
+}
 
-	return fmt.Errorf("failed to connect after %d attempts: %w", c.cfg.MaxRetries, lastErr)
+// connectPolicy retries every failed connect, a handshake timeout included;
+// the caller's context ending stops the wait that follows. A refused
+// handshake's Retry-After replaces the backoff; one past RetryBackoffMax ends
+// the retries.
+func connectPolicy(cfg *ConnConfig) retry.Policy {
+	return retry.Policy{
+		Name:          cmp.Or(cfg.Name, defaultConnName),
+		MaxAttempts:   cfg.MaxRetries,
+		Backoff:       connectBackoff(cfg),
+		MaxRetryAfter: cfg.RetryBackoffMax,
+		Classify:      func(err error) (bool, time.Duration) { return true, retryAfterOf(err) },
+	}
+}
+
+// connectBackoff starts at RetryBackoffBase and doubles per attempt up to
+// RetryBackoffMax, each wait varied by up to a quarter either way and never
+// more than RetryBackoffMax.
+func connectBackoff(cfg *ConnConfig) retry.Backoff {
+	return retry.Backoff{
+		Initial:   cfg.RetryBackoffBase,
+		Max:       cfg.RetryBackoffMax,
+		JitterMin: 1 - jitterFactor,
+		JitterMax: 1 + jitterFactor,
+	}
+}
+
+// refusedHandshakeError is a handshake the server answered with a refusal; a
+// positive retryAfter is the wait its Retry-After asked for.
+type refusedHandshakeError struct {
+	err        error
+	retryAfter time.Duration
+}
+
+func (e *refusedHandshakeError) Error() string { return e.err.Error() }
+func (e *refusedHandshakeError) Unwrap() error { return e.err }
+
+// retryAfterOf returns the Retry-After of a refused handshake, or zero.
+func retryAfterOf(err error) time.Duration {
+	var refused *refusedHandshakeError
+	if errors.As(err, &refused) {
+		return refused.retryAfter
+	}
+	return 0
 }
 
 // Send JSON-encodes msg and writes it to the WebSocket.
@@ -481,23 +512,4 @@ func (c *Conn) Reset() {
 	c.closed = false
 	c.closeCh = make(chan struct{})
 	c.mu.Unlock()
-}
-
-// calculateBackoff computes a backoff duration with +-25% jitter, capped at maxDelay.
-func calculateBackoff(base, maxDelay time.Duration) time.Duration {
-	delay := float64(base)
-	if delay > float64(maxDelay) {
-		delay = float64(maxDelay)
-	}
-	// Jitter: +-25% using crypto/rand for SonarCloud compliance.
-	n, _ := rand.Int(rand.Reader, big.NewInt(jitterPrecision))
-	jitter := delay * jitterFactor * (float64(n.Int64())/jitterHalfPrecision - 1)
-	result := delay + jitter
-	if result < 0 {
-		result = float64(base)
-	}
-	if result > float64(maxDelay) {
-		result = float64(maxDelay)
-	}
-	return time.Duration(math.Max(result, 0))
 }

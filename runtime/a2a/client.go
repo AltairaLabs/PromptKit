@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/httputil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -70,10 +71,13 @@ func newRPCError(e *JSONRPCError) *RPCError {
 }
 
 // HTTPStatusError is returned when an A2A HTTP request receives a non-200 status
-// code. Method is the JSON-RPC method of the failed call.
+// code. Method is the JSON-RPC method of the failed call. RetryAfter is how
+// long the agent asked the caller to wait before trying again (its
+// Retry-After header), or zero when it did not say.
 type HTTPStatusError struct {
 	StatusCode int
 	Method     string
+	RetryAfter time.Duration
 }
 
 func (e *HTTPStatusError) Error() string {
@@ -772,7 +776,9 @@ func (c *Client) rpcCallVersion(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, Method: method}
+		return nil, &HTTPStatusError{
+			StatusCode: resp.StatusCode, Method: method, RetryAfter: retry.ParseRetryAfter(resp.Header),
+		}
 	}
 
 	var rpcResp JSONRPCResponse

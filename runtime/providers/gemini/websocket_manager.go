@@ -64,6 +64,7 @@ func newWebSocketManager(
 			DialHeaders:      dialHeaders,
 			DialTimeout:      geminiDialTimeout,
 			MaxMessageSize:   MaxMessageSize,
+			Name:             "gemini-live",
 			MaxRetries:       geminiMaxRetries,
 			RetryBackoffBase: geminiRetryBackoffBase,
 			RetryBackoffMax:  geminiRetryBackoffMax,

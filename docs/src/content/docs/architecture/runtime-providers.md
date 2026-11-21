@@ -225,7 +225,9 @@ The runtime can also cap the number of streams in flight per provider (`StreamMa
 
 ## Errors and retries
 
-Non-streaming calls go through `DoWithRetry`. Its default policy is three retries with exponential backoff from 500 ms, up to 60 seconds, plus up to 50% jitter. A `Retry-After` header replaces the computed delay.
+Non-streaming calls go through `DoWithRetry`. Its default policy is three retries with exponential backoff from 500 ms, each wait lengthened by up to 50% at random and never more than 60 seconds. A `Retry-After` header of up to a minute replaces the computed delay; a longer one is not waited, and the response comes back as though retries had run out.
+
+`DoWithRetry` is one use of the runtime's shared retry loop. A2A agent calls, TTS and STT requests, MCP connects and realtime WebSocket connects use the same loop with their own policies, each honoring a `Retry-After` within its own maximum delay and giving up on a longer one, and every retry it makes is counted in `provider_retries_total` under the caller's name. Streaming retry keeps its own loop, because it spends a retry budget shared across requests.
 
 ```mermaid
 graph TD
@@ -233,8 +235,10 @@ graph TD
     Result -->|"2xx"| Done["return response"]
     Result -->|"429, 502, 503, 504 or network error"| Left{"retries left?"}
     Result -->|"other status or context error"| Fail["return error"]
-    Left -->|yes| Wait["wait: Retry-After or backoff"]
+    Left -->|yes| Asked{"Retry-After over a minute?"}
     Left -->|no| Fail
+    Asked -->|yes| Fail
+    Asked -->|no| Wait["wait: Retry-After or backoff"]
     Wait --> Request
 ```
 

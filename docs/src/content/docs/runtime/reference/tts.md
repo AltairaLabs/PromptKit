@@ -81,7 +81,7 @@ The package includes implementations for:
 - [func RegisteredTypes\(\) \[\]string](<#RegisteredTypes>)
 - [func ResolveCredential\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig\) \(credentials.Credential, error\)](<#ResolveCredential>)
 - [func ResolveCredentialForPlatform\(ctx context.Context, providerType string, cfgDir string, cred \*credentials.CredentialConfig, platform \*credentials.PlatformConfig\) \(credentials.Credential, error\)](<#ResolveCredentialForPlatform>)
-- [func SynthesizeWithRetry\(ctx context.Context, svc Service, text string, config SynthesisConfig, retry RetryConfig\) \(io.ReadCloser, error\)](<#SynthesizeWithRetry>)
+- [func SynthesizeWithRetry\(ctx context.Context, svc Service, text string, config SynthesisConfig, cfg RetryConfig\) \(io.ReadCloser, error\)](<#SynthesizeWithRetry>)
 - [func WithCartesiaWSURL\(url string\) func\(\*CartesiaService\)](<#WithCartesiaWSURL>)
 - [type AudioFormat](<#AudioFormat>)
   - [func \(f AudioFormat\) String\(\) string](<#AudioFormat.String>)
@@ -434,13 +434,13 @@ func ResolveCredentialForPlatform(ctx context.Context, providerType string, cfgD
 ResolveCredentialForPlatform resolves the credential a spec is built with: the platform's chain for a platform providerType runs on, its own credential otherwise \(see base.FactoryRegistry.ResolveCredential\).
 
 <a name="SynthesizeWithRetry"></a>
-## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L48-L54>)
+## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L49-L55>)
 
 ```go
-func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config SynthesisConfig, retry RetryConfig) (io.ReadCloser, error)
+func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config SynthesisConfig, cfg RetryConfig) (io.ReadCloser, error)
 ```
 
-SynthesizeWithRetry calls svc.Synthesize with bounded retry on transient errors. Only errors where SynthesisError.Retryable is true are retried; all others are returned immediately. Uses full jitter backoff to avoid synchronized retries across concurrent callers.
+SynthesizeWithRetry calls svc.Synthesize with bounded retry on transient errors. Only errors where SynthesisError.Retryable is true are retried; all others are returned immediately. Uses full jitter backoff to avoid synchronized retries across concurrent callers. A SynthesisError's RetryAfter replaces the backoff; one past MaxDelay is not waited, and the error is returned at once.
 
 <a name="WithCartesiaWSURL"></a>
 ## func [WithCartesiaWSURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L117>)
@@ -1244,7 +1244,7 @@ voice=alloy format=mp3 speed=1.0 pitch=0
 </details>
 
 <a name="SynthesisError"></a>
-## type [SynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L33-L48>)
+## type [SynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L36-L56>)
 
 SynthesisError provides detailed error information from TTS providers.
 
@@ -1264,11 +1264,16 @@ type SynthesisError struct {
 
     // Retryable indicates if the error is transient and retry may succeed.
     Retryable bool
+
+    // RetryAfter is how long the provider asked the caller to wait before
+    // trying again (its Retry-After header), or zero when it did not say.
+    // SynthesizeWithRetry waits this long instead of its own backoff.
+    RetryAfter time.Duration
 }
 ```
 
 <a name="NewSynthesisError"></a>
-### func [NewSynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L64>)
+### func [NewSynthesisError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L72>)
 
 ```go
 func NewSynthesisError(provider, code, message string, cause error, retryable bool) *SynthesisError
@@ -1277,7 +1282,7 @@ func NewSynthesisError(provider, code, message string, cause error, retryable bo
 NewSynthesisError creates a new SynthesisError.
 
 <a name="SynthesisError.Error"></a>
-### func \(\*SynthesisError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L51>)
+### func \(\*SynthesisError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L59>)
 
 ```go
 func (e *SynthesisError) Error() string
@@ -1286,7 +1291,7 @@ func (e *SynthesisError) Error() string
 Error implements the error interface.
 
 <a name="SynthesisError.Unwrap"></a>
-### func \(\*SynthesisError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L59>)
+### func \(\*SynthesisError\) [Unwrap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/errors.go#L67>)
 
 ```go
 func (e *SynthesisError) Unwrap() error

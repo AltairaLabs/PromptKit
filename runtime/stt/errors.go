@@ -3,6 +3,7 @@ package stt
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Common errors for STT services.
@@ -36,6 +37,11 @@ type TranscriptionError struct {
 
 	// Retryable indicates whether the request can be retried.
 	Retryable bool
+
+	// RetryAfter is how long the provider asked the caller to wait before
+	// trying again (its Retry-After header), or zero when it did not say.
+	// TranscribeWithRetry waits this long instead of its own backoff.
+	RetryAfter time.Duration
 }
 
 // NewTranscriptionError creates a new TranscriptionError.

@@ -1,15 +1,13 @@
 package a2a
 
 import (
+	"cmp"
 	"container/heap"
 	"context"
-	"crypto/rand"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -41,10 +40,8 @@ const (
 	// defaultCleanupInterval is the interval between cache cleanup sweeps.
 	defaultCleanupInterval = 5 * time.Minute
 
-	a2aExponentialBase   = 2
-	a2aMaxJitterFraction = 0.5
-	a2aFloat64MantBits   = 53
-	a2aUint64Bits        = 64
+	// a2aMinJitterFactor is the shortest a jittered delay gets: half.
+	a2aMinJitterFactor = 0.5
 )
 
 // clientEntry wraps a cached Client with usage metadata for TTL-based eviction.
@@ -85,7 +82,10 @@ func (h *clientHeap) Pop() interface{} {
 // retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on
 // transient network errors, and waits an exponentially growing delay between
 // attempts, capped at MaxDelay, with random jitter that shortens each delay by
-// up to 50%. No delay exceeds MaxDelay, and delays at the cap still vary.
+// up to 50%. No delay exceeds MaxDelay, and delays at the cap still vary. A
+// Retry-After from the agent replaces the delay; one past MaxDelay is not
+// waited, and the call fails at once. A tool's A2AConfig.RetryPolicy is
+// merged onto this policy for that agent, unless MaxRetries is zero.
 type RetryPolicy struct {
 	// MaxRetries is the number of retries after the first attempt.
 	MaxRetries int
@@ -353,7 +353,7 @@ func (e *Executor) executeRequest(
 	// endpoint is (A2A 1.0 §8.3.2).
 	client.discoverForCalls(ctx)
 
-	task, err := e.sendWithRetry(ctx, client, req, cfg.AgentURL)
+	task, err := e.sendWithRetry(ctx, client, req, cfg)
 	if err != nil {
 		logger.Error("A2A tool call failed",
 			"tool", toolName, "agent_url", cfg.AgentURL, "error", err)
@@ -451,54 +451,65 @@ func cancelAbandonedTask(client *Client, task *Task) {
 	}
 }
 
-// sendWithRetry wraps client.SendMessage with exponential backoff retry logic.
+// sendWithRetry sends the message, retrying as the executor's policy with
+// the tool's own RetryPolicy merged onto it says.
 func (e *Executor) sendWithRetry(
-	ctx context.Context, client *Client, req *SendMessageRequest, agentURL string,
+	ctx context.Context, client *Client, req *SendMessageRequest, cfg *tools.A2AConfig,
 ) (*Task, error) {
-	maxAttempts := e.retryPolicy.MaxRetries + 1
-	if maxAttempts < 1 {
-		maxAttempts = 1
+	policy := mergeRetryPolicy(e.retryPolicy, cfg.RetryPolicy)
+	return retry.Do(ctx, a2aRetryPolicy(policy, cfg.AgentURL), func(ctx context.Context) (*Task, error) {
+		return client.SendMessage(ctx, req)
+	})
+}
+
+// mergeRetryPolicy lays a tool's A2ARetryConfig over the executor's policy
+// field by field: a zero field keeps the executor's value, and a negative
+// MaxRetries turns retries off for the agent. An executor that does not retry
+// (WithNoRetry) stays that way: its host retries for itself, and an agent's
+// config must not add retries underneath it.
+func mergeRetryPolicy(base RetryPolicy, c *tools.A2ARetryConfig) RetryPolicy {
+	if c == nil || base.MaxRetries <= 0 {
+		return base
 	}
-
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-
-		task, err := client.SendMessage(ctx, req)
-		if err == nil {
-			return task, nil
-		}
-
-		if !isA2ARetryableError(err) {
-			return nil, err
-		}
-
-		lastErr = err
-
-		// Don't sleep after the last attempt.
-		if attempt >= maxAttempts-1 {
-			break
-		}
-
-		delay := a2aCalculateBackoff(e.retryPolicy, attempt)
-		logger.Warn("retrying a2a request",
-			"agent_url", agentURL,
-			"attempt", attempt+1,
-			"max_retries", e.retryPolicy.MaxRetries,
-			"delay", delay.String(),
-			"error", err,
-		)
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
-		}
+	merged := base
+	if c.MaxRetries != 0 {
+		merged.MaxRetries = c.MaxRetries
 	}
+	if c.InitialDelayMs > 0 {
+		merged.InitialDelay = time.Duration(c.InitialDelayMs) * time.Millisecond
+	}
+	if c.MaxDelayMs > 0 {
+		merged.MaxDelay = time.Duration(c.MaxDelayMs) * time.Millisecond
+	}
+	return merged
+}
 
-	return nil, lastErr
+// a2aRetryPolicy is the shared retry policy a RetryPolicy describes. A
+// Retry-After the agent sends replaces the backoff; one past MaxDelay ends the
+// retries.
+func a2aRetryPolicy(policy RetryPolicy, agentURL string) retry.Policy {
+	backoff := a2aBackoff(policy)
+	return retry.Policy{
+		Name:          "a2a",
+		MaxAttempts:   policy.MaxRetries + 1,
+		Backoff:       backoff,
+		MaxRetryAfter: backoff.Max,
+		Classify:      a2aClassify,
+		LogAttrs:      []any{"agent_url", agentURL},
+	}
+}
+
+// a2aClassify retries what isA2ARetryableError accepts, after the Retry-After
+// the agent sent with it.
+func a2aClassify(err error) (bool, time.Duration) {
+	if !isA2ARetryableError(err) {
+		return false, 0
+	}
+	var httpErr *HTTPStatusError
+	if errors.As(err, &httpErr) {
+		return true, httpErr.RetryAfter
+	}
+	return true, 0
 }
 
 // isA2ARetryableError determines whether an error from an A2A call
@@ -565,45 +576,17 @@ func isA2ARetryableStatusCode(code int) bool {
 	}
 }
 
-// a2aCalculateBackoff computes the delay for a given retry attempt: the
-// exponential delay, capped at MaxDelay, less a random jitter of up to half of
+// a2aBackoff is the backoff a RetryPolicy describes: the exponential delay
+// from InitialDelay, capped at MaxDelay, less a random jitter of up to half of
 // it. Subtracting the jitter keeps every delay at or under MaxDelay while
 // delays at the cap still vary, so retries do not fall into step.
-func a2aCalculateBackoff(policy RetryPolicy, attempt int) time.Duration {
-	initialDelay := policy.InitialDelay
-	if initialDelay <= 0 {
-		initialDelay = DefaultA2AInitialDelay
+func a2aBackoff(policy RetryPolicy) retry.Backoff {
+	return retry.Backoff{
+		Initial:   cmp.Or(max(policy.InitialDelay, 0), DefaultA2AInitialDelay),
+		Max:       cmp.Or(max(policy.MaxDelay, 0), DefaultA2AMaxDelay),
+		JitterMin: a2aMinJitterFactor,
+		JitterMax: 1,
 	}
-
-	maxDelay := policy.MaxDelay
-	if maxDelay <= 0 {
-		maxDelay = DefaultA2AMaxDelay
-	}
-
-	multiplier := math.Pow(a2aExponentialBase, float64(attempt))
-	delay := float64(initialDelay) * multiplier
-
-	// Cap in float64: a large attempt overflows time.Duration.
-	if delay > float64(maxDelay) {
-		delay = float64(maxDelay)
-	}
-
-	// Subtract jitter: uniform random in [0, delay * maxJitterFraction].
-	delay -= a2aCryptoRandFloat64() * a2aMaxJitterFraction * delay
-	return time.Duration(delay)
-}
-
-// a2aCryptoRandFloat64 returns a cryptographically secure random float64
-// in [0.0, 1.0) using crypto/rand.
-func a2aCryptoRandFloat64() float64 {
-	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return 0
-	}
-	const maxMantissa = 1 << a2aFloat64MantBits
-	bitsToDiscard := a2aUint64Bits - a2aFloat64MantBits
-	n := binary.BigEndian.Uint64(buf[:]) >> bitsToDiscard
-	return float64(n) / float64(maxMantissa)
 }
 
 // Close stops the background cleanup goroutine and clears the client cache.

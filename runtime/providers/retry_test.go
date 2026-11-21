@@ -191,12 +191,11 @@ func TestParseRetryAfter_HTTPDate(t *testing.T) {
 
 func TestCalculateBackoff(t *testing.T) {
 	tests := []struct {
-		name       string
-		policy     pipeline.RetryPolicy
-		attempt    int
-		retryAfter time.Duration
-		minDelay   time.Duration
-		maxDelay   time.Duration
+		name     string
+		policy   pipeline.RetryPolicy
+		attempt  int
+		minDelay time.Duration
+		maxDelay time.Duration
 	}{
 		{
 			name: "exponential attempt 0",
@@ -240,17 +239,6 @@ func TestCalculateBackoff(t *testing.T) {
 			maxDelay: 301 * time.Millisecond,
 		},
 		{
-			name: "retry-after overrides backoff",
-			policy: pipeline.RetryPolicy{
-				Backoff:        "exponential",
-				InitialDelayMs: 100,
-			},
-			attempt:    0,
-			retryAfter: 5 * time.Second,
-			minDelay:   5 * time.Second,
-			maxDelay:   5 * time.Second,
-		},
-		{
 			name: "zero initial delay uses default",
 			policy: pipeline.RetryPolicy{
 				Backoff:        "exponential",
@@ -266,10 +254,10 @@ func TestCalculateBackoff(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateBackoff(tt.policy, tt.attempt, tt.retryAfter)
+			got := httpBackoff(tt.policy).Delay(tt.attempt)
 			if got < tt.minDelay || got > tt.maxDelay {
 				t.Errorf(
-					"calculateBackoff() = %v, want [%v, %v]",
+					"httpBackoff().Delay() = %v, want [%v, %v]",
 					got, tt.minDelay, tt.maxDelay,
 				)
 			}
@@ -282,11 +270,10 @@ func TestCalculateBackoff_CapsAtMax(t *testing.T) {
 		Backoff:        "exponential",
 		InitialDelayMs: 10000, // 10s
 	}
-	// attempt 10 => 10s * 2^10 = 10240s, should be capped at 60s + jitter
-	got := calculateBackoff(policy, 10, 0)
-	// max = 60s + 50% jitter = 90s
-	if got > 91*time.Second {
-		t.Errorf("expected capped delay <= 91s, got %v", got)
+	// attempt 10 => 10s * 2^10 = 10240s; jitter included, no wait exceeds 60s.
+	got := httpBackoff(policy).Delay(10)
+	if got != maxBackoffDuration {
+		t.Errorf("expected capped delay = %v, got %v", maxBackoffDuration, got)
 	}
 }
 
@@ -914,5 +901,36 @@ func TestDoWithRetry_RetriesResponseBodyClosed(t *testing.T) {
 
 	if string(body) != "ok" {
 		t.Errorf("expected 'ok', got %q", string(body))
+	}
+}
+
+// A Retry-After past the one-minute ceiling is not waited: DoWithRetry
+// returns the 429 after that one attempt, at once, as though retries ran out.
+func TestDoWithRetry_RetryAfterPastTheCeilingStopsRetrying(t *testing.T) {
+	var attempts int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	policy := pipeline.RetryPolicy{MaxRetries: 3, Backoff: "fixed", InitialDelayMs: 1}
+	start := time.Now()
+	resp, err := DoWithRetry(t.Context(), policy, "test", func() (*http.Response, error) {
+		return http.Get(server.URL)
+	})
+	var statusErr *RetryableHTTPError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("err = %v, want a *RetryableHTTPError for the 429", err)
+	}
+	if resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("resp = %v, want the 429 response", resp)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("attempts = %d, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v: the Retry-After was waited", elapsed)
 	}
 }

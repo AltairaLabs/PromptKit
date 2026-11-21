@@ -358,7 +358,7 @@ func TestIsA2ARetryableError(t *testing.T) {
 func backoffSamples(policy RetryPolicy, attempt, n int) []time.Duration {
 	out := make([]time.Duration, n)
 	for i := range out {
-		out[i] = a2aCalculateBackoff(policy, attempt)
+		out[i] = a2aBackoff(policy).Delay(attempt)
 	}
 	return out
 }
@@ -487,5 +487,246 @@ func TestExecutor_RetrySucceedsFirstAttempt(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&attempts); got != 1 {
 		t.Errorf("attempts = %d, want 1 (success on first try)", got)
+	}
+}
+
+// A context canceled while the executor waits to retry ends the call at once:
+// one attempt reaches the agent, and the backoff is not waited out.
+func TestExecutor_CancelDuringBackoffStopsRetrying(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var attempts int32
+	answered := make(chan struct{}, 1)
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		answered <- struct{}{}
+	}))
+	defer srv.Close()
+	// Cancel once the first 503 is in and the executor is waiting to retry.
+	go func() {
+		<-answered
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	e := NewExecutor(WithRetryPolicy(RetryPolicy{MaxRetries: 5, InitialDelay: time.Hour, MaxDelay: time.Hour}))
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL}}
+
+	start := time.Now()
+	_, err := e.Execute(ctx, desc, json.RawMessage(`{"query":"hello"}`))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("attempts = %d, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v: the backoff was waited out", elapsed)
+	}
+}
+
+// When every attempt fails with a retryable status, the error names the last
+// status the agent sent.
+func TestExecutor_RetryExhaustedReturnsTheLastStatus(t *testing.T) {
+	var attempts int32
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&attempts, 1) < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusGatewayTimeout)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithRetryPolicy(RetryPolicy{MaxRetries: 2, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond}))
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL}}
+
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
+	var httpErr *HTTPStatusError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("err = %v, want an *HTTPStatusError", err)
+	}
+	if httpErr.StatusCode != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want %d (the last attempt's)", httpErr.StatusCode, http.StatusGatewayTimeout)
+	}
+}
+
+// A 429's Retry-After reaches the HTTPStatusError the client returns.
+func TestClient_RateLimitCarriesRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "7")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL}}
+
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
+	var httpErr *HTTPStatusError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("err = %v, want an *HTTPStatusError", err)
+	}
+	if httpErr.RetryAfter != 7*time.Second {
+		t.Errorf("RetryAfter = %v, want 7s", httpErr.RetryAfter)
+	}
+}
+
+// The executor waits what a 429's Retry-After asks for instead of its own
+// backoff, while that is within MaxDelay.
+func TestA2ARetryDelay_HonorsRetryAfterUpToMaxDelay(t *testing.T) {
+	policy := RetryPolicy{InitialDelay: time.Hour, MaxDelay: 10 * time.Second}
+	cases := []struct {
+		name string
+		err  error
+		want time.Duration
+	}{
+		{"asks for 3s", &HTTPStatusError{StatusCode: 429, RetryAfter: 3 * time.Second}, 3 * time.Second},
+		{"asks for MaxDelay", &HTTPStatusError{StatusCode: 503, RetryAfter: 10 * time.Second}, 10 * time.Second},
+		{"does not ask", &HTTPStatusError{StatusCode: 503}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := a2aRetryPolicy(policy, "")
+			retry, after := p.Classify(tc.err)
+			if !retry {
+				t.Fatalf("a retryable status was not retried")
+			}
+			wait, ok := p.Wait(0, after)
+			if !ok {
+				t.Fatalf("Retry-After %v within MaxDelay was not retried", after)
+			}
+			if tc.want == 0 {
+				// No Retry-After: the backoff, an hour capped at MaxDelay and jittered.
+				if wait < policy.MaxDelay/2 || wait > policy.MaxDelay {
+					t.Errorf("wait = %v, want the backoff within [%v, %v]", wait, policy.MaxDelay/2, policy.MaxDelay)
+				}
+				return
+			}
+			if wait != tc.want {
+				t.Errorf("wait = %v, want %v", wait, tc.want)
+			}
+		})
+	}
+}
+
+// A 429 whose Retry-After is past MaxDelay is not waited out: the call fails
+// after that one attempt, at once, with the agent's status.
+func TestExecutor_RetryAfterPastMaxDelayStopsRetrying(t *testing.T) {
+	var attempts int32
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithRetryPolicy(RetryPolicy{MaxRetries: 3, InitialDelay: time.Millisecond, MaxDelay: 10 * time.Second}))
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL}}
+
+	start := time.Now()
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
+	var httpErr *HTTPStatusError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("err = %v, want the agent's 429", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("attempts = %d, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v: the Retry-After was waited", elapsed)
+	}
+}
+
+// alwaysFailing serves an agent that answers every call 502, counting them.
+func alwaysFailing(t *testing.T) (string, *int32) {
+	t.Helper()
+	var attempts int32
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &attempts
+}
+
+// attemptsWith runs one call to url with the tool's retry override and returns
+// how many attempts reached the agent.
+func attemptsWith(t *testing.T, e *Executor, url string, attempts *int32, override *tools.A2ARetryConfig) int32 {
+	t.Helper()
+	atomic.StoreInt32(attempts, 0)
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: url, RetryPolicy: override}}
+	if _, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`)); err == nil {
+		t.Fatal("expected an error from an agent that always fails")
+	}
+	return atomic.LoadInt32(attempts)
+}
+
+// A tool's A2AConfig.RetryPolicy is merged onto the executor's field by
+// field: what it sets wins, what it leaves zero is the executor's.
+func TestExecutor_PerAgentRetryPolicyMergesOntoTheExecutors(t *testing.T) {
+	url, attempts := alwaysFailing(t)
+	e := NewExecutor(WithRetryPolicy(RetryPolicy{MaxRetries: 4, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond}))
+	defer e.Close()
+
+	cases := []struct {
+		name     string
+		override *tools.A2ARetryConfig
+		want     int32
+	}{
+		{"no override: the executor's 4 retries", nil, 5},
+		{"a block setting only a delay keeps the executor's retries", &tools.A2ARetryConfig{InitialDelayMs: 1}, 5},
+		{"a full block", &tools.A2ARetryConfig{MaxRetries: 1, InitialDelayMs: 1, MaxDelayMs: 1}, 2},
+		{"negative MaxRetries turns retries off", &tools.A2ARetryConfig{MaxRetries: -1}, 1},
+	}
+	for _, tc := range cases {
+		if got := attemptsWith(t, e, url, attempts, tc.override); got != tc.want {
+			t.Errorf("%s: attempts = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// An executor built WithNoRetry stays single-attempt whatever an agent's block
+// asks for: its host retries for itself.
+func TestExecutor_WithNoRetryIgnoresAPerAgentRetryPolicy(t *testing.T) {
+	url, attempts := alwaysFailing(t)
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	block := &tools.A2ARetryConfig{MaxRetries: 3, InitialDelayMs: 1, MaxDelayMs: 1}
+	if got := attemptsWith(t, e, url, attempts, block); got != 1 {
+		t.Errorf("attempts = %d, want 1", got)
+	}
+}
+
+// The merge, field by field: set fields in milliseconds, zero fields kept.
+func TestMergeRetryPolicy(t *testing.T) {
+	base := RetryPolicy{MaxRetries: 3, InitialDelay: 500 * time.Millisecond, MaxDelay: 30 * time.Second}
+	cases := []struct {
+		name string
+		c    *tools.A2ARetryConfig
+		want RetryPolicy
+	}{
+		{"nil", nil, base},
+		{"full", &tools.A2ARetryConfig{MaxRetries: 2, InitialDelayMs: 100, MaxDelayMs: 5000},
+			RetryPolicy{MaxRetries: 2, InitialDelay: 100 * time.Millisecond, MaxDelay: 5 * time.Second}},
+		{"only initial", &tools.A2ARetryConfig{InitialDelayMs: 2000},
+			RetryPolicy{MaxRetries: 3, InitialDelay: 2 * time.Second, MaxDelay: 30 * time.Second}},
+		{"only max", &tools.A2ARetryConfig{MaxDelayMs: 1000},
+			RetryPolicy{MaxRetries: 3, InitialDelay: 500 * time.Millisecond, MaxDelay: time.Second}},
+		{"negative delays are kept from the executor", &tools.A2ARetryConfig{InitialDelayMs: -5, MaxDelayMs: -5}, base},
+	}
+	for _, tc := range cases {
+		if got := mergeRetryPolicy(base, tc.c); got != tc.want {
+			t.Errorf("%s: merge = %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+	noRetry := RetryPolicy{}
+	if got := mergeRetryPolicy(noRetry, &tools.A2ARetryConfig{MaxRetries: 3}); got != noRetry {
+		t.Errorf("merge onto no-retry = %+v, want %+v", got, noRetry)
 	}
 }

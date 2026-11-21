@@ -54,6 +54,7 @@ func newRealtimeWebSocketAt(
 			Headers:          headers,
 			DialHeaders:      dialHeaders,
 			MaxMessageSize:   wsMaxMessageSize,
+			Name:             "openai-realtime",
 			MaxRetries:       wsMaxRetries,
 			RetryBackoffBase: wsRetryBackoffBase,
 			RetryBackoffMax:  wsRetryBackoffMax,

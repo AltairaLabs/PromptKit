@@ -389,7 +389,7 @@ func (s *OpenAIService) doTranscriptionRequest(
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, s.handleError(resp.StatusCode, body)
+		return nil, withRetryAfter(s.handleError(resp.StatusCode, body), resp)
 	}
 	return body, nil
 }

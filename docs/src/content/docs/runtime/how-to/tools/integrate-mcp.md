@@ -122,7 +122,7 @@ Pass a `ClientOptions` to a client constructor, or set it per server through `Re
 options := mcp.DefaultClientOptions()
 options.RequestTimeout = 30 * time.Second   // every request, on every transport
 options.MaxRetries = 3
-options.RetryDelay = 100 * time.Millisecond // doubles on each retry
+options.RetryDelay = 100 * time.Millisecond // doubles on each retry, plus up to 50% jitter, at most a minute
 
 client := mcp.NewStdioClientWithOptions(config, options)
 ```

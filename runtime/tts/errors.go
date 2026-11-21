@@ -1,6 +1,9 @@
 package tts
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Common TTS errors.
 var (
@@ -45,6 +48,11 @@ type SynthesisError struct {
 
 	// Retryable indicates if the error is transient and retry may succeed.
 	Retryable bool
+
+	// RetryAfter is how long the provider asked the caller to wait before
+	// trying again (its Retry-After header), or zero when it did not say.
+	// SynthesizeWithRetry waits this long instead of its own backoff.
+	RetryAfter time.Duration
 }
 
 // Error implements the error interface.
