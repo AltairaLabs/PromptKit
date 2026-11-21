@@ -210,6 +210,10 @@ type duplexToolResult struct {
 	err          error
 	turn         *duplexToolTurn
 	closeSession bool
+	// stopped is set when the worker was stopped (its context ended) by the
+	// time the round finished: the session is ending, and the round's
+	// responses (a canceled tool's error among them) are not sent.
+	stopped bool
 }
 
 // toolPolicy is the policy in force: the stage's merged with the prompt's
@@ -876,6 +880,10 @@ func (s *DuplexProviderStage) runToolWorker(ctx context.Context) {
 			}
 			res := s.runToolJob(ctx, job)
 			res.turn = job.turn
+			// Checked on the worker's own context: the stage's context ends
+			// its children one at a time, so the input goroutine's may not
+			// show it yet when this round is delivered.
+			res.stopped = ctx.Err() != nil
 			select {
 			case dt.results <- res:
 			case <-ctx.Done():
@@ -940,7 +948,7 @@ func (s *DuplexProviderStage) finishToolWorker(ctx context.Context, output chan<
 			logger.Warn("DuplexProviderStage: a tool call did not return when canceled; the session ends without it")
 		}
 	}
-	deadline := newCloseDeadline()
+	deadline := s.exchange.newDeadline()
 	for _, res := range dt.takeUndelivered() {
 		// A result not taken in time is not recorded; its calls are answered
 		// below.
@@ -1231,15 +1239,19 @@ func (s *DuplexProviderStage) recordToolRoundBy(
 }
 
 // sendToolRound sends a round's responses to the session unless it is
-// closing. A round that does not close the session starts the provider call
-// its responses continue first, so the call's start precedes its reply.
+// closing: the stage has marked it closed, the caller canceled ctx, or the
+// worker was stopped by the time the round finished. A round whose tools
+// finished as the caller closed the conversation (a tool that returns ctx's
+// error) is delivered before the stage marks the session closed, and must not
+// be sent either. A round that does not close the session starts the provider
+// call its responses continue first, so the call's start precedes its reply.
 func (s *DuplexProviderStage) sendToolRound(
 	ctx context.Context, res *duplexToolResult, responses []providers.ToolResponse,
 ) {
 	dt := s.tools
 	dt.sendMu.Lock()
 	defer dt.sendMu.Unlock()
-	if dt.closed {
+	if dt.closed || res.stopped || ctx.Err() != nil {
 		return
 	}
 	if !res.closeSession && res.turn != nil {

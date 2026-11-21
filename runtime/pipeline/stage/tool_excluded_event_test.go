@@ -59,9 +59,55 @@ func TestToolLoop_SecondRejectionPublishesToolExcluded(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no tool.excluded event")
 	}
+	bus.Close() // delivers every event published so far
 	select {
 	case d := <-got:
 		t.Fatalf("tool.excluded published again: %+v", d)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
+}
+
+// A round that rejects a tool's calls a second and a third time publishes
+// tool.excluded once, at the second rejection: a tool already excluded is not
+// excluded again within the round.
+func TestToolLoop_RejectionsPastTheSecondInOneRoundPublishOnce(t *testing.T) {
+	t.Parallel()
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name: "blocked_tool", Description: "always blocked",
+		InputSchema: json.RawMessage(`{"type": "object"}`), Mode: "mock",
+	}))
+	hookReg := hooks.NewRegistry(hooks.WithToolHook(&denyToolHook{blockedTool: "blocked_tool", reason: "blocked"}))
+	bus := events.NewEventBus()
+	t.Cleanup(bus.Close)
+	got := make(chan events.ToolExcludedData, 4)
+	bus.Subscribe(events.EventToolExcluded, func(e *events.Event) {
+		if d, ok := e.Data.(*events.ToolExcludedData); ok {
+			got <- *d
+		}
+	})
+	stage := NewProviderStageWithHooks(mock.NewToolProvider("test", "model", false, nil), registry, nil,
+		&ProviderConfig{}, events.NewEmitter(bus, "run", "sess", "conv"), hookReg)
+	loop, err := stage.newToolLoop(&providerInput{
+		allowedTools: []string{"blocked_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	})
+	require.NoError(t, err)
+	loop.maxRounds = 10
+
+	resp := types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{
+		{ID: "c1", Name: "blocked_tool", Args: json.RawMessage(`{"n":1}`)}, // distinct, so no identical-call breaker
+		{ID: "c2", Name: "blocked_tool", Args: json.RawMessage(`{"n":2}`)},
+		{ID: "c3", Name: "blocked_tool", Args: json.RawMessage(`{"n":3}`)},
+	}}
+	_, _, _ = loop.afterRound(context.Background(), []string{"blocked_tool"}, &resp, true, roundRef{round: 1})
+	bus.Close() // delivers every event published so far
+
+	var published []events.ToolExcludedData
+	for len(got) > 0 {
+		published = append(published, <-got)
+	}
+	assert.Equal(t, []events.ToolExcludedData{{
+		ToolName: "blocked_tool", Reason: "rejected twice in one tool loop", Rejections: 2, Round: 1,
+	}}, published)
 }

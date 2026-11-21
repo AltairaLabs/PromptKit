@@ -219,8 +219,9 @@ func TestResponseVADStage_EmitsEndOfStream_AfterSilence(t *testing.T) {
 func TestResponseVADStage_EmitsEndOfStream_MaxWait(t *testing.T) {
 	t.Parallel()
 	config := stage.DefaultResponseVADConfig()
+	const maxWait = 50 * time.Millisecond
 	config.SilenceDuration = 10 * time.Second // Won't trigger
-	config.MaxWaitDuration = 150 * time.Millisecond
+	config.MaxWaitDuration = maxWait
 
 	// VAD always speaking
 	mockVAD := &mockVADAnalyzer{}
@@ -232,6 +233,7 @@ func TestResponseVADStage_EmitsEndOfStream_MaxWait(t *testing.T) {
 
 	s, err := stage.NewResponseVADStage(config)
 	require.NoError(t, err)
+	stage.SetResponseVADCheckInterval(s, time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -280,7 +282,7 @@ collect:
 
 	assert.True(t, eosReceived, "EOS should be emitted after max wait")
 	elapsed := time.Since(start)
-	assert.GreaterOrEqual(t, elapsed, 100*time.Millisecond, "EOS should wait at least MaxWaitDuration")
+	assert.GreaterOrEqual(t, elapsed, maxWait*2/3, "EOS should wait at least MaxWaitDuration")
 
 	// Stop the audio goroutine and wait for it to finish before closing input.
 	cancel()
@@ -380,6 +382,7 @@ func TestResponseVADStage_MultipleTurns(t *testing.T) {
 
 	s, err := stage.NewResponseVADStage(config)
 	require.NoError(t, err)
+	stage.SetResponseVADCheckInterval(s, time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

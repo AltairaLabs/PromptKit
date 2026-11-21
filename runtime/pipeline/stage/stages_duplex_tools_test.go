@@ -212,8 +212,11 @@ func (s *realtimeToolSession) sendsAfterClose() int {
 type realtimeToolExec struct {
 	result json.RawMessage
 	gate   chan struct{} // when set, each call waits for it to close
-	// overlap, when set, holds each call until another is running too (or it
-	// expires), so calls allowed to run in parallel are seen to.
+	// overlap, when set, holds each call until two have run at once (or it
+	// expires), so calls allowed to run in parallel are seen to. It checks the
+	// most that ran at once, not how many run now: the first call released
+	// can return before the second checks, which would leave the second to
+	// wait out the window.
 	overlap time.Duration
 	// delay, when set, is how long each call takes.
 	delay time.Duration
@@ -254,7 +257,7 @@ func (e *realtimeToolExec) Execute(
 		deadline := time.Now().Add(e.overlap)
 		for time.Now().Before(deadline) {
 			e.mu.Lock()
-			both := e.inflight >= 2
+			both := e.maxInflight >= 2
 			e.mu.Unlock()
 			if both {
 				break
@@ -486,6 +489,35 @@ func (h *realtimeHarness) finish() []StreamElement {
 	return elems
 }
 
+// A round delivered once the caller canceled the session's context, or one
+// the worker finished after it was stopped, is not sent to the session, even
+// before the stage has marked the session closed; with a live context and a
+// running worker the same round is sent.
+func TestDuplexTools_RoundDeliveredAfterCancelIsNotSent(t *testing.T) {
+	for _, tc := range []struct{ canceled, stopped bool }{{false, false}, {true, false}, {false, true}} {
+		p := &realtimeToolProvider{StreamingProvider: providersmock.NewStreamingProvider("rt", "rt-model", false)}
+		_, err := p.CreateStreamSession(context.Background(), baseConfig())
+		require.NoError(t, err)
+		st := NewDuplexProviderStage(p, baseConfig())
+		st.SetToolExecution(newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}), nil,
+			DuplexToolConfig{}, nil)
+		st.session = p.session()
+		ctx, cancel := context.WithCancel(context.Background())
+		if tc.canceled {
+			cancel()
+		}
+		responses := []providers.ToolResponse{{ToolCallID: "c1", Result: "ok"}}
+		st.sendToolRound(ctx, &duplexToolResult{closeSession: true, stopped: tc.stopped}, responses)
+		cancel()
+
+		if tc.canceled || tc.stopped {
+			assert.Empty(t, p.session().sentResponses(), "nothing is sent once the session is ending: %+v", tc)
+		} else {
+			assert.Equal(t, [][]providers.ToolResponse{responses}, p.session().sentResponses())
+		}
+	}
+}
+
 func toolCallTurn(calls ...types.MessageToolCall) []providers.StreamChunk {
 	fr := "tool_calls"
 	return []providers.StreamChunk{{ToolCalls: calls, FinishReason: &fr}}
@@ -661,7 +693,7 @@ func TestDuplexTools_ParallelLimit(t *testing.T) {
 		{name: "default runs calls in parallel", window: time.Second, want: 2},
 		{
 			name: "MaxParallelToolCalls 1 serializes", policy: &pipeline.ToolPolicy{MaxParallelToolCalls: 1},
-			window: 100 * time.Millisecond, want: 1,
+			window: 50 * time.Millisecond, want: 1,
 		},
 	}
 	for _, tc := range cases {

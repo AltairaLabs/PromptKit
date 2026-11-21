@@ -71,6 +71,10 @@ func (h *realtimeHarness) cancelAndCollect() []StreamElement {
 
 const sessionClosedRefusal = "Tool weather not executed: the session closed before it ran"
 
+// testSendTimeout replaces partialResponseSendTimeout in the tests that wait
+// it out, so they take milliseconds; the bounds they check are multiples of it.
+const testSendTimeout = 50 * time.Millisecond
+
 // A session closed while a round runs leaves the round's call answered: the
 // tool sees the cancellation, and its outcome is stored right after the call.
 func TestDuplexToolExchange_CloseDuringRoundStoresTheResult(t *testing.T) {
@@ -110,7 +114,7 @@ func TestDuplexToolExchange_QueuedRoundCutByCloseIsAnswered(t *testing.T) {
 // call is answered with the session-closed refusal, and what the tool returns
 // later is discarded, never sent on the closed output.
 func TestDuplexToolExchange_ProcessWaitsForTheToolWorkerABoundedTime(t *testing.T) {
-	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 600 * time.Millisecond}
+	exec := &realtimeToolExec{result: json.RawMessage(`{"temp":21}`), delay: 200 * time.Millisecond}
 	h := startRealtime(t, realtimeOpts{registry: newWeatherRegistry(t, exec)})
 	h.stage.inputGracePeriod = 20 * time.Millisecond
 
@@ -119,7 +123,7 @@ func TestDuplexToolExchange_ProcessWaitsForTheToolWorkerABoundedTime(t *testing.
 	start := time.Now()
 	elems := h.cancelAndCollect()
 
-	assert.Less(t, time.Since(start), 400*time.Millisecond, "Process returned within its grace, not the tool's time")
+	assert.Less(t, time.Since(start), 150*time.Millisecond, "Process returned within its grace, not the tool's time")
 	assert.Equal(t, []string{"assistant:calls c1", "tool:c1=" + sessionClosedRefusal}, transcriptOf(elems))
 	require.Eventually(t, func() bool { return exec.done() == 1 }, 2*time.Second, time.Millisecond)
 	time.Sleep(50 * time.Millisecond) // the worker hands its late result over, or drops it
@@ -279,6 +283,10 @@ func TestDuplexToolExchange_CallWhileTheSessionClosesIsRefusedAtOnce(t *testing.
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.settle()
+	// The refusal is a round the tool worker answers; let it be delivered
+	// before the session ends, or the session's end answers the call instead.
+	require.Eventually(t, func() bool { return !h.stage.tools.roundOutstanding() }, 2*time.Second, time.Millisecond,
+		"the refused round was never delivered")
 	elems := h.finish()
 
 	assert.Equal(t, []string{"assistant:calls c1",
@@ -392,7 +400,7 @@ func TestDuplexToolExchange_CallOpenedAfterTheSessionEndedIsCompleted(t *testing
 // first element downstream does not take: a call message that cannot be sent
 // takes its results with it.
 func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
-	var o toolExchangeOrder
+	o := toolExchangeOrder{sendTimeout: testSendTimeout}
 	out := make(chan StreamElement, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	first := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
@@ -408,8 +416,8 @@ func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
 	cancel()
 
 	start := time.Now()
-	o.closeOut(ctx, out, newCloseDeadline())
-	assert.Less(t, time.Since(start), 2*partialResponseSendTimeout, "bounded in total, not per element")
+	o.closeOut(ctx, out, o.newDeadline())
+	assert.Less(t, time.Since(start), 2*testSendTimeout, "bounded in total, not per element")
 	close(out)
 	var got []StreamElement
 	for e := range out {
@@ -419,12 +427,62 @@ func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
 		"no result is sent for a call message that was not")
 }
 
+// closeOut ends at the first element downstream does not take, wherever it
+// is: what reaches downstream is always a prefix of the close-out, so a
+// refusal never follows a call message that was not sent, nor a later element
+// one that was dropped. The deadline has passed and output has room for
+// everything, so each send is taken or not at random (ctx is canceled, and
+// select picks among ready cases at random); repeated so the first element
+// missed falls at many places.
+func TestToolExchangeOrder_CloseOutStopsAtTheFirstElementNotTaken(t *testing.T) {
+	want := []string{"tool:c1=" + sessionClosedRefusal}
+	for i := 2; i <= 6; i++ {
+		id := "c" + string(rune('0'+i))
+		want = append(want, "user:u"+id, "assistant:calls "+id, "tool:"+id+"="+sessionClosedRefusal)
+	}
+	gaps := 0
+	for run := 0; run < 50; run++ {
+		o := toolExchangeOrder{sendTimeout: testSendTimeout}
+		ctx, cancel := context.WithCancel(context.Background())
+		sink := make(chan StreamElement, 1)
+		first := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+		first.Meta.ToolCallsRunning = true
+		require.NoError(t, o.send(ctx, first, sink, sendMode{}))
+		for i := 2; i <= 6; i++ {
+			id := "c" + string(rune('0'+i))
+			require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u" + id}}, sink, sendMode{}))
+			call := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall(id)}}}
+			call.Meta.ToolCallsRunning = true
+			require.NoError(t, o.send(ctx, call, sink, sendMode{}))
+		}
+		cancel()
+		d := newCloseDeadline(time.Nanosecond)
+		<-d.done() // passed: a send not taken at once is not taken
+
+		out := make(chan StreamElement, len(want)) // always ready to take a send
+		o.closeOut(ctx, out, d)
+		close(out)
+		var taken []StreamElement
+		for e := range out {
+			taken = append(taken, e)
+		}
+
+		got := append([]string{}, transcriptOf(taken)...) // non-nil, to compare with an empty prefix
+		require.LessOrEqual(t, len(got), len(want), "run %d", run)
+		assert.Equal(t, want[:len(got)], got, "run %d: what is sent is a prefix of the close-out", run)
+		if len(got) < len(want) {
+			gaps++
+		}
+	}
+	assert.Positive(t, gaps, "some runs stopped before the end, so the stop was exercised")
+}
+
 // Once the shared close deadline has passed, every later send with it gives
 // up at once, not only the first.
 func TestCloseDeadline_EverySendAfterItGivesUp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	d := newCloseDeadline()
+	d := newCloseDeadline(testSendTimeout)
 	full := make(chan StreamElement) // never read
 	mode := sendMode{recorded: true, deadline: d}
 	require.ErrorIs(t, sendElement(ctx, StreamElement{}, full, mode), context.Canceled)
@@ -432,13 +490,30 @@ func TestCloseDeadline_EverySendAfterItGivesUp(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		require.ErrorIs(t, sendElement(ctx, StreamElement{}, full, mode), context.Canceled)
 	}
-	assert.Less(t, time.Since(start), partialResponseSendTimeout/2)
+	assert.Less(t, time.Since(start), testSendTimeout/2)
+}
+
+// A recorded element sent with no shared deadline is given the order's send
+// timeout once the context is canceled: it gives up after that, not after the
+// production timeout.
+func TestToolExchangeOrder_RecordedSendGetsTheOrdersTimeout(t *testing.T) {
+	o := toolExchangeOrder{sendTimeout: testSendTimeout}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	full := make(chan StreamElement) // never read
+	start := time.Now()
+	err := o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u"}}, full,
+		sendMode{recorded: true})
+	elapsed := time.Since(start)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.GreaterOrEqual(t, elapsed, testSendTimeout, "the recorded element was given its timeout")
+	assert.Less(t, elapsed, partialResponseSendTimeout, "the order's timeout, not the production one")
 }
 
 // The close deadline bounds closeOut as a whole: a downstream that takes each
 // element just inside the timeout does not stretch it to one timeout each.
 func TestToolExchangeOrder_CloseOutDeadlineIsShared(t *testing.T) {
-	var o toolExchangeOrder
+	o := toolExchangeOrder{sendTimeout: testSendTimeout}
 	out := make(chan StreamElement)
 	ctx, cancel := context.WithCancel(context.Background())
 	call := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
@@ -456,16 +531,16 @@ func TestToolExchangeOrder_CloseOutDeadlineIsShared(t *testing.T) {
 			select {
 			case <-out:
 				n++
-			case <-time.After(3 * partialResponseSendTimeout):
+			case <-time.After(3 * testSendTimeout):
 				taken <- n
 				return
 			}
-			time.Sleep(partialResponseSendTimeout * 2 / 5)
+			time.Sleep(testSendTimeout * 2 / 5)
 		}
 	}()
 
 	start := time.Now()
-	o.closeOut(ctx, out, newCloseDeadline())
-	assert.Less(t, time.Since(start), partialResponseSendTimeout*3/2, "one timeout in all")
+	o.closeOut(ctx, out, o.newDeadline())
+	assert.Less(t, time.Since(start), testSendTimeout*3/2, "one timeout in all")
 	assert.Less(t, <-taken, 7, "what was not taken in time is dropped")
 }
