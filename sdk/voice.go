@@ -178,10 +178,10 @@ func (c *Conversation) Start(ctx context.Context) error {
 	// The pumps stopping does not stop the pipeline: a model or TTS call in
 	// flight, and the audio queued behind it, would run on until they ended
 	// or the idle timeout fired (#2847). Stop the session with them; Close
-	// still runs the session evals and releases the rest.
-	c.mu.Lock()
+	// still runs the session evals and releases the rest. The wait does not
+	// hold c.mu: a session hook the stopping session runs may call back into
+	// the conversation.
 	_ = c.stopDuplexSession()
-	c.mu.Unlock()
 
 	select {
 	case err = <-errCh:

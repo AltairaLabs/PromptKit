@@ -103,29 +103,85 @@ type duplexTurnHarness struct {
 	turnEval *stepRecordingHandler
 	sessEval *stepRecordingHandler
 	hook     *updateRecordingHook
+	guard    *turnIndexHook
 }
+
+// turnIndexHook is a guardrail that allows everything and records the turn
+// index of each completed reply it judges (AfterCall), with the reply's text.
+type turnIndexHook struct {
+	mu      sync.Mutex
+	replies []guardedReply
+}
+
+type guardedReply struct {
+	TurnIndex int
+	Text      string
+}
+
+func (h *turnIndexHook) Name() string { return "turn-index" }
+func (h *turnIndexHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
+	return hooks.Allow
+}
+func (h *turnIndexHook) AfterCall(_ context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.replies = append(h.replies, guardedReply{TurnIndex: req.TurnIndex, Text: resp.Message.GetContent()})
+	return hooks.Allow
+}
+
+// indices returns the turn index of each reply the guardrail judged, in order.
+func (h *turnIndexHook) indices() []int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []int
+	for _, r := range h.replies {
+		out = append(out, r.TurnIndex)
+	}
+	return out
+}
+
+// lateTranscriptProvider is heardEvalProvider for a provider that delivers
+// the caller's transcript after the reply to it (as OpenAI Realtime does).
+type lateTranscriptProvider struct{ heardEvalProvider }
+
+func (p *lateTranscriptProvider) EmitsLateInputTranscription() bool { return true }
 
 func openDuplexTurnHarness(t *testing.T, extra ...Option) *duplexTurnHarness {
 	t.Helper()
+	sess := mock.NewMockStreamSession()
+	return openDuplexTurnHarnessOn(t,
+		&heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false), sess: sess}, sess,
+		&providers.StreamingInputConfig{Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio}},
+		extra...)
+}
+
+// openDuplexTurnHarnessOn is openDuplexTurnHarness on prov, whose sessions
+// are sess, opened with cfg.
+func openDuplexTurnHarnessOn(
+	t *testing.T, prov providers.Provider, sess *mock.MockStreamSession, cfg *providers.StreamingInputConfig,
+	extra ...Option,
+) *duplexTurnHarness {
+	t.Helper()
 	bus, col, registry, _ := newStepEvalHarness(t)
 	h := &duplexTurnHarness{
-		sess:     mock.NewMockStreamSession(),
+		sess:     sess,
 		col:      col,
 		turnEval: &stepRecordingHandler{typeName: "duplex_turn_stub"},
 		sessEval: &stepRecordingHandler{typeName: "duplex_sess_stub"},
 		hook:     &updateRecordingHook{},
+		guard:    &turnIndexHook{},
 	}
 	registry.Register(h.turnEval)
 	registry.Register(h.sessEval)
 	opts := append([]Option{
 		WithSkipSchemaValidation(),
-		WithProvider(&heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false), sess: h.sess}),
+		WithProvider(prov),
 		WithStateStore(statestore.NewMemoryStore()),
 		WithEvalRegistry(registry),
 		WithEventBus(bus),
 		WithSessionHook(h.hook),
-		WithStreamingConfig(&providers.StreamingInputConfig{
-			Config: types.StreamingMediaConfig{Type: types.ContentTypeAudio}}),
+		WithProviderHook(h.guard),
+		WithStreamingConfig(cfg),
 	}, extra...)
 	conv, err := OpenDuplex(writeWorkflowTestPack(t, duplexTurnEvalPackJSON), "chat", opts...)
 	require.NoError(t, err)
@@ -226,6 +282,7 @@ func TestDuplexTurnEvals_ToolRoundIsOneTurn(t *testing.T) {
 	})
 	assert.Equal(t, []int{0}, h.turnEvals(t, 1),
 		"a tool round does not advance the caller's turn")
+	assert.Equal(t, []int{0, 0}, h.guard.indices(), "the guardrails place both replies in the caller's turn")
 	require.Len(t, h.hook.seen(), 1)
 	assert.Equal(t, 1, h.hook.seen()[0].TurnIndex)
 	seen := h.turnEval.transcripts()
@@ -293,6 +350,7 @@ func TestDuplexTurnEvals_VADModeRunsPerTurn(t *testing.T) {
 			registry.Register(turnEval)
 			registry.Register(&stepRecordingHandler{typeName: "duplex_sess_stub"})
 			hook := &updateRecordingHook{}
+			guard := &turnIndexHook{}
 			store := statestore.NewMemoryStore()
 			var earlier []string
 			if tc.prior != nil {
@@ -308,6 +366,7 @@ func TestDuplexTurnEvals_VADModeRunsPerTurn(t *testing.T) {
 				WithEvalRegistry(registry),
 				WithEventBus(bus),
 				WithSessionHook(hook),
+				WithProviderHook(guard),
 				WithVADMode(&convMockSTTService{}, newConvMockTTSService(), vadTestConfig()),
 			)
 			require.NoError(t, err)
@@ -328,6 +387,7 @@ func TestDuplexTurnEvals_VADModeRunsPerTurn(t *testing.T) {
 			}
 			sort.Ints(idx)
 			assert.Equal(t, tc.want, idx)
+			assert.Equal(t, tc.want, guard.indices(), "the guardrails place each turn where its evals do")
 			assert.Equal(t, [][]string{
 				append(append([]string(nil), earlier...), "one", "ack"),
 				append(append([]string(nil), earlier...), "one", "ack", "two", "ack"),
@@ -606,31 +666,6 @@ func TestDuplexTurnEvals_CloseDoesNotHangOnAStuckUpdate(t *testing.T) {
 	assert.Less(t, time.Since(start), 5*time.Second, "Close waited past its bound")
 }
 
-// With the provider's own transcript order (no reordering), the caller's
-// transcript arrives after the reply to it. The turn's evals and
-// OnSessionUpdate wait for it, so they see the caller's words and the reply.
-func TestDuplexTurnEvals_WaitForALateCallerTranscript(t *testing.T) {
-	h := openDuplexTurnHarness(t)
-	convDrain(t, h.conv)
-
-	require.NoError(t, h.conv.SendChunk(context.Background(), &providers.StreamChunk{
-		MediaData: &providers.StreamMediaData{Data: make([]byte, 320), MIMEType: "audio/pcm"}}))
-	require.Eventually(t, func() bool { return len(h.sess.GetChunks()) == 1 }, 2*time.Second, 2*time.Millisecond)
-	h.sess.EmitChunk(&providers.StreamChunk{Delta: "Sure.", Metadata: map[string]any{"type": "output_transcription"}})
-	stop := "stop"
-	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
-	time.Sleep(50 * time.Millisecond)
-	h.sess.EmitChunk(&providers.StreamChunk{Metadata: map[string]any{
-		"type": "input_transcription", "transcription": "hello there", "transcription_final": true}})
-
-	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
-	seen := h.turnEval.transcripts()
-	require.Len(t, seen, 1)
-	assert.ElementsMatch(t, []string{"hello there", "Sure."}, seen[0])
-	require.Len(t, h.hook.seen(), 1)
-	assert.ElementsMatch(t, []string{"hello there", "Sure."}, h.hook.seen()[0].Transcript)
-}
-
 // A reply the provider reports cut short by an interruption on the chunk
 // carrying its partial text (Gemini Live's shape) ends its turn on Response(),
 // as a reply the provider ends with an interrupted finish (OpenAI Realtime's)
@@ -663,4 +698,261 @@ func TestDuplexTurnEvals_InterruptedReplyEndsItsTurnOnResponse(t *testing.T) {
 		assert.Failf(t, "a second turn end", "finish %q", fr)
 	case <-time.After(100 * time.Millisecond):
 	}
+}
+
+// caller audio is one chunk of the caller's audio.
+var callerAudio = &providers.StreamChunk{MediaData: &providers.StreamMediaData{
+	Data: make([]byte, 3200), MIMEType: "audio/pcm", SampleRate: 16000, Channels: 1}}
+
+// speak sends one chunk of caller audio and waits until the session has it,
+// the nth chunk it got.
+func (h *duplexTurnHarness) speak(t *testing.T, n int) {
+	t.Helper()
+	require.NoError(t, h.conv.SendChunk(context.Background(), callerAudio))
+	require.Eventually(t, func() bool { return len(h.sess.GetChunks()) >= n }, 2*time.Second, 2*time.Millisecond)
+}
+
+// The turn index counts the caller's turns, whether or not a transcript of
+// them is ever stored: spoken turns with no transcript are turns 0, 1, 2, for
+// the turn evals, the guardrails and the session evals alike, and nothing
+// waits for a transcript that is not coming.
+func TestDuplexTurnIndex_SpokenTurnsWithoutTranscripts(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+	for i := 0; i < 3; i++ {
+		h.speak(t, i+1)
+		start := time.Now()
+		h.reply("Reply.")
+		require.Eventually(t, func() bool { return len(h.col.byTrigger(evals.TriggerEveryTurn)) == i+1 },
+			time.Second, 2*time.Millisecond, "turn %d was not reported at once", i)
+		assert.Less(t, time.Since(start), 500*time.Millisecond)
+	}
+	assert.Equal(t, []int{0, 1, 2}, h.turnEvals(t, 3))
+	assert.Equal(t, []int{0, 1, 2}, h.guard.indices())
+	require.NoError(t, h.conv.Close())
+	require.Eventually(t, func() bool { return len(h.col.byTrigger(evals.TriggerOnSessionComplete)) == 1 },
+		5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, 2, h.col.byTrigger(evals.TriggerOnSessionComplete)[0].TurnIndex)
+}
+
+// A provider that delivers transcripts late, with transcription off, sends
+// none: its turns are counted and reported at once.
+func TestDuplexTurnIndex_TranscriptionOffDoesNotWait(t *testing.T) {
+	sess := mock.NewMockStreamSession()
+	prov := &lateTranscriptProvider{heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false),
+		sess: sess}}
+	h := openDuplexTurnHarnessOn(t, prov, sess, &providers.StreamingInputConfig{
+		Config:   types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		Metadata: map[string]any{"input_transcription": false, "input_transcript_ordering": "passthrough"},
+	})
+	convDrain(t, h.conv)
+	for i := 0; i < 2; i++ {
+		h.speak(t, i+1)
+		start := time.Now()
+		h.reply("Reply.")
+		require.Eventually(t, func() bool { return len(h.col.byTrigger(evals.TriggerEveryTurn)) == i+1 },
+			time.Second, 2*time.Millisecond)
+		assert.Less(t, time.Since(start), 500*time.Millisecond, "nothing waits for a transcript")
+	}
+	assert.Equal(t, []int{0, 1}, h.turnEvals(t, 2))
+	assert.Equal(t, []int{0, 1}, h.guard.indices())
+}
+
+// A reply the model makes before the caller says anything (a greeting) is
+// turn 0, and the caller's first turn after it is turn 1.
+func TestDuplexTurnIndex_ModelGreetingFirst(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+	h.speak(t, 1) // opens the session; the model greets before the caller speaks
+	h.sess.EmitChunk(&providers.StreamChunk{Content: "Welcome!", Delta: "Welcome!"})
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
+	h.say(t, "hi", 1)
+	h.reply("Hello.")
+	assert.Equal(t, []int{0, 1}, h.turnEvals(t, 2))
+	assert.Equal(t, []int{0, 1}, h.guard.indices())
+}
+
+// A second reply to the same spoken input (no new caller input between) keeps
+// the turn's index, for the evals and the guardrails.
+func TestDuplexTurnIndex_SecondReplyToTheSameInput(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+	h.speak(t, 1)
+	h.reply("First part.")
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
+	h.reply("Second part.")
+	assert.Equal(t, []int{0, 0}, h.turnEvals(t, 2))
+	assert.Equal(t, []int{0, 0}, h.guard.indices())
+	h.speak(t, 2)
+	h.reply("Next.")
+	assert.Equal(t, []int{0, 0, 1}, h.turnEvals(t, 3))
+	assert.Equal(t, []int{0, 0, 1}, h.guard.indices())
+}
+
+// With the provider's own transcript order, a spoken turn's transcript
+// arrives after its reply: the turn waits for it, and the evals see both at
+// the turn's index, the guardrails' index.
+func TestDuplexTurnIndex_LateTranscriptIsWaitedFor(t *testing.T) {
+	sess := mock.NewMockStreamSession()
+	prov := &lateTranscriptProvider{heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false),
+		sess: sess}}
+	h := openDuplexTurnHarnessOn(t, prov, sess, &providers.StreamingInputConfig{
+		Config:   types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		Metadata: map[string]any{"input_transcription": true, "input_transcript_ordering": "passthrough"},
+	})
+	convDrain(t, h.conv)
+	h.speak(t, 1)
+	// The provider names the caller's input the reply answers, as OpenAI
+	// Realtime does once it has committed the caller's speech.
+	named := map[string]any{"type": "output_transcription", providers.ReplyToInputKey: "item-1"}
+	h.sess.EmitChunk(&providers.StreamChunk{Delta: "Sure.", Metadata: named})
+	stop := "stop"
+	h.sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop, Metadata: named})
+	time.Sleep(100 * time.Millisecond)
+	assert.Empty(t, h.col.byTrigger(evals.TriggerEveryTurn), "the turn waits for its transcript")
+	h.sess.EmitChunk(&providers.StreamChunk{Metadata: map[string]any{
+		"type": "input_transcription", "transcription": "hello there", "transcription_final": true,
+		providers.InputItemIDKey: "item-1"}})
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
+	seen := h.turnEval.transcripts()
+	require.Len(t, seen, 1)
+	assert.ElementsMatch(t, []string{"hello there", "Sure."}, seen[0])
+	assert.Equal(t, []int{0}, h.guard.indices())
+}
+
+// A resumed conversation goes on from the caller turns it stored.
+func TestDuplexTurnIndex_ResumeContinues(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	require.NoError(t, store.Save(context.Background(), &statestore.ConversationState{ID: "rt-1",
+		Messages: []types.Message{{Role: "user", Content: "a"}, {Role: "assistant", Content: "b"},
+			{Role: "user", Content: "c"}, {Role: "assistant", Content: "d"}}}))
+	h := openDuplexTurnHarness(t, WithStateStore(store), WithConversationID("rt-1"))
+	convDrain(t, h.conv)
+	h.say(t, "e", 1)
+	h.reply("f")
+	assert.Equal(t, []int{2}, h.turnEvals(t, 1))
+	h.speak(t, 1)
+	h.reply("g")
+	assert.Equal(t, []int{2, 3}, h.turnEvals(t, 2))
+	assert.Equal(t, []int{2, 3}, h.guard.indices())
+}
+
+// cancelingUpdateHook's OnSessionUpdate cancels Start's context, waits for
+// Start to begin stopping, then calls back into the conversation.
+type cancelingUpdateHook struct {
+	updateRecordingHook
+	cancel context.CancelFunc
+	conv   func() *Conversation
+}
+
+func (h *cancelingUpdateHook) OnSessionUpdate(ctx context.Context, e hooks.SessionEvent) error {
+	h.cancel()
+	time.Sleep(100 * time.Millisecond) // Start is stopping the session now
+	h.conv().SetVar("last_turn", "x")
+	return h.updateRecordingHook.OnSessionUpdate(ctx, e)
+}
+
+// A session hook that calls back into the conversation while Start stops the
+// session (its context canceled) does not hold Start up: Start does not keep
+// the conversation's lock while it waits for the session to stop.
+func TestDuplexTurnEvals_StartCancelLetsAHookTouchTheConversation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a voice session")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hook := &cancelingUpdateHook{cancel: cancel}
+	prov := mock.NewStreamingProvider("rt", "rt-model", false)
+	v := openVoiceUnderTest(t, ctx, WithProvider(prov), WithStreamingConfig(convDuplexAudio),
+		WithSessionHook(hook))
+	hook.conv = func() *Conversation { return v.conv }
+	require.Eventually(t, func() bool { return prov.GetSession() != nil }, 5*time.Second, time.Millisecond)
+	sess := prov.GetSession()
+	stop := "stop"
+	start := time.Now()
+	sess.EmitChunk(&providers.StreamChunk{Content: "Hello.", Delta: "Hello."})
+	sess.EmitChunk(&providers.StreamChunk{FinishReason: &stop})
+
+	select {
+	case err := <-v.startErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start did not return after its context was canceled")
+	}
+	took := time.Since(start)
+	require.Eventually(t, func() bool { return len(hook.calls()) == 1 }, 3*time.Second, 5*time.Millisecond)
+	assert.Less(t, took, 700*time.Millisecond, "Start waited on a hook that waited on Start's lock")
+}
+
+// A caller who barges in starts a turn of their own, even before any more of
+// their audio reaches the session: the reply after the interruption answers
+// it.
+func TestDuplexTurnIndex_BargeInStartsATurn(t *testing.T) {
+	h := openDuplexTurnHarness(t)
+	convDrain(t, h.conv)
+	h.say(t, "hi", 1)
+	h.reply("Hello there.")
+	h.say(t, "tell me a story", 2)
+	h.sess.EmitChunk(&providers.StreamChunk{Content: "Once upon", Delta: "Once upon"})
+	h.sess.EmitChunk(&providers.StreamChunk{Interrupted: true})
+	h.reply("Sure, what then?")
+	assert.Equal(t, []int{0, 1, 2}, h.turnEvals(t, 3))
+	assert.Equal(t, []int{0, 2}, h.guard.indices(), "the guardrails judge the completed replies")
+}
+
+// With a provider whose transcripts come late, only a spoken turn whose
+// transcript has not arrived waits for it: a typed turn, and a spoken one
+// whose transcript came before its reply, are reported at once.
+func TestDuplexTurnIndex_OnlyAnUntranscribedSpokenTurnWaits(t *testing.T) {
+	sess := mock.NewMockStreamSession()
+	prov := &lateTranscriptProvider{heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false),
+		sess: sess}}
+	h := openDuplexTurnHarnessOn(t, prov, sess, &providers.StreamingInputConfig{
+		Config:   types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		Metadata: map[string]any{"input_transcription": true, "input_transcript_ordering": "passthrough"},
+	})
+	convDrain(t, h.conv)
+	reportedAtOnce := func(n int) {
+		t.Helper()
+		start := time.Now()
+		require.Eventually(t, func() bool { return len(h.col.byTrigger(evals.TriggerEveryTurn)) == n },
+			time.Second, 2*time.Millisecond)
+		assert.Less(t, time.Since(start), 500*time.Millisecond)
+	}
+
+	h.say(t, "hi", 1)
+	h.reply("Hello.")
+	reportedAtOnce(1)
+
+	h.speak(t, 1)
+	h.sess.EmitChunk(&providers.StreamChunk{Metadata: map[string]any{
+		"type": "input_transcription", "transcription": "how are you", "transcription_final": true}})
+	time.Sleep(50 * time.Millisecond)
+	h.reply("Fine.")
+	reportedAtOnce(2)
+	assert.Equal(t, []int{0, 1}, h.turnEvals(t, 2))
+	assert.Equal(t, []int{0, 1}, h.guard.indices())
+}
+
+// With a provider whose transcripts come late, a reply before the caller has
+// said anything, and a reply known only from the caller's audio, wait for no
+// transcript.
+func TestDuplexTurnIndex_GreetingWithALateTranscriberDoesNotWait(t *testing.T) {
+	sess := mock.NewMockStreamSession()
+	prov := &lateTranscriptProvider{heardEvalProvider{StreamingProvider: mock.NewStreamingProvider("rt", "rt", false),
+		sess: sess}}
+	h := openDuplexTurnHarnessOn(t, prov, sess, &providers.StreamingInputConfig{
+		Config:   types.StreamingMediaConfig{Type: types.ContentTypeAudio},
+		Metadata: map[string]any{"input_transcription": true, "input_transcript_ordering": "passthrough"},
+	})
+	convDrain(t, h.conv)
+	h.speak(t, 1)
+	start := time.Now()
+	h.reply("Welcome!")
+	require.Eventually(t, func() bool { return len(h.col.byTrigger(evals.TriggerEveryTurn)) == 1 },
+		time.Second, 2*time.Millisecond)
+	assert.Less(t, time.Since(start), 500*time.Millisecond)
+	assert.Equal(t, []int{0}, h.turnEvals(t, 1))
 }

@@ -153,6 +153,17 @@ func openCueSession(t *testing.T, packPath string, prov *mock.StreamingProvider,
 	return &cueSession{conv: conv, sess: prov.GetSession(), ch: ch, store: store}
 }
 
+// speak sends the session a chunk of the caller's audio, a new caller turn
+// for the next reply to answer, and waits until the session has it.
+func (s *cueSession) speak(t *testing.T) {
+	t.Helper()
+	before := len(s.sess.GetChunks())
+	require.NoError(t, s.conv.SendChunk(context.Background(), &providers.StreamChunk{
+		MediaData: &providers.StreamMediaData{MIMEType: "audio/pcm", Data: make([]byte, 320)},
+	}))
+	require.Eventually(t, func() bool { return len(s.sess.GetChunks()) > before }, 5*time.Second, time.Millisecond)
+}
+
 // replyChunk is a reply chunk saying text, with replyAudio as its audio.
 func replyChunk(text string) *providers.StreamChunk {
 	return &providers.StreamChunk{Delta: text, Metadata: map[string]interface{}{"type": "output_transcription"},

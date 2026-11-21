@@ -126,7 +126,6 @@ func (s *DuplexProviderStage) nextVerdict() <-chan struct{} {
 // onVerdict acts on the oldest verdict still out, which came in while the
 // session went on.
 func (s *DuplexProviderStage) onVerdict(ctx context.Context, output chan<- StreamElement) error {
-	defer s.syncReplyStreaming()
 	v := s.pendingVerdicts[0]
 	s.pendingVerdicts = s.pendingVerdicts[1:]
 	return s.applyVerdict(ctx, v, output)

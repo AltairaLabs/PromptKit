@@ -262,8 +262,11 @@ func (h *playoutHold) release(ctx context.Context, output chan<- StreamElement, 
 		out := StreamElement{Message: msg, Timestamp: m.elem.Timestamp}
 		out.Meta.PlayoutRelease = true
 		out.Meta.PlayoutTurnEnd = m.elem.EndOfStream || m.elem.Meta.Interrupted
-		// A late caller transcript stays marked as the turn it answers.
+		// A late caller transcript stays marked as the turn it answers, and a
+		// reply keeps the caller turn it answers.
 		out.Meta.LateTranscript = m.elem.Meta.LateTranscript
+		out.Meta.CallerTurn = m.elem.Meta.CallerTurn
+		out.Meta.AwaitsTranscript = m.elem.Meta.AwaitsTranscript
 		h.fwd.forward(ctx, output, out)
 		if m.reply {
 			delete(h.audio, m.key)

@@ -117,6 +117,14 @@ func runObserver(t *testing.T, wait, pause time.Duration, elems ...stage.StreamE
 	return r.turns
 }
 
+// spokenReply ends a reply to a spoken caller turn whose transcript has not
+// arrived.
+func spokenReply() stage.StreamElement {
+	e := msgElem("assistant", true)
+	e.Meta.AwaitsTranscript = true
+	return e
+}
+
 func lateUser() stage.StreamElement {
 	e := msgElem("user", false)
 	e.Meta.LateTranscript = true
@@ -130,17 +138,25 @@ func TestTurnObserver_CallerFirstReportsAtOnce(t *testing.T) {
 	assert.Equal(t, []TurnRecord{{Stored: 2}}, got)
 }
 
-// A reply with no caller words before it waits for the caller's late
-// transcript and is reported over it.
+// A reply to a spoken turn whose transcript has not arrived waits for the
+// caller's late transcript and is reported over it; one that awaits none, or
+// carries its caller turn, is reported at once with that turn.
 func TestTurnObserver_WaitsForTheLateTranscript(t *testing.T) {
-	got := runObserver(t, time.Hour, 0, msgElem("assistant", true), lateUser())
+	got := runObserver(t, time.Hour, 0, spokenReply(), lateUser())
 	assert.Equal(t, []TurnRecord{{Stored: 2}}, got)
+
+	turn := 4
+	reply := msgElem("assistant", true)
+	reply.Meta.CallerTurn = &turn
+	assert.Equal(t, []int{1}, reportsAsForwarded(t, time.Hour, 0, reply), "a reply awaiting no transcript")
+	got = runObserver(t, time.Hour, 0, reply)
+	assert.Equal(t, []TurnRecord{{Stored: 1, Turn: 4, HasTurn: true}}, got)
 }
 
 // A late transcript that does not come within the wait leaves the turn
 // reported without it, and its arrival afterwards reports nothing more.
 func TestTurnObserver_ReportsWithoutATranscriptThatNeverCame(t *testing.T) {
-	got := runObserver(t, 20*time.Millisecond, 100*time.Millisecond, msgElem("assistant", true), lateUser())
+	got := runObserver(t, 20*time.Millisecond, 100*time.Millisecond, spokenReply(), lateUser())
 	assert.Equal(t, []TurnRecord{{Stored: 1}}, got)
 }
 
@@ -148,13 +164,13 @@ func TestTurnObserver_ReportsWithoutATranscriptThatNeverCame(t *testing.T) {
 // without them; a turn still waiting when the input ends is reported too.
 func TestTurnObserver_NextTurnReportsTheWaitingOne(t *testing.T) {
 	got := runObserver(t, time.Hour, 0,
-		msgElem("assistant", true), msgElem("user", false), msgElem("assistant", true))
+		spokenReply(), msgElem("user", false), msgElem("assistant", true))
 	assert.Equal(t, []TurnRecord{{Stored: 1}, {Stored: 3}}, got)
 
-	got = runObserver(t, time.Hour, 0, msgElem("assistant", true), msgElem("assistant", true))
+	got = runObserver(t, time.Hour, 0, spokenReply(), spokenReply())
 	assert.Equal(t, []TurnRecord{{Stored: 1}, {Stored: 2}}, got)
 
-	got = runObserver(t, time.Hour, 0, msgElem("assistant", true))
+	got = runObserver(t, time.Hour, 0, spokenReply())
 	assert.Equal(t, []TurnRecord{{Stored: 1}}, got)
 }
 
@@ -214,15 +230,14 @@ func reportsAsForwarded(t *testing.T, wait, pause time.Duration, elems ...stage.
 // caller's message counts as speaking: a tool result does not.
 func TestTurnObserver_WaitsOnlyWithoutNewCallerWords(t *testing.T) {
 	assert.Equal(t, []int{0, 1, 1},
-		reportsAsForwarded(t, time.Hour, 0, msgElem("user", false), msgElem("assistant", true),
-			msgElem("assistant", true)),
+		reportsAsForwarded(t, time.Hour, 0, msgElem("user", false), spokenReply(), spokenReply()),
 		"the first reply is reported at once; the second, with no new caller words, waits")
 	assert.Equal(t, []int{0, 1, 1},
 		reportsAsForwarded(t, 20*time.Millisecond, 60*time.Millisecond,
-			msgElem("assistant", true), lateUser(), msgElem("assistant", true)),
+			spokenReply(), lateUser(), spokenReply()),
 		"a late transcript after its turn was reported is not the next turn's words")
 	tool := msgElem("tool", false)
 	assert.Equal(t, []int{0, 0, 1},
-		reportsAsForwarded(t, time.Hour, 0, msgElem("assistant", true), tool, lateUser()),
+		reportsAsForwarded(t, time.Hour, 0, spokenReply(), tool, lateUser()),
 		"a tool result neither completes nor releases the waiting turn")
 }

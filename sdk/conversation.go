@@ -1005,7 +1005,7 @@ func (c *Conversation) buildStreamPipelineWithParams(
 	// pipeline has stored anything.
 	c.turnReports = newDuplexTurnReporter(c, storedMessageCount(store, conversationID))
 	pipelineCfg.TurnReporter = c.turnReports
-	pipelineCfg.LateTranscriptWait = duplexLateTranscriptWait
+	pipelineCfg.LateTranscriptWait = lateTranscriptWait(streamProvider, streamConfig)
 
 	// Add VAD mode configuration if present (duplex-only)
 	if c.config.vadModeConfig != nil && c.config.sttService != nil && c.config.ttsService != nil {
@@ -1066,16 +1066,16 @@ func (c *Conversation) buildStreamPipelineWithParams(
 // caller's turn (the reply to the tools' results does), so it runs nothing.
 // The hooks and the evals see the transcript's first upTo messages, the
 // turn's transcript: the store may already hold later messages (a reply
-// released with it). The turn evals report the turn's index from that
-// transcript (evalMiddleware.turnOf): its last caller turn.
+// released with it). The turn evals report the caller turn the provider
+// stage placed the reply in, the index its guardrails reported.
 //
 // A reply barge-in cut short is a completed turn: its evals see it as stored.
 // Cut while it still arrived, it holds the text the provider sent before the
 // cut; cut while it played (playout tracked), it keeps its full text, with
 // what the caller heard of it in Meta (heard_ms, played_fraction,
 // playout_cut). It runs on the pipeline's goroutine, after the save stage.
-func (c *Conversation) duplexTurnRecorded(ctx context.Context, continues bool, upTo int) {
-	if continues {
+func (c *Conversation) duplexTurnRecorded(ctx context.Context, turn intpipeline.TurnRecord, upTo int) {
+	if turn.Continues {
 		return
 	}
 	// The hooks and the evals' transcript read must not fail because the
@@ -1083,13 +1083,35 @@ func (c *Conversation) duplexTurnRecorded(ctx context.Context, continues bool, u
 	ctx = context.WithoutCancel(ctx)
 	c.sessionHooks.IncrementTurn()
 	c.sessionHooks.SessionUpdateUpTo(ctx, upTo)
-	c.evalMW.dispatchTurnEvalsUpTo(ctx, upTo)
+	index := -1
+	if turn.HasTurn {
+		index = turn.Turn
+	}
+	c.evalMW.dispatchTurnEvalsUpTo(ctx, upTo, index)
 }
 
 // duplexLateTranscriptWait is how long a duplex turn whose caller transcript
 // has not arrived yet waits for it before it is reported (see the pipeline's
 // turn observer). A var so tests need not wait it out.
 var duplexLateTranscriptWait = intpipeline.DefaultLateTranscriptWait
+
+// lateTranscriptWait is how long a duplex turn waits for a caller transcript
+// that has not arrived: duplexLateTranscriptWait for a provider that delivers
+// transcripts after the reply (providers.LateInputTranscriber) with
+// transcription not turned off, and no wait (-1) otherwise, where a transcript
+// that has not arrived by the reply's end is not coming.
+func lateTranscriptWait(prov providers.StreamInputSupport, cfg *providers.StreamingInputConfig) time.Duration {
+	lt, ok := prov.(providers.LateInputTranscriber)
+	if !ok || !lt.EmitsLateInputTranscription() {
+		return -1
+	}
+	if cfg != nil {
+		if on, set := cfg.Metadata["input_transcription"].(bool); set && !on {
+			return -1
+		}
+	}
+	return duplexLateTranscriptWait
+}
 
 // duplexTurnReporter is the conversation's intpipeline.TurnReporter: it runs
 // duplexTurnRecorded for each turn, on the transcript the session opened on
@@ -1112,7 +1134,7 @@ func (r *duplexTurnReporter) Begin() { r.begun.Store(true) }
 
 // TurnRecorded runs the turn's per-turn work over its transcript.
 func (r *duplexTurnReporter) TurnRecorded(ctx context.Context, turn intpipeline.TurnRecord) {
-	r.conv.duplexTurnRecorded(ctx, turn.Continues, r.prior+turn.Stored)
+	r.conv.duplexTurnRecorded(ctx, turn, r.prior+turn.Stored)
 }
 
 // End records that the turn observer has reported its last turn.
@@ -2098,8 +2120,8 @@ func (c *Conversation) awaitDuplexDone() {
 // queued audio is dropped, and a reply still held for playout is released,
 // with what was heard, into the transcript before Done closes. The wait is
 // bounded by the session's own teardown timeout. Stopping a session already
-// stopped is a no-op. Start uses it when its context is canceled. Caller
-// must hold c.mu.
+// stopped is a no-op. Start uses it when its context is canceled, without
+// c.mu: the session and its Done are safe to use concurrently.
 func (c *Conversation) stopDuplexSession() []error {
 	if c.mode != DuplexMode || c.duplexSession == nil {
 		return nil

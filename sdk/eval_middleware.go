@@ -12,7 +12,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -362,14 +361,20 @@ func hasTrigger(defs []evals.EvalDef, trigger evals.EvalTrigger) bool {
 // and it is what lines up with the message log. TurnState counts turns: its
 // TurnIndex (the 1-based turn on the text path, the turns persisted before a
 // realtime session opened) plus the turns that realtime session has completed,
-// so a session eval in either mode gets its last turn. A duplex conversation
-// reports the transcript's own caller turn instead (turnOf).
+// so a session eval in either mode gets its last turn. A duplex session that
+// has completed a turn reports the caller turn of the latest
+// (TurnState.CallerTurn), as its guardrails and turn evals did.
 //
 // dispatchCount (1 after the first dispatch) is only a fallback for a
 // conversation with no pipeline turn state. It counts dispatches in this
 // process, so it is wrong for a resumed conversation — it restarts at the first
 // turn while the transcript already holds earlier turns.
 func (em *evalMiddleware) reportedTurn(dispatchCount int32) int {
+	if em.conv != nil && em.conv.mode == DuplexMode {
+		if turn, ok := em.conv.turnState.CallerTurn(); ok {
+			return turn
+		}
+	}
 	if em.conv != nil {
 		if turns := em.conv.turnState.TurnIndex() + em.conv.turnState.SessionTurns(); turns > 0 {
 			return turns - 1
@@ -390,29 +395,17 @@ func (em *evalMiddleware) dispatchTurnEvals(ctx context.Context) {
 	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals, -1)
 }
 
-// dispatchTurnEvalsUpTo is dispatchTurnEvals against the first upTo messages
-// of the transcript, the turn's own: a duplex turn is reported after its
-// reply is stored, and the store may already hold later messages.
-// Nil-safe: no-op if middleware is nil.
-func (em *evalMiddleware) dispatchTurnEvalsUpTo(ctx context.Context, upTo int) {
+// dispatchTurnEvalsUpTo is dispatchTurnEvals for a duplex turn: against the
+// first upTo messages of the transcript, the turn's own (the turn is reported
+// after its reply is stored, and the store may already hold later messages),
+// reporting turn, the caller turn the provider stage placed it in (negative
+// when it placed none). Nil-safe: no-op if middleware is nil.
+func (em *evalMiddleware) dispatchTurnEvalsUpTo(ctx context.Context, upTo, turn int) {
 	if em == nil {
 		return
 	}
 	em.turnIndex.Add(1)
-	em.dispatchAsync(ctx, "turn", em.runner.RunTurnEvals, upTo)
-}
-
-// turnOf is the 0-based turn index an eval over msgs reports. A duplex
-// conversation's is the transcript's own: its last caller turn, counted as the
-// pipeline places a turn against the stored transcript (stage.CountUserTurns),
-// so a tool round or a second reply to the same words is the same turn, and a
-// resumed conversation goes on from the turns it stored. The text path
-// reports reportedTurn.
-func (em *evalMiddleware) turnOf(dispatchCount int32, msgs []types.Message) int {
-	if em.conv != nil && em.conv.mode == DuplexMode {
-		return max(stage.CountUserTurns(msgs)-1, 0)
-	}
-	return em.reportedTurn(dispatchCount)
+	em.dispatchAsyncAt(ctx, "turn", em.runner.RunTurnEvals, upTo, turn)
 }
 
 // recordWorkflowStep notes that a workflow state transition committed during
@@ -456,11 +449,25 @@ func (em *evalMiddleware) dispatchAsync(
 	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
 	upTo int,
 ) {
+	em.dispatchAsyncAt(ctx, kind, run, upTo, -1)
+}
+
+// dispatchAsyncAt is dispatchAsync reporting turn, when it is not negative,
+// in place of reportedTurn.
+func (em *evalMiddleware) dispatchAsyncAt(
+	ctx context.Context,
+	kind string,
+	run func(context.Context, []evals.EvalDef, *evals.EvalContext) []evals.EvalResult,
+	upTo, turn int,
+) {
 	if !em.startDispatch(kind) {
 		return
 	}
 
 	evalCtx := em.buildEvalContextAt(ctx, upTo)
+	if turn >= 0 {
+		evalCtx.TurnIndex = turn
+	}
 
 	// Use the middleware's lifecycle context so that close() can cancel
 	// in-flight evals. The middleware context is derived from
@@ -655,7 +662,7 @@ func (em *evalMiddleware) buildEvalContextAt(ctx context.Context, upTo int) *eva
 	msgs := firstMessages(em.cachedMessages, upTo)
 	evalCtx := evals.BuildEvalContext(
 		msgs,
-		em.turnOf(currentTurn, msgs),
+		em.reportedTurn(currentTurn),
 		em.cachedSessionID,
 		em.conv.promptName,
 		em.hostDefaultJudge(),

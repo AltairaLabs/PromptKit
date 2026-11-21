@@ -18,6 +18,10 @@ type TurnRecord struct {
 	// session opened on plus Stored is the turn's transcript, even when later
 	// messages are stored before the turn is reported.
 	Stored int
+	// Turn is the 0-based index of the caller turn the reply answers, as the
+	// provider stage placed it (ElementMetadata.CallerTurn), when HasTurn.
+	Turn    int
+	HasTurn bool
 }
 
 // TurnReporter is told about the replies of a duplex session as they enter
@@ -49,12 +53,14 @@ const DefaultLateTranscriptWait = 2 * time.Second
 // (IncrementalSaveConfig.FlushEachTurn), so the transcript holds the turn when
 // it is reported.
 //
-// A reply stored with no caller message since the last turn reported waits,
-// at most lateWait, for the caller's transcript: a provider that delivers it
-// late (OpenAI Realtime, without reordering) stores it after the reply
+// A reply to a spoken caller turn whose transcript has not arrived
+// (Meta.AwaitsTranscript), with no caller message stored since the last turn
+// reported, waits at most lateWait for it: a provider that delivers it late
+// (OpenAI Realtime, without reordering) stores it after the reply
 // (Meta.LateTranscript). The turn is reported when it arrives, so its
 // transcript holds the caller's words, or when the wait ends, another caller
-// message or turn arrives, or the input ends.
+// message or turn arrives, or the input ends. A lateWait of zero or less, for
+// a session whose transcripts never come late or not at all, never waits.
 type turnObserverStage struct {
 	stage.BaseStage
 	reporter TurnReporter
@@ -138,17 +144,23 @@ func (o *turnObservation) observe(ctx context.Context, elem *stage.StreamElement
 		}
 	}
 	ends, continues := endsRecordedTurn(elem)
+	if !ends {
+		return
+	}
+	turn := TurnRecord{Continues: continues, Stored: o.stored}
+	if t := elem.Meta.CallerTurn; t != nil {
+		turn.Turn, turn.HasTurn = *t, true
+	}
 	switch {
-	case !ends:
 	case continues:
-		o.reporter.TurnRecorded(ctx, TurnRecord{Continues: true, Stored: o.stored})
+		o.reporter.TurnRecorded(ctx, turn)
 	default:
 		o.reportPending(ctx)
-		if o.callerSpoke || o.lateWait <= 0 {
-			o.report(ctx, o.stored)
+		if !elem.Meta.AwaitsTranscript || o.callerSpoke || o.lateWait <= 0 {
+			o.report(ctx, turn)
 			return
 		}
-		o.pending = &TurnRecord{Stored: o.stored}
+		o.pending = &turn
 		o.deadline = time.Now().Add(o.lateWait)
 	}
 }
@@ -157,8 +169,10 @@ func (o *turnObservation) observe(ctx context.Context, elem *stage.StreamElement
 // turn waiting for it completes that turn; any other is the next turn's.
 func (o *turnObservation) callerMessage(ctx context.Context, late bool) {
 	if o.pending != nil && late {
+		turn := *o.pending
 		o.pending = nil
-		o.report(ctx, o.stored)
+		turn.Stored = o.stored
+		o.report(ctx, turn)
 		return
 	}
 	o.reportPending(ctx)
@@ -173,15 +187,15 @@ func (o *turnObservation) reportPending(ctx context.Context) {
 	if o.pending == nil {
 		return
 	}
-	stored := o.pending.Stored
+	turn := *o.pending
 	o.pending = nil
-	o.report(ctx, stored)
+	o.report(ctx, turn)
 }
 
-// report reports a completed turn over the first stored messages.
-func (o *turnObservation) report(ctx context.Context, stored int) {
+// report reports a completed turn.
+func (o *turnObservation) report(ctx context.Context, turn TurnRecord) {
 	o.callerSpoke = false
-	o.reporter.TurnRecorded(ctx, TurnRecord{Stored: stored})
+	o.reporter.TurnRecorded(ctx, turn)
 }
 
 // endsRecordedTurn reports whether elem ends a reply the transcript now holds,
