@@ -111,18 +111,20 @@ const (
 	kindData           = "data"
 )
 
+// v03File is 0.3's FileWithBytes or FileWithUri. Bytes is a pointer so that an
+// empty file still carries "bytes": without it the object is neither variant.
 type v03File struct {
-	Bytes    string `json:"bytes,omitempty"`
-	URI      string `json:"uri,omitempty"`
-	MimeType string `json:"mimeType,omitempty"`
-	Name     string `json:"name,omitempty"`
+	Bytes    *string `json:"bytes,omitempty"`
+	URI      string  `json:"uri,omitempty"`
+	MimeType string  `json:"mimeType,omitempty"`
+	Name     string  `json:"name,omitempty"`
 }
 
 // into copies a 0.3 file into p's 1.0 fields.
 func (f *v03File) into(p *Part) error {
 	switch {
-	case f.Bytes != "":
-		raw, err := base64.StdEncoding.DecodeString(f.Bytes)
+	case f.Bytes != nil && (*f.Bytes != "" || f.URI == ""):
+		raw, err := base64.StdEncoding.DecodeString(*f.Bytes)
 		if err != nil {
 			return fmt.Errorf("a2a: file part bytes: %w", err)
 		}
@@ -148,22 +150,37 @@ type v03Part struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+// A 0.3 data part's data is a JSON object, where 1.0's is any JSON value. A
+// value that is not an object goes to a 0.3 peer as {"value": v}, with
+// metadata data_part_compat set to true, and comes back unwrapped: the
+// convention of the official SDK's 0.3 compatibility layer (a2a-python
+// a2a/compat/v0_3/conversions.py), so either side reads the other's.
+const (
+	v03DataValueKey  = "value"
+	v03DataCompatKey = "data_part_compat"
+)
+
 func toV03Part(p *Part) v03Part {
 	out := v03Part{Metadata: p.Metadata}
 	switch {
 	case p.Raw != nil:
 		out.Kind = kindFile
-		out.File = &v03File{
-			Bytes:    base64.StdEncoding.EncodeToString(p.Raw),
-			MimeType: p.MediaType,
-			Name:     p.Filename,
-		}
+		encoded := base64.StdEncoding.EncodeToString(p.Raw)
+		out.File = &v03File{Bytes: &encoded, MimeType: p.MediaType, Name: p.Filename}
 	case p.URL != nil:
 		out.Kind = kindFile
 		out.File = &v03File{URI: *p.URL, MimeType: p.MediaType, Name: p.Filename}
-	case p.dataValue() != nil:
+	case p.Data != nil:
 		out.Kind = kindData
-		out.Data = p.dataValue()
+		out.Data = p.Data
+	case p.DataValue != nil:
+		out.Kind = kindData
+		out.Data = map[string]any{v03DataValueKey: p.DataValue}
+		out.Metadata = map[string]any{}
+		for k, v := range p.Metadata {
+			out.Metadata[k] = v
+		}
+		out.Metadata[v03DataCompatKey] = true
 	default:
 		out.Kind = kindText
 		text := ""
@@ -361,6 +378,49 @@ func (c *v03PushConfig) v1() *TaskPushNotificationConfig {
 		}
 	}
 	return out
+}
+
+// unwrapV03Data undoes toV03Part's wrapping of a data value that is not an
+// object: given a 0.3 data part's metadata and data, it returns the wrapped
+// value and the metadata without the compatibility flag. ok is false when the
+// part is not wrapped.
+func unwrapV03Data(metadata map[string]any, data json.RawMessage) (
+	value json.RawMessage, rest map[string]any, ok bool,
+) {
+	if flag, _ := metadata[v03DataCompatKey].(bool); !flag {
+		return nil, nil, false
+	}
+	var wrapped map[string]json.RawMessage
+	if json.Unmarshal(data, &wrapped) != nil {
+		return nil, nil, false
+	}
+	if value, ok = wrapped[v03DataValueKey]; !ok {
+		return nil, nil, false
+	}
+	for k, v := range metadata {
+		if k == v03DataCompatKey {
+			continue
+		}
+		if rest == nil {
+			rest = map[string]any{}
+		}
+		rest[k] = v
+	}
+	return value, rest, true
+}
+
+// MarshalJSON implements json.Marshaler in the A2A 1.0 shape. Blocking is
+// 0.3's switch and A2A 1.0 has no such field, so it is not written:
+// ProtoJSON parsers refuse fields they do not know unless told to discard
+// them. [ProtocolVersion.WireSendParams] carries it to a 0.3 peer, and
+// UnmarshalJSON still reads it from a 0.3 request.
+func (c SendMessageConfiguration) MarshalJSON() ([]byte, error) {
+	type plain SendMessageConfiguration
+	return json.Marshal(struct {
+		plain
+		// Blocking shadows plain.Blocking and is never set.
+		Blocking *bool `json:"blocking,omitempty"`
+	}{plain: plain(c)})
 }
 
 // UnmarshalJSON implements json.Unmarshaler. Besides 1.0's

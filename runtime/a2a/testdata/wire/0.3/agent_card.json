@@ -1,0 +1,56 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Recipe Agent",
+  "description": "Agent that helps users with recipes and cooking.",
+  "url": "https://recipes.example.com/a2a",
+  "preferredTransport": "JSONRPC",
+  "additionalInterfaces": [
+    {"url": "https://recipes.example.com/a2a", "transport": "JSONRPC"},
+    {"url": "https://recipes.example.com/grpc", "transport": "GRPC"}
+  ],
+  "iconUrl": "https://recipes.example.com/icon.png",
+  "provider": {"organization": "Example Kitchens", "url": "https://kitchens.example.com"},
+  "version": "0.9.1",
+  "documentationUrl": "https://recipes.example.com/docs",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "extensions": [
+      {"uri": "https://example.com/ext/units/v1", "description": "Units", "required": true, "params": {"system": "metric"}}
+    ]
+  },
+  "securitySchemes": {
+    "key": {"type": "apiKey", "description": "API key", "in": "header", "name": "X-API-Key"},
+    "bearer": {"type": "http", "scheme": "Bearer", "bearerFormat": "JWT"},
+    "oauth": {
+      "type": "oauth2",
+      "flows": {
+        "authorizationCode": {
+          "authorizationUrl": "https://id.example.com/authorize",
+          "tokenUrl": "https://id.example.com/token",
+          "scopes": {"read": "Read access"}
+        },
+        "clientCredentials": {"tokenUrl": "https://id.example.com/token", "scopes": {}}
+      },
+      "oauth2MetadataUrl": "https://id.example.com/.well-known/oauth-authorization-server"
+    },
+    "oidc": {"type": "openIdConnect", "openIdConnectUrl": "https://id.example.com/.well-known/openid-configuration"},
+    "mtls": {"type": "mutualTLS", "description": "Client certificate"}
+  },
+  "security": [{"oidc": ["openid"]}, {"key": [], "mtls": []}],
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "find-recipe",
+      "name": "Find recipe",
+      "description": "Finds recipes by ingredient.",
+      "tags": ["cooking"],
+      "examples": ["Something with leeks"],
+      "inputModes": ["text/plain"],
+      "outputModes": ["application/json"],
+      "security": [{"oidc": ["recipes.read"]}]
+    }
+  ],
+  "supportsAuthenticatedExtendedCard": true
+}

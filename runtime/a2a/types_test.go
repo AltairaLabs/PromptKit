@@ -360,7 +360,7 @@ func TestSendMessageRequest_RoundTrip(t *testing.T) {
 		Configuration: &SendMessageConfiguration{
 			AcceptedOutputModes: []string{"text"},
 			HistoryLength:       testutil.Ptr(10),
-			Blocking:            true,
+			ReturnImmediately:   true,
 		},
 	}
 
@@ -373,7 +373,7 @@ func TestSendMessageRequest_RoundTrip(t *testing.T) {
 	require.NotNil(t, got.Configuration)
 	assert.Equal(t, []string{"text"}, got.Configuration.AcceptedOutputModes)
 	assert.Equal(t, 10, *got.Configuration.HistoryLength)
-	assert.True(t, got.Configuration.Blocking)
+	assert.True(t, got.Configuration.ReturnImmediately)
 }
 
 func TestListTasksResponse_RoundTrip(t *testing.T) {

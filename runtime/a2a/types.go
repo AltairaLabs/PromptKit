@@ -273,7 +273,9 @@ type Part struct {
 
 // UnmarshalJSON implements json.Unmarshaler. Besides the A2A 1.0 shape it
 // accepts 0.3's kind-tagged parts: {"kind":"text"}, {"kind":"data"} and
-// {"kind":"file","file":{"bytes"|"uri",...}}.
+// {"kind":"file","file":{"bytes"|"uri",...}}. A 0.3 data part flagged
+// data_part_compat in its metadata carries a non-object value as
+// {"value": v}; it is unwrapped, and the flag dropped.
 func (p *Part) UnmarshalJSON(data []byte) error {
 	type plain Part
 	var wire struct {
@@ -287,6 +289,11 @@ func (p *Part) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = Part(wire.plain)
+	if wire.Kind == kindData {
+		if value, rest, ok := unwrapV03Data(p.Metadata, wire.Data); ok {
+			wire.Data, p.Metadata = value, rest
+		}
+	}
 	if err := p.setData(wire.Data); err != nil {
 		return err
 	}
@@ -539,7 +546,8 @@ type SendMessageRequest struct {
 // Blocking and ReturnImmediately are the same switch in two versions: A2A 0.3
 // sends blocking (default false), 1.0 sends returnImmediately (default false,
 // so 1.0 blocks by default). A server reads the one its caller's version
-// defines; see [SendMessageConfiguration.WaitsForCompletion].
+// defines; see [SendMessageConfiguration.WaitsForCompletion]. Marshaled, the
+// configuration is in the 1.0 shape and leaves Blocking out.
 type SendMessageConfiguration struct {
 	AcceptedOutputModes []string `json:"acceptedOutputModes,omitempty"`
 	HistoryLength       *int     `json:"historyLength,omitempty"`

@@ -59,10 +59,51 @@ func TestPart_EmptyDataObjectIsKept(t *testing.T) {
 	assert.JSONEq(t, `{"data":{}}`, string(out), "an empty object is still a data part")
 }
 
+// 0.3 types data as an object, so a value that is not one is wrapped the way
+// the official SDK's 0.3 compatibility layer wraps it, and unwrapped on the
+// way back in.
 func TestPart_V03DataValue(t *testing.T) {
-	v := toV03Part(&Part{DataValue: []any{1}})
+	v := toV03Part(&Part{DataValue: []any{1}, Metadata: map[string]any{"src": "tool"}})
 	assert.Equal(t, kindData, v.Kind)
-	assert.Equal(t, []any{1}, v.Data)
+	assert.Equal(t, map[string]any{"value": []any{1}}, v.Data)
+	assert.Equal(t, map[string]any{"src": "tool", "data_part_compat": true}, v.Metadata)
+
+	out, err := json.Marshal(v)
+	require.NoError(t, err)
+	var back Part
+	require.NoError(t, json.Unmarshal(out, &back))
+	assert.Equal(t, []any{1.0}, back.DataValue)
+	assert.Nil(t, back.Data)
+	assert.Equal(t, map[string]any{"src": "tool"}, back.Metadata)
+}
+
+func TestPart_V03DataCompatFlagWithoutWrapperIsKept(t *testing.T) {
+	var p Part
+	require.NoError(t, json.Unmarshal(
+		[]byte(`{"kind":"data","data":{"k":"v"},"metadata":{"data_part_compat":true}}`), &p))
+	assert.Equal(t, map[string]any{"k": "v"}, p.Data)
+	assert.Equal(t, map[string]any{"data_part_compat": true}, p.Metadata)
+}
+
+func TestPart_V03EmptyFileKeepsItsBytes(t *testing.T) {
+	out, err := json.Marshal(toV03Part(&Part{Raw: []byte{}, MediaType: "application/octet-stream"}))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"kind":"file","file":{"bytes":"","mimeType":"application/octet-stream"}}`, string(out))
+
+	var back Part
+	require.NoError(t, json.Unmarshal(out, &back))
+	assert.Equal(t, []byte{}, back.Raw)
+	assert.Nil(t, back.URL)
+}
+
+func TestSendMessageConfiguration_V1EncodingLeavesOutBlocking(t *testing.T) {
+	out, err := json.Marshal(SendMessageConfiguration{Blocking: true, ReturnImmediately: true})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"returnImmediately":true}`, string(out))
+
+	var back SendMessageConfiguration
+	require.NoError(t, json.Unmarshal([]byte(`{"blocking":true}`), &back))
+	assert.True(t, back.Blocking, "a 0.3 request's blocking is still read")
 }
 
 func TestClient_GetTaskWithNonObjectDataPart(t *testing.T) {

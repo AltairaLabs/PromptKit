@@ -1,0 +1,10 @@
+{
+  "artifactUpdate": {
+    "taskId": "task-7f3c",
+    "contextId": "ctx-91ab",
+    "artifact": {"artifactId": "art-1", "parts": [{"text": "chunk two"}]},
+    "append": true,
+    "lastChunk": true,
+    "metadata": {"seq": 2}
+  }
+}

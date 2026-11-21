@@ -1,0 +1,9 @@
+{
+  "tasks": [
+    {"id": "task-1", "contextId": "ctx-1", "status": {"state": "TASK_STATE_COMPLETED"}},
+    {"id": "task-2", "contextId": "ctx-1", "status": {"state": "TASK_STATE_REJECTED"}}
+  ],
+  "nextPageToken": "",
+  "pageSize": 20,
+  "totalSize": 2
+}

@@ -1,0 +1,10 @@
+{
+  "tenant": "acme",
+  "contextId": "ctx-91ab",
+  "status": "TASK_STATE_COMPLETED",
+  "pageSize": 20,
+  "pageToken": "next-2",
+  "historyLength": 5,
+  "statusTimestampAfter": "2026-11-01T00:00:00Z",
+  "includeArtifacts": true
+}
