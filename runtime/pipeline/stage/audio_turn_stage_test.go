@@ -1,6 +1,7 @@
 package stage_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -162,6 +163,7 @@ func TestAudioTurnStage_MaxTurnDuration(t *testing.T) {
 	config := stage.DefaultAudioTurnConfig()
 	config.MaxTurnDuration = 100 * time.Millisecond
 	config.SilenceDuration = 10 * time.Second // Won't trigger
+	config.MinSpeechDuration = 20 * time.Millisecond
 
 	mockVAD := &mockVADAnalyzer{
 		states: []audio.VADState{
@@ -190,16 +192,23 @@ func TestAudioTurnStage_MaxTurnDuration(t *testing.T) {
 		_ = s.Process(ctx, input, output)
 	}()
 
-	// Send 8 chunks; the stage times turns in audio, not wall time
+	// 8 chunks of 20ms of 16kHz audio (640 bytes each): 160ms of speech, past
+	// the 100ms max. Input stays open, so the turn can only end at the max,
+	// after exactly the first 5 chunks; the stage times turns in audio.
+	const chunkBytes = 640
+	var chunks [][]byte
 	for i := 0; i < 8; i++ {
-		input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+		chunk := bytes.Repeat([]byte{byte(i + 1)}, chunkBytes)
+		chunks = append(chunks, chunk)
+		input <- makeAudioElement(chunk, 16000)
 	}
-	close(input)
+	defer close(input)
 
 	select {
 	case elem := <-output:
 		require.NotNil(t, elem.Audio, "Expected audio output from max turn duration")
-		assert.NotEmpty(t, elem.Audio.Samples)
+		assert.Equal(t, bytes.Join(chunks[:5], nil), elem.Audio.Samples,
+			"the turn is cut at 100ms of audio, while input is still open")
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for max-turn-duration output")
 	}

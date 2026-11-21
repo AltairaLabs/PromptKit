@@ -489,6 +489,35 @@ func (h *realtimeHarness) finish() []StreamElement {
 	return elems
 }
 
+// A round delivered once the caller canceled the session's context, or one
+// the worker finished after it was stopped, is not sent to the session, even
+// before the stage has marked the session closed; with a live context and a
+// running worker the same round is sent.
+func TestDuplexTools_RoundDeliveredAfterCancelIsNotSent(t *testing.T) {
+	for _, tc := range []struct{ canceled, stopped bool }{{false, false}, {true, false}, {false, true}} {
+		p := &realtimeToolProvider{StreamingProvider: providersmock.NewStreamingProvider("rt", "rt-model", false)}
+		_, err := p.CreateStreamSession(context.Background(), baseConfig())
+		require.NoError(t, err)
+		st := NewDuplexProviderStage(p, baseConfig())
+		st.SetToolExecution(newWeatherRegistry(t, &realtimeToolExec{result: json.RawMessage(`"ok"`)}), nil,
+			DuplexToolConfig{}, nil)
+		st.session = p.session()
+		ctx, cancel := context.WithCancel(context.Background())
+		if tc.canceled {
+			cancel()
+		}
+		responses := []providers.ToolResponse{{ToolCallID: "c1", Result: "ok"}}
+		st.sendToolRound(ctx, &duplexToolResult{closeSession: true, stopped: tc.stopped}, responses)
+		cancel()
+
+		if tc.canceled || tc.stopped {
+			assert.Empty(t, p.session().sentResponses(), "nothing is sent once the session is ending: %+v", tc)
+		} else {
+			assert.Equal(t, [][]providers.ToolResponse{responses}, p.session().sentResponses())
+		}
+	}
+}
+
 func toolCallTurn(calls ...types.MessageToolCall) []providers.StreamChunk {
 	fr := "tool_calls"
 	return []providers.StreamChunk{{ToolCalls: calls, FinishReason: &fr}}

@@ -283,6 +283,10 @@ func TestDuplexToolExchange_CallWhileTheSessionClosesIsRefusedAtOnce(t *testing.
 
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.settle()
+	// The refusal is a round the tool worker answers; let it be delivered
+	// before the session ends, or the session's end answers the call instead.
+	require.Eventually(t, func() bool { return !h.stage.tools.roundOutstanding() }, 2*time.Second, time.Millisecond,
+		"the refused round was never delivered")
 	elems := h.finish()
 
 	assert.Equal(t, []string{"assistant:calls c1",
@@ -421,6 +425,56 @@ func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
 	}
 	assert.Equal(t, []string{"tool:c1=" + sessionClosedRefusal}, transcriptOf(got),
 		"no result is sent for a call message that was not")
+}
+
+// closeOut ends at the first element downstream does not take, wherever it
+// is: what reaches downstream is always a prefix of the close-out, so a
+// refusal never follows a call message that was not sent, nor a later element
+// one that was dropped. The deadline has passed and output has room for
+// everything, so each send is taken or not at random (ctx is canceled, and
+// select picks among ready cases at random); repeated so the first element
+// missed falls at many places.
+func TestToolExchangeOrder_CloseOutStopsAtTheFirstElementNotTaken(t *testing.T) {
+	want := []string{"tool:c1=" + sessionClosedRefusal}
+	for i := 2; i <= 6; i++ {
+		id := "c" + string(rune('0'+i))
+		want = append(want, "user:u"+id, "assistant:calls "+id, "tool:"+id+"="+sessionClosedRefusal)
+	}
+	gaps := 0
+	for run := 0; run < 50; run++ {
+		o := toolExchangeOrder{sendTimeout: testSendTimeout}
+		ctx, cancel := context.WithCancel(context.Background())
+		sink := make(chan StreamElement, 1)
+		first := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+		first.Meta.ToolCallsRunning = true
+		require.NoError(t, o.send(ctx, first, sink, sendMode{}))
+		for i := 2; i <= 6; i++ {
+			id := "c" + string(rune('0'+i))
+			require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u" + id}}, sink, sendMode{}))
+			call := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall(id)}}}
+			call.Meta.ToolCallsRunning = true
+			require.NoError(t, o.send(ctx, call, sink, sendMode{}))
+		}
+		cancel()
+		d := newCloseDeadline(time.Nanosecond)
+		<-d.done() // passed: a send not taken at once is not taken
+
+		out := make(chan StreamElement, len(want)) // always ready to take a send
+		o.closeOut(ctx, out, d)
+		close(out)
+		var taken []StreamElement
+		for e := range out {
+			taken = append(taken, e)
+		}
+
+		got := append([]string{}, transcriptOf(taken)...) // non-nil, to compare with an empty prefix
+		require.LessOrEqual(t, len(got), len(want), "run %d", run)
+		assert.Equal(t, want[:len(got)], got, "run %d: what is sent is a prefix of the close-out", run)
+		if len(got) < len(want) {
+			gaps++
+		}
+	}
+	assert.Positive(t, gaps, "some runs stopped before the end, so the stop was exercised")
 }
 
 // Once the shared close deadline has passed, every later send with it gives
