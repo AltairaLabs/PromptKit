@@ -425,6 +425,9 @@ func (a *EventAdapter) run(
 
 	resp, err := start(ctx, st)
 	if err != nil {
+		// A stream that failed part-way leaves its message open; it ends
+		// before the error, so the client knows the text it has is all of it.
+		st.closeStreamedText()
 		st.finish(aguievents.NewRunErrorEvent(err.Error()))
 		return err
 	}
@@ -571,6 +574,12 @@ func (st *runState) emitTurn(resp *sdk.Response, skipLeadingResults bool) {
 			st.emitToolMessage(&msgs[i])
 		}
 	}
+	st.closeStreamedText()
+}
+
+// closeStreamedText ends any text message the streamed rounds left open, and
+// forgets the rounds.
+func (st *runState) closeStreamedText() {
 	for _, r := range st.rounds {
 		st.closeText(r)
 	}

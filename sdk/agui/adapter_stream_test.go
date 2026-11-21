@@ -318,8 +318,8 @@ func (p *failingStreamProvider) PredictStreamWithTools(
 	return out, nil
 }
 
-// A stream that fails part-way has sent the text so far, and ends the run
-// with RUN_ERROR.
+// A stream that fails part-way has sent the text so far, closes its message,
+// and ends the run with RUN_ERROR.
 func TestRunSend_ErrorMidStreamEndsTheRun(t *testing.T) {
 	provider := &failingStreamProvider{
 		ToolProvider: streamingProvider(),
@@ -338,7 +338,8 @@ func TestRunSend_ErrorMidStreamEndsTheRun(t *testing.T) {
 		"TEXT_MESSAGE_START m1",
 		"TEXT_MESSAGE_CONTENT m1 Partial ",
 		"TEXT_MESSAGE_CONTENT m1 answer",
-	}, got[:len(got)-1])
+		"TEXT_MESSAGE_END m1",
+	}, got[:len(got)-1], "the streamed message ends before the error")
 	assert.True(t, strings.HasPrefix(got[len(got)-1], "RUN_ERROR "), got[len(got)-1])
 	assert.Contains(t, got[len(got)-1], "connection reset")
 }
@@ -577,7 +578,8 @@ func TestRunSend_StreamWithoutAResponseIsAnError(t *testing.T) {
 
 	require.ErrorIs(t, err, errStreamIncomplete)
 	assert.Equal(t, []string{
-		"RUN_STARTED", "TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Hi", "RUN_ERROR " + errStreamIncomplete.Error(),
+		"RUN_STARTED", "TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Hi", "TEXT_MESSAGE_END m1",
+		"RUN_ERROR " + errStreamIncomplete.Error(),
 	}, describeRun(evts))
 }
 
@@ -617,6 +619,71 @@ func TestRunSend_StreamedRoundsTheResponseLacksAreClosed(t *testing.T) {
 		"TEXT_MESSAGE_START m2", "TEXT_MESSAGE_CONTENT m2 B",
 		"TEXT_MESSAGE_START m3", "TEXT_MESSAGE_CONTENT m3 B", "TEXT_MESSAGE_END m3",
 		"TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+}
+
+// A round that the turn goes on from without results (none came for its
+// calls) still ends with its calls: the next round's calls name the next
+// round's message, and each call is started once.
+func TestRunSend_RoundWithoutResultsStillEndsAtTheNextRound(t *testing.T) {
+	first := types.MessageToolCall{ID: "c1", Name: "lookup", Args: []byte(`{"id":"1"}`)}
+	also := types.MessageToolCall{ID: "c1b", Name: "lookup", Args: []byte(`{"id":"1b"}`)}
+	second := types.MessageToolCall{ID: "c2", Name: "lookup", Args: []byte(`{"id":"2"}`)}
+	sender := &chunkSender{mockSender: &mockSender{}, chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkText, Text: "A"},
+		{Type: sdk.ChunkToolCall, ToolCall: &first, Round: 1},
+		{Type: sdk.ChunkToolCall, ToolCall: &also, Round: 1},
+		{Type: sdk.ChunkToolCall, ToolCall: &second, Round: 2},
+		{Type: sdk.ChunkText, Text: "B"},
+		{Type: sdk.ChunkDone, Message: sdk.NewResponseForTest("B", nil, sdk.WithTurnMessagesForTest([]types.Message{
+			{Role: roleAssistant, Content: "A", ToolCalls: []types.MessageToolCall{first, also}},
+			{Role: roleAssistant, ToolCalls: []types.MessageToolCall{second}},
+			assistantMsg("B"),
+		}))},
+	}}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{}), "hi")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 A", "TEXT_MESSAGE_END m1",
+		"TOOL_CALL_START c1 lookup parent=m1", `TOOL_CALL_ARGS c1 {"id":"1"}`, "TOOL_CALL_END c1",
+		"TOOL_CALL_START c1b lookup parent=m1", `TOOL_CALL_ARGS c1b {"id":"1b"}`, "TOOL_CALL_END c1b",
+		"TOOL_CALL_START c2 lookup parent=m2", `TOOL_CALL_ARGS c2 {"id":"2"}`, "TOOL_CALL_END c2",
+		"TEXT_MESSAGE_START m3", "TEXT_MESSAGE_CONTENT m3 B", "TEXT_MESSAGE_END m3",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+}
+
+// A stream that does not number its rounds (Round 0) still splits them where
+// a round's results end.
+func TestRunSend_UnnumberedRoundsSplitAtTheirResults(t *testing.T) {
+	call := types.MessageToolCall{ID: "c1", Name: "lookup", Args: []byte(`{}`)}
+	result := types.MessageToolResult{ID: "c1", Parts: []types.ContentPart{types.NewTextPart("ok")}}
+	sender := &chunkSender{mockSender: &mockSender{}, chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkToolCall, ToolCall: &call},
+		{Type: sdk.ChunkToolResult, ToolResult: &result},
+		{Type: sdk.ChunkToolCall, ToolCall: &call},
+		{Type: sdk.ChunkToolResult, ToolResult: &result},
+		{Type: sdk.ChunkDone, Message: sdk.NewResponseForTest("", nil, sdk.WithTurnMessagesForTest([]types.Message{
+			{Role: roleAssistant, ToolCalls: []types.MessageToolCall{call}},
+			{Role: roleTool, ToolResult: &result},
+			{Role: roleAssistant, ToolCalls: []types.MessageToolCall{call}},
+			{Role: roleTool, ToolResult: &result},
+			assistantMsg("done"),
+		}))},
+	}}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{}), "hi")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TOOL_CALL_START c1 lookup parent=m1", "TOOL_CALL_ARGS c1 {}", "TOOL_CALL_END c1", "TOOL_CALL_RESULT c1 ok",
+		"TOOL_CALL_START c1 lookup parent=m2", "TOOL_CALL_ARGS c1 {}", "TOOL_CALL_END c1", "TOOL_CALL_RESULT c1 ok",
+		"TEXT_MESSAGE_START m3", "TEXT_MESSAGE_CONTENT m3 done", "TEXT_MESSAGE_END m3",
 		"RUN_FINISHED",
 	}, describeRun(evts))
 }

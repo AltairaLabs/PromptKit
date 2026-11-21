@@ -587,6 +587,7 @@ Mock response from mock model mock-model
 - [type StreamEvent](<#StreamEvent>)
 - [type StreamEventHandler](<#StreamEventHandler>)
 - [type TextDeltaEvent](<#TextDeltaEvent>)
+- [type ToolApprovalEvent](<#ToolApprovalEvent>)
 - [type ToolCall](<#ToolCall>)
 - [type ToolDescriptorPatchFn](<#ToolDescriptorPatchFn>)
 - [type ToolError](<#ToolError>)
@@ -1406,7 +1407,7 @@ type CapabilityContext struct {
 ```
 
 <a name="ChunkType"></a>
-## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L58>)
+## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L64>)
 
 ChunkType identifies the type of a streaming chunk.
 
@@ -1447,7 +1448,7 @@ const (
 ```
 
 <a name="ChunkType.String"></a>
-### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L89>)
+### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L95>)
 
 ```go
 func (t ChunkType) String() string
@@ -2172,7 +2173,7 @@ conv.OnClientTools(map[string]sdk.ClientToolHandler{
 ```
 
 <a name="Conversation.OnStreamEvent"></a>
-### func \(\*Conversation\) [OnStreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L70>)
+### func \(\*Conversation\) [OnStreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L82>)
 
 ```go
 func (c *Conversation) OnStreamEvent(handler StreamEventHandler)
@@ -2189,6 +2190,8 @@ conv.OnStreamEvent(func(event sdk.StreamEvent) {
         fmt.Print(e.Delta)
     case sdk.ClientToolRequestEvent:
         fmt.Printf("Tool %s needs fulfillment\n", e.ToolName)
+    case sdk.ToolApprovalEvent:
+        fmt.Printf("Tool %s awaits approval\n", e.Tool.Name)
     case sdk.StreamDoneEvent:
         fmt.Println("\nDone!")
     }
@@ -3118,7 +3121,7 @@ Start runs the bound audio session: it feeds every microphone source into the pi
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
 <a name="Conversation.Stream"></a>
-### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L154>)
+### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L162>)
 
 ```go
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
@@ -3228,7 +3231,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.StreamRaw"></a>
-### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L656>)
+### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L668>)
 
 ```go
 func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error)
@@ -3246,7 +3249,7 @@ err := stream.Process(ctx, conv, "Hello", func(chunk stream.Chunk) error {
 ```
 
 <a name="Conversation.StreamWithCallback"></a>
-### func \(\*Conversation\) [StreamWithCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L84>)
+### func \(\*Conversation\) [StreamWithCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L96>)
 
 ```go
 func (c *Conversation) StreamWithCallback(ctx context.Context, message any, opts ...SendOption) (*Response, error)
@@ -7556,7 +7559,7 @@ func (r *StaticMCPEndpointResolver) Resolve(_ string) MCPEndpoint
 Resolve returns the static endpoint for any server name.
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L55>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L61>)
 
 StreamChunk represents a single chunk in a streaming response.
 
@@ -7583,6 +7586,12 @@ type StreamChunk struct {
     // ChunkToolResult type).
     ToolResult *types.MessageToolResult
 
+    // Round is the tool round of the turn a ChunkToolCall or ChunkToolResult
+    // belongs to, counted from 1 within one Stream or ResumeStream. Calls with
+    // the same Round were made by one model reply; a new Round is a new reply,
+    // even when no result came between them.
+    Round int
+
     // Media content (for ChunkMedia type)
     Media *providers.StreamMediaData
 
@@ -7601,7 +7610,7 @@ type StreamChunk struct {
 ```
 
 <a name="StreamDoneEvent"></a>
-## type [StreamDoneEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L45-L48>)
+## type [StreamDoneEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L55-L58>)
 
 StreamDoneEvent is emitted when the stream completes.
 
@@ -7624,7 +7633,7 @@ type StreamEvent interface {
 ```
 
 <a name="StreamEventHandler"></a>
-## type [StreamEventHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L53>)
+## type [StreamEventHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L63>)
 
 StreamEventHandler is called for each event during streaming.
 
@@ -7645,6 +7654,18 @@ type TextDeltaEvent struct {
     // in this turn (StreamChunk.ReplacesText): discard what was shown and
     // show Delta instead.
     ReplacesText bool
+}
+```
+
+<a name="ToolApprovalEvent"></a>
+## type [ToolApprovalEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L47-L50>)
+
+ToolApprovalEvent is emitted, before StreamDoneEvent, for each call an OnToolAsync check holds for approval: the turn is paused, not finished. Resolve the call with ResolveTool or RejectTool, then Continue.
+
+```go
+type ToolApprovalEvent struct {
+    // Tool is the held call, as Response.PendingTools reports it.
+    Tool PendingTool
 }
 ```
 

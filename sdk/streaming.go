@@ -38,6 +38,12 @@ type StreamChunk struct {
 	// ChunkToolResult type).
 	ToolResult *types.MessageToolResult
 
+	// Round is the tool round of the turn a ChunkToolCall or ChunkToolResult
+	// belongs to, counted from 1 within one Stream or ResumeStream. Calls with
+	// the same Round were made by one model reply; a new Round is a new reply,
+	// even when no result came between them.
+	Round int
+
 	// Media content (for ChunkMedia type)
 	Media *providers.StreamMediaData
 
@@ -115,6 +121,8 @@ type streamState struct {
 	// approval (Response.PendingTools), kept apart from client tools as Send
 	// keeps them.
 	heldTools []PendingTool
+	// round counts the tool rounds the stream has reported (Round).
+	round int
 }
 
 // accumulatedContent returns the accumulated content as a string.
@@ -494,7 +502,7 @@ func (c *Conversation) emitStreamChunk(
 		copy(state.lastToolCalls, chunk.ToolCalls)
 	}
 
-	emitRoundMessages(ctx, chunk.RoundMessages, outCh)
+	emitRoundMessages(ctx, chunk.RoundMessages, outCh, state)
 
 	if chunk.FinishReason != nil && *chunk.FinishReason == "pending_tools" && len(chunk.PendingTools) > 0 {
 		c.emitSuspendedTools(ctx, chunk.PendingTools, outCh, state)
@@ -527,17 +535,21 @@ func (c *Conversation) emitSuspendedTools(
 
 // emitRoundMessages forwards a tool round the pipeline reported: a
 // ChunkToolCall for each call an assistant message made, and a
-// ChunkToolResult for each tool result.
-func emitRoundMessages(ctx context.Context, msgs []types.Message, outCh chan<- StreamChunk) {
+// ChunkToolResult for each tool result. Each assistant message starts the
+// stream's next round.
+func emitRoundMessages(ctx context.Context, msgs []types.Message, outCh chan<- StreamChunk, state *streamState) {
 	for i := range msgs {
 		msg := &msgs[i]
+		if len(msg.ToolCalls) > 0 {
+			state.round++
+		}
 		for j := range msg.ToolCalls {
 			call := msg.ToolCalls[j]
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &call})
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &call, Round: state.round})
 		}
 		if msg.ToolResult != nil {
 			result := *msg.ToolResult
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolResult, ToolResult: &result})
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolResult, ToolResult: &result, Round: state.round})
 		}
 	}
 }

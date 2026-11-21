@@ -286,16 +286,19 @@ With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that tak
 
 #### A streamed turn reports its tool rounds, and the AG-UI adapter streams text
 
-`Stream` and `ResumeStream` now send each tool round as it happens: a `ChunkToolCall` for each call once the round's reply has streamed, and a new `ChunkToolResult` for each result the model is given. `ChunkToolCall` was documented but never sent. `RunSend` and `RunResume` on an `*sdk.Conversation` drive the turn through them, so text reaches an AG-UI client as the model streams it.
+`Stream` and `ResumeStream` now send each tool round as it happens: a `ChunkToolCall` for each call once the round's reply has streamed, and a new `ChunkToolResult` for each result the model is given. Both carry the new `StreamChunk.Round`, the round they belong to. `ChunkToolCall` was documented but never sent. `RunSend` and `RunResume` on an `*sdk.Conversation` drive the turn through them, so text reaches an AG-UI client as the model streams it.
 
 | If you | You will see | Change |
 |---|---|---|
 | Switch on `StreamChunk.Type` | `ChunkToolCall` chunks, and `ChunkToolResult` chunks with `ToolResult` set; neither carries `Text` | handle or skip them |
-| Stream a turn whose tool an `OnToolAsync` check holds | the hold in the `ChunkDone` response's `PendingTools()`, as `Send` reports it, and no `ChunkClientTool` for it | resolve it with `ResolveTool` or `RejectTool` and `Continue`, not `SendToolResult` |
+| Forward `Stream` chunks to a browser or another untrusted client as they come | `ChunkToolResult` puts what your server-side tools returned on the stream, where only text went before | drop `ChunkToolResult` (and `ChunkToolCall`, if call arguments are private) before forwarding |
+| Stream a turn whose tool an `OnToolAsync` check holds | the hold in the `ChunkDone` response's `PendingTools()`, as `Send` reports it, and no `ChunkClientTool` for it | check `PendingTools()` on the `ChunkDone` response, and resolve it with `ResolveTool` or `RejectTool` and `Continue`, not `SendToolResult` |
+| Handle `StreamWithCallback` events for a held call | a new `ToolApprovalEvent` for each held call, before `StreamDoneEvent`, where a `ClientToolRequestEvent` came | handle `ToolApprovalEvent`; a `StreamDoneEvent` after one is a paused turn |
+| Serve a held turn over A2A `message/stream` | the task ends `input-required`, as `message/send` leaves it | nothing |
 | Stream with a `SkillSelector` | the skills index narrowed to this turn's text, as `Send` narrows it | nothing |
 | Render AG-UI `TEXT_MESSAGE_CONTENT` | several per message, one per chunk the model streamed; their `delta` fields joined are the message's text | append each `delta` |
 | Render AG-UI text an output guardrail cut | the streamed message ends, and the guardrail's message follows as a new text message | nothing |
-| Read `stage.ElementMetadata` or `providers.StreamChunk` from a pipeline yourself | elements and chunks carrying only `RoundMessages` during a tool loop | skip them, or use them to report the rounds |
+| Read `stage.ElementMetadata` or `providers.StreamChunk` from a pipeline yourself | elements and chunks carrying only `RoundMessages` during a tool loop with a streaming provider, on the `ExecuteSync` / `Send` path as well as the streamed one (`StreamPipeline.ExecuteSync` ignores them) | skip them, or use them to report the rounds |
 
 ### Caller identity
 

@@ -114,7 +114,9 @@ func TestStreamingToolLoop_RoundThatEndsTheTurnReportsOnlyItsCalls(t *testing.T)
 	stg := NewProviderStageWithTurnState(provider, reg, &pipeline.ToolPolicy{MaxRounds: 1},
 		&ProviderConfig{}, nil, nil, turnState)
 
-	elems, _ := runProviderStage(t, stg, "check")
+	elems, err := runProviderStage(t, stg, "check")
+	var maxRounds *MaxRoundsError
+	require.ErrorAs(t, err, &maxRounds, "the round limit ends the turn")
 
 	var rounds []string
 	for _, d := range describeElements(elems) {

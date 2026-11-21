@@ -18,6 +18,7 @@ var errStreamIncomplete = errors.New("agui: the turn's stream ended without a re
 // its text message, its tool calls and the results answering them.
 type liveRound struct {
 	msgID    string
+	round    int             // the stream's round number (sdk.StreamChunk.Round), once its calls arrive
 	text     strings.Builder // the text streamed into the open or last text message
 	textOpen bool            // a text message is open
 	texted   bool            // a text message was emitted for the round
@@ -42,7 +43,7 @@ func (st *runState) consume(chunks <-chan sdk.StreamChunk) (*sdk.Response, error
 		case chunk.Type == sdk.ChunkText:
 			st.liveText(chunk.Text, chunk.ReplacesText)
 		case chunk.Type == sdk.ChunkToolCall && chunk.ToolCall != nil:
-			st.liveCall(chunk.ToolCall)
+			st.liveCall(chunk.ToolCall, chunk.Round)
 		case chunk.Type == sdk.ChunkToolResult && chunk.ToolResult != nil:
 			st.liveResult(chunk.ToolResult)
 		case chunk.Type == sdk.ChunkDone:
@@ -102,16 +103,17 @@ func (st *runState) liveText(delta string, replaces bool) {
 	r.text.WriteString(delta)
 }
 
-// liveCall emits a tool call once its round's reply has streamed. A call after
-// a round's results is the next round's.
-func (st *runState) liveCall(tc *types.MessageToolCall) {
+// liveCall emits a tool call once its round's reply has streamed. A call of
+// another round than the current round's calls starts the next round, whether
+// or not results came between them; so does a call after the round's results.
+func (st *runState) liveCall(tc *types.MessageToolCall, round int) {
 	r := st.lastRound()
-	if r == nil || r.resulted {
+	if r == nil || (r.called && (r.round != round || r.resulted)) {
 		r = st.newRound()
 	}
 	st.closeText(r)
 	st.emitCall(r.msgID, tc)
-	r.called = true
+	r.called, r.round = true, round
 }
 
 // liveResult emits the result of one of the current round's calls.

@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,9 +46,9 @@ func summarizeStream(t *testing.T, ch <-chan StreamChunk) ([]string, *Response) 
 		case ChunkText:
 			got = append(got, "text "+chunk.Text)
 		case ChunkToolCall:
-			got = append(got, "call "+chunk.ToolCall.ID+" "+string(chunk.ToolCall.Args))
+			got = append(got, fmt.Sprintf("call %d %s %s", chunk.Round, chunk.ToolCall.ID, chunk.ToolCall.Args))
 		case ChunkToolResult:
-			got = append(got, "result "+chunk.ToolResult.ID+" "+chunk.ToolResult.GetTextContent())
+			got = append(got, fmt.Sprintf("result %d %s %s", chunk.Round, chunk.ToolResult.ID, chunk.ToolResult.GetTextContent()))
 		case ChunkClientTool:
 			got = append(got, "client "+chunk.ClientTool.CallID)
 		case ChunkDone:
@@ -73,8 +74,8 @@ func TestStream_ReportsEachToolRound(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"text Let me ", "text look.",
-		`call call_0_lookup {"id":"1"}`, "result call_0_lookup 1",
-		`call call_0_lookup {"id":"2"}`, "result call_0_lookup 2",
+		`call 1 call_0_lookup {"id":"1"}`, "result 1 call_0_lookup 1",
+		`call 2 call_0_lookup {"id":"2"}`, "result 2 call_0_lookup 2",
 		"text Both ", "text shipped.",
 		"done",
 	}, got)
@@ -100,7 +101,7 @@ func TestStream_HoldsForApprovalAsSendDoes(t *testing.T) {
 
 	got, resp := summarizeStream(t, conv.Stream(context.Background(), "send hi"))
 
-	assert.Equal(t, []string{"text Sending.", `call call_0_send_message {"body":"hi"}`, "done"}, got)
+	assert.Equal(t, []string{"text Sending.", `call 1 call_0_send_message {"body":"hi"}`, "done"}, got)
 	require.NotNil(t, resp)
 	assert.Empty(t, resp.ClientTools())
 	require.Len(t, resp.PendingTools(), 1)
@@ -116,4 +117,41 @@ func TestStream_HoldsForApprovalAsSendDoes(t *testing.T) {
 	cont, err := conv.Continue(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "Sent.", cont.Text())
+}
+
+// StreamWithCallback reports a call held for approval as a ToolApprovalEvent
+// before the done event, so a handler can tell a paused turn from a finished
+// one.
+func TestStreamWithCallback_ReportsAnApprovalHold(t *testing.T) {
+	conv := openRoundsConv(t,
+		mock.Turn{Type: "tool_calls", StreamChunks: []string{"Sending."},
+			ToolCalls: []mock.ToolCall{{Name: "send_message", Arguments: map[string]any{"body": "hi"}}}},
+	)
+	conv.OnToolAsync("send_message",
+		func(map[string]any) sdktools.PendingResult {
+			return sdktools.PendingResult{Reason: "requires_approval", Message: "Approve send?"}
+		},
+		func(map[string]any) (any, error) { return "sent", nil },
+	)
+	var got []string
+	conv.OnStreamEvent(func(e StreamEvent) {
+		switch ev := e.(type) {
+		case TextDeltaEvent:
+			got = append(got, "text "+ev.Delta)
+		case ClientToolRequestEvent:
+			got = append(got, "client "+ev.CallID)
+		case ToolApprovalEvent:
+			got = append(got, "approval "+ev.Tool.ID+" "+ev.Tool.Reason+" "+ev.Tool.Message)
+		case StreamDoneEvent:
+			got = append(got, "done")
+		}
+	})
+
+	resp, err := conv.StreamWithCallback(context.Background(), "send hi")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"text Sending.", "approval call_0_send_message requires_approval Approve send?", "done",
+	}, got)
+	require.Len(t, resp.PendingTools(), 1)
 }

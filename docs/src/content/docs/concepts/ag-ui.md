@@ -183,7 +183,7 @@ The `EventAdapter` runs one conversation turn as one AG-UI run. For an `*sdk.Con
 | `WithRuntimeEvents` set | `RAW` for each runtime event the conversation's event bus delivers while the run is open |
 | Turn completes | `STEP_FINISHED` for the open step, then `RUN_FINISHED` |
 | Turn held for tool approval | `RUN_FINISHED` with an `interrupt` outcome naming the held calls |
-| Error occurs | `RUN_ERROR` |
+| Error occurs | `TEXT_MESSAGE_END` for a message still streaming, then `RUN_ERROR` |
 
 A model that calls a tool and then answers produces two assistant messages in one turn; the run carries both, with the call and its result between them:
 
