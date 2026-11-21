@@ -268,6 +268,14 @@ type ElementMetadata struct {
 	// without waiting for the text after it.
 	SegmentEnd bool
 
+	// RoundTextEnd marks a control element the provider stage sends, on a
+	// streaming (duplex) turn, when a round's stream has finished and the
+	// round goes on to run its tool calls: the round's text (MessageID) is
+	// complete. A speech-out stage speaks what it holds of it at once, so a
+	// preamble ("Let me look that up.") is heard while the tools run. The
+	// element carries nothing else and is not output for the caller.
+	RoundTextEnd bool
+
 	// MessageID is the stable id (types.MetaMessageID) of the assistant
 	// message a text element is part of: the round's reply, which is stored
 	// under it, so a consumer streaming the text can name the message as the

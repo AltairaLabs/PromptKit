@@ -125,6 +125,17 @@ func (r *replySpeech) peekRoundEnd(round string) []string {
 	return r.sending(appendNonEmpty(nil, r.seg.flush()))
 }
 
+// roundTextEnd returns what is left of round's text (a message id), now that
+// the round's stream finished: its last segment, which no later text can
+// extend. Nothing when the segmenter holds another round's text. (A stopped
+// reply's segmenter holds nothing.)
+func (r *replySpeech) roundTextEnd(round string) []string {
+	if r.segRound != round {
+		return nil
+	}
+	return r.sending(appendNonEmpty(nil, r.seg.flush()))
+}
+
 // release takes text the provider stage released and returns the segments it
 // completes. A replacement (ReplacesText) discards what was released but not
 // yet spoken, unless it begins with what was spoken (it speaks only the rest)

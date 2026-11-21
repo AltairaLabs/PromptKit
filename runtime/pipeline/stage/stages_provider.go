@@ -1096,6 +1096,25 @@ func (s *ProviderStage) keepTurn(
 	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):], s.turnIndex()), output)
 }
 
+// markRoundTextEnd tells the stages after this one, on a streaming (duplex)
+// turn, that a round's text is complete when its stream finished with tool
+// calls (hasToolCalls):
+// and the tools run next (ElementMetadata.RoundTextEnd). A speech-out stage
+// speaks the round's last sentence now instead of after the tools. A round
+// that streamed no text has nothing to mark. Best effort: a consumer that has
+// gone away does not fail the turn.
+func (s *ProviderStage) markRoundTextEnd(
+	ctx context.Context, response *types.Message, hasToolCalls bool, output chan<- StreamElement,
+) {
+	if !hasToolCalls || s.config == nil || !s.config.Streaming || output == nil || response.Content == "" {
+		return
+	}
+	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem.Meta.RoundTextEnd = true
+	elem.Meta.MessageID = response.ID()
+	_ = sendStreamElement(ctx, elem, output)
+}
+
 // completedRounds returns the rounds of msgs (a turn's new messages) that
 // completed: each assistant message with every tool call it made answered by
 // the tool results after it. It stops at the first round that did not (its
@@ -1794,6 +1813,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		// streamingRoundParams re-read acc.systemPrompt and loop.providerTools,
 		// so a mid-loop swap takes effect there.
 		s.stampWorkflowState(&response)
+		s.markRoundTextEnd(ctx, &response, hasToolCalls, output)
 		if done, msgs, err := loop.afterStreamedRound(ctx, acc.allowedTools, &response, hasToolCalls, rr); done {
 			return msgs, err
 		}

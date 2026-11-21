@@ -1178,6 +1178,12 @@ func (s *TTSStageWithInterruption) processElement(
 	if elem.Meta.StreamingDelta {
 		return s.speakDelta(forwardCtx, synthCtx, reply, elem, output)
 	}
+	if elem.Meta.RoundTextEnd {
+		// The round's text is complete: what is left of it is spoken now,
+		// while its tools run. The marker is this stage's; it goes no
+		// further.
+		return s.speakSegments(forwardCtx, synthCtx, reply, reply.roundTextEnd(elem.Meta.MessageID), output)
+	}
 	if reply.active && isAssistantMessage(elem) {
 		return s.speakStreamedMessage(forwardCtx, synthCtx, reply, elem, output)
 	}

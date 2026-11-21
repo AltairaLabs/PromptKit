@@ -541,3 +541,38 @@ func TestTTSStageWithInterruption_ARoundsMessageLeavesTheNextRoundsText(t *testi
 	assert.Equal(t, "Let me look that up.", first.Content)
 	assert.Equal(t, []string{"Let me look that up."}, p.texts(), "the second round's fragment is not spoken as the first's")
 }
+
+// The end of a round's text (the provider stage's RoundTextEnd, sent when the
+// round's stream finished and before its tools run) speaks what is left of
+// it at once, though nothing followed its last sentence: "Let me look that
+// up." is heard while the tool runs, not after. The marker is not passed on.
+func TestTTSStageWithInterruption_RoundTextEndSpeaksThePreambleAtOnce(t *testing.T) {
+	p := startPacedReply(t)
+	end := StreamElement{}
+	end.Meta.RoundTextEnd = true
+	end.Meta.MessageID = "m1"
+	p.send(t, roundDelta("m1", "Let me look that up.", false), end)
+	p.audioUntil(t, 2) // fails if the sentence waits for more text
+
+	assert.Equal(t, []string{"Let me look that up."}, p.texts())
+	for _, e := range p.got {
+		assert.False(t, e.Meta.RoundTextEnd, "the marker is the speech stage's, not the caller's")
+	}
+}
+
+// A round-text-end for another round than the one the segmenter holds speaks
+// nothing: the held text is the later round's, and more of it may follow.
+func TestTTSStageWithInterruption_RoundTextEndOfAnotherRoundSpeaksNothing(t *testing.T) {
+	p := startPacedReply(t)
+	end := StreamElement{}
+	end.Meta.RoundTextEnd = true
+	end.Meta.MessageID = "m1"
+	p.send(t, roundDelta("m2", "The weather is", false), end)
+	require.True(t, p.quiet())
+	assert.Empty(t, p.texts(), "m2's unfinished sentence is not spoken on m1's end")
+
+	end.Meta.MessageID = "m2"
+	p.send(t, roundDelta("m2", " sunny.", false), end)
+	p.audioUntil(t, 2)
+	assert.Equal(t, []string{"The weather is sunny."}, p.texts())
+}

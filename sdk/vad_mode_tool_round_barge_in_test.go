@@ -28,10 +28,12 @@ type toolRoundWire struct {
 	// sending anything: the model has not begun its answer when the caller
 	// speaks.
 	silentSecondRound bool
-	mu                sync.Mutex
-	calls             int
-	rejected          []string
-	bodies            []map[string]any
+	// preamble is the first round's text; "" sends "Let me look that up. ".
+	preamble string
+	mu       sync.Mutex
+	calls    int
+	rejected []string
+	bodies   []map[string]any
 }
 
 func newToolRoundWire(t *testing.T) *toolRoundWire {
@@ -67,7 +69,12 @@ func (w *toolRoundWire) serve(rw http.ResponseWriter, r *http.Request) {
 	}
 	switch call {
 	case 1:
-		flush(`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","content":"Let me look that up. "}}]}` + "\n\n" +
+		preamble := w.preamble
+		if preamble == "" {
+			preamble = "Let me look that up. "
+		}
+		text, _ := json.Marshal(preamble)
+		flush(`data: {"id":"1","choices":[{"index":0,"delta":{"role":"assistant","content":` + string(text) + `}}]}` + "\n\n" +
 			`data: {"id":"1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function",` +
 			`"function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]}}]}` + "\n\n" +
 			`data: {"id":"1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n" +
@@ -324,4 +331,43 @@ func asksAbout(body map[string]any, text string) bool {
 	}
 	raw, _ := json.Marshal(last["content"])
 	return strings.Contains(string(raw), text)
+}
+
+// The preamble a model speaks before calling a tool is heard while the tool
+// runs, though nothing follows its last sentence in the stream: the round's
+// text ends when its stream does, and its last sentence is spoken then
+// (#2846).
+func TestVADMode_ThePreambleIsSpokenWhileTheToolRuns(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real VAD turn")
+	}
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	wire := newToolRoundWire(t)
+	wire.preamble = "Let me look that up." // no space after the sentence
+	ttsSvc := newSegmentTTS()
+	conv, err := OpenDuplex(createTestPackFile(t, toolRoundPack), "main",
+		WithLLMProvider(ProviderSpec{ID: "agent", Type: "openai", Model: "gpt-4o-mini", BaseURL: wire.URL}),
+		WithSkipSchemaValidation(), WithVADMode(newScriptedSTT("weather in paris"), ttsSvc, vadTestConfig()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = closeWithin(t, conv) })
+	spokenDuringTool := make(chan bool, 1)
+	conv.OnTool("get_weather", func(map[string]any) (any, error) {
+		// The tool takes as long as it takes the preamble to be spoken, or
+		// the bound: it reports which.
+		spokenDuringTool <- waitFor(func() bool { return len(ttsSvc.texts()) > 0 }, streamingSpeechBound)
+		return map[string]any{"sky": "sunny"}, nil
+	})
+	responses, err := conv.Response()
+	require.NoError(t, err)
+	go (&speechRecorder{}).consume(responses)
+
+	speak(t, conv)
+	var spoken bool
+	select {
+	case spoken = <-spokenDuringTool:
+	case <-time.After(2 * streamingSpeechBound):
+		t.Fatal("the tool never ran")
+	}
+	assert.True(t, spoken, "the preamble is synthesized while the tool runs")
+	assert.Equal(t, []string{"Let me look that up."}, ttsSvc.texts()[:1])
 }

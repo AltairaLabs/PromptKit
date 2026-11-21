@@ -140,3 +140,28 @@ func TestHandleToolCalls_UnreadFullBufferDoesNotBlock(t *testing.T) {
 	}
 	assert.Equal(t, int64(1), s.droppedChunks.Load(), "the un-deliverable chunk must be dropped, not blocked on")
 }
+
+// The provider stage's round-text-end marker (a control element for the
+// speech-out stage) is not output for the caller: no chunk reaches Response().
+func TestHandleOutputElement_RoundTextEndIsNotOutput(t *testing.T) {
+	s := newForwardTestSession(4)
+	s.responseTaken.Store(true)
+	marker := stage.StreamElement{}
+	marker.Meta.RoundTextEnd = true
+	marker.Meta.MessageID = "m1"
+
+	keep, err := s.handleOutputElement(context.Background(), &marker)
+	require.NoError(t, err)
+	assert.True(t, keep)
+	text := "Hi."
+	keep, err = s.handleOutputElement(context.Background(), &stage.StreamElement{Text: &text})
+	require.NoError(t, err)
+	assert.True(t, keep)
+	close(s.streamOutput)
+
+	var deltas []string
+	for c := range s.streamOutput {
+		deltas = append(deltas, c.Delta)
+	}
+	assert.Equal(t, []string{"Hi."}, deltas, "only the text reaches the caller")
+}
