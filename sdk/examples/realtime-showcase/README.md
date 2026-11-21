@@ -96,6 +96,24 @@ renders each of the pack's guardrail messages when it starts; a block in the
 first second or so of the session, before the render is done, plays the tone
 instead. The log prints a `cue` line each time a message plays.
 
+### Holding a reply until it is judged
+
+A realtime reply plays as it arrives, so an output guardrail can cut it but
+cannot keep its start from the caller. `-stream-hold` adds an output
+`llm_judge` (the pack's `topic-judge` model, checking that the reply does not
+talk about Bruno) and holds each reply's audio until it has passed it
+(`sdk.WithStreamHold`, `Realtime`):
+
+```bash
+go run . -provider openai -stream-hold turn      # the whole reply, once it passed
+go run . -provider openai -stream-hold segment   # a sentence or a few at a time
+```
+
+The scripted mode logs a `timing` line with how long after each request the
+reply's first audio arrived, so the cost of each mode shows against
+`-stream-hold off`. Segment hold on Gemini Live is experimental: its
+transcript can trail its audio, so each release keeps back the last 1.5 s.
+
 ## VAD mode
 
 `-mode asm` (the default) streams your audio to a realtime audio model.

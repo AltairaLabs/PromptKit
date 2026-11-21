@@ -110,13 +110,28 @@ type StreamSession struct {
 	// is set once the model's turn completed; the input fields follow the
 	// caller's transcribed speech. Speech transcribed while a finished reply
 	// still plays is barge-in (live_playout.go). now is the clock (nil:
-	// time.Now). Receive goroutine only.
+	// time.Now). Receive goroutine only, but for playout, which playoutMu
+	// guards: a pipeline holding reply audio back adds to it as it releases
+	// the audio (ReleaseAudio), and playoutHeld is then set.
 	playout     *audio.Playout
-	replyDone   bool
-	inputLastAt time.Time
-	inputClosed bool
-	lateInput   bool
-	now         func() time.Time
+	playoutMu   sync.Mutex
+	playoutHeld bool
+	// heldPending is the reply audio delivered while playout is held that the
+	// pipeline has not released, and heldInterrupted is set once the caller
+	// spoke over some of it (live_playout.go). Guarded by playoutMu.
+	heldPending     map[int64]time.Duration
+	heldInterrupted map[int64]bool
+	replyDone       bool
+	// generationDone is set once the reply in progress reported
+	// generationComplete; its turn completes later. barged is set once the
+	// reply is reported interrupted, by Gemini or by the session, so it is
+	// reported once.
+	generationDone bool
+	barged         bool
+	inputLastAt    time.Time
+	inputClosed    bool
+	lateInput      bool
+	now            func() time.Time
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.

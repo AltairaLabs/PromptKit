@@ -241,6 +241,15 @@ type DuplexProviderStage struct {
 	// Response goroutine only.
 	liveHeld  holdController
 	liveHolds []int
+	// streamHold is how a reply is held for the guardrails whose stream_hold
+	// holds it (SetStreamHold), and replyHold the hold on the reply streaming
+	// now, nil when nothing holds it (stages_duplex_reply_hold.go). Response
+	// goroutine only.
+	streamHold StreamHoldConfig
+	replyHold  *duplexReplyHold
+	// playoutHeld is the session, when it counts reply audio toward its
+	// playout estimate only as the stage releases it (holdPlayout).
+	playoutHeld providers.PlayoutHolder
 	// lastReplyGen is the latest generation of the session's replies the
 	// stage has handled, and chunkIsReply whether the chunk being handled is
 	// one of a reply's (not the caller's transcript). Response goroutine only.
@@ -578,6 +587,7 @@ func (s *DuplexProviderStage) createSessionLazily(
 	}
 	logger.Debug("DuplexProviderStage: session created")
 	s.startCues(ctx)
+	s.holdPlayout()
 	// Process registers the session's Close only once this returns. Until
 	// then a panic (in onSession, say) would leak a live provider session, so
 	// close it on the way out, as the inline defer used to.
@@ -1346,6 +1356,12 @@ func (s *DuplexProviderStage) forwardResponseElements(
 		case <-s.nextVerdict():
 			err = s.onVerdict(ctx, output)
 
+		case v := <-s.replyHoldVerdicts():
+			err = s.onReplyVerdict(ctx, v, output)
+
+		case <-s.replyHoldSettle():
+			err = s.onReplyHoldSettled(ctx, output)
+
 		case chunk, ok := <-responseChannel:
 			if !ok {
 				return s.finishOnResponseClosed(ctx, output, wait.weClosedSession)
@@ -1682,6 +1698,10 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if handled, err := s.handleSessionNotice(ctx, chunk, output); handled {
 		return err
 	}
+	if isGenerationCompleteOnly(chunk) {
+		// The reply's content is complete; its turn completes later.
+		return s.onGenerationComplete(ctx, output)
+	}
 	if s.staleChunk(chunk) {
 		// A chunk of a call that already completed (a canceled response's
 		// trailing chunks, an interruption of a finished reply): only its
@@ -1755,6 +1775,8 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 {
 		s.beginReplyTurn(chunk)
 	}
+	// A reply the guardrails hold is held from its first content.
+	s.beginReplyHold(ctx, chunk, isOutputTranscription)
 
 	// Streaming guardrails check the chunk's assistant text before it is
 	// accumulated or forwarded.
@@ -1765,8 +1787,14 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	}
 	s.holdLiveText(chunk, isOutputTranscription)
 
+	if err := s.finishReplyVerdicts(ctx, chunk, isOutputTranscription, output); err != nil {
+		return err
+	}
+
 	// Convert chunk to element (uses accumulated content for final chunk)
 	elem := s.chunkToElement(chunk)
+	// A held reply's text and audio wait for its guardrails.
+	held := s.holdReplyOutput(chunk, &elem)
 
 	// Reset accumulation after turn completes (after creating the element)
 	// BUT: if this was an interrupted turn completion (no EndOfStream), don't reset -
@@ -1782,6 +1810,10 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// queued once the turn's message is out.
 	round := s.completeChunkTurn(ctx, chunk, &elem, turnDone)
 	s.noteChunkTurnEnd(chunk, &elem, turnDone)
+	// The completed reply's verdict releases or drops what is held.
+	if err := s.settleReplyHold(ctx, &elem, turnDone, output); err != nil {
+		return err
+	}
 	// A reply a guardrail blocked is cut before anything more of it is sent,
 	// and one the provider canceled tells the caller to stop playing it.
 	if err := s.cutReply(ctx, output); err != nil {
@@ -1800,6 +1832,19 @@ func (s *DuplexProviderStage) handleResponseChunk(
 		"hasMessage", elem.Message != nil,
 		"endOfStream", elem.EndOfStream)
 
+	return s.forwardResponseElement(ctx, chunk, elem, held, round, output)
+}
+
+// forwardResponseElement sends elem, the element chunk became, and queues the
+// tool round it completes. An element whose output the hold took (held), with
+// nothing else to say, is not sent.
+func (s *DuplexProviderStage) forwardResponseElement(
+	ctx context.Context, chunk *providers.StreamChunk, elem StreamElement, held bool,
+	round *duplexToolJob, output chan<- StreamElement,
+) error {
+	if held && elem.IsEmpty() {
+		return s.queueToolRound(ctx, round)
+	}
 	if err := s.emit(ctx, elem, output); err != nil {
 		return err
 	}
@@ -1886,7 +1931,8 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		settled := s.settleTurnCall(ctx, elem)
 		s.guardCompletedTurn(ctx, elem)
 		if settled != nil {
-			s.emitCompletion(ctx, settled.done, settled.msg == nil)
+			// A reply left no message when the caller spoke over it unheard.
+			s.emitCompletion(ctx, settled.done, settled.msg == nil || elem.Message == nil)
 		}
 		round = s.toolJob(settled)
 	}

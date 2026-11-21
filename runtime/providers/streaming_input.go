@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -248,6 +249,52 @@ type StreamInputSupport interface {
 // to the conversation.
 type ResponseInterrupter interface {
 	InterruptResponse(ctx context.Context, generation int64) error
+}
+
+// PlayoutHolder is an optional StreamInputSession interface for a session that
+// estimates how much of a reply's audio the caller has heard from the audio it
+// delivers: to tell a caller speaking over a reply that still plays (barge-in)
+// from one starting a new turn, and to cut its own copy of an interrupted
+// reply to what was heard.
+//
+// A pipeline that holds a reply's audio back until its guardrails have judged
+// it calls HoldPlayout once, before the session delivers any reply. From then
+// on the session counts a reply's audio only as the pipeline releases it to
+// the caller (ReleaseAudio, given the chunk that carried it, as delivered),
+// so the estimate runs from release, not arrival, and audio the pipeline drops
+// is never counted as heard.
+//
+// Audio the session delivered that the pipeline has neither released nor
+// dropped is still waiting for the caller: a caller who starts speaking then
+// speaks over the reply, though they hear only silence, and the session
+// reports it as a barge-in (an Interrupted chunk). HeldAudioInterrupted then
+// reports true, so the pipeline releases none of that reply's held audio.
+// The pipeline calls HeldAudioDropped once it has dropped or finished
+// releasing what it held of a reply; that clears both. All are safe to call
+// from any goroutine.
+type PlayoutHolder interface {
+	HoldPlayout()
+	// ReleaseAudio counts chunk's audio as playing from now and reports true,
+	// or, once the caller has spoken over the held audio
+	// (HeldAudioInterrupted), counts nothing and reports false: the pipeline
+	// then releases none of it. The check and the count are one step, so a
+	// barge-in cannot fall between them.
+	ReleaseAudio(chunk *StreamChunk) bool
+	HeldAudioInterrupted(generation int64) bool
+	HeldAudioDropped(generation int64)
+}
+
+// TranscriptLagger is an optional StreamInputSession interface for a session
+// whose transcript of a reply's audio can arrive after that audio. A pipeline
+// that releases a reply's audio as the guardrails pass its transcript would
+// otherwise release audio whose words were not judged yet, so it holds back
+// OutputTranscriptLag of the audio received most recently. A session that
+// does not implement it delivers each piece of transcript no later than the
+// last of its audio.
+type TranscriptLagger interface {
+	// OutputTranscriptLag is the most audio, in playing time, the session's
+	// output transcript has been seen to trail by.
+	OutputTranscriptLag() time.Duration
 }
 
 // TurnForgetter is an optional StreamInputSession interface for a session that

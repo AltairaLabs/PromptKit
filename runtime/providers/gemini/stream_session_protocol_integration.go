@@ -328,23 +328,43 @@ func (s *StreamSession) sendChunk(chunk *providers.StreamChunk) error {
 	}
 }
 
+// handleInterrupted handles Gemini's report that it interrupted the reply.
+func (s *StreamSession) handleInterrupted() error {
+	// Barge-in handled by the shared StreamPump (consistent with every
+	// provider): fire the out-of-band signal so a paced consumer flushes
+	// immediately, drop the interrupted response's queued audio, and skip
+	// still-arriving audio until the turn completes — plus the in-band
+	// Interrupted chunk for the pipeline.
+	s.withPlayout(func(p *audio.Playout) {
+		p.Stop()
+		// Audio the pipeline still holds of the reply is interrupted
+		// with it: none of it is to be released, and none still waits.
+		s.interruptHeldLocked()
+	})
+	s.turnOpen = false // the interruption ends the turn; later usage is its
+	if s.barged {
+		// The session already reported this reply interrupted (the caller
+		// spoke over it after its generation completed): only its usage
+		// is still to go.
+		if cost := s.takeTurnCost(); cost != nil {
+			return s.sendChunk(&providers.StreamChunk{CostInfo: cost})
+		}
+		return nil
+	}
+	s.barged = true
+	s.Barge()
+	marker := providers.BargeMarker()
+	if err := s.sendChunk(&marker); err != nil {
+		return err
+	}
+	// The interruption ends the turn: it carries the usage held for it.
+	return s.sendChunk(&providers.StreamChunk{Interrupted: true, CostInfo: s.takeTurnCost()})
+}
+
 // processServerContent handles server content including transcriptions and model turns.
 func (s *StreamSession) processServerContent(content *ServerContent) error {
 	if content.Interrupted {
-		// Barge-in handled by the shared StreamPump (consistent with every
-		// provider): fire the out-of-band signal so a paced consumer flushes
-		// immediately, drop the interrupted response's queued audio, and skip
-		// still-arriving audio until the turn completes — plus the in-band
-		// Interrupted chunk for the pipeline.
-		s.playoutEstimate().Stop()
-		s.turnOpen = false // the interruption ends the turn; later usage is its
-		s.Barge()
-		marker := providers.BargeMarker()
-		if err := s.sendChunk(&marker); err != nil {
-			return err
-		}
-		// The interruption ends the turn: it carries the usage held for it.
-		return s.sendChunk(&providers.StreamChunk{Interrupted: true, CostInfo: s.takeTurnCost()})
+		return s.handleInterrupted()
 	}
 
 	// A completed turn (clean, or the canceled one after barge-in) ends the
@@ -377,10 +397,35 @@ func (s *StreamSession) processServerContent(content *ServerContent) error {
 	}
 
 	if content.ModelTurn != nil {
-		return s.processModelTurn(content)
+		if err := s.processModelTurn(content); err != nil {
+			return err
+		}
 	}
+	return s.handleGenerationComplete(content)
+}
 
-	return nil
+// handleGenerationComplete reports a reply's generationComplete, which comes
+// about a reply's playing time before its turnComplete, as a chunk marked
+// GenerationComplete: nothing more of the reply follows. One that arrives
+// with or after the turn's completion is not reported, the completion says as
+// much, nor is a tool-call generation's, whose tool calls end its turn.
+//
+// Only a pipeline that holds reply audio back (HoldPlayout) is sent it; once
+// generation completed, the caller speaking over audio it still holds is
+// barge-in (bargeInAfterReply), since Gemini reports barge-in only while it
+// generates.
+func (s *StreamSession) handleGenerationComplete(content *ServerContent) error {
+	if !content.GenerationComplete || content.TurnComplete || !s.turnOpen {
+		return nil
+	}
+	s.generationDone = true
+	s.playoutMu.Lock()
+	held := s.playoutHeld
+	s.playoutMu.Unlock()
+	if !held {
+		return nil
+	}
+	return s.sendChunk(&providers.StreamChunk{GenerationComplete: true})
 }
 
 // handleInputTranscription sends input transcription if present.
@@ -445,7 +490,7 @@ func (s *StreamSession) processModelTurn(content *ServerContent) error {
 		if part.InlineData != nil {
 			if media := s.decodeTurnMedia(part.InlineData); media != nil {
 				response.MediaData = media
-				s.playoutEstimate().Add("", 0, audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels))
+				s.countDeliveredAudio(audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels))
 			}
 		}
 	}
