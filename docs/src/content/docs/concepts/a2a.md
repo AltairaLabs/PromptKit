@@ -215,6 +215,16 @@ type Message struct {
 
 The `contextId` groups related tasks into a conversation. The server generates one when a message omits it.
 
+In conversation mode the server converts each part of an incoming message for the conversation. A stateless handler receives the A2A message as sent.
+
+| Part | What the conversation receives |
+|------|-------------------------------|
+| `text` | a text part |
+| `raw` or `url` | an image, audio, video or document part, by media type |
+| `data` | a text part holding the value as JSON |
+
+`mediaType` is optional in A2A 1.0. When a `raw` or `url` part omits it, the server takes the type from the part's `filename` extension, then from a data URL's header or the URL path's extension, or by sniffing the raw bytes. A part whose type none of these name fails with `ContentTypeNotSupportedError` (`-32005`). A part with no content, or with an empty `url`, fails with `-32602`. A refused message opens no conversation.
+
 ---
 
 ## Artifacts

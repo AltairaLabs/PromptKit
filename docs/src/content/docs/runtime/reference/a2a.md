@@ -286,6 +286,12 @@ const ProtocolBindingJSONRPC = "JSONRPC"
 
 ## Variables
 
+<a name="ErrContentTypeNotSupported"></a>ErrContentTypeNotSupported is wrapped by the errors PartToContentPart and MessageToMessage return for content whose media type cannot be determined. A server answers it with ContentTypeNotSupportedError \(ErrCodeContentTypeNotSupported\).
+
+```go
+var ErrContentTypeNotSupported = errors.New("a2a: content type not supported")
+```
+
 <a name="ErrSSEIdleTimeout"></a>ErrSSEIdleTimeout is the StreamEvent.Error of the last event on an SSE stream that received nothing within the idle timeout. Test for it with errors.Is.
 
 ```go
@@ -311,7 +317,7 @@ func ExtractResponseText(task *Task) string
 ExtractResponseText extracts text from a completed A2A task. It returns the first text part of the status message; if there is none, the text parts of all artifacts joined with newlines. It returns "" when the task has no text.
 
 <a name="InferContentType"></a>
-## func [InferContentType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L14>)
+## func [InferContentType](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L20>)
 
 ```go
 func InferContentType(mediaType string) string
@@ -338,13 +344,13 @@ func LookupMethod(method string) (op Operation, v ProtocolVersion, ok bool)
 LookupMethod resolves a JSON\-RPC method name to its operation and the version that names it that way. ok is false for an unknown method.
 
 <a name="MessageToMessage"></a>
-## func [MessageToMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L73>)
+## func [MessageToMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L170>)
 
 ```go
 func MessageToMessage(msg *Message) (*types.Message, error)
 ```
 
-MessageToMessage converts an A2A Message to a PromptKit Message. The "agent" role becomes "assistant"; any other role is copied unchanged. Metadata becomes Meta, and Content is set from the text parts. It returns an error naming the first part that fails to convert.
+MessageToMessage converts an A2A Message to a PromptKit Message. The "agent" role becomes "assistant"; any other role is copied unchanged. Metadata becomes Meta. Parts are converted with PartToContentPart, except that a data part becomes a text part holding the value's JSON. Content is set from the text parts. It returns an error naming the first part that fails to convert; content of a type that cannot be determined wraps ErrContentTypeNotSupported.
 
 <details><summary>Example</summary>
 <p>
@@ -387,13 +393,13 @@ assistant -> hello from agent
 </details>
 
 <a name="PartToContentPart"></a>
-## func [PartToContentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L34>)
+## func [PartToContentPart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L57>)
 
 ```go
 func PartToContentPart(part *Part) (types.ContentPart, error)
 ```
 
-PartToContentPart converts an A2A Part to a PromptKit ContentPart. A text part becomes a text content part. A Raw or URL part becomes a media content part and requires MediaType. A structured data part, or a part with none of text, raw, URL or data, returns an error.
+PartToContentPart converts an A2A Part to a PromptKit ContentPart. A text part becomes a text content part. A Raw or URL part becomes a media content part. Its media type is MediaType when set; A2A makes that field optional, so otherwise it is taken from Filename's extension, then from a data URL's header or the URL path's extension, or from sniffing Raw's bytes. A media part whose type none of these name returns an error wrapping ErrContentTypeNotSupported. A structured data part, or a part with none of text, raw, a non\-empty URL or data, returns an error.
 
 <a name="ReadSSE"></a>
 ## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1070>)
@@ -616,7 +622,7 @@ type Artifact struct {
 ```
 
 <a name="ContentPartsToArtifacts"></a>
-### func [ContentPartsToArtifacts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L134>)
+### func [ContentPartsToArtifacts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L235>)
 
 ```go
 func ContentPartsToArtifacts(parts []types.ContentPart) ([]Artifact, error)
@@ -1166,7 +1172,7 @@ type Part struct {
 ```
 
 <a name="ContentPartToA2APart"></a>
-### func [ContentPartToA2APart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L102>)
+### func [ContentPartToA2APart](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/parts.go#L203>)
 
 ```go
 func ContentPartToA2APart(part types.ContentPart) (Part, error)

@@ -499,6 +499,15 @@ func (s *Server) resolveStreamTurn(
 		return start, false, ok
 	}
 
+	// Convert before opening, as SendMessage does, so a refused message
+	// opens no conversation.
+	var pkMsg *types.Message
+	if len(toolResults) == 0 {
+		if pkMsg = convertMessage(call, &params.Message); pkMsg == nil {
+			return nil, false, false
+		}
+	}
+
 	conv := s.openConversation(call, contextID)
 	if conv == nil {
 		return nil, false, false
@@ -512,12 +521,6 @@ func (s *Server) resolveStreamTurn(
 		return func(ctx context.Context, _ string) <-chan StreamEvent {
 			return resumable.ResumeStream(ctx)
 		}, false, true
-	}
-
-	pkMsg, err := a2a.MessageToMessage(&params.Message)
-	if err != nil {
-		call.fail(a2a.ErrCodeInvalidParams, fmt.Sprintf("Invalid message: %v", err))
-		return nil, false, false
 	}
 
 	// A conversation that cannot stream is streamed from its Send result, so

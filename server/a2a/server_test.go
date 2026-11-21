@@ -1457,28 +1457,6 @@ func TestServer_SendMessage_CancelDuringProcessing(t *testing.T) {
 	}
 }
 
-func TestServer_SendMessage_DataPartRejected(t *testing.T) {
-	_, ts := newTestServer(func(string) (Conversation, error) {
-		return completingMock(), nil
-	})
-	defer ts.Close()
-
-	resp := a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
-		Message: a2a.Message{
-			ContextID: "ctx-data-part",
-			Role:      a2a.RoleUser,
-			Parts:     []a2a.Part{{Data: map[string]any{"key": "val"}}},
-		},
-		Configuration: &a2a.SendMessageConfiguration{Blocking: true},
-	})
-	if resp.Error == nil {
-		t.Fatal("expected error for structured data part")
-	}
-	if resp.Error.Code != -32602 {
-		t.Fatalf("error code = %d, want -32602", resp.Error.Code)
-	}
-}
-
 func TestServer_SendMessage_ConversationReuseMultimodal(t *testing.T) {
 	var callCount atomic.Int32
 	imgURL := "https://example.com/img.png"
