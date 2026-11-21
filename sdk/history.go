@@ -53,18 +53,22 @@ func WithHistory(msgs []types.Message) SendOption {
 // that may not see or edit the conversation.
 //
 // The conversation's own copy wins over a client's for every message it
-// holds. A message of msgs is taken as the conversation stores it when it has
-// the same id (types.MetaMessageID) as a stored message, when it is the same
+// holds, and an edit a client makes under a stored message's id is ignored.
+// A message of msgs is taken as the conversation stores it when it has the
+// same id (types.MetaMessageID) as a stored message, when it is the same
 // message (role, text, tool calls, tool result) at the same position as a
 // stored one while msgs repeats the stored history from its start, or when it
 // is the same message as one the conversation keeps out of model context. The
 // stored copy keeps everything the client's lacks: its metadata, cost,
 // validations, the provider's tool-call metadata (such as Gemini's thought
 // signatures) and media tool results. What the conversation keeps out of
-// model context stays out: an interrupted reply, and a turn an input
-// guardrail blocked, which is marked types.MetaBlockedInput where the
-// client's order would let it in. Any other message is new to the
-// conversation and is stored as given.
+// model context stays out when the client echoes it under its id or word for
+// word: an interrupted reply, and a turn an input guardrail blocked. Each is
+// marked types.MetaExcludedFromModel, so it stays out alone wherever the
+// client puts it, and takes out no message the client put next to it. Text
+// is compared without the context a host put in front of a message
+// (types.MetaInjectedContext). Any other message, an edited text included, is
+// new to the conversation and is stored as given.
 //
 // The history is checked first, and nothing is replaced when it fails, with
 // an error matching [ErrInvalidHistory]:
@@ -77,10 +81,13 @@ func WithHistory(msgs []types.Message) SendOption {
 //     (ToolResult) answering a call the latest assistant message made, once;
 //     every call has its result before the next user or assistant message,
 //     and before the history ends.
-//   - No message is larger than the conversation's maximum message size, and
-//     the history holds at most 1000 messages and 16 MiB in all (see
-//     WithMaxHistorySize). A message's size counts its text, its media's
-//     inline data, its tool calls' arguments and its tool result's parts.
+//   - The messages the history adds, those the conversation does not hold, are
+//     each no larger than the conversation's maximum message size, and are at
+//     most 1000 messages and 16 MiB together (see WithMaxHistorySize); the
+//     stored messages an echo repeats are not counted, so a long thread
+//     echoed back is held only to what it adds. A message's size counts its
+//     text, its media's inline data, its tool calls' arguments and its tool
+//     result's parts.
 //
 // A new message is stored without its reasoning (the conversation did not
 // produce it, so it is not replayed to the provider), and given a stable id
@@ -113,14 +120,21 @@ func (c *Conversation) ReplaceHistory(ctx context.Context, msgs []types.Message)
 
 // replaceHistoryLocked replaces the history; the caller holds the turn.
 func (c *Conversation) replaceHistoryLocked(ctx context.Context, msgs []types.Message) error {
-	if err := c.checkHistorySize(msgs); err != nil {
-		return err
-	}
 	stored, err := c.getBaseSession().Messages(ctx)
 	if err != nil {
 		return fmt.Errorf("replace history: loading the conversation: %w", err)
 	}
-	history, err := checkHistory(reconcileHistory(stored, msgs))
+	maxMessages, maxBytes := c.historyLimits()
+	// An echo can repeat what is stored and add at most the limit: anything
+	// longer is refused before it is compared with the stored history.
+	if extra := len(msgs) - len(stored); extra > maxMessages {
+		return fmt.Errorf("%w: %d new messages, at most %d (WithMaxHistorySize)", ErrInvalidHistory, extra, maxMessages)
+	}
+	entries := reconcileHistory(stored, msgs)
+	if sizeErr := c.checkNewMessages(entries, maxMessages, maxBytes); sizeErr != nil {
+		return sizeErr
+	}
+	history, err := checkHistory(entries)
 	if err != nil {
 		return err
 	}
@@ -148,26 +162,38 @@ func (c *Conversation) startTurnInput(ctx context.Context, cfg *sendConfig) erro
 	return nil
 }
 
-// checkHistorySize holds a history to the message size limit and the
-// history limits.
-func (c *Conversation) checkHistorySize(msgs []types.Message) error {
-	maxMessages, maxBytes := defaultMaxHistoryMessages, defaultMaxHistoryBytes
+// historyLimits are the conversation's limits on what a replaced history
+// adds (WithMaxHistorySize).
+func (c *Conversation) historyLimits() (messages, bytes int) {
 	if c.config != nil && c.config.maxHistoryMessages > 0 {
-		maxMessages, maxBytes = c.config.maxHistoryMessages, c.config.maxHistoryBytes
+		return c.config.maxHistoryMessages, c.config.maxHistoryBytes
 	}
-	if len(msgs) > maxMessages {
-		return fmt.Errorf("%w: %d messages, at most %d", ErrInvalidHistory, len(msgs), maxMessages)
-	}
-	total := 0
-	for i := range msgs {
-		size := messageContentSize(&msgs[i])
-		if err := c.validateMessageSize(size); err != nil {
-			return historyError(i, "%v", err)
+	return defaultMaxHistoryMessages, defaultMaxHistoryBytes
+}
+
+// checkNewMessages holds the messages a replaced history adds, those the
+// conversation does not hold, to the message size limit and the history
+// limits. Stored messages are not counted: they were accepted when stored, so
+// a long thread echoed back is held only to what it adds.
+func (c *Conversation) checkNewMessages(entries []historyEntry, maxMessages, maxBytes int) error {
+	count, total := 0, 0
+	for i := range entries {
+		if entries[i].stored {
+			continue
 		}
+		size := messageContentSize(&entries[i].msg)
+		if err := c.validateMessageSize(size); err != nil {
+			return historyError(i, "%v (WithMaxMessageSize)", err)
+		}
+		count++
 		total += size
 	}
+	if count > maxMessages {
+		return fmt.Errorf("%w: %d new messages, at most %d (WithMaxHistorySize)", ErrInvalidHistory, count, maxMessages)
+	}
 	if total > maxBytes {
-		return fmt.Errorf("%w: %d bytes, at most %d", ErrInvalidHistory, total, maxBytes)
+		return fmt.Errorf("%w: %d bytes of new messages, at most %d (WithMaxHistorySize)",
+			ErrInvalidHistory, total, maxBytes)
 	}
 	return nil
 }
@@ -229,8 +255,11 @@ func storedCopy(
 
 // sameMessage reports whether two messages say the same thing: role, text,
 // tool calls and the call a tool result answers.
+//
+// A message's text is compared without the context a host put in front of it
+// (types.MetaInjectedContext), which a client's copy does not carry.
 func sameMessage(a, b *types.Message) bool {
-	if a.Role != b.Role || a.GetContent() != b.GetContent() || len(a.ToolCalls) != len(b.ToolCalls) {
+	if a.Role != b.Role || ownText(a) != ownText(b) || len(a.ToolCalls) != len(b.ToolCalls) {
 		return false
 	}
 	for k := range a.ToolCalls {
@@ -241,6 +270,18 @@ func sameMessage(a, b *types.Message) bool {
 	return resultID(a) == resultID(b)
 }
 
+// ownText is a message's text without the context a host put in front of it
+// as its first text part (types.MetaInjectedContext).
+func ownText(m *types.Message) string {
+	injected, _ := m.Meta[types.MetaInjectedContext].(string)
+	if injected == "" || len(m.Parts) == 0 || m.Parts[0].Text == nil || *m.Parts[0].Text != injected {
+		return m.GetContent()
+	}
+	rest := *m
+	rest.Parts = m.Parts[1:]
+	return rest.GetContent()
+}
+
 func resultID(m *types.Message) string {
 	if m.ToolResult == nil {
 		return ""
@@ -249,9 +290,8 @@ func resultID(m *types.Message) string {
 }
 
 // checkHistory validates a reconciled history and returns it as it is
-// stored: an excluded message the new order no longer keeps out of model
-// context is marked blocked, and new messages lose their reasoning and get an
-// id.
+// stored: each excluded message is marked to stay out of model context
+// alone, and new messages lose their reasoning and get an id.
 func checkHistory(entries []historyEntry) ([]types.Message, error) {
 	out := make([]types.Message, len(entries))
 	for i := range entries {
@@ -284,20 +324,21 @@ func checkHistory(entries []historyEntry) ([]types.Message, error) {
 	return out, nil
 }
 
-// keepExcluded marks blocked each message whose stored copy is kept out of
-// model context but which the new history's order would let back in: a
-// blocked user message the client moved away from its canned reply, say.
+// keepExcluded marks each message whose stored copy is kept out of model
+// context with types.MetaExcludedFromModel, so it stays out alone wherever
+// the new history puts it: a blocked request the client moved away from its
+// canned reply stays out, and a message the client put before a canned reply
+// is not taken out with it.
 func keepExcluded(out []types.Message, entries []historyEntry) {
-	mask := stage.ModelContextMask(out)
 	for i := range out {
-		if !entries[i].excluded || masked(mask, i) {
+		if !entries[i].excluded {
 			continue
 		}
 		meta := make(map[string]interface{}, len(out[i].Meta)+1)
 		for k, v := range out[i].Meta {
 			meta[k] = v
 		}
-		meta[types.MetaBlockedInput] = true
+		meta[types.MetaExcludedFromModel] = true
 		out[i].Meta = meta
 	}
 }

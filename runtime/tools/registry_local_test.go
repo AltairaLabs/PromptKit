@@ -37,13 +37,13 @@ func TestRegisterLocal_IsScopedToTheRegistry(t *testing.T) {
 	assert.True(t, a.UnregisterLocal("pick"))
 	assert.False(t, a.UnregisterLocal("pick"))
 	assert.Same(t, hostTool, a.Get("pick"))
-	assert.Same(t, mineB, b.Local("pick"))
-	assert.Nil(t, a.Local("pick"))
+	assert.Same(t, mineB, b.localTool("pick"))
+	assert.Nil(t, a.localTool("pick"))
 
 	forked := b.Fork()
-	assert.Same(t, mineB, forked.Local("pick"), "Fork keeps local descriptors")
+	assert.Same(t, mineB, forked.localTool("pick"), "Fork keeps local descriptors")
 	forked.UnregisterLocal("pick")
-	assert.Same(t, mineB, b.Local("pick"), "and copies them")
+	assert.Same(t, mineB, b.localTool("pick"), "and copies them")
 }
 
 // RegisterLocal refuses what Register refuses.

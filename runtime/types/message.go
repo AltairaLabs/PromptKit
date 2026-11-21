@@ -137,6 +137,23 @@ const (
 // message.created event, and never sent to a provider.
 const MetaMessageMetadata = "message_metadata"
 
+// MetaExcludedFromModel is the Message.Meta key, set to true, that keeps a
+// message out of model context on its own: the transcript keeps it, but no
+// provider request, summary, extracted memory or retrieval index is built
+// from it. Unlike MetaBlockedInput on a canned reply it never takes the
+// message before it out too. A host that rebuilds a history from a client's
+// copy marks with it each message the stored history kept out of model
+// context (the SDK's ReplaceHistory does), so the client's ordering cannot
+// let it back in.
+const MetaExcludedFromModel = "_excluded_from_model"
+
+// MetaInjectedContext is the Message.Meta key holding text a host put in front
+// of a user's message as its first text part: context the application
+// supplied with the message (the AG-UI adapter's WithInputContext), not the
+// user's words. A host comparing the message with a client's copy of it
+// compares the text after it.
+const MetaInjectedContext = "_injected_context"
+
 // MetaMessageID is the Message.Meta key holding the message's stable id: a
 // string the runtime assigns when it first stores the message (see
 // EnsureMessageID), kept with the message in every state store, so the
@@ -153,6 +170,11 @@ func (m *Message) ID() string {
 	return id
 }
 
+// NewMessageID returns a new, random stable message id (see MetaMessageID).
+func NewMessageID() string {
+	return "msg_" + uuid.NewString()
+}
+
 // EnsureMessageID returns msg carrying a stable id: msg itself when it has one
 // (ID), otherwise a copy with a new, random id under MetaMessageID. The copy
 // gets its own Meta map, so the id never reaches another holder of msg's Meta.
@@ -164,7 +186,7 @@ func EnsureMessageID(msg Message) Message {
 	for k, v := range msg.Meta {
 		meta[k] = v
 	}
-	meta[MetaMessageID] = "msg_" + uuid.NewString()
+	meta[MetaMessageID] = NewMessageID()
 	msg.Meta = meta
 	return msg
 }

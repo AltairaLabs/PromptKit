@@ -344,12 +344,12 @@ func TestReplaceHistory_RefusesOversizedHistory(t *testing.T) {
 	three := []types.Message{types.NewUserMessage("a"), {Role: "assistant", Content: "b"}, types.NewUserMessage("c")}
 	err := conv.ReplaceHistory(ctx, three)
 	require.ErrorIs(t, err, ErrInvalidHistory)
-	assert.Contains(t, err.Error(), "3 messages, at most 2")
+	assert.Contains(t, err.Error(), "3 new messages, at most 2 (WithMaxHistorySize)")
 
 	big := []types.Message{types.NewUserMessage("0123456789"), {Role: "assistant", Content: "0123456789x"}}
 	err = conv.ReplaceHistory(ctx, big)
 	require.ErrorIs(t, err, ErrInvalidHistory)
-	assert.Contains(t, err.Error(), "21 bytes, at most 20")
+	assert.Contains(t, err.Error(), "21 bytes of new messages, at most 20 (WithMaxHistorySize)")
 
 	args := []types.Message{{Role: "assistant", ToolCalls: []types.MessageToolCall{call("c1", "lookup", `{"id":"0123456789"}`)}}}
 	err = conv.ReplaceHistory(ctx, args)
@@ -619,4 +619,34 @@ func TestReplaceHistory_StoreReadFails(t *testing.T) {
 	require.EqualError(t, err, "replace history: loading the conversation: store unavailable")
 	store.failing = false
 	assert.Equal(t, []string{"user: hi", "assistant: Hi."}, wire(conv.Messages(context.Background())))
+}
+
+// A client tool's name must be a plain function name: a pattern such as "*"
+// or "admin*", or any other character outside [A-Za-z0-9_-], or more than 64
+// of them, fails the Send before the turn runs, and a host tool the prompt
+// does not allow is never offered or run.
+func TestWithClientTools_RefusesNamesThatAreNotFunctionNames(t *testing.T) {
+	for _, name := range []string{"*", "a*", "admin*", "a b", "a.b", "a/b", "ünï", strings.Repeat("x", 65)} {
+		t.Run(name, func(t *testing.T) {
+			host := tools.NewRegistry()
+			require.NoError(t, host.Register(&tools.ToolDescriptor{Name: "admin_delete", Description: "danger", Mode: "local"}))
+			provider := newRecordingProvider(say("", call("c1", "admin_delete", `{}`)), say("done"))
+			conv := openHistoryConv(t, provider, WithToolRegistry(host))
+			ran := false
+			conv.OnTool("admin_delete", func(map[string]any) (any, error) { ran = true; return "deleted", nil })
+
+			_, err := conv.Send(context.Background(), "hi", WithClientTools(&tools.ToolDescriptor{Name: name}))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "not a valid tool name")
+			assert.Empty(t, provider.recorded(), "no turn runs")
+			assert.False(t, ran)
+		})
+	}
+	longest := "Ok_name-1" + strings.Repeat("x", 55)
+	provider := newRecordingProvider(say("ok"))
+	conv := openHistoryConv(t, provider)
+	_, err := conv.Send(context.Background(), "hi", WithClientTools(&tools.ToolDescriptor{Name: longest}))
+	require.NoError(t, err)
+	assert.Equal(t, []string{longest, "lookup"}, provider.recorded()[0].toolNames(),
+		"64 characters of [A-Za-z0-9_-] is a valid name, and is offered")
 }

@@ -207,7 +207,7 @@ type AdapterOption func(*adapterConfig)
 ```
 
 <a name="WithClientHistory"></a>
-### func [WithClientHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L65>)
+### func [WithClientHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L72>)
 
 ```go
 func WithClientHistory(history []aguitypes.Message) AdapterOption
@@ -217,12 +217,12 @@ WithClientHistory sets the history the run's new message follows, as the client 
 
 AG\-UI has the client send the whole history with each run. Honoring it is a trust decision for the host: the client then decides what the model is told the user, the assistant and each tool said, including replies the model never gave. Set it only for a client entitled to edit its conversation. Even then, its system and developer messages are dropped, never sent: the pack's system prompt stays the only system instruction. Its reasoning messages are dropped too, so reasoning the conversation did not produce is never replayed to the provider.
 
-The conversation's own copy of a message wins over the client's \(see sdk.Conversation.ReplaceHistory\): a message it holds, by id, by position while the client repeats the stored history, or as one it keeps out of model context, is taken as stored, with its metadata, its provider's tool\-call metadata and its media. A turn an input guardrail blocked and an interrupted reply stay out of model context however the client echoes them. A message the conversation does not hold is new, and is the client's to write: input guardrails judge only the run's new message, never one the client adds to its history.
+The conversation's own copy of a message wins over the client's \(see sdk.Conversation.ReplaceHistory\). A client message is taken as stored, with its metadata, its provider's tool\-call metadata and its media, when it carries a stored message's id \(each run streams its messages under the ids it stores them under, so a client that keeps them holds those ids\), when it repeats the stored history verbatim from its start, or when it is the same message, word for word, as one the conversation keeps out of model context. An edit under a stored id is ignored: the stored copy is what the model gets. A turn an input guardrail blocked and an interrupted reply echoed under their ids, or verbatim, stay out of model context in any order, and take out nothing the client put next to them. A message the conversation does not hold, an edited text included, is new and the client's to write: input guardrails judge only the run's new message, never one the client adds to its history.
 
 New messages keep their AG\-UI ids \(types.MetaMessageID\), so a MESSAGES\_SNAPSHOT names them as the client does. A history the conversation refuses \(a tool result answering no call, a call left without a result, a history over the size limits\) fails the run with RUN\_ERROR, before the model is called. The history is replaced inside the run's turn \(sdk.WithHistory\), so no other turn on the conversation runs between the replacement and the turn. It needs an \*sdk.Conversation; for any other conversation, RunSend fails. RunResume and RunContinue continue the turn the conversation suspended and do not read it.
 
 <a name="WithFrontendTools"></a>
-### func [WithFrontendTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L116>)
+### func [WithFrontendTools](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L123>)
 
 ```go
 func WithFrontendTools(frontend []aguitypes.Tool) AdapterOption
@@ -235,7 +235,7 @@ The model sees each tool's name, description and parameters as the client sent t
 The tools are the turn's own \(sdk.WithClientTools\): a RunResume or RunContinue of the turn offers them still, whatever its own options, and the next RunSend offers its own input's tools, so pass the option on every RunSend of the thread. Two runs on one conversation never offer each other's tools. Each tool is registered on the conversation's own tool registry, never on a shared host registry, and a call's arguments are checked against the client's schema. A ToolResultProvider is never asked to answer a call to one of them. It needs an \*sdk.Conversation; for any other conversation, RunSend fails.
 
 <a name="WithInputContext"></a>
-### func [WithInputContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L87>)
+### func [WithInputContext](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter_input.go#L94>)
 
 ```go
 func WithInputContext(entries []aguitypes.Context) AdapterOption

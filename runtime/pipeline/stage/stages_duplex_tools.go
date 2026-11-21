@@ -72,7 +72,7 @@ type DuplexToolConfig struct {
 	// Caller is who the conversation acts for (ProviderConfig.Caller).
 	Caller types.Caller
 	// ToolGrants returns the tools granted beyond the prompt's
-	// (ProviderConfig.ToolGrants).
+	// (ProviderConfig.ToolGrants): exact names, never patterns.
 	ToolGrants func() []string
 	// DescribeTool shapes how a tool is described to the model
 	// (ProviderConfig.DescribeTool).

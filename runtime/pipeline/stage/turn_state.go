@@ -268,6 +268,12 @@ type ElementMetadata struct {
 	// without waiting for the text after it.
 	SegmentEnd bool
 
+	// MessageID is the stable id (types.MetaMessageID) of the assistant
+	// message a text element is part of: the round's reply, which is stored
+	// under it, so a consumer streaming the text can name the message as the
+	// history will (providers.StreamChunk.MessageID).
+	MessageID string
+
 	// InterruptedTurnComplete marks the element that closes an
 	// interrupted turn (downstream cleanup signal).
 	InterruptedTurnComplete bool

@@ -49,11 +49,11 @@ func (st *runState) consume(chunks <-chan sdk.StreamChunk) (*sdk.Response, error
 			// usage of the calls the model made before it failed.
 			st.usage.addResponse(chunk.Message)
 		case chunk.Type == sdk.ChunkReasoning:
-			st.liveReasoning(chunk.Reasoning)
+			st.liveReasoning(chunk.Reasoning, chunk.MessageID)
 		case chunk.Type == sdk.ChunkText:
-			st.liveText(chunk.Text, chunk.ReplacesText)
+			st.liveText(chunk.Text, chunk.ReplacesText, chunk.MessageID)
 		case chunk.Type == sdk.ChunkToolCall && chunk.ToolCall != nil:
-			st.liveCall(chunk.ToolCall, chunk.Round)
+			st.liveCall(chunk.ToolCall, chunk.Round, chunk.MessageID)
 		case chunk.Type == sdk.ChunkToolResult && chunk.ToolResult != nil:
 			st.liveResult(chunk.ToolResult)
 		case chunk.Type == sdk.ChunkDone:
@@ -73,9 +73,14 @@ func (st *runState) consume(chunks <-chan sdk.StreamChunk) (*sdk.Response, error
 }
 
 // newRound starts the turn's next round, whose results are deduplicated on
-// their own.
-func (st *runState) newRound() *liveRound {
-	r := &liveRound{msgID: aguievents.GenerateMessageID(), answered: map[string]bool{}}
+// their own. Its message is named messageID, the id the conversation stores
+// the round's reply under, when it is known, so a client that keeps the
+// streamed messages holds the stored ids; otherwise it gets a new id.
+func (st *runState) newRound(messageID string) *liveRound {
+	if messageID == "" {
+		messageID = aguievents.GenerateMessageID()
+	}
+	r := &liveRound{msgID: messageID, answered: map[string]bool{}}
 	st.rounds = append(st.rounds, r)
 	st.answered = r.answered
 	return r
@@ -92,13 +97,13 @@ func (st *runState) lastRound() *liveRound {
 // round's. A delta that replaces the text streamed before it (an output
 // guardrail cut the reply) closes the streamed message and starts a new one,
 // since AG-UI cannot take back text the client has shown.
-func (st *runState) liveText(delta string, replaces bool) {
+func (st *runState) liveText(delta string, replaces bool, messageID string) {
 	if delta == "" {
 		return
 	}
 	r := st.lastRound()
 	if r == nil || r.called {
-		r = st.newRound()
+		r = st.newRound(messageID)
 	}
 	st.closeReasoning(r)
 	if replaces && r.texted {
@@ -117,10 +122,10 @@ func (st *runState) liveText(delta string, replaces bool) {
 // liveCall emits a tool call once its round's reply has streamed. A call of
 // another round than the current round's calls starts the next round, whether
 // or not results came between them; so does a call after the round's results.
-func (st *runState) liveCall(tc *types.MessageToolCall, round int) {
+func (st *runState) liveCall(tc *types.MessageToolCall, round int, messageID string) {
 	r := st.lastRound()
 	if r == nil || (r.called && (r.round != round || r.resulted)) {
-		r = st.newRound()
+		r = st.newRound(messageID)
 	}
 	st.closeReasoning(r)
 	st.closeText(r)

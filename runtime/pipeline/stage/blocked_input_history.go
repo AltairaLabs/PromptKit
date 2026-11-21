@@ -111,6 +111,13 @@ func hasInputValidation(m *types.Message) bool {
 func blockedInputTurns(msgs []types.Message) []bool {
 	var mask []bool
 	for i := range msgs {
+		if alone, _ := msgs[i].Meta[types.MetaExcludedFromModel].(bool); alone {
+			if mask == nil {
+				mask = make([]bool, len(msgs))
+			}
+			mask[i] = true
+			continue
+		}
 		reply := isBlockedInputReply(&msgs[i])
 		if !reply && !isBlockedInputRequest(&msgs[i]) {
 			continue
@@ -160,20 +167,22 @@ func withoutMasked(msgs []types.Message, mask []bool) []types.Message {
 }
 
 // ExcludeFromModelContext returns msgs without what never goes back to a
-// model: interrupted replies (types.ExcludeInterrupted) and blocked input
-// turns, the canned reply marked Meta[types.MetaBlockedInput] and the user
-// message it answered. A transcript keeps both; any path that builds model
+// model, the messages ModelContextMask marks: interrupted replies
+// (types.ExcludeInterrupted), blocked input turns (the canned reply marked
+// Meta[types.MetaBlockedInput] and the user message it answered), and each
+// message marked Meta[types.MetaExcludedFromModel]. A transcript keeps both; any path that builds model
 // context from one (a carry-forward summary, a host's own summarizer) passes
 // it through this first. msgs is returned as-is when it holds neither.
 func ExcludeFromModelContext(msgs []types.Message) []types.Message {
-	return withoutMasked(withoutInterrupted(msgs))
+	return withoutMasked(msgs, ModelContextMask(msgs))
 }
 
 // ModelContextMask reports, for each message of msgs, whether
-// ExcludeFromModelContext leaves it out: an interrupted reply, or a message of
-// a blocked input turn. It returns nil when it leaves none out. A host that
-// rebuilds a history from another copy of it uses the mask to keep what the
-// transcript holds out of model context out of it still.
+// ExcludeFromModelContext leaves it out: an interrupted reply, a message of a
+// blocked input turn, or one marked Meta[types.MetaExcludedFromModel]. It
+// returns nil when it leaves none out. A host that rebuilds a history from
+// another copy of it uses the mask to keep what the transcript holds out of
+// model context out of it still.
 func ModelContextMask(msgs []types.Message) []bool {
 	mask := blockedInputTurns(msgs)
 	for i := range msgs {

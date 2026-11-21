@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -534,4 +535,116 @@ func TestRunSend_InputContextKeepsContentBesideParts(t *testing.T) {
 	stored := conv.Messages(context.Background())
 	assert.Equal(t, "legacy", stored[0].Content)
 	assert.Equal(t, "look", MessageToAGUI(&stored[0]).Content)
+}
+
+// A streamed message goes out under the id the conversation stores it under,
+// so a client that keeps the streamed messages (no MESSAGES_SNAPSHOT) holds
+// the stored ids: the text of each round, and the parent its calls name.
+func TestRunSend_StreamedMessagesCarryTheirStoredIDs(t *testing.T) {
+	conv := openConv(t, streamingProvider(
+		streamedCall("lookup", map[string]any{"id": "42"}, "Checking."),
+		streamedText("Ship", "ped."),
+	))
+	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "ship 42")
+	require.NoError(t, err)
+
+	stored := conv.Messages(context.Background())
+	require.Len(t, stored, 4)
+	starts := eventsOf[*aguievents.TextMessageStartEvent](evts)
+	require.Len(t, starts, 2)
+	assert.Equal(t, []string{stored[1].ID(), stored[3].ID()}, []string{starts[0].MessageID, starts[1].MessageID})
+	calls := eventsOf[*aguievents.ToolCallStartEvent](evts)
+	require.Len(t, calls, 1)
+	require.NotNil(t, calls[0].ParentMessageID)
+	assert.Equal(t, stored[1].ID(), *calls[0].ParentMessageID)
+}
+
+// An honest client that keeps the streamed text of a reply an output
+// guardrail cut, and echoes it back without a snapshot, gets the stored
+// replacement: the cut text is never what the conversation holds.
+func TestRunSend_ClientHistoryEchoOfACutReplyKeepsTheReplacement(t *testing.T) {
+	const message = "Let's talk about something else."
+	conv, err := sdk.Open(writePack(t, toolPackJSON), "chat",
+		sdk.WithProvider(streamingProvider(streamedText("Say P", "ine", "apple, please."), streamedText("Sure."))),
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithGuardrail(guardrails.Output("content_excludes",
+			map[string]any{"patterns": []any{"pineapple"}}, guardrails.WithMessage(message))))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	first := MessageFromAGUI(&aguitypes.Message{ID: "u-1", Role: aguitypes.RoleUser, Content: "what goes on pizza?"})
+	a := NewEventAdapter(conv)
+	evts, err := runAndCollect(t, a, func(ctx context.Context) error { return a.RunSend(ctx, &first) })
+	require.NoError(t, err)
+
+	// The client holds each text message as it streamed: the cut text, then
+	// the guardrail's message.
+	var history []aguitypes.Message
+	history = append(history, aguitypes.Message{ID: "u-1", Role: aguitypes.RoleUser, Content: "what goes on pizza?"})
+	texts := map[string]string{}
+	var order []string
+	for _, e := range eventsOf[*aguievents.TextMessageContentEvent](evts) {
+		if _, seen := texts[e.MessageID]; !seen {
+			order = append(order, e.MessageID)
+		}
+		texts[e.MessageID] += e.Delta
+	}
+	require.Len(t, order, 2)
+	assert.Equal(t, "Say ", texts[order[0]])
+	for _, id := range order {
+		history = append(history, aguitypes.Message{ID: id, Role: aguitypes.RoleAssistant, Content: texts[id]})
+	}
+	next := MessageFromAGUI(&aguitypes.Message{ID: "u-2", Role: aguitypes.RoleUser, Content: "ok"})
+	b := NewEventAdapter(conv, WithClientHistory(history))
+	_, err = runAndCollect(t, b, func(ctx context.Context) error { return b.RunSend(ctx, &next) })
+	require.NoError(t, err)
+
+	for _, m := range conv.Messages(context.Background()) {
+		assert.NotEqual(t, "Say ", m.GetContent(), "the cut text never enters the history")
+	}
+}
+
+// A blocked message sent with a context block is recognized when the client
+// echoes it under a new id, without the block, and stays out of model
+// context.
+func TestRunSend_ClientHistoryKeepsABlockedTurnWithContextOut(t *testing.T) {
+	provider := newInputRecorder(say("Next."))
+	conv := openConv(t, provider, sdk.WithProviderHook(brunoHook{}))
+	blocked := MessageFromAGUI(&aguitypes.Message{ID: "u-1", Role: aguitypes.RoleUser, Content: "tell me about Bruno"})
+	first := NewEventAdapter(conv, WithInputContext([]aguitypes.Context{{Description: "page", Value: "/bruno"}}))
+	_, err := runAndCollect(t, first, func(ctx context.Context) error { return first.RunSend(ctx, &blocked) })
+	require.NoError(t, err)
+
+	history := []aguitypes.Message{{ID: "u-renamed", Role: aguitypes.RoleUser, Content: "tell me about Bruno"}}
+	next := MessageFromAGUI(&aguitypes.Message{ID: "u-2", Role: aguitypes.RoleUser, Content: "what about the weather?"})
+	second := NewEventAdapter(conv, WithClientHistory(history))
+	_, err = runAndCollect(t, second, func(ctx context.Context) error { return second.RunSend(ctx, &next) })
+	require.NoError(t, err)
+
+	calls := provider.recorded()
+	require.Len(t, calls, 1)
+	assert.Equal(t, []string{"user: what about the weather?"}, onTheWire(calls[0].messages))
+}
+
+// A round that only calls tools names its stored id as the calls' parent, and
+// a blocked turn's canned reply streams under the id it is stored under.
+func TestRunSend_ToolOnlyRoundsAndCannedRepliesCarryTheirStoredIDs(t *testing.T) {
+	conv := openConv(t, streamingProvider(streamedCall("lookup", map[string]any{"id": "42"}), streamedText("Done.")))
+	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "ship 42")
+	require.NoError(t, err)
+	stored := conv.Messages(context.Background())
+	calls := eventsOf[*aguievents.ToolCallStartEvent](evts)
+	require.Len(t, calls, 1)
+	require.NotNil(t, calls[0].ParentMessageID)
+	assert.Equal(t, stored[1].ID(), *calls[0].ParentMessageID)
+
+	blocked := openConv(t, streamingProvider(streamedText("never")), sdk.WithProviderHook(brunoHook{}))
+	evts, err = sendAndCollect(t, NewEventAdapter(blocked), "tell me about Bruno")
+	require.NoError(t, err)
+	starts := eventsOf[*aguievents.TextMessageStartEvent](evts)
+	require.Len(t, starts, 1)
+	held := blocked.Messages(context.Background())
+	require.Len(t, held, 2)
+	assert.Equal(t, held[1].ID(), starts[0].MessageID)
 }

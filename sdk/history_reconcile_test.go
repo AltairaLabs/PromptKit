@@ -2,11 +2,13 @@ package sdk
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -189,4 +191,139 @@ func TestReplaceHistory_DifferentMessagesAreNew(t *testing.T) {
 		"user: posing",
 		"user: again",
 	}, wire(provider.recorded()[1].messages))
+}
+
+// A canned reply the client echoes after a message of its own keeps only
+// itself out of model context: the client's message before it is not the
+// blocked request, and reaches the model.
+func TestReplaceHistory_EchoedCannedReplyLeavesTheMessageBeforeIt(t *testing.T) {
+	provider := newRecordingProvider(say("Hello."), say("Never sent."), say("Next."))
+	conv := openHistoryConv(t, provider, WithProviderHook(bareBlockHook{}))
+	ctx := context.Background()
+	_, err := conv.Send(ctx, "hi")
+	require.NoError(t, err)
+	_, err = conv.Send(ctx, historyBlockedInput)
+	require.NoError(t, err)
+	stored := conv.Messages(ctx)
+
+	echo := []types.Message{types.NewUserMessage("innocent legit question"), clientCopy(stored[3], "x3")}
+	_, err = conv.Send(ctx, "go on", WithHistory(echo))
+	require.NoError(t, err)
+	calls := provider.recorded()
+	assert.Equal(t, []string{"user: innocent legit question", "user: go on"}, wire(calls[len(calls)-1].messages))
+}
+
+// A user message the conversation stored with a context block in front of it
+// is the same message as the client's copy without the block: a blocked one
+// stays out of model context under a new id.
+func TestReplaceHistory_BlockedMessageWithInjectedContextIsRecognized(t *testing.T) {
+	provider := newRecordingProvider(say("Next."))
+	conv := openHistoryConv(t, provider, WithProviderHook(bareBlockHook{}))
+	ctx := context.Background()
+	block := "Context: the page is /orders.\n"
+	msg := &types.Message{Role: "user", Parts: []types.ContentPart{types.NewTextPart(block), types.NewTextPart(historyBlockedInput)},
+		Meta: map[string]interface{}{types.MetaInjectedContext: block, types.MetaMessageID: "u-1"}}
+	resp, err := conv.Send(ctx, msg)
+	require.NoError(t, err)
+	require.Equal(t, historyCannedReply, resp.Text())
+
+	echo := []types.Message{withMessageID(types.NewUserMessage(historyBlockedInput), "u-other"),
+		withMessageID(types.Message{Role: "assistant", Content: historyCannedReply}, "a-other")}
+	_, err = conv.Send(ctx, "go on", WithHistory(echo))
+	require.NoError(t, err)
+	calls := provider.recorded()
+	require.Len(t, calls, 1, "the blocked turn never called the model")
+	assert.Equal(t, []string{"user: go on"}, wire(calls[0].messages))
+}
+
+// The history limits apply to what the echo adds: a long stored thread echoed
+// back with one new message is accepted however many messages it holds, and
+// the error names WithMaxHistorySize and the limit an echo that adds too much
+// is over.
+func TestReplaceHistory_LimitsCountWhatTheEchoAdds(t *testing.T) {
+	replies := make([]providers.PredictionResponse, 0, 6)
+	for i := 0; i < 6; i++ {
+		replies = append(replies, say("ok"))
+	}
+	provider := newRecordingProvider(replies...)
+	conv := openHistoryConv(t, provider, WithMaxHistorySize(2, 40))
+	ctx := context.Background()
+	for _, text := range []string{"one", "two", "three"} {
+		_, err := conv.Send(ctx, text)
+		require.NoError(t, err)
+	}
+	stored := conv.Messages(ctx)
+	require.Len(t, stored, 6)
+
+	echo := make([]types.Message, 0, len(stored)+1)
+	for i := range stored {
+		echo = append(echo, clientCopy(stored[i], "c"+string(rune('0'+i))))
+	}
+	_, err := conv.Send(ctx, "four", WithHistory(append(echo, types.NewUserMessage("added"))))
+	require.NoError(t, err, "six stored messages and one new is within a two-message limit")
+
+	tooMany := append(append([]types.Message(nil), conv.Messages(ctx)...),
+		types.NewUserMessage("a"), types.Message{Role: "assistant", Content: "b"}, types.NewUserMessage("c"))
+	err = conv.ReplaceHistory(ctx, tooMany)
+	require.ErrorIs(t, err, ErrInvalidHistory)
+	assert.Contains(t, err.Error(), "3 new messages, at most 2 (WithMaxHistorySize)")
+
+	tooBig := append(append([]types.Message(nil), conv.Messages(ctx)...),
+		types.NewUserMessage(strings.Repeat("x", 41)))
+	err = conv.ReplaceHistory(ctx, tooBig)
+	require.ErrorIs(t, err, ErrInvalidHistory)
+	assert.Contains(t, err.Error(), "41 bytes of new messages, at most 40 (WithMaxHistorySize)")
+}
+
+// A blocked request the client moved after messages of its own, with its
+// canned reply moved first, stays out; the client's messages reach the model.
+func TestReplaceHistory_ReorderedBlockedTurnStaysOut(t *testing.T) {
+	provider := newRecordingProvider(say("Hello."), say("Never sent."), say("Next."))
+	conv := openHistoryConv(t, provider, WithProviderHook(bareBlockHook{}))
+	ctx := context.Background()
+	_, err := conv.Send(ctx, "hi")
+	require.NoError(t, err)
+	_, err = conv.Send(ctx, historyBlockedInput)
+	require.NoError(t, err)
+	stored := conv.Messages(ctx)
+
+	echo := []types.Message{clientCopy(stored[3], "x3"), types.NewUserMessage("innocent"),
+		{Role: "assistant", Content: "ok"}, clientCopy(stored[2], "x2"), {Role: "assistant", Content: "Sure."}}
+	_, err = conv.Send(ctx, "go on", WithHistory(echo))
+	require.NoError(t, err)
+	calls := provider.recorded()
+	assert.Equal(t, []string{"user: innocent", "assistant: ok", "assistant: Sure.", "user: go on"},
+		wire(calls[len(calls)-1].messages))
+}
+
+// The trust boundary, pinned: a client that edits a blocked request's text is
+// sending a new message, which reaches the model (input guardrails judge only
+// the new message); an edit under a stored message's id is ignored, and the
+// stored copy is what the model gets.
+func TestReplaceHistory_EditsAreNewOrIgnored(t *testing.T) {
+	provider := newRecordingProvider(say("Hello."), say("Never sent."), say("Next."), say("Again."))
+	conv := openHistoryConv(t, provider, WithProviderHook(bareBlockHook{}))
+	ctx := context.Background()
+	_, err := conv.Send(ctx, "hi")
+	require.NoError(t, err)
+	_, err = conv.Send(ctx, historyBlockedInput)
+	require.NoError(t, err)
+	stored := conv.Messages(ctx)
+
+	_, err = conv.Send(ctx, "go on", WithHistory([]types.Message{
+		clientCopy(stored[0], "a"), clientCopy(stored[1], "b"),
+		types.NewUserMessage(historyBlockedInput + "!"), {Role: "assistant", Content: "Sure."},
+	}))
+	require.NoError(t, err)
+	calls := provider.recorded()
+	assert.Contains(t, wire(calls[len(calls)-1].messages), "user: "+historyBlockedInput+"!", "an edited text is new")
+
+	first := conv.Messages(ctx)[0]
+	edited := clientCopy(first, first.ID())
+	edited.Content = "EDITED"
+	_, err = conv.Send(ctx, "and again", WithHistory([]types.Message{edited}))
+	require.NoError(t, err)
+	calls = provider.recorded()
+	assert.Equal(t, []string{"user: hi", "user: and again"}, wire(calls[len(calls)-1].messages),
+		"the edit under a stored id is ignored")
 }
