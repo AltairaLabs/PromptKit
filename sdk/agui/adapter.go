@@ -257,7 +257,7 @@ func WithReasoning(enabled bool) AdapterOption {
 }
 
 // WithMessagesSnapshot sets whether each run ends with a MESSAGES_SNAPSHOT,
-// just before RUN_FINISHED, restating the conversation's history as the agent
+// immediately before RUN_FINISHED, restating the conversation's history as the agent
 // holds it: for a client reconnecting to the thread, or one whose copy has
 // drifted from the agent's. Off by default.
 //

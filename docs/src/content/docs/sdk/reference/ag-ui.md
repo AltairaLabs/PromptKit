@@ -206,7 +206,7 @@ type AdapterOption func(*adapterConfig)
 func WithMessagesSnapshot(enabled bool) AdapterOption
 ```
 
-WithMessagesSnapshot sets whether each run ends with a MESSAGES\_SNAPSHOT, just before RUN\_FINISHED, restating the conversation's history as the agent holds it: for a client reconnecting to the thread, or one whose copy has drifted from the agent's. Off by default.
+WithMessagesSnapshot sets whether each run ends with a MESSAGES\_SNAPSHOT, immediately before RUN\_FINISHED, restating the conversation's history as the agent holds it: for a client reconnecting to the thread, or one whose copy has drifted from the agent's. Off by default.
 
 The client replaces its messages with the snapshot's. PromptKit's messages carry no id, so each is keyed by the thread id and its position in the history \("\<thread\>\-0", "\<thread\>\-1", ...\), which a later run's snapshot gives it again; the messages the run streamed under ids of their own are replaced too. The ids are stable across runs only when the thread id is: set it with [WithThreadID](<#WithThreadID>) from the input's threadId, or each run's adapter generates a new one. The history keeps no reasoning: with [WithReasoning](<#WithReasoning>) on, the snapshot restates the reasoning of the run's own turns, as reasoning messages before the assistant messages they led to, which AG\-UI reads as the complete set of reasoning messages. A run whose history reads back empty, or shorter than the run's own turn \(a store that failed or does not keep it\), sends no snapshot rather than one that would clear the client. It needs a conversation that exposes its history \(\*sdk.Conversation does\); for any other the option does nothing.
 
