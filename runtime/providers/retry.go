@@ -107,7 +107,8 @@ type DoRequestFunc func() (*http.Response, error)
 // policy. It retries on retryable HTTP status codes (429, 502, 503,
 // 504) and transient network errors, and never after context
 // cancellation. A Retry-After header on a retryable response replaces the
-// computed backoff delay. The body of a retryable response is closed before
+// computed backoff delay; one asking for more than a minute is not waited,
+// and that response is returned as though retries had run out. The body of a retryable response is closed before
 // retrying. The caller closes the body of a successful response.
 //
 // When every attempt fails with a retryable status, DoWithRetry returns the
@@ -125,7 +126,10 @@ func DoWithRetry(
 		Name:        providerName,
 		MaxAttempts: policy.MaxRetries + 1,
 		Backoff:     httpBackoff(policy),
-		LogAttrs:    []any{"provider", providerName},
+		// A Retry-After past the backoff's own one-minute ceiling is not
+		// waited: the response is returned at once.
+		MaxRetryAfter: maxBackoffDuration,
+		LogAttrs:      []any{"provider", providerName},
 		Classify: func(err error) (bool, time.Duration) {
 			var statusErr *RetryableHTTPError
 			if errors.As(err, &statusErr) {

@@ -3,6 +3,7 @@ package retry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
@@ -200,6 +201,9 @@ func TestBackoff_Delay(t *testing.T) {
 		{"fixed", Backoff{Initial: 100 * time.Millisecond, Multiplier: 1}, 3, 100 * time.Millisecond, 100 * time.Millisecond},
 		{"capped", Backoff{Initial: time.Second, Max: 3 * time.Second}, 5, 3 * time.Second, 3 * time.Second},
 		{"overflowing attempt stays capped", Backoff{Initial: time.Second, Max: 3 * time.Second}, 100, 3 * time.Second, 3 * time.Second},
+		{"overflowing attempt with no Max saturates", Backoff{Initial: time.Second}, 5000, maxUncapped, maxUncapped},
+		{"saturated and jittered stays positive", Backoff{Initial: time.Second, JitterMin: 1, JitterMax: 1.5}, 5000, maxUncapped, maxUncapped},
+		{"no initial delay is no wait", Backoff{Max: time.Second}, 5000, 0, 0},
 		{"negative attempt is the first", Backoff{Initial: time.Second}, -1, time.Second, time.Second},
 		{"jitter scales", Backoff{Initial: time.Second, JitterMin: 0.5, JitterMax: 1}, 0, 500 * time.Millisecond, time.Second},
 		{"jitter never passes Max", Backoff{Initial: time.Second, Max: time.Second, JitterMin: 1, JitterMax: 1.5}, 0, time.Second, time.Second},
@@ -228,6 +232,16 @@ func TestBackoff_JitterVaries(t *testing.T) {
 
 func TestParseRetryAfter(t *testing.T) {
 	future := time.Now().Add(time.Hour).UTC().Format(http.TimeFormat)
+	saturated := []struct{ val string }{{"9300000000"}, {"99999999999999999999999"}}
+	for _, tc := range saturated {
+		h := http.Header{"Retry-After": {tc.val}}
+		if got := ParseRetryAfter(h); got != maxUncapped {
+			t.Errorf("ParseRetryAfter(%q) = %v, want the saturated %v", tc.val, got, maxUncapped)
+		}
+	}
+	if got := ParseRetryAfter(http.Header{"Retry-After": {"-99999999999999999999999"}}); got != 0 {
+		t.Errorf("ParseRetryAfter(huge negative) = %v, want 0", got)
+	}
 	past := time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)
 	cases := []struct {
 		val      string
@@ -266,23 +280,25 @@ func TestSleep(t *testing.T) {
 func TestPolicy_Wait(t *testing.T) {
 	p := Policy{Backoff: Backoff{Initial: time.Second, Multiplier: 1}, MaxRetryAfter: 10 * time.Second}
 	cases := []struct {
-		name  string
-		after time.Duration
-		want  time.Duration
+		name   string
+		after  time.Duration
+		want   time.Duration
+		wantOK bool
 	}{
-		{"no wait asked: the backoff", 0, time.Second},
-		{"a wait under the cap", 3 * time.Second, 3 * time.Second},
-		{"a wait at the cap", 10 * time.Second, 10 * time.Second},
-		{"a wait past the cap", time.Minute, 10 * time.Second},
+		{"no wait asked: the backoff", 0, time.Second, true},
+		{"a wait under the limit", 3 * time.Second, 3 * time.Second, true},
+		{"a wait at the limit", 10 * time.Second, 10 * time.Second, true},
+		{"a wait past the limit: no retry", 10*time.Second + 1, 0, false},
 	}
 	for _, tc := range cases {
-		if got := p.Wait(0, tc.after); got != tc.want {
-			t.Errorf("%s: Wait = %v, want %v", tc.name, got, tc.want)
+		got, ok := p.Wait(0, tc.after)
+		if got != tc.want || ok != tc.wantOK {
+			t.Errorf("%s: Wait = %v, %v; want %v, %v", tc.name, got, ok, tc.want, tc.wantOK)
 		}
 	}
-	uncapped := Policy{}
-	if got := uncapped.Wait(0, time.Hour); got != time.Hour {
-		t.Errorf("uncapped Wait = %v, want 1h", got)
+	unlimited := Policy{}
+	if got, ok := unlimited.Wait(0, time.Hour); got != time.Hour || !ok {
+		t.Errorf("unlimited Wait = %v, %v; want 1h, true", got, ok)
 	}
 }
 
@@ -298,7 +314,98 @@ func TestFullJitterPolicy(t *testing.T) {
 		t.Errorf("Backoff = %+v, want %+v", p.Backoff, want)
 	}
 	_, after := p.Classify(errTransient)
-	if got := p.Wait(0, after); got != time.Second {
-		t.Errorf("Wait for an hour-long Retry-After = %v, want the 1s ceiling", got)
+	if _, ok := p.Wait(0, after); ok {
+		t.Error("an hour-long Retry-After past the 1s ceiling was retried")
+	}
+	if got, ok := p.Wait(0, time.Second); got != time.Second || !ok {
+		t.Errorf("Wait for a Retry-After at the ceiling = %v, %v; want 1s, true", got, ok)
+	}
+}
+
+// A failure asking to wait past MaxRetryAfter is returned at once, without a
+// retry, and reported as such.
+func TestDo_RetryAfterPastTheLimitStopsRetrying(t *testing.T) {
+	seen := recordOutcomes(t)
+	op, calls := script(errTransient)
+	p := fastPolicy(5)
+	p.MaxRetryAfter = time.Second
+	p.Classify = func(error) (bool, time.Duration) { return true, time.Hour }
+
+	start := time.Now()
+	got, err := Do(context.Background(), p, op)
+	if err != errTransient || got != "partial" {
+		t.Fatalf("Do = %q, %v; want partial, %v", got, err, errTransient)
+	}
+	if *calls != 1 {
+		t.Errorf("calls = %d, want 1", *calls)
+	}
+	if time.Since(start) > 500*time.Millisecond {
+		t.Error("the Retry-After was waited")
+	}
+	if want := []string{"site:retry_after_too_long"}; !equal(seen(), want) {
+		t.Errorf("outcomes = %v, want %v", seen(), want)
+	}
+}
+
+// A failure after the context ended is not a retry: nothing is reported, and
+// the context's error comes back.
+func TestDo_FailureAfterCancelIsNotCountedAsARetry(t *testing.T) {
+	seen := recordOutcomes(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	op := func(context.Context) (string, error) {
+		cancel()
+		return "partial", errTransient
+	}
+	got, err := Do(ctx, fastPolicy(5), op)
+	if err != context.Canceled || got != "" {
+		t.Fatalf("Do = %q, %v; want empty, context.Canceled", got, err)
+	}
+	if len(seen()) != 0 {
+		t.Errorf("outcomes = %v, want none", seen())
+	}
+
+	// An attempt whose own error names the context's end keeps it.
+	wrapped := fmt.Errorf("dial: %w", context.Canceled)
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	op2 := func(context.Context) (string, error) {
+		cancel2()
+		return "partial", wrapped
+	}
+	if got, err := Do(ctx2, fastPolicy(5), op2); err != wrapped || got != "partial" {
+		t.Fatalf("Do = %q, %v; want partial, %v", got, err, wrapped)
+	}
+	if len(seen()) != 0 {
+		t.Errorf("outcomes = %v, want none", seen())
+	}
+}
+
+// A context ending while Do waits to retry returns the context's error.
+func TestDo_CancelDuringTheWaitReturnsTheContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	op, calls := script(errTransient, errTransient)
+	p := Policy{MaxAttempts: 5, Backoff: Backoff{Initial: time.Hour}}
+	time.AfterFunc(20*time.Millisecond, cancel)
+
+	start := time.Now()
+	if _, err := Do(ctx, p, op); err != context.Canceled {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if *calls != 1 || time.Since(start) > time.Second {
+		t.Errorf("calls = %d after %v; want 1, promptly", *calls, time.Since(start))
+	}
+}
+
+// One attempt configured is no retry policy at all: a retryable failure is
+// returned and nothing is reported.
+func TestDo_SingleAttemptReportsNothing(t *testing.T) {
+	seen := recordOutcomes(t)
+	op, calls := script(errTransient)
+	if _, err := Do(context.Background(), fastPolicy(1), op); err != errTransient {
+		t.Fatalf("err = %v, want %v", err, errTransient)
+	}
+	if *calls != 1 || len(seen()) != 0 {
+		t.Errorf("calls = %d, outcomes = %v; want 1 and none", *calls, seen())
 	}
 }

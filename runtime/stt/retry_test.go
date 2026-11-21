@@ -228,3 +228,25 @@ func TestTranscribeWithRetry_HonorsRetryAfter(t *testing.T) {
 		t.Errorf("text = %q, want %q", got.Text, "transcribed")
 	}
 }
+
+// A Retry-After past MaxDelay is not waited out: the error comes back after
+// that one call, at once.
+func TestTranscribeWithRetry_RetryAfterPastMaxDelayStopsRetrying(t *testing.T) {
+	t.Parallel()
+	limited := NewTranscriptionError("mock", "429", "slow down", ErrRateLimited, true)
+	limited.RetryAfter = time.Hour
+	svc := &mockSTTProvider{results: []mockResult{{err: limited}}}
+	start := time.Now()
+	_, err := TranscribeWithRetry(context.Background(), svc, base.STTRequest{Audio: []byte("a")}, RetryConfig{
+		MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: 2 * time.Second,
+	})
+	if err != limited {
+		t.Fatalf("err = %v, want %v", err, limited)
+	}
+	if got := svc.calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("the Retry-After was waited")
+	}
+}

@@ -82,7 +82,10 @@ func (h *clientHeap) Pop() interface{} {
 // retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on
 // transient network errors, and waits an exponentially growing delay between
 // attempts, capped at MaxDelay, with random jitter that shortens each delay by
-// up to 50%. No delay exceeds MaxDelay, and delays at the cap still vary.
+// up to 50%. No delay exceeds MaxDelay, and delays at the cap still vary. A
+// Retry-After from the agent replaces the delay; one past MaxDelay is not
+// waited, and the call fails at once. A tool's A2AConfig.RetryPolicy is
+// merged onto this policy for that agent, unless MaxRetries is zero.
 type RetryPolicy struct {
 	// MaxRetries is the number of retries after the first attempt.
 	MaxRetries int
@@ -448,31 +451,42 @@ func cancelAbandonedTask(client *Client, task *Task) {
 	}
 }
 
-// sendWithRetry sends the message, retrying as the tool's own RetryPolicy
-// says, or else as the executor's does.
+// sendWithRetry sends the message, retrying as the executor's policy with
+// the tool's own RetryPolicy merged onto it says.
 func (e *Executor) sendWithRetry(
 	ctx context.Context, client *Client, req *SendMessageRequest, cfg *tools.A2AConfig,
 ) (*Task, error) {
-	policy := e.retryPolicy
-	if cfg.RetryPolicy != nil {
-		policy = retryPolicyFromConfig(cfg.RetryPolicy)
-	}
+	policy := mergeRetryPolicy(e.retryPolicy, cfg.RetryPolicy)
 	return retry.Do(ctx, a2aRetryPolicy(policy, cfg.AgentURL), func(ctx context.Context) (*Task, error) {
 		return client.SendMessage(ctx, req)
 	})
 }
 
-// retryPolicyFromConfig is the RetryPolicy a tool's A2ARetryConfig describes.
-func retryPolicyFromConfig(c *tools.A2ARetryConfig) RetryPolicy {
-	return RetryPolicy{
-		MaxRetries:   c.MaxRetries,
-		InitialDelay: time.Duration(c.InitialDelayMs) * time.Millisecond,
-		MaxDelay:     time.Duration(c.MaxDelayMs) * time.Millisecond,
+// mergeRetryPolicy lays a tool's A2ARetryConfig over the executor's policy
+// field by field: a zero field keeps the executor's value, and a negative
+// MaxRetries turns retries off for the agent. An executor that does not retry
+// (WithNoRetry) stays that way: its host retries for itself, and an agent's
+// config must not add retries underneath it.
+func mergeRetryPolicy(base RetryPolicy, c *tools.A2ARetryConfig) RetryPolicy {
+	if c == nil || base.MaxRetries <= 0 {
+		return base
 	}
+	merged := base
+	if c.MaxRetries != 0 {
+		merged.MaxRetries = c.MaxRetries
+	}
+	if c.InitialDelayMs > 0 {
+		merged.InitialDelay = time.Duration(c.InitialDelayMs) * time.Millisecond
+	}
+	if c.MaxDelayMs > 0 {
+		merged.MaxDelay = time.Duration(c.MaxDelayMs) * time.Millisecond
+	}
+	return merged
 }
 
 // a2aRetryPolicy is the shared retry policy a RetryPolicy describes. A
-// Retry-After the agent sends replaces the backoff, capped at MaxDelay.
+// Retry-After the agent sends replaces the backoff; one past MaxDelay ends the
+// retries.
 func a2aRetryPolicy(policy RetryPolicy, agentURL string) retry.Policy {
 	backoff := a2aBackoff(policy)
 	return retry.Policy{

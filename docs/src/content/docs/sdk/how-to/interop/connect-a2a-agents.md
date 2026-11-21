@@ -52,7 +52,7 @@ Connect remote [A2A](https://a2a-protocol.org) agents to a conversation so the m
    | `WithHeader(key, value)` | Add a static header to every request |
    | `WithHeaderFromEnv(spec)` | Add a header from an environment variable (`"X-Key=ENV_VAR"`) |
    | `WithTimeout(ms)` | Timeout in milliseconds for discovery, each request and each tool call |
-   | `WithRetryPolicy(max, initialMs, maxMs)` | Retry 429, 502, 503, 504 and network failures with exponential backoff, replacing the executor's policy for this agent |
+   | `WithRetryPolicy(max, initialMs, maxMs)` | Retry 429, 502, 503, 504 and network failures with exponential backoff; each non-zero value replaces the executor's for this agent |
    | `WithSkillFilter(filter)` | Control which skills are exposed |
    | `Required()` | Fail `Open` if the agent card cannot be fetched |
 

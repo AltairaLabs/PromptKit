@@ -366,9 +366,10 @@ Provider HTTP requests, A2A agent calls, TTS and STT requests, MCP connects and 
 
 | If you | You will see | Change |
 |---|---|---|
-| Count `provider_retries_total` | retries from A2A (`provider="a2a"`), TTS (`tts/<provider>`), STT (`stt/<provider>`), MCP (`mcp`) and realtime connects (`openai-realtime`, `gemini-live`) as well as LLM providers | filter on `provider` to keep the old series |
-| Get a 429 or 503 with `Retry-After` from an A2A agent, a TTS or STT service or a realtime handshake | the retry waits what the server asked for, capped at the policy's maximum delay; `a2a.HTTPStatusError`, `tts.SynthesisError` and `stt.TranscriptionError` carry it as `RetryAfter` | nothing |
-| Set `A2AConfig.RetryPolicy` (or the SDK's `A2AAgentBuilder.WithRetryPolicy`) | it replaces the executor's retry policy for that agent, where it had no effect | check the values you set |
+| Count `provider_retries_total` | retries from A2A (`provider="a2a"`), TTS (`tts/<provider>`), STT (`stt/<provider>`), MCP (`mcp`) and realtime connects (`openai-realtime`, `gemini-live`) as well as LLM providers, and a new outcome, `retry_after_too_long`; a policy of one attempt and a call canceled mid-retry record nothing | filter on `provider` to keep the old series |
+| Get a 429 or 503 with `Retry-After` from an A2A agent, a TTS or STT service or a realtime handshake | the retry waits what the server asked for when that is within the policy's maximum delay (A2A `MaxDelay`, TTS/STT `MaxDelay`, realtime `RetryBackoffMax`); `a2a.HTTPStatusError`, `tts.SynthesisError` and `stt.TranscriptionError` carry it as `RetryAfter` | nothing |
+| Get a `Retry-After` longer than that maximum, or longer than a minute from an LLM provider (`DoWithRetry`) | the call fails at once with the last error, where `DoWithRetry` waited however long the header said | retry later yourself if the wait is acceptable |
+| Set `A2AConfig.RetryPolicy` (or the SDK's `A2AAgentBuilder.WithRetryPolicy`) | each non-zero field replaces the executor's value for that agent and a zero field keeps it, where the block had no effect; a negative `MaxRetries` turns retries off; an executor built `WithNoRetry` ignores the block | check the values you set |
 | Retry MCP connects | each wait is lengthened by up to half at random and never exceeds a minute, where it was exactly `RetryDelay` doubled per retry | nothing |
 | Cancel an MCP connect while it waits to retry | `Initialize` returns the context's error | match `context.Canceled` with `errors.Is` |
 | Configure `DoWithRetry` with a delay that reaches its 60-second cap | the wait at the cap is 60 seconds, where jitter could take it to 90 | nothing |

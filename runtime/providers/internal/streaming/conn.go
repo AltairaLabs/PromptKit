@@ -239,7 +239,8 @@ func (c *Conn) ConnectWithRetry(ctx context.Context) error {
 
 // connectPolicy retries every failed connect, a handshake timeout included;
 // the caller's context ending stops the wait that follows. A refused
-// handshake's Retry-After, capped at RetryBackoffMax, replaces the backoff.
+// handshake's Retry-After replaces the backoff; one past RetryBackoffMax ends
+// the retries.
 func connectPolicy(cfg *ConnConfig) retry.Policy {
 	return retry.Policy{
 		Name:          cmp.Or(cfg.Name, defaultConnName),

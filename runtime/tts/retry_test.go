@@ -233,3 +233,25 @@ func TestSynthesizeWithRetry_HonorsRetryAfter(t *testing.T) {
 		t.Errorf("calls = %d, want 2", got)
 	}
 }
+
+// A Retry-After past MaxDelay is not waited out: the error comes back after
+// that one call, at once.
+func TestSynthesizeWithRetry_RetryAfterPastMaxDelayStopsRetrying(t *testing.T) {
+	t.Parallel()
+	limited := NewSynthesisError("mock", "429", "slow down", ErrRateLimited, true)
+	limited.RetryAfter = time.Hour
+	svc := &mockTTSService{results: []mockResult{{err: limited}, {}}}
+	start := time.Now()
+	_, err := SynthesizeWithRetry(context.Background(), svc, "hello", SynthesisConfig{}, RetryConfig{
+		MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: 2 * time.Second,
+	})
+	if err != limited {
+		t.Fatalf("err = %v, want %v", err, limited)
+	}
+	if got := svc.calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+	if time.Since(start) > time.Second {
+		t.Error("the Retry-After was waited")
+	}
+}

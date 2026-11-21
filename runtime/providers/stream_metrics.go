@@ -148,7 +148,8 @@ func NewStreamMetrics(
 			Name:      "provider_retries_total",
 			Help: "Non-streaming retries (DoWithRetry, A2A, TTS, STT, MCP and realtime connects), labeled by outcome: " +
 				"retry (a transient failure that is being retried), success (the call recovered " +
-				"after at least one retry) and exhausted (every attempt failed).",
+				"after at least one retry), exhausted (every attempt failed) and retry_after_too_long " +
+				"(the server asked to wait longer than the policy allows).",
 			ConstLabels: constLabels,
 		}, []string{labelProvider, labelOutcome}),
 		streamRetryBudgetAvailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{

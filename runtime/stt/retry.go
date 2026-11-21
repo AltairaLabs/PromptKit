@@ -45,7 +45,8 @@ func DefaultRetryConfig() RetryConfig {
 // transient errors. Only errors where TranscriptionError.Retryable is
 // true are retried; all others are returned immediately. Uses full
 // jitter backoff to avoid synchronized retries across concurrent
-// callers; a TranscriptionError's RetryAfter, capped at MaxDelay, replaces it.
+// callers. A TranscriptionError's RetryAfter replaces the backoff; one past
+// MaxDelay is not waited, and the error is returned at once.
 func TranscribeWithRetry(
 	ctx context.Context,
 	svc base.STTProvider,

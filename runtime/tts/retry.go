@@ -44,7 +44,8 @@ func DefaultRetryConfig() RetryConfig {
 // transient errors. Only errors where SynthesisError.Retryable is
 // true are retried; all others are returned immediately. Uses full
 // jitter backoff to avoid synchronized retries across concurrent
-// callers; a SynthesisError's RetryAfter, capped at MaxDelay, replaces it.
+// callers. A SynthesisError's RetryAfter replaces the backoff; one past
+// MaxDelay is not waited, and the error is returned at once.
 func SynthesizeWithRetry(
 	ctx context.Context,
 	svc Service,

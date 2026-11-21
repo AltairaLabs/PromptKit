@@ -124,3 +124,15 @@ func TestSharedRetryLoop_ReportsToTheProviderRetryMetric(t *testing.T) {
 		t.Errorf("after reset: a2a retry count = %v, want still 1", got)
 	}
 }
+
+// A policy of no retries has nothing to count: a 503 with MaxRetries 0
+// records no "exhausted".
+func TestDoWithRetry_NoRetriesConfiguredRecordsNothing(t *testing.T) {
+	m := registerTestRetryMetrics(t)
+
+	doAgainst(t, statusSequenceServer(t, http.StatusServiceUnavailable), 0)
+
+	if got := testutil.CollectAndCount(m.providerRetriesTotal); got != 0 {
+		t.Errorf("recorded %d series, want 0", got)
+	}
+}

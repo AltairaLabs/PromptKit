@@ -433,13 +433,13 @@ func ResolveCredentialForPlatform(ctx context.Context, providerType string, cfgD
 ResolveCredentialForPlatform resolves the credential a spec is built with: the platform's chain for a platform providerType runs on, its own credential otherwise \(see base.FactoryRegistry.ResolveCredential\).
 
 <a name="SynthesizeWithRetry"></a>
-## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L48-L54>)
+## func [SynthesizeWithRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/retry.go#L49-L55>)
 
 ```go
 func SynthesizeWithRetry(ctx context.Context, svc Service, text string, config SynthesisConfig, cfg RetryConfig) (io.ReadCloser, error)
 ```
 
-SynthesizeWithRetry calls svc.Synthesize with bounded retry on transient errors. Only errors where SynthesisError.Retryable is true are retried; all others are returned immediately. Uses full jitter backoff to avoid synchronized retries across concurrent callers; a SynthesisError's RetryAfter, capped at MaxDelay, replaces it.
+SynthesizeWithRetry calls svc.Synthesize with bounded retry on transient errors. Only errors where SynthesisError.Retryable is true are retried; all others are returned immediately. Uses full jitter backoff to avoid synchronized retries across concurrent callers. A SynthesisError's RetryAfter replaces the backoff; one past MaxDelay is not waited, and the error is returned at once.
 
 <a name="WithCartesiaWSURL"></a>
 ## func [WithCartesiaWSURL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/cartesia.go#L117>)

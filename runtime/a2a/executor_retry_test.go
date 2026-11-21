@@ -358,7 +358,7 @@ func TestIsA2ARetryableError(t *testing.T) {
 func backoffSamples(policy RetryPolicy, attempt, n int) []time.Duration {
 	out := make([]time.Duration, n)
 	for i := range out {
-		out[i] = a2aCalculateBackoff(policy, attempt)
+		out[i] = a2aBackoff(policy).Delay(attempt)
 	}
 	return out
 }
@@ -577,7 +577,7 @@ func TestClient_RateLimitCarriesRetryAfter(t *testing.T) {
 }
 
 // The executor waits what a 429's Retry-After asks for instead of its own
-// backoff, but never longer than MaxDelay.
+// backoff, while that is within MaxDelay.
 func TestA2ARetryDelay_HonorsRetryAfterUpToMaxDelay(t *testing.T) {
 	policy := RetryPolicy{InitialDelay: time.Hour, MaxDelay: 10 * time.Second}
 	cases := []struct {
@@ -586,7 +586,7 @@ func TestA2ARetryDelay_HonorsRetryAfterUpToMaxDelay(t *testing.T) {
 		want time.Duration
 	}{
 		{"asks for 3s", &HTTPStatusError{StatusCode: 429, RetryAfter: 3 * time.Second}, 3 * time.Second},
-		{"asks past MaxDelay", &HTTPStatusError{StatusCode: 503, RetryAfter: time.Minute}, 10 * time.Second},
+		{"asks for MaxDelay", &HTTPStatusError{StatusCode: 503, RetryAfter: 10 * time.Second}, 10 * time.Second},
 		{"does not ask", &HTTPStatusError{StatusCode: 503}, 0},
 	}
 	for _, tc := range cases {
@@ -596,7 +596,10 @@ func TestA2ARetryDelay_HonorsRetryAfterUpToMaxDelay(t *testing.T) {
 			if !retry {
 				t.Fatalf("a retryable status was not retried")
 			}
-			wait := p.Wait(0, after)
+			wait, ok := p.Wait(0, after)
+			if !ok {
+				t.Fatalf("Retry-After %v within MaxDelay was not retried", after)
+			}
 			if tc.want == 0 {
 				// No Retry-After: the backoff, an hour capped at MaxDelay and jittered.
 				if wait < policy.MaxDelay/2 || wait > policy.MaxDelay {
@@ -611,48 +614,119 @@ func TestA2ARetryDelay_HonorsRetryAfterUpToMaxDelay(t *testing.T) {
 	}
 }
 
-// A tool's own A2AConfig.RetryPolicy replaces the executor's policy for that
-// agent: here one retry instead of the executor's four.
-func TestExecutor_PerAgentRetryPolicyOverridesTheExecutors(t *testing.T) {
+// A 429 whose Retry-After is past MaxDelay is not waited out: the call fails
+// after that one attempt, at once, with the agent's status.
+func TestExecutor_RetryAfterPastMaxDelayStopsRetrying(t *testing.T) {
+	var attempts int32
+	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	e := NewExecutor(WithRetryPolicy(RetryPolicy{MaxRetries: 3, InitialDelay: time.Millisecond, MaxDelay: 10 * time.Second}))
+	defer e.Close()
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL}}
+
+	start := time.Now()
+	_, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`))
+	var httpErr *HTTPStatusError
+	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("err = %v, want the agent's 429", err)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 1 {
+		t.Errorf("attempts = %d, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v: the Retry-After was waited", elapsed)
+	}
+}
+
+// alwaysFailing serves an agent that answers every call 502, counting them.
+func alwaysFailing(t *testing.T) (string, *int32) {
+	t.Helper()
 	var attempts int32
 	srv := httptest.NewServer(noCard(func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(&attempts, 1)
 		w.WriteHeader(http.StatusBadGateway)
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv.URL, &attempts
+}
 
+// attemptsWith runs one call to url with the tool's retry override and returns
+// how many attempts reached the agent.
+func attemptsWith(t *testing.T, e *Executor, url string, attempts *int32, override *tools.A2ARetryConfig) int32 {
+	t.Helper()
+	atomic.StoreInt32(attempts, 0)
+	desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: url, RetryPolicy: override}}
+	if _, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`)); err == nil {
+		t.Fatal("expected an error from an agent that always fails")
+	}
+	return atomic.LoadInt32(attempts)
+}
+
+// A tool's A2AConfig.RetryPolicy is merged onto the executor's field by
+// field: what it sets wins, what it leaves zero is the executor's.
+func TestExecutor_PerAgentRetryPolicyMergesOntoTheExecutors(t *testing.T) {
+	url, attempts := alwaysFailing(t)
 	e := NewExecutor(WithRetryPolicy(RetryPolicy{MaxRetries: 4, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond}))
 	defer e.Close()
-	run := func(override *tools.A2ARetryConfig) int32 {
-		atomic.StoreInt32(&attempts, 0)
-		desc := &tools.ToolDescriptor{Name: "test-tool", A2AConfig: &tools.A2AConfig{AgentURL: srv.URL, RetryPolicy: override}}
-		if _, err := e.Execute(context.Background(), desc, json.RawMessage(`{"query":"hello"}`)); err == nil {
-			t.Fatal("expected an error from an agent that always fails")
+
+	cases := []struct {
+		name     string
+		override *tools.A2ARetryConfig
+		want     int32
+	}{
+		{"no override: the executor's 4 retries", nil, 5},
+		{"a block setting only a delay keeps the executor's retries", &tools.A2ARetryConfig{InitialDelayMs: 1}, 5},
+		{"a full block", &tools.A2ARetryConfig{MaxRetries: 1, InitialDelayMs: 1, MaxDelayMs: 1}, 2},
+		{"negative MaxRetries turns retries off", &tools.A2ARetryConfig{MaxRetries: -1}, 1},
+	}
+	for _, tc := range cases {
+		if got := attemptsWith(t, e, url, attempts, tc.override); got != tc.want {
+			t.Errorf("%s: attempts = %d, want %d", tc.name, got, tc.want)
 		}
-		return atomic.LoadInt32(&attempts)
-	}
-
-	if got := run(nil); got != 5 {
-		t.Errorf("without an override: attempts = %d, want 5 (the executor's 4 retries)", got)
-	}
-	if got := run(&tools.A2ARetryConfig{MaxRetries: 1, InitialDelayMs: 1, MaxDelayMs: 1}); got != 2 {
-		t.Errorf("with MaxRetries 1: attempts = %d, want 2", got)
-	}
-	if got := run(&tools.A2ARetryConfig{MaxRetries: 0}); got != 1 {
-		t.Errorf("with MaxRetries 0: attempts = %d, want 1", got)
 	}
 }
 
-// The override's delays are milliseconds; zero means the default.
-func TestRetryPolicyFromConfig(t *testing.T) {
-	got := retryPolicyFromConfig(&tools.A2ARetryConfig{MaxRetries: 2, InitialDelayMs: 100, MaxDelayMs: 5000})
-	want := RetryPolicy{MaxRetries: 2, InitialDelay: 100 * time.Millisecond, MaxDelay: 5 * time.Second}
-	if got != want {
-		t.Errorf("retryPolicyFromConfig = %+v, want %+v", got, want)
+// An executor built WithNoRetry stays single-attempt whatever an agent's block
+// asks for: its host retries for itself.
+func TestExecutor_WithNoRetryIgnoresAPerAgentRetryPolicy(t *testing.T) {
+	url, attempts := alwaysFailing(t)
+	e := NewExecutor(WithNoRetry())
+	defer e.Close()
+	block := &tools.A2ARetryConfig{MaxRetries: 3, InitialDelayMs: 1, MaxDelayMs: 1}
+	if got := attemptsWith(t, e, url, attempts, block); got != 1 {
+		t.Errorf("attempts = %d, want 1", got)
 	}
 }
 
-// a2aCalculateBackoff draws the delay for a given retry attempt.
-func a2aCalculateBackoff(policy RetryPolicy, attempt int) time.Duration {
-	return a2aBackoff(policy).Delay(attempt)
+// The merge, field by field: set fields in milliseconds, zero fields kept.
+func TestMergeRetryPolicy(t *testing.T) {
+	base := RetryPolicy{MaxRetries: 3, InitialDelay: 500 * time.Millisecond, MaxDelay: 30 * time.Second}
+	cases := []struct {
+		name string
+		c    *tools.A2ARetryConfig
+		want RetryPolicy
+	}{
+		{"nil", nil, base},
+		{"full", &tools.A2ARetryConfig{MaxRetries: 2, InitialDelayMs: 100, MaxDelayMs: 5000},
+			RetryPolicy{MaxRetries: 2, InitialDelay: 100 * time.Millisecond, MaxDelay: 5 * time.Second}},
+		{"only initial", &tools.A2ARetryConfig{InitialDelayMs: 2000},
+			RetryPolicy{MaxRetries: 3, InitialDelay: 2 * time.Second, MaxDelay: 30 * time.Second}},
+		{"only max", &tools.A2ARetryConfig{MaxDelayMs: 1000},
+			RetryPolicy{MaxRetries: 3, InitialDelay: 500 * time.Millisecond, MaxDelay: time.Second}},
+		{"negative delays are kept from the executor", &tools.A2ARetryConfig{InitialDelayMs: -5, MaxDelayMs: -5}, base},
+	}
+	for _, tc := range cases {
+		if got := mergeRetryPolicy(base, tc.c); got != tc.want {
+			t.Errorf("%s: merge = %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+	noRetry := RetryPolicy{}
+	if got := mergeRetryPolicy(noRetry, &tools.A2ARetryConfig{MaxRetries: 3}); got != noRetry {
+		t.Errorf("merge onto no-retry = %+v, want %+v", got, noRetry)
+	}
 }

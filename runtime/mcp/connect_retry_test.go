@@ -5,12 +5,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 )
 
 // unavailableServer answers every request 503 and counts them; onHit runs on
@@ -59,6 +62,17 @@ func TestClient_CancelDuringConnectBackoffStopsRetrying(t *testing.T) {
 	url, hits := unavailableServer(t, nil)
 	perConnect, _ := connectHits(t, context.Background(), url, hits, 0, time.Millisecond)
 
+	var mu sync.Mutex
+	var outcomes []retry.Outcome
+	retry.SetObserver(func(name string, o retry.Outcome) {
+		if name == "mcp" {
+			mu.Lock()
+			outcomes = append(outcomes, o)
+			mu.Unlock()
+		}
+	})
+	t.Cleanup(func() { retry.SetObserver(nil) })
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	cancelURL, cancelHits := unavailableServer(t, cancel)
@@ -67,4 +81,7 @@ func TestClient_CancelDuringConnectBackoffStopsRetrying(t *testing.T) {
 	assert.True(t, errors.Is(err, context.Canceled), "err = %v, want context.Canceled", err)
 	assert.LessOrEqual(t, got, perConnect, "one connect at most, no retry")
 	assert.Less(t, time.Since(start), time.Second, "the backoff was waited out")
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, outcomes, "a canceled connect is not a retry")
 }

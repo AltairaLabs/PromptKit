@@ -36,6 +36,9 @@ const (
 	// OutcomeExhausted is reported when the last attempt fails with an error
 	// the policy would otherwise have retried.
 	OutcomeExhausted Outcome = "exhausted"
+	// OutcomeRetryAfterTooLong is reported when a failure asks to wait longer
+	// than the policy's MaxRetryAfter, and so is not retried.
+	OutcomeRetryAfterTooLong Outcome = "retry_after_too_long"
 )
 
 // Observer receives every retry decision Do makes, with the policy's Name.
@@ -64,7 +67,8 @@ func observe(name string, outcome Outcome) {
 type Backoff struct {
 	// Initial is the wait before the first retry, before jitter.
 	Initial time.Duration
-	// Max caps every wait. Zero or negative means no cap.
+	// Max caps every wait. Zero or negative means no cap short of
+	// maxUncapped, which keeps a large attempt from overflowing.
 	Max time.Duration
 	// Multiplier grows the wait per attempt. Zero means 2 (exponential);
 	// 1 keeps it fixed.
@@ -75,6 +79,11 @@ type Backoff struct {
 }
 
 const defaultMultiplier = 2
+
+// maxUncapped bounds a Backoff with no Max (about 146 years): far past any
+// real wait, and far enough under the largest time.Duration that jitter of up
+// to 2x cannot overflow it.
+const maxUncapped = time.Duration(1 << 62)
 
 // Exponential is the Backoff DoWithRetry has always used: initial doubled per
 // attempt, lengthened by up to half at random, and never more than ceiling.
@@ -98,7 +107,11 @@ func (b Backoff) Delay(attempt int) time.Duration {
 	if multiplier == 0 {
 		multiplier = defaultMultiplier
 	}
-	// Grow and cap in float64: a large attempt overflows time.Duration.
+	if b.Initial <= 0 {
+		return 0
+	}
+	// Grow and cap in float64: a large attempt overflows time.Duration, and
+	// math.Pow may return +Inf, which capped turns into the ceiling.
 	delay := float64(b.Initial) * math.Pow(multiplier, float64(max(attempt, 0)))
 	delay = b.capped(delay)
 	if b.JitterMin != 0 || b.JitterMax != 0 {
@@ -108,15 +121,19 @@ func (b Backoff) Delay(attempt int) time.Duration {
 }
 
 func (b Backoff) capped(delay float64) float64 {
-	if b.Max > 0 && delay > float64(b.Max) {
-		return float64(b.Max)
+	ceiling := maxUncapped
+	if b.Max > 0 {
+		ceiling = min(b.Max, maxUncapped)
+	}
+	if delay > float64(ceiling) || math.IsNaN(delay) {
+		return float64(ceiling)
 	}
 	return delay
 }
 
 // FullJitterPolicy is the policy of an idempotent one-shot call (a TTS or STT
 // request): attempts in all, FullJitter waits from initial up to ceiling, and
-// a failure's own wait capped at ceiling. provider is logged and, prefixed
+// a failure's own wait honored up to ceiling. provider is logged and, prefixed
 // with kind, names the site.
 func FullJitterPolicy(
 	kind, provider string, attempts int, initial, ceiling time.Duration,
@@ -145,7 +162,11 @@ type Policy struct {
 	// the failure asked to wait first (zero: use Backoff). Nil retries every
 	// failure but the context's own.
 	Classify func(err error) (retry bool, after time.Duration)
-	// MaxRetryAfter caps the wait a failure asks for. Zero means no cap.
+	// MaxRetryAfter is the longest wait a failure may ask for and still be
+	// retried. A failure asking for longer is returned at once: retrying
+	// sooner than the server allows only spends an attempt against a limit
+	// still in force, and waiting longer would stall the caller. Zero means
+	// no limit.
 	MaxRetryAfter time.Duration
 	// LogAttrs are added to the retry log lines.
 	LogAttrs []any
@@ -164,14 +185,20 @@ func IsContextError(err error) bool {
 }
 
 // Do calls op until it succeeds, fails with an error the policy does not
-// retry, or has made MaxAttempts attempts, and returns the last attempt's
-// value and error. It makes no attempt once ctx has ended, and returns
-// ctx.Err() when ctx ends before or while it waits to retry.
+// retry, asks to wait longer than MaxRetryAfter, or has made MaxAttempts
+// attempts, and returns the last attempt's value and error. It makes no
+// attempt once ctx has ended, and returns ctx.Err() when ctx ends before or
+// while it waits to retry. A failure after ctx ended is not retried, counted
+// or logged: it returns the attempt's error when that names the context's
+// end, or else ctx.Err().
+//
+// A policy of one attempt reports nothing to the Observer: there is no retry
+// to count.
 func Do[T any](ctx context.Context, p Policy, op func(ctx context.Context) (T, error)) (T, error) {
+	var zero T
 	attempts := max(p.MaxAttempts, 1)
 	for attempt := 0; ; attempt++ {
 		if err := ctx.Err(); err != nil {
-			var zero T
 			return zero, err
 		}
 		v, err := op(ctx)
@@ -181,37 +208,67 @@ func Do[T any](ctx context.Context, p Policy, op func(ctx context.Context) (T, e
 			}
 			return v, nil
 		}
-		retry, after := p.classify(err)
-		if !retry {
-			logger.Debug("request failed (non-retryable)", p.logAttrs("error", err)...)
+		if ctx.Err() != nil {
+			return afterContextEnded(ctx, v, err)
+		}
+		delay, again := p.next(attempt, attempts, err)
+		if !again {
 			return v, err
 		}
-		if attempt >= attempts-1 {
-			observe(p.Name, OutcomeExhausted)
-			logger.Warn("request failed after all retries", p.logAttrs("attempts", attempts, "error", err)...)
-			return v, err
-		}
-		delay := p.Wait(attempt, after)
-		observe(p.Name, OutcomeRetry)
-		logger.Warn("retrying request", p.logAttrs(
-			"attempt", attempt+1, "max_attempts", attempts, "delay", delay.String(), "error", err)...)
 		if err := Sleep(ctx, delay); err != nil {
-			var zero T
 			return zero, err
 		}
 	}
 }
 
+// afterContextEnded is what Do returns for an attempt that failed once ctx had
+// ended: the attempt's own result when its error names that end, or else
+// ctx.Err().
+func afterContextEnded[T any](ctx context.Context, v T, err error) (T, error) {
+	if errors.Is(err, ctx.Err()) {
+		return v, err
+	}
+	var zero T
+	return zero, ctx.Err()
+}
+
+// next decides what follows the given failed attempt (0-based) of attempts:
+// another attempt after delay, or none. It reports and logs the decision.
+func (p *Policy) next(attempt, attempts int, err error) (delay time.Duration, again bool) {
+	retry, after := p.classify(err)
+	if !retry || attempts == 1 {
+		logger.Debug("request failed (not retried)", p.logAttrs("error", err)...)
+		return 0, false
+	}
+	if attempt >= attempts-1 {
+		observe(p.Name, OutcomeExhausted)
+		logger.Warn("request failed after all retries", p.logAttrs("attempts", attempts, "error", err)...)
+		return 0, false
+	}
+	delay, ok := p.Wait(attempt, after)
+	if !ok {
+		observe(p.Name, OutcomeRetryAfterTooLong)
+		logger.Warn("not retrying: the server asked to wait longer than the policy allows", p.logAttrs(
+			"retry_after", after.String(), "max_retry_after", p.MaxRetryAfter.String(), "error", err)...)
+		return 0, false
+	}
+	observe(p.Name, OutcomeRetry)
+	logger.Warn("retrying request", p.logAttrs(
+		"attempt", attempt+1, "max_attempts", attempts, "delay", delay.String(), "error", err)...)
+	return delay, true
+}
+
 // Wait is how long Do waits after the given failed attempt (0-based): the wait
-// the failure asked for, capped at MaxRetryAfter, or else the backoff.
-func (p *Policy) Wait(attempt int, after time.Duration) time.Duration {
+// the failure asked for, or else the backoff. ok is false when the failure
+// asked for longer than MaxRetryAfter, and Do stops retrying instead.
+func (p *Policy) Wait(attempt int, after time.Duration) (delay time.Duration, ok bool) {
 	if after <= 0 {
-		return p.Backoff.Delay(attempt)
+		return p.Backoff.Delay(attempt), true
 	}
 	if p.MaxRetryAfter > 0 && after > p.MaxRetryAfter {
-		return p.MaxRetryAfter
+		return 0, false
 	}
-	return after
+	return after, true
 }
 
 func (p *Policy) logAttrs(kv ...any) []any {
@@ -239,7 +296,13 @@ func ParseRetryAfter(h http.Header) time.Duration {
 	if val == "" {
 		return 0
 	}
-	if seconds, err := strconv.Atoi(val); err == nil && seconds > 0 {
+	seconds, err := strconv.ParseInt(val, 10, 64)
+	// Saturate: more seconds than a Duration holds is "too long", not
+	// negative and not absent.
+	if errors.Is(err, strconv.ErrRange) && seconds > 0 || err == nil && seconds > int64(maxUncapped/time.Second) {
+		return maxUncapped
+	}
+	if err == nil && seconds > 0 {
 		return time.Duration(seconds) * time.Second
 	}
 	if t, err := http.ParseTime(val); err == nil {

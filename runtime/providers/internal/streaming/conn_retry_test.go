@@ -88,7 +88,7 @@ func TestConn_ConnectWithRetry_CancelDuringBackoffStopsRetrying(t *testing.T) {
 }
 
 // A handshake refused with Retry-After is retried after what the server asked
-// for, not the computed backoff, but never later than RetryBackoffMax.
+// for, not the computed backoff, while that is within RetryBackoffMax.
 func TestConn_HandshakeRetryAfterReplacesTheBackoff(t *testing.T) {
 	srv, _ := refusingServer(t, http.Header{"Retry-After": {"7"}}, nil)
 	c := NewConn(&ConnConfig{URL: wsURL(srv), RetryBackoffBase: time.Hour, RetryBackoffMax: 10 * time.Second})
@@ -100,8 +100,21 @@ func TestConn_HandshakeRetryAfterReplacesTheBackoff(t *testing.T) {
 	p := connectPolicy(&c.cfg)
 	retry, after := p.Classify(err)
 	assert.True(t, retry)
-	assert.Equal(t, 7*time.Second, p.Wait(0, after))
+	wait, ok := p.Wait(0, after)
+	assert.True(t, ok)
+	assert.Equal(t, 7*time.Second, wait)
+}
 
-	short := connectPolicy(&ConnConfig{RetryBackoffBase: time.Hour, RetryBackoffMax: 2 * time.Second})
-	assert.Equal(t, 2*time.Second, short.Wait(0, after), "Retry-After past RetryBackoffMax")
+// A handshake refused with a Retry-After past RetryBackoffMax is not waited
+// out: ConnectWithRetry gives up after that one attempt, at once.
+func TestConn_HandshakeRetryAfterPastTheMaxStopsRetrying(t *testing.T) {
+	srv, hits := refusingServer(t, http.Header{"Retry-After": {"3600"}}, nil)
+	c := NewConn(&ConnConfig{URL: wsURL(srv), MaxRetries: 5, RetryBackoffBase: time.Millisecond, RetryBackoffMax: 10 * time.Second})
+
+	start := time.Now()
+	err := c.ConnectWithRetry(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to connect after 1 attempts")
+	assert.Equal(t, int32(1), hits.Load())
+	assert.Less(t, time.Since(start), time.Second, "the Retry-After was waited")
 }
