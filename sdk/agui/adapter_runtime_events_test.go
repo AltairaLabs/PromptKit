@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
 )
 
@@ -133,4 +134,101 @@ func TestRuntimeEvents_NilBusForwardsNothing(t *testing.T) {
 	evts, err := sendAndCollect(t, a, "hi")
 	require.NoError(t, err)
 	assert.Empty(t, eventsOf[*aguievents.RawEvent](evts))
+}
+
+// rawReasoningEvents are a reasoning turn's bus events, then a tool event that
+// marks the end of them.
+func rawReasoningEvents() []*events.Event {
+	trace := &types.ReasoningTrace{
+		Text:   "private thought",
+		Opaque: []types.OpaqueReasoning{{Provider: "claude", Kind: "thinking_signature", Data: "sig"}},
+	}
+	return []*events.Event{
+		{Type: events.EventReasoningDelta, Data: &events.ReasoningDeltaData{Text: "private thought"}},
+		{Type: events.EventReasoningCompleted, Data: &events.ReasoningCompletedData{Trace: trace, Round: 1}},
+		{Type: events.EventReasoningCompleted, Data: &events.ReasoningCompletedData{
+			Trace: &types.ReasoningTrace{Opaque: trace.Opaque, Redacted: true}, Round: 2,
+		}},
+		{Type: events.EventMessageCreated, Data: &events.MessageCreatedData{Role: "assistant", Content: "Hi.", Reasoning: trace}},
+		{Type: events.EventToolCallStarted, Data: &events.ToolCallStartedData{ToolName: "end"}},
+	}
+}
+
+// runUntilToolRaw is runUntilRaw, releasing the turn once the RAW event for
+// a tool call arrives: the bus delivers asynchronously, so the events before
+// it may arrive in any order.
+func runUntilToolRaw(t *testing.T, s *busSender, opts ...AdapterOption) map[events.EventType][]events.EventData {
+	t.Helper()
+	a := newTestAdapter(s, s, opts...)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- a.RunSend(ctx, userMsg("hi")) }()
+	got := map[events.EventType][]events.EventData{}
+	var evts []aguievents.Event
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(s.release)
+		}
+	}
+	for ch := a.Events(); ch != nil; {
+		select {
+		case ev, ok := <-ch:
+			if !ok {
+				ch = nil
+				continue
+			}
+			evts = append(evts, ev)
+			if raw, isRaw := ev.(*aguievents.RawEvent); isRaw {
+				e := raw.Event.(events.Event)
+				got[e.Type] = append(got[e.Type], e.Data)
+				if e.Type == events.EventToolCallStarted {
+					release()
+				}
+			}
+		case <-timer.C:
+			release()
+		}
+	}
+	require.NoError(t, <-errCh)
+	requireValidSequence(t, evts)
+	return got
+}
+
+// Without WithReasoning, the forwarded runtime events carry no reasoning:
+// the reasoning events are not sent, and a created message's reasoning is
+// left out. The bus's own event is not changed.
+func TestWithRuntimeEvents_ReasoningHiddenByDefault(t *testing.T) {
+	published := rawReasoningEvents()
+	s := newBusSender(t, published...)
+
+	got := runUntilToolRaw(t, s, WithRuntimeEvents())
+
+	assert.Equal(t, map[events.EventType][]events.EventData{
+		events.EventMessageCreated:  {&events.MessageCreatedData{Role: "assistant", Content: "Hi."}},
+		events.EventToolCallStarted: {&events.ToolCallStartedData{ToolName: "end"}},
+	}, got)
+	assert.Equal(t, "private thought", published[3].Data.(*events.MessageCreatedData).Reasoning.Text,
+		"the bus event is not changed")
+}
+
+// With WithReasoning(true), the reasoning events are forwarded with the
+// reasoning's text, never its opaque tokens; one with opaque reasoning alone
+// is not sent.
+func TestWithRuntimeEvents_ReasoningShownWithoutOpaqueTokens(t *testing.T) {
+	s := newBusSender(t, rawReasoningEvents()...)
+
+	got := runUntilToolRaw(t, s, WithRuntimeEvents(), WithReasoning(true))
+
+	text := &types.ReasoningTrace{Text: "private thought"}
+	assert.Equal(t, map[events.EventType][]events.EventData{
+		events.EventReasoningDelta:     {&events.ReasoningDeltaData{Text: "private thought"}},
+		events.EventReasoningCompleted: {&events.ReasoningCompletedData{Trace: text, Round: 1}},
+		events.EventMessageCreated:     {&events.MessageCreatedData{Role: "assistant", Content: "Hi.", Reasoning: text}},
+		events.EventToolCallStarted:    {&events.ToolCallStartedData{ToolName: "end"}},
+	}, got)
 }

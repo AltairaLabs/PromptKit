@@ -270,6 +270,9 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		if resp.CostInfo.ProviderName == "" {
 			resp.CostInfo.ProviderName = prov.Name()
 		}
+		if resp.CostInfo.Model == "" {
+			resp.CostInfo.Model = prov.Model()
+		}
 		if resp.CostInfo.Capability == "" {
 			resp.CostInfo.Capability = string(prov.Type())
 		}

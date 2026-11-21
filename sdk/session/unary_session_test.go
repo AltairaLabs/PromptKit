@@ -39,7 +39,7 @@ func TestProcessStreamElements_PopulatesFinalResultCost(t *testing.T) {
 	stageChan <- stage.StreamElement{Message: &msg}
 	close(stageChan)
 
-	processStreamElements(context.Background(), stageChan, chunkChan)
+	(&streamProcessor{ctx: context.Background(), chunkChan: chunkChan}).run(stageChan)
 	close(chunkChan)
 
 	var final *rtpipeline.ExecutionResult
@@ -533,8 +533,8 @@ func TestProcessStreamElements_PropagatesPendingTools(t *testing.T) {
 	stageChan <- pendingElem
 	close(stageChan)
 
-	// Use convertStreamOutput which properly wraps processStreamElements with close
-	chunkChan := convertStreamOutput(context.Background(), stageChan)
+	// Use convertStreamWith, which closes the chunk channel when the stage ends
+	chunkChan := convertStreamWith(context.Background(), stageChan, false)
 
 	var chunks []providers.StreamChunk
 	for chunk := range chunkChan {
@@ -563,7 +563,7 @@ func TestProcessStreamElements_NoPendingTools(t *testing.T) {
 	stageChan <- stage.StreamElement{Text: &text}
 	close(stageChan)
 
-	chunkChan := convertStreamOutput(context.Background(), stageChan)
+	chunkChan := convertStreamWith(context.Background(), stageChan, false)
 
 	var chunks []providers.StreamChunk
 	for chunk := range chunkChan {
@@ -711,7 +711,7 @@ func TestProcessStreamElements_CanceledDeliversErrorAndPartialReply(t *testing.T
 	chunkChan := make(chan providers.StreamChunk)
 	go func() {
 		defer close(chunkChan)
-		processStreamElements(ctx, stageChan, chunkChan)
+		(&streamProcessor{ctx: ctx, chunkChan: chunkChan}).run(stageChan)
 	}()
 
 	var chunks []providers.StreamChunk
@@ -740,7 +740,7 @@ func TestProcessStreamElements_CanceledNoReaderReturns(t *testing.T) {
 	close(stageChan)
 
 	chunkChan := make(chan providers.StreamChunk) // never read
-	processStreamElements(ctx, stageChan, chunkChan)
+	(&streamProcessor{ctx: ctx, chunkChan: chunkChan}).run(stageChan)
 	assert.Empty(t, stageChan, "input must be drained")
 }
 
@@ -757,7 +757,7 @@ func TestProcessStreamElements_ReplacementRestartsTheText(t *testing.T) {
 	stageChan <- replace
 	close(stageChan)
 
-	processStreamElements(context.Background(), stageChan, chunkChan)
+	(&streamProcessor{ctx: context.Background(), chunkChan: chunkChan}).run(stageChan)
 	close(chunkChan)
 
 	var deltas []string

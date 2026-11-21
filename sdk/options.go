@@ -396,6 +396,10 @@ type config struct {
 	// full message content (including binary data) for session replay.
 	recordingConfig *RecordingConfig
 
+	// streamReasoning sends the model's reasoning deltas on Stream and
+	// ResumeStream as ChunkReasoning chunks (WithStreamReasoning).
+	streamReasoning bool
+
 	// Maximum user message size in bytes (0 = use default)
 	maxMessageSize int
 
@@ -1707,6 +1711,31 @@ func WithGuardrailTimeout(d time.Duration) Option {
 			return fmt.Errorf("WithGuardrailTimeout: timeout must be non-negative, got %s", d)
 		}
 		c.guardrailTimeout = d
+		return nil
+	}
+}
+
+// WithStreamReasoning makes [Conversation.Stream] and
+// [Conversation.ResumeStream] send the model's reasoning as it arrives, as
+// [ChunkReasoning] chunks carrying each delta in [StreamChunk.Reasoning]. Only
+// a provider configured to return its reasoning (for example a Claude
+// thinking budget, Gemini's include_thoughts or OpenAI's reasoning_summary)
+// produces any. Opaque reasoning (signatures, encrypted or redacted blocks) is
+// never sent.
+//
+// By default a stream carries no reasoning: it is on the turn's Response,
+// as Message().Reasoning, either way.
+//
+// Streamed reasoning is sent as the model produces it, before the output
+// guardrails judge the reply it leads to: a reply a guardrail blocks keeps no
+// reasoning on its Response or in the history, but the chunks already sent
+// cannot be taken back. Stream reasoning only to a consumer that may see what
+// a guardrail would block.
+//
+//	conv, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithStreamReasoning())
+func WithStreamReasoning() Option {
+	return func(c *config) error {
+		c.streamReasoning = true
 		return nil
 	}
 }

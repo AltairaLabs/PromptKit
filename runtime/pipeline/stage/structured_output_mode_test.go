@@ -504,6 +504,7 @@ func TestFinalTurn_ReaskCostIsCounted(t *testing.T) {
 	assert.InDelta(t, 0.25, last.CostInfo.TotalCost, 1e-9)
 	assert.Equal(t, "spy", last.CostInfo.ProviderName,
 		"the re-ask must be stamped with provider identity like any other round")
+	assert.Equal(t, "spy-model", last.CostInfo.Model, "and with the model that served it")
 }
 
 // TestFinalTurn_ToolFreeTranscriptUsesPlainPredict covers the other half of the

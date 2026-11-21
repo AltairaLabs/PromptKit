@@ -25,6 +25,11 @@ type liveRound struct {
 	called   bool            // the round's tool calls were emitted
 	resulted bool            // a result of the round was emitted
 	answered map[string]bool // the round's calls that have their result
+
+	reasoningSpanID string // the open or last reasoning span
+	reasoningMsgID  string // the reasoning message inside it
+	reasoningOpen   bool   // a reasoning span is open
+	reasoned        bool   // reasoning was emitted for the round
 }
 
 // consume emits a streamed turn as its chunks arrive (text, each round's tool
@@ -40,6 +45,11 @@ func (st *runState) consume(chunks <-chan sdk.StreamChunk) (*sdk.Response, error
 		switch {
 		case chunk.Error != nil:
 			err = chunk.Error
+			// The partial reply of a stream that failed part-way carries the
+			// usage of the calls the model made before it failed.
+			st.usage.addResponse(chunk.Message)
+		case chunk.Type == sdk.ChunkReasoning:
+			st.liveReasoning(chunk.Reasoning)
 		case chunk.Type == sdk.ChunkText:
 			st.liveText(chunk.Text, chunk.ReplacesText)
 		case chunk.Type == sdk.ChunkToolCall && chunk.ToolCall != nil:
@@ -90,6 +100,7 @@ func (st *runState) liveText(delta string, replaces bool) {
 	if r == nil || r.called {
 		r = st.newRound()
 	}
+	st.closeReasoning(r)
 	if replaces && r.texted {
 		st.closeText(r)
 		r.msgID = aguievents.GenerateMessageID()
@@ -111,6 +122,7 @@ func (st *runState) liveCall(tc *types.MessageToolCall, round int) {
 	if r == nil || (r.called && (r.round != round || r.resulted)) {
 		r = st.newRound()
 	}
+	st.closeReasoning(r)
 	st.closeText(r)
 	st.emitCall(r.msgID, tc)
 	r.called, r.round = true, round

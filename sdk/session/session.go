@@ -115,6 +115,12 @@ type UnarySessionConfig struct {
 	Pipeline       *stage.StreamPipeline
 	Metadata       map[string]interface{}
 	Variables      map[string]string // Initial variables for template substitution
+	// StreamReasoning makes the streaming methods (ExecuteStream,
+	// ExecuteStreamWithMessage, ResumeStreamWithToolResults) send the model's
+	// reasoning text as it arrives, as chunks carrying only
+	// providers.StreamChunk.Reasoning. Off by default: the reasoning is on the
+	// turn's messages either way.
+	StreamReasoning bool
 }
 
 // PipelineBuilder creates a StreamPipeline for a DuplexSession.

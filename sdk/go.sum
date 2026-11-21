@@ -16,6 +16,8 @@ github.com/Masterminds/semver/v3 v3.5.0 h1:kQceYJfbupGfZOKZQg0kou0DgAKhzDg2NZPAw
 github.com/Masterminds/semver/v3 v3.5.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260908173201-6be23d315074 h1:upcYJL+BlSK489nnzcaQhcS7Jr5qn9b7lCgRXCv3VI4=
 github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20260908173201-6be23d315074/go.mod h1:ERAMOexUee4AIuoxksuuGoEcHl3aqLwaazjGwlR9ZCI=
+github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261120232805-a6f2539a2ad9 h1:XDVFhEjJd/m924gc5Nn92Ddd6LQkqGiXmgub34YERAM=
+github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261120232805-a6f2539a2ad9/go.mod h1:ERAMOexUee4AIuoxksuuGoEcHl3aqLwaazjGwlR9ZCI=
 github.com/alicebob/miniredis/v2 v2.40.0 h1:6IgTQbvm2JiMYZ8yur/acNJzVjtSOWCelxXbk/LUBXc=
 github.com/alicebob/miniredis/v2 v2.40.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/aws/aws-sdk-go-v2 v1.47.7 h1:jBmtzRtGWVAzbfc4RBWo1dTte0ZZH8p9U42YJIw2+Bw=

@@ -436,8 +436,10 @@ func TestRunSend_ClientTools_NoProvider_LeavesCallUnanswered(t *testing.T) {
 	assert.NotContains(t, got, aguievents.EventTypeToolCallResult)
 	assert.NotContains(t, got, aguievents.EventTypeCustom)
 	assert.Equal(t, aguievents.EventTypeRunFinished, got[len(got)-1])
-	assert.Nil(t, evts[len(evts)-1].(*aguievents.RunFinishedEvent).Outcome,
-		"a run that stops on a frontend tool is a completed run, not an interrupted one")
+	assert.Equal(t, &aguievents.RunFinishedOutcome{
+		Type: aguievents.RunFinishedOutcomeTypeSuccess, PendingToolCallIDs: []string{"ct-1"},
+	}, evts[len(evts)-1].(*aguievents.RunFinishedEvent).Outcome,
+		"a run that stops on a frontend tool is a completed run, not an interrupted one, naming the call")
 	assert.Zero(t, sender.resumeCalls)
 	assert.Empty(t, sender.sendToolResultCalls)
 }

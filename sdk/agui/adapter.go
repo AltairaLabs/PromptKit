@@ -110,8 +110,9 @@ type EventBusProvider interface {
 	EventBus() events.Bus
 }
 
-// StateProvider produces a state snapshot for the AG-UI StateSnapshotEvent.
-// If Snapshot returns an error, the run omits the snapshot and carries on.
+// StateProvider produces the state the run keeps in sync with the client (see
+// [WithStateProvider]). If Snapshot returns an error or a nil state, the run
+// sends nothing for that read and carries on.
 type StateProvider interface {
 	Snapshot(sender Sender) (any, error)
 }
@@ -129,6 +130,14 @@ type adapterConfig struct {
 	// limits it to those types (all types when empty).
 	runtimeEvents bool
 	eventTypes    []events.EventType
+	// showReasoning sends the model's reasoning (WithReasoning).
+	showReasoning bool
+	// stateAfterEachTool reads the state after each tool result
+	// (WithStateAfterEachTool), not only at the run's start and end.
+	stateAfterEachTool bool
+	// messagesSnapshot ends each run with a MESSAGES_SNAPSHOT of the
+	// conversation (WithMessagesSnapshot).
+	messagesSnapshot bool
 }
 
 // rawEventSource is the RAW event source naming PromptKit's runtime events.
@@ -150,11 +159,30 @@ func WithRunID(id string) AdapterOption {
 	}
 }
 
-// WithStateProvider sets a provider that produces the STATE_SNAPSHOT event at
-// the start of each run.
+// WithStateProvider sets a provider of the state the run keeps in sync with
+// the client. The run sends the state as a STATE_SNAPSHOT at its start, and
+// reads it again once the turn has run, before RUN_FINISHED, sending the
+// change as a STATE_DELTA: an RFC 6902 JSON Patch against the state the
+// client holds. A change a patch cannot carry (one replacing the whole state,
+// or setting a value to null, which the AG-UI Go SDK cannot encode) is sent
+// as a new STATE_SNAPSHOT. Snapshot is never called while the turn runs; see
+// [WithStateAfterEachTool] to send changes as each tool's result arrives.
 func WithStateProvider(sp StateProvider) AdapterOption {
 	return func(c *adapterConfig) {
 		c.stateProvider = sp
+	}
+}
+
+// WithStateAfterEachTool sets whether the run also reads the StateProvider
+// after each TOOL_CALL_RESULT, sending the change a tool made as it lands
+// rather than when the turn ends. Off by default.
+//
+// The turn is still running then: its next tool calls can be executing, so
+// Snapshot is called concurrently with the tools that change the state, and
+// must be safe for that (guard the state with a lock the tools take too).
+func WithStateAfterEachTool(enabled bool) AdapterOption {
+	return func(c *adapterConfig) {
+		c.stateAfterEachTool = enabled
 	}
 }
 
@@ -204,6 +232,52 @@ func WithRuntimeEvents(eventTypes ...events.EventType) AdapterOption {
 	return func(c *adapterConfig) {
 		c.runtimeEvents = true
 		c.eventTypes = append([]events.EventType(nil), eventTypes...)
+	}
+}
+
+// WithReasoning sets whether the run sends the model's reasoning as AG-UI
+// REASONING_* events, for a provider configured to return its reasoning (a
+// Claude thinking budget, Gemini's include_thoughts, OpenAI's
+// reasoning_summary). Off by default: reasoning routinely holds what the
+// model chose not to say, so the client gets it only when asked for. With it
+// off, reasoning is also left out of the RAW events WithRuntimeEvents
+// forwards; with it on, those carry the reasoning's text but never its opaque
+// tokens.
+//
+// Only the reasoning's text is sent. A reply an output guardrail blocks keeps
+// no reasoning, so a settled reply never sends the reasoning behind it. But
+// reasoning that streams (sdk.WithStreamReasoning) goes out as the model
+// produces it, before the output guardrails judge the reply it leads to:
+// enable streamed reasoning only for a client that may see what a guardrail
+// would block.
+func WithReasoning(enabled bool) AdapterOption {
+	return func(c *adapterConfig) {
+		c.showReasoning = enabled
+	}
+}
+
+// WithMessagesSnapshot sets whether each run ends with a MESSAGES_SNAPSHOT,
+// immediately before RUN_FINISHED, restating the conversation's history as the agent
+// holds it: for a client reconnecting to the thread, or one whose copy has
+// drifted from the agent's. Off by default.
+//
+// The client replaces its messages with the snapshot's. PromptKit's messages
+// carry no id, so each is keyed by the thread id and its position in the
+// history ("<thread>-0", "<thread>-1", ...), which a later run's snapshot
+// gives it again; the messages the run streamed under ids of their own are
+// replaced too. The ids are stable across runs only when the thread id is: set
+// it with [WithThreadID] from the input's threadId, or each run's adapter
+// generates a new one. The history keeps no reasoning: with [WithReasoning]
+// on, the snapshot restates the reasoning of the run's own turns, as reasoning
+// messages before the assistant messages they led to, which AG-UI reads as
+// the complete set of reasoning messages. A run whose history reads back
+// empty, or shorter than the run's own turn (a store that failed or does not
+// keep it), sends no snapshot rather than one that would clear the client. It
+// needs a conversation that exposes its history (*sdk.Conversation does); for
+// any other the option does nothing.
+func WithMessagesSnapshot(enabled bool) AdapterOption {
+	return func(c *adapterConfig) {
+		c.messagesSnapshot = enabled
 	}
 }
 
@@ -292,17 +366,32 @@ func (a *EventAdapter) RunID() string {
 //  2. STATE_SNAPSHOT (if a StateProvider is configured)
 //  3. STEP_STARTED for the current workflow state (workflow conversations)
 //  4. For each round of the turn (an assistant message and the tool results
-//     after it), in order: TEXT_MESSAGE_START, a TEXT_MESSAGE_CONTENT for
-//     each chunk of text as the model streams it, TEXT_MESSAGE_END; then
-//     TOOL_CALL_START / TOOL_CALL_ARGS / TOOL_CALL_END for each call it made;
-//     then a TOOL_CALL_RESULT for each result the round fed back to the model
-//  5. STEP_FINISHED / STEP_STARTED when the turn moved the workflow on
-//  6. If a ToolResultProvider answers the pending client tools: a
+//     after it), in order: with WithReasoning(true), the round's reasoning
+//     (REASONING_START, REASONING_MESSAGE_START, a REASONING_MESSAGE_CONTENT
+//     for each chunk, REASONING_MESSAGE_END, REASONING_END) as the model
+//     streams it; TEXT_MESSAGE_START, a TEXT_MESSAGE_CONTENT for each chunk of
+//     text as the model streams it, TEXT_MESSAGE_END; then TOOL_CALL_START /
+//     TOOL_CALL_ARGS / TOOL_CALL_END for each call it made; then a
+//     TOOL_CALL_RESULT for each result the round fed back to the model, each
+//     followed by a STATE_DELTA when the state changed and
+//     WithStateAfterEachTool is set
+//  5. With WithReasoning(true), the reasoning of the streamed rounds that did
+//     not stream it, whole
+//  6. STEP_FINISHED / STEP_STARTED when the turn moved the workflow on
+//  7. If a ToolResultProvider answers the pending client tools: a
 //     TOOL_CALL_RESULT for each, then the resumed turn from step 4
-//  7. STEP_FINISHED for the open step
-//  8. RUN_FINISHED
+//  8. STATE_DELTA when the state changed
+//  9. STEP_FINISHED for the open step
+//  10. MESSAGES_SNAPSHOT (with WithMessagesSnapshot)
+//  11. RUN_FINISHED, with the run's token usage
 //
-// A client tool call left pending ends the run with the call unanswered; the
+// Reasoning is sent only with WithReasoning(true). It streams for a
+// conversation opened with sdk.WithStreamReasoning; otherwise each round's
+// reasoning is sent whole (step 5). A turn that does not stream sends each
+// round's reasoning before its text.
+//
+// A client tool call left pending ends the run with the call unanswered, and
+// RUN_FINISHED's success outcome names it in pendingToolCallIds; the
 // application answers it in the next run with [EventAdapter.RunResume]. An
 // approval-held call (sdk.Conversation.OnToolAsync) ends the run with
 // RUN_FINISHED carrying an interrupt outcome that names the held calls; the
@@ -320,8 +409,9 @@ func (a *EventAdapter) RunID() string {
 // replaces it, is sent as a new text message holding the reply: the client has
 // already shown the streamed text, which AG-UI cannot take back.
 //
-// On error, a RUN_ERROR ends the run. The events channel is always closed when
-// RunSend returns.
+// On error, a RUN_ERROR ends the run, with the token usage of the model calls
+// made before the error. The events channel is always closed when RunSend
+// returns.
 //
 // Read Events() concurrently with the run, or cancel ctx: the run waits for
 // the reader once the channel's buffer of 64 events is full, so a caller that
@@ -401,6 +491,15 @@ type runState struct {
 	stepOpen bool
 	// runtime forwards bus events while the run is open (WithRuntimeEvents).
 	runtime *runtimeForwarder
+	// state is the state the client holds (WithStateProvider).
+	state stateSync
+	// usage totals the token usage of the run's model calls.
+	usage runUsage
+	// turn holds the messages the run's turns produced, in order.
+	turn []types.Message
+	// lateReasoning is the reasoning of the streamed rounds that did not
+	// stream it, held until the turn's text is complete.
+	lateReasoning []lateReasoning
 }
 
 // run emits one AG-UI run around start, which produces the turn's response.
@@ -416,11 +515,7 @@ func (a *EventAdapter) run(
 	st.emit(aguievents.NewRunStartedEvent(a.cfg.threadID, a.cfg.runID))
 	st.runtime = a.forwardRuntimeEvents(st)
 	defer st.runtime.stop()
-	if a.cfg.stateProvider != nil {
-		if snapshot, err := a.cfg.stateProvider.Snapshot(a.sender); err == nil {
-			st.emit(aguievents.NewStateSnapshotEvent(snapshot))
-		}
-	}
+	st.syncState()
 	st.syncStep()
 
 	resp, err := start(ctx, st)
@@ -428,7 +523,7 @@ func (a *EventAdapter) run(
 		// A stream that failed part-way leaves its message open; it ends
 		// before the error, so the client knows the text it has is all of it.
 		st.closeStreamedText()
-		st.finish(aguievents.NewRunErrorEvent(err.Error()))
+		st.finish(st.runError(err))
 		return err
 	}
 
@@ -437,6 +532,8 @@ func (a *EventAdapter) run(
 	// from the earlier run's TOOL_CALL_RESULT, so none is emitted.
 	skipLeadingResults := resuming
 	for {
+		st.usage.addResponse(resp)
+		st.turn = append(st.turn, resp.TurnMessages()...)
 		st.emitTurn(resp, skipLeadingResults)
 		skipLeadingResults = false
 		st.syncStep()
@@ -449,7 +546,7 @@ func (a *EventAdapter) run(
 		}
 		next, err := st.fulfillAndResume(resp.ClientTools())
 		if err != nil {
-			st.finish(aguievents.NewRunErrorEvent(err.Error()))
+			st.finish(st.runError(err))
 			return err
 		}
 		if next == nil {
@@ -458,9 +555,21 @@ func (a *EventAdapter) run(
 		resp = next
 	}
 
+	st.syncState()
 	st.closeStep()
-	st.finish(runFinished(a.cfg.threadID, a.cfg.runID, resp))
+	st.emitMessagesSnapshot()
+	st.finish(st.runFinished(resp))
 	return nil
+}
+
+// runError builds the RUN_ERROR ending a failed run, with the usage of the
+// model calls it made before failing.
+func (st *runState) runError(err error) *aguievents.RunErrorEvent {
+	var opts []aguievents.RunErrorOption
+	if usage := st.usage.tokenUsage(); usage != nil {
+		opts = append(opts, aguievents.WithErrorUsage(usage))
+	}
+	return aguievents.NewRunErrorEvent(err.Error(), opts...)
 }
 
 // finish emits the run's terminal event, after which no runtime event is
@@ -503,15 +612,62 @@ func (a *EventAdapter) forwardRuntimeEvents(st *runState) *runtimeForwarder {
 }
 
 // forward emits one bus event as a RAW event, while the run is open. The
-// event is copied, since the bus hands the same one to every listener.
+// event is copied, since the bus hands the same one to every listener; its
+// reasoning is left out unless the run shows reasoning (rawPayload).
 func (f *runtimeForwarder) forward(e *events.Event) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.open || e == nil {
 		return
 	}
-	payload := *e
+	payload, ok := rawPayload(e, f.st.a.cfg.showReasoning)
+	if !ok {
+		return
+	}
 	f.st.emit(aguievents.NewRawEvent(payload, aguievents.WithSource(rawEventSource)))
+}
+
+// rawPayload is the copy of e a RAW event carries, or false for an event that
+// is not sent. Reasoning follows WithReasoning: with it off, the reasoning
+// events are not sent and a created message carries no reasoning; with it on,
+// they carry the reasoning's text alone. Opaque reasoning (signatures,
+// encrypted or redacted blocks) is never sent.
+func rawPayload(e *events.Event, showReasoning bool) (events.Event, bool) {
+	payload := *e
+	switch data := e.Data.(type) {
+	case *events.ReasoningDeltaData:
+		return payload, showReasoning
+	case *events.ReasoningCompletedData:
+		if !showReasoning {
+			return payload, false
+		}
+		d := *data
+		d.Trace = textOnly(data.Trace)
+		if d.Trace == nil {
+			return payload, false // opaque reasoning alone: nothing to show
+		}
+		payload.Data = &d
+	case *events.MessageCreatedData:
+		if data.Reasoning == nil {
+			return payload, true
+		}
+		d := *data
+		d.Reasoning = nil
+		if showReasoning {
+			d.Reasoning = textOnly(data.Reasoning)
+		}
+		payload.Data = &d
+	}
+	return payload, true
+}
+
+// textOnly is a reasoning trace's text, without its opaque tokens; nil when
+// it has no text.
+func textOnly(r *types.ReasoningTrace) *types.ReasoningTrace {
+	if r == nil || r.Text == "" {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: r.Text}
 }
 
 // stop ends forwarding: it unsubscribes, and waits for a forward in progress,
@@ -527,13 +683,26 @@ func (f *runtimeForwarder) stop() {
 	}
 }
 
-// runFinished builds the RUN_FINISHED event. A turn held for approval ends
-// with the interrupt outcome naming each held call: AG-UI requires a run that
-// stopped to ask for outside input to say so rather than report success.
-func runFinished(threadID, runID string, resp *sdk.Response) *aguievents.RunFinishedEvent {
+// runFinished builds the RUN_FINISHED event, with the run's usage. A turn
+// held for approval ends with the interrupt outcome naming each held call:
+// AG-UI requires a run that stopped to ask for outside input to say so rather
+// than report success. A turn that left client tool calls unanswered ends
+// with the success outcome naming them (pendingToolCallIds), for the
+// application to answer in the next run.
+func (st *runState) runFinished(resp *sdk.Response) *aguievents.RunFinishedEvent {
+	threadID, runID := st.a.cfg.threadID, st.a.cfg.runID
+	var opts []aguievents.RunFinishedOption
+	if usage := st.usage.tokenUsage(); usage != nil {
+		opts = append(opts, aguievents.WithUsage(usage))
+	}
 	held := resp.PendingTools()
 	if len(held) == 0 {
-		return aguievents.NewRunFinishedEvent(threadID, runID)
+		if pending := st.unansweredCalls(resp); len(pending) > 0 {
+			opts = append(opts, aguievents.WithOutcome(aguievents.RunFinishedOutcome{
+				Type: aguievents.RunFinishedOutcomeTypeSuccess, PendingToolCallIDs: pending,
+			}))
+		}
+		return aguievents.NewRunFinishedEventWithOptions(threadID, runID, opts...)
 	}
 	interrupts := make([]aguitypes.Interrupt, len(held))
 	for i, pt := range held {
@@ -548,9 +717,22 @@ func runFinished(threadID, runID string, resp *sdk.Response) *aguievents.RunFini
 			ToolCallID: pt.ID,
 		}
 	}
-	return aguievents.NewRunFinishedEventWithOptions(threadID, runID, aguievents.WithOutcome(
+	opts = append(opts, aguievents.WithOutcome(
 		aguievents.RunFinishedOutcome{Type: aguievents.RunFinishedOutcomeTypeInterrupt, Interrupts: interrupts},
 	))
+	return aguievents.NewRunFinishedEventWithOptions(threadID, runID, opts...)
+}
+
+// unansweredCalls names the client tool calls resp left pending that the run
+// did not answer, in the order the model made them.
+func (st *runState) unansweredCalls(resp *sdk.Response) []string {
+	var ids []string
+	for _, ct := range resp.ClientTools() {
+		if !st.answered[ct.CallID] {
+			ids = append(ids, ct.CallID)
+		}
+	}
+	return ids
 }
 
 // emitTurn emits the messages a turn produced that it has not emitted live,
@@ -575,12 +757,24 @@ func (st *runState) emitTurn(resp *sdk.Response, skipLeadingResults bool) {
 		}
 	}
 	st.closeStreamedText()
+	for _, lr := range st.lateReasoning {
+		st.settleReasoning(lr.round, lr.trace)
+	}
+	st.lateReasoning = nil
+}
+
+// lateReasoning is the reasoning of a streamed round, reported after the
+// turn's text.
+type lateReasoning struct {
+	round *liveRound
+	trace *types.ReasoningTrace
 }
 
 // closeStreamedText ends any text message the streamed rounds left open, and
 // forgets the rounds.
 func (st *runState) closeStreamedText() {
 	for _, r := range st.rounds {
+		st.closeReasoning(r)
 		st.closeText(r)
 	}
 	st.rounds = nil
@@ -591,6 +785,9 @@ func (st *runState) closeStreamedText() {
 // tools.
 func fallbackTurn(resp *sdk.Response) []types.Message {
 	msg := types.Message{Role: roleAssistant, Content: resp.Text()}
+	if m := resp.Message(); m != nil {
+		msg.Reasoning = m.Reasoning
+	}
 	msg.ToolCalls = append(msg.ToolCalls, resp.ToolCalls()...)
 	seen := make(map[string]bool, len(msg.ToolCalls))
 	for _, tc := range msg.ToolCalls {
@@ -618,8 +815,17 @@ func (st *runState) settleRound(index int, msg *types.Message) {
 	if index < len(st.rounds) {
 		r = st.rounds[index]
 		st.answered = r.answered
+		// A streamed round whose reasoning did not stream reports it once
+		// the turn's text is complete (emitTurn), not inside a later round's
+		// open text.
+		st.closeReasoning(r)
+		if msg.Reasoning != nil {
+			st.lateReasoning = append(st.lateReasoning, lateReasoning{r, msg.Reasoning})
+		}
 	} else {
 		r = st.newRound()
+		// A round that did not stream reports its reasoning before its text.
+		st.settleReasoning(r, msg.Reasoning)
 	}
 	st.settleText(r, msg.GetContent(), len(msg.ToolCalls) == 0)
 	if r.called {
@@ -646,6 +852,11 @@ func (st *runState) emitResult(callID, content string) {
 	}
 	st.answered[callID] = true
 	st.emit(aguievents.NewToolCallResultEvent(aguievents.GenerateMessageID(), callID, content))
+	// A tool is what usually changes the state: with WithStateAfterEachTool
+	// the client sees the change with the result.
+	if st.a.cfg.stateAfterEachTool {
+		st.syncState()
+	}
 }
 
 // TOOL_CALL_RESULT content is never empty: the AG-UI Go SDK rejects an event

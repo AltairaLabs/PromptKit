@@ -63,6 +63,7 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 		}
 		msg.FinishReason = types.FinishReasonSafety
 		msg.Meta[finishReasonMetaKey] = types.FinishReasonSafety
+		msg.Reasoning = nil
 	}
 
 	s.textFromDeltas = false

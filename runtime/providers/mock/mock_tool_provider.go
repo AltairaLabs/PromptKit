@@ -212,6 +212,7 @@ func (m *ToolProvider) predictTurn(
 			ToolCalls:    toolCalls,
 			CostInfo:     &costInfo,
 			FinishReason: types.FinishReasonToolUse,
+			Reasoning:    mockTurn.reasoning(),
 		}, toolCalls, mockTurn, nil
 	}
 
@@ -224,6 +225,7 @@ func (m *ToolProvider) predictTurn(
 		Content:      text,
 		CostInfo:     &costInfo,
 		FinishReason: types.FinishReasonStop,
+		Reasoning:    mockTurn.reasoning(),
 	}, nil, mockTurn, nil
 }
 
@@ -354,6 +356,11 @@ func (m *ToolProvider) PredictStreamWithTools(
 
 	go func() {
 		defer close(outChan)
+
+		// The scripted reasoning streams first, as a reasoning model's does.
+		for _, r := range turn.ReasoningChunks {
+			outChan <- providers.StreamChunk{Reasoning: r}
+		}
 
 		// Send content in chunks (simulate streaming): the turn's own chunks
 		// when it scripts them, else about 20 bytes at a time, cut on

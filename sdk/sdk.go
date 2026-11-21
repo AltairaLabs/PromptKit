@@ -914,6 +914,8 @@ func initInternalStateStore(conv *Conversation, cfg *config) error {
 		Pipeline:       pipeline,
 		Metadata:       cfg.sessionMetadata,
 		Variables:      initialVars,
+		// The conversation streams reasoning only with WithStreamReasoning.
+		StreamReasoning: cfg.streamReasoning,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create unary session: %w", err)

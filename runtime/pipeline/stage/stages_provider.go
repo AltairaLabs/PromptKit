@@ -2085,13 +2085,17 @@ func (s *ProviderStage) emitProviderCallCompleted(
 }
 
 // stampCostIdentity fills the unified CostInfo identity fields (provider name,
-// capability, latency) the provider left empty. No-op for a nil costInfo.
+// model, capability, latency) the provider left empty. No-op for a nil
+// costInfo.
 func stampCostIdentity(costInfo *types.CostInfo, prov providers.Provider, duration time.Duration) {
 	if costInfo == nil {
 		return
 	}
 	if costInfo.ProviderName == "" {
 		costInfo.ProviderName = prov.Name()
+	}
+	if costInfo.Model == "" {
+		costInfo.Model = prov.Model()
 	}
 	if costInfo.Capability == "" {
 		costInfo.Capability = string(prov.Type())

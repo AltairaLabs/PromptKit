@@ -23,6 +23,10 @@ type StreamChunk struct {
 	// Text content (for ChunkText type)
 	Text string
 
+	// Reasoning is a delta of the model's reasoning (for ChunkReasoning
+	// type). It is never part of the reply's text.
+	Reasoning string
+
 	// ReplacesText marks a ChunkText whose Text replaces all the text streamed
 	// before it in this turn: an output guardrail cut the reply and Text is its
 	// message, the reply's whole text (the Text of the ChunkDone Response). A
@@ -89,6 +93,13 @@ const (
 	// the turn are not sent; they are in the ChunkDone Response's
 	// TurnMessages.
 	ChunkToolResult
+
+	// ChunkReasoning indicates the chunk carries a delta of the model's
+	// reasoning, in Reasoning, as a reasoning model streams it before (or
+	// between) the text of its reply. A stream sends it only for a
+	// conversation opened with [WithStreamReasoning]; the reasoning is always
+	// on the Response's Message().Reasoning.
+	ChunkReasoning
 )
 
 // String returns the string representation of the chunk type.
@@ -106,6 +117,8 @@ func (t ChunkType) String() string {
 		return "client_tool"
 	case ChunkToolResult:
 		return "tool_result"
+	case ChunkReasoning:
+		return "reasoning"
 	default:
 		return "unknown"
 	}
@@ -485,6 +498,9 @@ func (c *Conversation) emitStreamChunk(
 	outCh chan<- StreamChunk,
 	state *streamState,
 ) {
+	if c.config.streamReasoning && chunk.Reasoning != "" {
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkReasoning, Reasoning: chunk.Reasoning})
+	}
 	emitTextDelta(ctx, chunk, outCh, state)
 
 	// Emit media data
@@ -688,9 +704,9 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 			case ChunkMedia:
 				chunk.Type = streamPkg.ChunkMedia
 				chunk.Media = sdkChunk.Media
-			case ChunkClientTool, ChunkToolResult:
-				// Client tool requests and tool results are SDK-level; skip in
-				// raw stream
+			case ChunkClientTool, ChunkToolResult, ChunkReasoning:
+				// Client tool requests, tool results and reasoning are
+				// SDK-level; skip in raw stream
 				continue
 			case ChunkDone:
 				chunk.Done = true
