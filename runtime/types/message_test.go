@@ -710,3 +710,23 @@ func TestMessage_Metadata_ReturnsADeepCopy(t *testing.T) {
 
 	assert.Equal(t, map[string]any{"pos": map[string]any{"x": "1"}, "sel": []any{"a"}}, msg.Metadata())
 }
+
+// EnsureMessageID gives a message with no id a new one on a copy of its Meta,
+// keeps an id it has, and never changes the message passed in.
+func TestEnsureMessageID(t *testing.T) {
+	orig := Message{Role: "user", Meta: map[string]interface{}{"k": "v"}}
+	got := EnsureMessageID(orig)
+	assert.Regexp(t, `^msg_[0-9a-f-]{36}$`, got.ID())
+	assert.Equal(t, "v", got.Meta["k"])
+	assert.Equal(t, map[string]interface{}{"k": "v"}, orig.Meta, "the original's Meta is not changed")
+	assert.Equal(t, "", orig.ID())
+
+	again := EnsureMessageID(got)
+	assert.Equal(t, got.ID(), again.ID(), "an existing id is kept")
+	other := EnsureMessageID(Message{})
+	assert.NotEqual(t, got.ID(), other.ID(), "each new id is unique")
+
+	var nilMsg *Message
+	assert.Equal(t, "", nilMsg.ID())
+	assert.Equal(t, "", (&Message{Meta: map[string]interface{}{MetaMessageID: 7}}).ID(), "a non-string id is none")
+}

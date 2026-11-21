@@ -31,23 +31,43 @@ func snapshotJSON(t *testing.T, evts []aguievents.Event) []map[string]any {
 	return out
 }
 
+// storedIDs are the stable ids the conversation stored its messages under.
+func storedIDs(t *testing.T, conv *sdk.Conversation) []string {
+	t.Helper()
+	history := conv.Messages(context.Background())
+	ids := make([]string, len(history))
+	for i := range history {
+		ids[i] = history[i].ID()
+		require.NotEmpty(t, ids[i], "message %d has a stable id", i)
+	}
+	return ids
+}
+
 // With WithMessagesSnapshot, each run ends by restating the conversation as
 // the agent holds it: every message of every turn, in order, each keyed by
-// the thread and its position, so a later snapshot replaces it in place.
+// the stable id it is stored under, so a later run's snapshot gives it the
+// same id and replaces it in place, whatever the adapter's thread id.
 func TestRunSend_MessagesSnapshotRestatesTheConversation(t *testing.T) {
 	conv := openConv(t, streamingProvider(streamedText("Hello."), streamedText("Bye.")))
 
-	_, err := sendAndCollect(t, NewEventAdapter(conv, WithThreadID("th"), WithMessagesSnapshot(true)), "hi")
+	first, err := sendAndCollect(t, NewEventAdapter(conv, WithMessagesSnapshot(true)), "hi")
 	require.NoError(t, err)
-	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithThreadID("th"), WithMessagesSnapshot(true)), "bye")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithMessagesSnapshot(true)), "bye")
 	require.NoError(t, err)
 
+	ids := storedIDs(t, conv)
+	require.Len(t, ids, 4)
 	assert.Equal(t, []map[string]any{
-		{"id": "th-0", "role": "user", "content": "hi"},
-		{"id": "th-1", "role": "assistant", "content": "Hello."},
-		{"id": "th-2", "role": "user", "content": "bye"},
-		{"id": "th-3", "role": "assistant", "content": "Bye."},
+		{"id": ids[0], "role": "user", "content": "hi"},
+		{"id": ids[1], "role": "assistant", "content": "Hello."},
+	}, snapshotJSON(t, first))
+	assert.Equal(t, []map[string]any{
+		{"id": ids[0], "role": "user", "content": "hi"},
+		{"id": ids[1], "role": "assistant", "content": "Hello."},
+		{"id": ids[2], "role": "user", "content": "bye"},
+		{"id": ids[3], "role": "assistant", "content": "Bye."},
 	}, snapshotJSON(t, evts))
+	assert.Len(t, map[string]bool{ids[0]: true, ids[1]: true, ids[2]: true, ids[3]: true}, 4, "the ids are distinct")
 }
 
 // A tool round is restated with the assistant's calls and the tool's result;
@@ -64,15 +84,17 @@ func TestRunSend_MessagesSnapshotCarriesToolsAndReasoning(t *testing.T) {
 		WithReasoning(true)), "ship 42")
 	require.NoError(t, err)
 
+	ids := storedIDs(t, conv)
+	require.Len(t, ids, 4)
 	assert.Equal(t, []map[string]any{
-		{"id": "th-0", "role": "user", "content": "ship 42"},
-		{"id": "th-1-reasoning", "role": "reasoning", "content": "Need the order."},
-		{"id": "th-1", "role": "assistant", "content": "Checking.", "toolCalls": []any{map[string]any{
+		{"id": ids[0], "role": "user", "content": "ship 42"},
+		{"id": ids[1] + "-reasoning", "role": "reasoning", "content": "Need the order."},
+		{"id": ids[1], "role": "assistant", "content": "Checking.", "toolCalls": []any{map[string]any{
 			"id": "call_0_lookup", "type": "function",
 			"function": map[string]any{"name": "lookup", "arguments": `{"id":"42"}`},
 		}}},
-		{"id": "th-2", "role": "tool", "content": "shipped", "toolCallId": "call_0_lookup"},
-		{"id": "th-3", "role": "assistant", "content": "Shipped."},
+		{"id": ids[2], "role": "tool", "content": "shipped", "toolCallId": "call_0_lookup"},
+		{"id": ids[3], "role": "assistant", "content": "Shipped."},
 	}, snapshotJSON(t, evts))
 }
 
@@ -85,9 +107,38 @@ func TestRunSend_MessagesSnapshotLeavesOutHiddenReasoning(t *testing.T) {
 		WithMessagesSnapshot(true), WithReasoning(false)), "hi")
 	require.NoError(t, err)
 
+	ids := storedIDs(t, conv)
+	require.Len(t, ids, 2)
 	assert.Equal(t, []map[string]any{
-		{"id": "th-0", "role": "user", "content": "hi"},
-		{"id": "th-1", "role": "assistant", "content": "Hi."},
+		{"id": ids[0], "role": "user", "content": "hi"},
+		{"id": ids[1], "role": "assistant", "content": "Hi."},
+	}, snapshotJSON(t, evts))
+}
+
+// A message stored before ids were assigned keeps the id a snapshot gave it
+// before, its thread and position; so does a message whose id an earlier one
+// of the snapshot took. The others keep their stable ids.
+func TestRunSend_MessagesSnapshotFallsBackForMessagesWithoutIDs(t *testing.T) {
+	withID := func(m types.Message, id string) types.Message {
+		m.Meta = map[string]interface{}{types.MetaMessageID: id}
+		return m
+	}
+	history := []types.Message{
+		types.NewUserMessage("old"), withID(assistantMsg("Hi."), "a-1"),
+		withID(types.NewUserMessage("again"), "a-1"), withID(assistantMsg("Yes."), "a-2"),
+	}
+	resp := sdk.NewResponseForTest("Yes.", nil)
+	sender := &historySender{mockSender: mockSender{resp: resp}, history: history}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{},
+		WithThreadID("th"), WithMessagesSnapshot(true)), "again")
+	require.NoError(t, err)
+
+	assert.Equal(t, []map[string]any{
+		{"id": "th-0", "role": "user", "content": "old"},
+		{"id": "a-1", "role": "assistant", "content": "Hi."},
+		{"id": "th-2", "role": "user", "content": "again"},
+		{"id": "a-2", "role": "assistant", "content": "Yes."},
 	}, snapshotJSON(t, evts))
 }
 
@@ -272,4 +323,23 @@ func TestRunSend_NoMessagesSnapshotWhenTheStoreFails(t *testing.T) {
 	assert.Empty(t, eventsOf[*aguievents.MessagesSnapshotEvent](evts))
 	assert.Equal(t, "RUN_FINISHED", describeRun(evts)[len(evts)-1])
 	assert.Nil(t, conv.Messages(context.Background()), "the history read fails")
+}
+
+// A positional id that a client's own id already took gets a suffix, so no
+// two snapshot messages share an id.
+func TestRunSend_MessagesSnapshotPositionalIDNeverCollides(t *testing.T) {
+	withID := func(m types.Message, id string) types.Message {
+		m.Meta = map[string]interface{}{types.MetaMessageID: id}
+		return m
+	}
+	history := []types.Message{withID(types.NewUserMessage("mine"), "th-1"), assistantMsg("Old.")}
+	sender := &historySender{mockSender: mockSender{resp: sdk.NewResponseForTest("Old.", nil)}, history: history}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{},
+		WithThreadID("th"), WithMessagesSnapshot(true)), "mine")
+	require.NoError(t, err)
+	assert.Equal(t, []map[string]any{
+		{"id": "th-1", "role": "user", "content": "mine"},
+		{"id": "th-1-2", "role": "assistant", "content": "Old."},
+	}, snapshotJSON(t, evts))
 }

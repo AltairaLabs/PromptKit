@@ -138,6 +138,15 @@ type adapterConfig struct {
 	// messagesSnapshot ends each run with a MESSAGES_SNAPSHOT of the
 	// conversation (WithMessagesSnapshot).
 	messagesSnapshot bool
+	// clientHistory replaces the conversation's history before RunSend sends
+	// (WithClientHistory), when clientHistorySet.
+	clientHistory    []aguitypes.Message
+	clientHistorySet bool
+	// inputContext opens RunSend's message as a context block
+	// (WithInputContext).
+	inputContext []aguitypes.Context
+	// frontendTools are offered to the model for the run (WithFrontendTools).
+	frontendTools []aguitypes.Tool
 }
 
 // rawEventSource is the RAW event source naming PromptKit's runtime events.
@@ -208,7 +217,8 @@ func WithWorkflowSteps(enabled bool) AdapterOption {
 //
 // Use it only for tools the server itself can answer. A frontend tool, one the
 // application advertised in RunAgentInput.tools, must not be answered by the
-// producer.
+// producer: a call to a tool listed in [WithFrontendTools] is never handed to
+// the callback, and the run ends with it pending.
 func WithToolResultProvider(provider ToolResultProvider) AdapterOption {
 	return func(c *adapterConfig) {
 		c.toolResultProvider = provider
@@ -261,13 +271,15 @@ func WithReasoning(enabled bool) AdapterOption {
 // holds it: for a client reconnecting to the thread, or one whose copy has
 // drifted from the agent's. Off by default.
 //
-// The client replaces its messages with the snapshot's. PromptKit's messages
-// carry no id, so each is keyed by the thread id and its position in the
-// history ("<thread>-0", "<thread>-1", ...), which a later run's snapshot
-// gives it again; the messages the run streamed under ids of their own are
-// replaced too. The ids are stable across runs only when the thread id is: set
-// it with [WithThreadID] from the input's threadId, or each run's adapter
-// generates a new one. The history keeps no reasoning: with [WithReasoning]
+// The client replaces its messages with the snapshot's. Each message is keyed
+// by its stable id (types.MetaMessageID), which a later run's snapshot gives
+// it again: the id the client gave it, for a message that came from the
+// client, or the one the conversation gave it when storing it. A message
+// stored before ids were assigned is keyed by the thread id and its position
+// in the history ("<thread>-0", "<thread>-1", ...), stable across runs only
+// when the thread id is: set it with [WithThreadID] from the input's
+// threadId. The messages the run streamed under ids of their own are replaced
+// too. The history keeps no reasoning: with [WithReasoning]
 // on, the snapshot restates the reasoning of the run's own turns, as reasoning
 // messages before the assistant messages they led to, which AG-UI reads as
 // the complete set of reasoning messages. A run whose history reads back
@@ -409,6 +421,11 @@ func (a *EventAdapter) RunID() string {
 // replaces it, is sent as a new text message holding the reply: the client has
 // already shown the streamed text, which AG-UI cannot take back.
 //
+// Before the model is called, the run offers the input's frontend tools
+// ([WithFrontendTools]), replaces the conversation's history with the
+// client's ([WithClientHistory]) and opens msg with the input's context
+// ([WithInputContext]), each only when its option is set.
+//
 // On error, a RUN_ERROR ends the run, with the token usage of the model calls
 // made before the error. The events channel is always closed when RunSend
 // returns.
@@ -418,10 +435,15 @@ func (a *EventAdapter) RunID() string {
 // lets the run finish before reading blocks there.
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error {
 	return a.run(ctx, false, func(ctx context.Context, st *runState) (*sdk.Response, error) {
-		if s, ok := a.sender.(streamer); ok {
-			return st.consume(s.Stream(ctx, msg))
+		opts, err := a.runInputOptions()
+		if err != nil {
+			return nil, err
 		}
-		return a.sender.Send(ctx, msg)
+		sent := a.withInputContext(msg)
+		if s, ok := a.sender.(streamer); ok {
+			return st.consume(s.Stream(ctx, sent, opts...))
+		}
+		return a.sender.Send(ctx, sent, opts...)
 	})
 }
 
@@ -823,7 +845,7 @@ func (st *runState) settleRound(index int, msg *types.Message) {
 			st.lateReasoning = append(st.lateReasoning, lateReasoning{r, msg.Reasoning})
 		}
 	} else {
-		r = st.newRound()
+		r = st.newRound(msg.ID())
 		// A round that did not stream reports its reasoning before its text.
 		st.settleReasoning(r, msg.Reasoning)
 	}
@@ -901,9 +923,22 @@ func describeMedia(parts []types.ContentPart) string {
 // and resolves them. When every call is answered it resumes the turn and
 // returns the resumed response; otherwise it returns nil, leaving the rest
 // for the application to answer in the next run.
+//
+// A call to one of the run's frontend tools (WithFrontendTools) is never given
+// to the provider: the application executes it, and answers it in the next
+// run, so the run ends with it pending.
 func (st *runState) fulfillAndResume(pending []sdk.PendingClientTool) (*sdk.Response, error) {
 	a := st.a
-	results, err := a.cfg.toolResultProvider(st.ctx, pending)
+	serverSide := make([]sdk.PendingClientTool, 0, len(pending))
+	for i := range pending {
+		if !a.isFrontendTool(pending[i].ToolName) {
+			serverSide = append(serverSide, pending[i])
+		}
+	}
+	if len(serverSide) == 0 {
+		return nil, nil
+	}
+	results, err := a.cfg.toolResultProvider(st.ctx, serverSide)
 	if err != nil {
 		return nil, err
 	}

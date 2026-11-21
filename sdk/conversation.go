@@ -139,6 +139,9 @@ type Conversation struct {
 	clientHandlers   map[string]ClientToolHandler
 	clientHandlersMu sync.RWMutex
 
+	// turnTools are the client tools the current turn offers (WithClientTools).
+	turnTools turnTools
+
 	// Async tool handlers for HITL
 	asyncHandlers map[string]sdktools.AsyncToolCheck
 	// approvalExecs run a held call once it is approved: the execution
@@ -364,6 +367,9 @@ func (c *Conversation) Send(ctx context.Context, message any, opts ...SendOption
 		return nil, optErr
 	}
 	userMsg = withMessageMetadata(userMsg, sendCfg.messageMetadata)
+	if inputErr := c.startTurnInput(ctx, sendCfg); inputErr != nil {
+		return nil, inputErr
+	}
 
 	// Carry WithJSONInput-bound variables on the context so the send-scoped
 	// variable provider resolves them for this turn.
@@ -555,7 +561,10 @@ func (c *Conversation) preloadedSkillInstructions() string {
 // admits none (#2326). Read per build, not fixed at registration, because a
 // transition the model makes mid-turn changes the filter between rounds.
 func (c *Conversation) describeTool(d *tools.ToolDescriptor) *tools.ToolDescriptor {
-	if d == nil || d.Name != skills.SkillActivateTool {
+	if d == nil {
+		return nil
+	}
+	if d.Name != skills.SkillActivateTool {
 		return d
 	}
 	sc := c.skillsCapability()
@@ -585,15 +594,28 @@ func (c *Conversation) validateMessageSize(size int) error {
 	return nil
 }
 
-// messageContentSize returns the total content size of a message in bytes.
-// For text-only messages it returns len(Content). For multimodal messages it
-// sums the size of each part's text or data payload.
+// messageContentSize returns the total content size of a message in bytes:
+// len(Content) for a text-only message, or the size of each part's text or
+// data payload for a multimodal one, plus its tool calls' arguments and its
+// tool result's parts.
 func messageContentSize(msg *types.Message) int {
-	if len(msg.Parts) == 0 {
-		return len(msg.Content)
+	total := len(msg.Content)
+	if len(msg.Parts) > 0 {
+		total = partsSize(msg.Parts)
 	}
+	for _, tc := range msg.ToolCalls {
+		total += len(tc.Args)
+	}
+	if msg.ToolResult != nil {
+		total += partsSize(msg.ToolResult.Parts)
+	}
+	return total
+}
+
+// partsSize counts the text and inline data of content parts.
+func partsSize(parts []types.ContentPart) int {
 	total := 0
-	for _, p := range msg.Parts {
+	for _, p := range parts {
 		switch p.Type {
 		case types.ContentTypeText:
 			if p.Text != nil {
@@ -789,7 +811,7 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionStrategy:    c.config.compactionStrategy,
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
-		ToolGrants:            c.skillToolGrants,
+		ToolGrants:            c.toolGrants,
 		DescribeTool:          c.describeTool,
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalGate:          c.newApprovalGate(),
@@ -1767,6 +1789,7 @@ func (c *Conversation) Fork() (*Conversation, error) {
 	if c.config != nil {
 		fork.sessionHooks.caller = c.config.caller
 	}
+	c.copyTurnTools(fork)
 	// A fork gets its own active skills and memory scope: what it activates
 	// must not reach the conversation it was forked from, and vice versa.
 	fork.initConversationState()

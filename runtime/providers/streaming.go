@@ -120,6 +120,11 @@ type StreamChunk struct {
 	// deltas must discard the turn's text so far and show Delta instead.
 	ReplacesText bool `json:"replaces_text,omitempty"`
 
+	// MessageID is the stable id (types.MetaMessageID) of the assistant
+	// message Delta is part of, under which the turn stores it; empty when
+	// the pipeline does not know it.
+	MessageID string `json:"message_id,omitempty"`
+
 	// Error is set if an error occurred during streaming
 	Error error `json:"error,omitempty"`
 

@@ -10,9 +10,9 @@
 // and the frontend tool calls it left unanswered (pendingToolCallIds) on
 // RUN_FINISHED, and, with [WithMessagesSnapshot], a MESSAGES_SNAPSHOT. Not
 // produced: RUN_STARTED's protocolVersion, which the Go SDK cannot encode,
-// REASONING_ENCRYPTED_VALUE, and activity and subagent events. Message ids
-// are minted per conversion, so converting the same message twice gives two
-// ids.
+// REASONING_ENCRYPTED_VALUE, and activity and subagent events. A message's id
+// is its stable id (types.MetaMessageID), so it is the same in every run; a
+// message stored before ids were assigned gets a new id per conversion.
 package agui
 
 import (
@@ -88,9 +88,21 @@ var idGen = events.NewDefaultIDGenerator()
 // AG-UI 1.0 defines it. A media part whose bytes are neither inline nor at a
 // URL (a local file path or a storage reference) has no AG-UI form and is
 // dropped with a warning.
+//
+// The id is the message's stable id (types.MetaMessageID), which the
+// conversation gives each message it stores, so converting a stored message
+// gives the same id every time. A message with none (one stored before ids
+// were assigned, or one not stored yet) gets a new id on each conversion. A
+// user message RunSend sent with [WithInputContext] is given back without the
+// context block it opened with.
 func MessageToAGUI(msg *types.Message) aguitypes.Message {
+	msg = withoutContextBlock(msg)
+	id := msg.ID()
+	if id == "" {
+		id = idGen.GenerateMessageID()
+	}
 	aguiMsg := aguitypes.Message{
-		ID:   idGen.GenerateMessageID(),
+		ID:   id,
 		Role: mapRoleToAGUI(msg.Role),
 	}
 
@@ -141,6 +153,10 @@ func hasMedia(parts []types.ContentPart) bool {
 // A reasoning message becomes an assistant message whose Reasoning holds the
 // text, never user input. [MessagesFromAGUI] folds it into the assistant
 // message that follows it instead.
+//
+// The message's AG-UI id becomes its stable id (types.MetaMessageID), which
+// the conversation stores it under, so [MessageToAGUI] and MESSAGES_SNAPSHOT
+// give it back under the id the client gave it.
 func MessageFromAGUI(msg *aguitypes.Message) types.Message {
 	if msg.Role == aguitypes.RoleReasoning {
 		return types.Message{Role: roleAssistant, Reasoning: &types.ReasoningTrace{Text: contentString(msg)}}
@@ -148,6 +164,9 @@ func MessageFromAGUI(msg *aguitypes.Message) types.Message {
 
 	pkMsg := types.Message{
 		Role: mapRoleFromAGUI(msg.Role),
+	}
+	if msg.ID != "" {
+		pkMsg.Meta = map[string]interface{}{types.MetaMessageID: msg.ID}
 	}
 
 	// Handle tool result messages

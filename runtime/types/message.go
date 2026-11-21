@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // Message represents a single message in a conversation.
@@ -134,6 +136,60 @@ const (
 // Message.Metadata. It is stored with the message and carried on its
 // message.created event, and never sent to a provider.
 const MetaMessageMetadata = "message_metadata"
+
+// MetaExcludedFromModel is the Message.Meta key, set to true, that keeps a
+// message out of model context on its own: the transcript keeps it, but no
+// provider request, summary, extracted memory or retrieval index is built
+// from it. Unlike MetaBlockedInput on a canned reply it never takes the
+// message before it out too. A host that rebuilds a history from a client's
+// copy marks with it each message the stored history kept out of model
+// context (the SDK's ReplaceHistory does), so the client's ordering cannot
+// let it back in.
+const MetaExcludedFromModel = "_excluded_from_model"
+
+// MetaInjectedContext is the Message.Meta key holding text a host put in front
+// of a user's message as its first text part: context the application
+// supplied with the message (the AG-UI adapter's WithInputContext), not the
+// user's words. A host comparing the message with a client's copy of it
+// compares the text after it.
+const MetaInjectedContext = "_injected_context"
+
+// MetaMessageID is the Message.Meta key holding the message's stable id: a
+// string the runtime assigns when it first stores the message (see
+// EnsureMessageID), kept with the message in every state store, so the
+// message reads back under the same id however often the history is loaded.
+// A message stored before ids were assigned has none; ID returns "" for it.
+const MetaMessageID = "_message_id"
+
+// ID returns the message's stable id (MetaMessageID), or "" when it has none.
+func (m *Message) ID() string {
+	if m == nil {
+		return ""
+	}
+	id, _ := m.Meta[MetaMessageID].(string)
+	return id
+}
+
+// NewMessageID returns a new, random stable message id (see MetaMessageID).
+func NewMessageID() string {
+	return "msg_" + uuid.NewString()
+}
+
+// EnsureMessageID returns msg carrying a stable id: msg itself when it has one
+// (ID), otherwise a copy with a new, random id under MetaMessageID. The copy
+// gets its own Meta map, so the id never reaches another holder of msg's Meta.
+func EnsureMessageID(msg Message) Message {
+	if msg.ID() != "" {
+		return msg
+	}
+	meta := make(map[string]interface{}, len(msg.Meta)+1)
+	for k, v := range msg.Meta {
+		meta[k] = v
+	}
+	meta[MetaMessageID] = NewMessageID()
+	msg.Meta = meta
+	return msg
+}
 
 // Metadata returns a copy of the metadata an application attached to the
 // message (see MetaMessageMetadata), or nil when there is none. The copy is

@@ -770,7 +770,33 @@ func TestMaybeSummarize_StoreNotMessageReader(t *testing.T) {
 	results := runTestStage(t, s, []StreamElement{NewMessageElement(&q), NewMessageElement(&a)})
 
 	require.Len(t, results, 2)
-	assert.Equal(t, []types.Message{q, a}, store.messages["conv-ms"])
+	stored := store.messages["conv-ms"]
+	assert.Equal(t, []types.Message{q, a}, withoutMessageIDs(stored))
+	// Each message is stored with the id it was forwarded with.
+	assert.Equal(t, []string{results[0].Message.ID(), results[1].Message.ID()},
+		[]string{stored[0].ID(), stored[1].ID()})
+}
+
+// withoutMessageIDs is msgs with their stable ids removed, a Meta left empty
+// by that removed too, for comparing what a turn stored with what it sent.
+func withoutMessageIDs(msgs []types.Message) []types.Message {
+	out := make([]types.Message, len(msgs))
+	for i, m := range msgs {
+		if _, ok := m.Meta[types.MetaMessageID]; ok {
+			meta := make(map[string]interface{}, len(m.Meta))
+			for k, v := range m.Meta {
+				if k != types.MetaMessageID {
+					meta[k] = v
+				}
+			}
+			m.Meta = meta
+			if len(meta) == 0 {
+				m.Meta = nil
+			}
+		}
+		out[i] = m
+	}
+	return out
 }
 
 // A message count that came back with an error is not acted on, even when the
@@ -804,7 +830,7 @@ func TestMaybeSummarize_StoreNotSummaryAccessor(t *testing.T) {
 	results := runTestStage(t, s, []StreamElement{NewMessageElement(&q)})
 
 	require.Len(t, results, 1)
-	assert.Equal(t, append(numberedMessages(10), q), store.messages["conv-ms"])
+	assert.Equal(t, append(numberedMessages(10), q), withoutMessageIDs(store.messages["conv-ms"]))
 }
 
 // Without the existing summaries the stage cannot tell which turns are already
