@@ -105,9 +105,7 @@ func (a *convAdapter) ResumeStream(ctx context.Context) <-chan a2aserver.StreamE
 	out := make(chan a2aserver.StreamEvent)
 	go func() {
 		defer close(out)
-		for chunk := range chunks {
-			out <- chunkToEvent(chunk)
-		}
+		forwardChunks(chunks, out)
 	}()
 	return out
 }
@@ -121,11 +119,22 @@ func (a *streamConvAdapter) Stream(ctx context.Context, message any) <-chan a2as
 	out := make(chan a2aserver.StreamEvent, cap(chunks))
 	go func() {
 		defer close(out)
-		for chunk := range chunks {
-			out <- chunkToEvent(chunk)
-		}
+		forwardChunks(chunks, out)
 	}()
 	return out
+}
+
+// forwardChunks sends each chunk to out as a server StreamEvent. A turn that
+// ends with calls held for approval (Response.PendingTools) is paused, not
+// done: an EventPending goes before its EventDone, so the task becomes
+// input-required, as it does on the SendMessage path.
+func forwardChunks(chunks <-chan StreamChunk, out chan<- a2aserver.StreamEvent) {
+	for chunk := range chunks {
+		if chunk.Type == ChunkDone && chunk.Error == nil && chunk.Message != nil && len(chunk.Message.PendingTools()) > 0 {
+			out <- a2aserver.StreamEvent{Kind: a2aserver.EventPending}
+		}
+		out <- chunkToEvent(chunk)
+	}
 }
 
 // chunkToEvent converts an SDK StreamChunk to a server StreamEvent.
@@ -148,7 +157,8 @@ func chunkToEvent(c StreamChunk) a2aserver.StreamEvent {
 				MIMEType: c.Media.MIMEType,
 			},
 		}
-	case ChunkToolCall:
+	case ChunkToolCall, ChunkToolResult:
+		// Suppressed by the server (agent opacity), as a tool call is.
 		return a2aserver.StreamEvent{Kind: a2aserver.EventToolCall}
 	case ChunkClientTool:
 		if c.ClientTool == nil {

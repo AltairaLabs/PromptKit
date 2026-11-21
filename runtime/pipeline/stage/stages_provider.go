@@ -1334,6 +1334,51 @@ type toolLoop struct {
 	// with every round's text suppressed, that re-ask is the only text a
 	// streaming consumer receives.
 	output chan<- StreamElement
+
+	// reportsRounds sends each tool round's messages on output as the round
+	// happens (ElementMetadata.RoundMessages).
+	reportsRounds bool
+}
+
+// reportRound sends msgs, a tool round's messages, downstream as a
+// RoundMessages element when the loop reports its rounds. It is a progress
+// report, so a consumer that has gone away does not fail the turn: the send
+// gives up when ctx is done.
+func (tl *toolLoop) reportRound(ctx context.Context, msgs []types.Message) {
+	if !tl.reportsRounds || tl.output == nil || len(msgs) == 0 {
+		return
+	}
+	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem.Meta.RoundMessages = msgs
+	_ = sendStreamElement(ctx, elem, tl.output)
+}
+
+// afterStreamedRound is afterRound for a streamed round. It reports the
+// round's calls before they run and, when the turn goes on, the results they
+// gave (reportRound).
+func (tl *toolLoop) afterStreamedRound(
+	ctx context.Context, allowedTools []string, response *types.Message, hasToolCalls bool, rr roundRef,
+) (bool, []types.Message, error) {
+	if hasToolCalls {
+		tl.reportRound(ctx, []types.Message{*response})
+	}
+	resultsFrom := len(tl.messages) // afterRound appends the response, then the results we report
+	if done, msgs, err := tl.afterRound(ctx, allowedTools, response, hasToolCalls, rr); done {
+		return true, msgs, err
+	}
+	tl.reportRound(ctx, toolMessagesOf(tl.messages[resultsFrom:]))
+	return false, nil, nil
+}
+
+// toolMessagesOf copies the tool messages in msgs.
+func toolMessagesOf(msgs []types.Message) []types.Message {
+	var out []types.Message
+	for i := range msgs {
+		if msgs[i].Role == roleTool {
+			out = append(out, msgs[i])
+		}
+	}
+	return out
 }
 
 // reservedTokens estimates what the next round sends besides its messages —
@@ -1608,6 +1653,9 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		return nil, err
 	}
 	loop.output = output
+	// A per-turn execution reports its tool rounds as they happen; the
+	// continuous (duplex) mode delimits its turns with its own elements.
+	loop.reportsRounds = s.config == nil || !s.config.Streaming
 	loop.preSeedLog(ctx)
 	// Reconcile before the first round. A resumed execution (HITL approval,
 	// deferred client tool) re-ran PromptAssemblyStage, which reset the prompt
@@ -1645,7 +1693,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		// streamingRoundParams re-read acc.systemPrompt and loop.providerTools,
 		// so a mid-loop swap takes effect there.
 		s.stampWorkflowState(&response)
-		if done, msgs, err := loop.afterRound(ctx, acc.allowedTools, &response, hasToolCalls, rr); done {
+		if done, msgs, err := loop.afterStreamedRound(ctx, acc.allowedTools, &response, hasToolCalls, rr); done {
 			return msgs, err
 		}
 		if stop, hErr := s.applyStateHandoff(ctx, acc, loop); hErr != nil {

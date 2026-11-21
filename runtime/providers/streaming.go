@@ -139,6 +139,12 @@ type StreamChunk struct {
 	// Only set when FinishReason is "pending_tools".
 	PendingTools []tools.PendingToolExecution `json:"pending_tools,omitempty"`
 
+	// RoundMessages reports a tool round of a pipeline's streamed turn as it
+	// happens: the assistant message that made tool calls, before they run,
+	// then the round's tool results, once they ran. A provider never sets it;
+	// the pipeline does (stage.ElementMetadata.RoundMessages).
+	RoundMessages []types.Message `json:"round_messages,omitempty"`
+
 	// Source labels the input track/speaker for fan-out routing (e.g. "caller",
 	// "agent"). Copied onto StreamElement.Source at the session boundary.
 	Source string `json:"source,omitempty"`

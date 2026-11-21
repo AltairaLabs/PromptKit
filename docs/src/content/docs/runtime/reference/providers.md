@@ -883,7 +883,7 @@ func IsTransient(err error) bool
 IsTransient returns true if err represents a transient provider failure \(retryable HTTP status or connection\-level error\). Uses errors.As to traverse wrapped error chains. Context cancellation and deadline errors are never transient, and neither is a stream idle timeout.
 
 <a name="IsValidationAbort"></a>
-## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L217>)
+## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L223>)
 
 ```go
 func IsValidationAbort(err error) bool
@@ -4208,7 +4208,7 @@ type SendableContentProvider interface {
 ```
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L54-L145>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L54-L151>)
 
 StreamChunk represents a batch of tokens with metadata
 
@@ -4297,6 +4297,12 @@ type StreamChunk struct {
     // Only set when FinishReason is "pending_tools".
     PendingTools []tools.PendingToolExecution `json:"pending_tools,omitempty"`
 
+    // RoundMessages reports a tool round of a pipeline's streamed turn as it
+    // happens: the assistant message that made tool calls, before they run,
+    // then the round's tool results, once they ran. A provider never sets it;
+    // the pipeline does (stage.ElementMetadata.RoundMessages).
+    RoundMessages []types.Message `json:"round_messages,omitempty"`
+
     // Source labels the input track/speaker for fan-out routing (e.g. "caller",
     // "agent"). Copied onto StreamElement.Source at the session boundary.
     Source string `json:"source,omitempty"`
@@ -4323,7 +4329,7 @@ type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<-
 ```
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L157-L170>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L163-L176>)
 
 StreamEvent is one observation of a provider stream, built by the stream relay in BaseProvider.RunStreamingRequest for each StreamObserver callback. An observer that also implements StreamEventObserver receives it.
 
@@ -4345,7 +4351,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamEventObserver"></a>
-## type [StreamEventObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L197-L199>)
+## type [StreamEventObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L203-L205>)
 
 StreamEventObserver is implemented by a StreamObserver that also wants each observation as a StreamEvent, carrying its timestamp. OnStreamEvent is called before the matching StreamObserver callback.
 
@@ -4797,7 +4803,7 @@ func (m *StreamMetrics) StreamsInFlightInc(provider string)
 StreamsInFlightInc increments the in\-flight stream gauge for a provider. Nil\-safe.
 
 <a name="StreamObserver"></a>
-## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L188-L192>)
+## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L194-L198>)
 
 StreamObserver receives the events of every stream a provider opens through BaseProvider.RunStreamingRequest, for monitoring. Install one with BaseProvider.SetStreamObserver or ProviderSpec.StreamObserver; with none installed, nothing is observed.
 
@@ -5480,7 +5486,7 @@ func (e *UnsupportedProviderPlatformError) Error() string
 Error returns the error message for this unsupported pair.
 
 <a name="ValidationAbortError"></a>
-## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L205-L208>)
+## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L211-L214>)
 
 ValidationAbortError reports a stream a validator aborted. PromptKit's own stages do not return it: an output guardrail or chunk hook that blocks a streamed reply ends it with the guardrail's message instead. It remains for hosts that return it from their own stages.
 
@@ -5492,7 +5498,7 @@ type ValidationAbortError struct {
 ```
 
 <a name="ValidationAbortError.Error"></a>
-### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L211>)
+### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L217>)
 
 ```go
 func (e *ValidationAbortError) Error() string

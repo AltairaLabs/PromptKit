@@ -1285,18 +1285,28 @@ func (c *Conversation) splitSuspendedTools(
 ) {
 	for i := range pending {
 		pt := &pending[i]
-		if held, ok := c.heldApproval(ctx, pt.CallID); ok {
-			resp.pendingTools = append(resp.pendingTools, PendingTool{
-				ID:        held.ID,
-				Name:      held.Name,
-				Arguments: held.Arguments,
-				Reason:    held.Reason,
-				Message:   held.Message,
-			})
+		if held, ok := c.heldTool(ctx, pt); ok {
+			resp.pendingTools = append(resp.pendingTools, held)
 			continue
 		}
 		resp.clientTools = append(resp.clientTools, buildPendingClientToolFromExecution(pt))
 	}
+}
+
+// heldTool reports whether a suspended call is an OnToolAsync approval hold,
+// and the hold as Response.PendingTools reports it.
+func (c *Conversation) heldTool(ctx context.Context, pt *tools.PendingToolExecution) (PendingTool, bool) {
+	held, ok := c.heldApproval(ctx, pt.CallID)
+	if !ok {
+		return PendingTool{}, false
+	}
+	return PendingTool{
+		ID:        held.ID,
+		Name:      held.Name,
+		Arguments: held.Arguments,
+		Reason:    held.Reason,
+		Message:   held.Message,
+	}, true
 }
 
 // heldApproval reports whether callID is a HITL approval hold in the pending

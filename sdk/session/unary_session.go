@@ -409,6 +409,10 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 		p.sendChunk(&providers.StreamChunk{Delta: *elem.Text, ReplacesText: elem.Meta.ReplacesText})
 	}
 
+	if len(elem.Meta.RoundMessages) > 0 {
+		p.sendChunk(&providers.StreamChunk{RoundMessages: elem.Meta.RoundMessages})
+	}
+
 	if len(elem.Meta.PendingTools) > 0 {
 		p.emitPendingTools(elem.Meta.PendingTools)
 	}

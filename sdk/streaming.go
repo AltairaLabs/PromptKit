@@ -34,6 +34,16 @@ type StreamChunk struct {
 	// Tool call (for ChunkToolCall type)
 	ToolCall *types.MessageToolCall
 
+	// ToolResult is the result a tool call's round fed back to the model (for
+	// ChunkToolResult type).
+	ToolResult *types.MessageToolResult
+
+	// Round is the tool round of the turn a ChunkToolCall or ChunkToolResult
+	// belongs to, counted from 1 within one Stream or ResumeStream. Calls with
+	// the same Round were made by one model reply; a new Round is a new reply,
+	// even when no result came between them.
+	Round int
+
 	// Media content (for ChunkMedia type)
 	Media *providers.StreamMediaData
 
@@ -57,7 +67,11 @@ const (
 	// ChunkText indicates the chunk contains text content.
 	ChunkText ChunkType = iota
 
-	// ChunkToolCall indicates the chunk contains a tool call.
+	// ChunkToolCall indicates the chunk contains a tool call. A tool round's
+	// calls arrive when the round's reply has streamed, before they run, so
+	// text after them belongs to the model's next round. A round whose calls
+	// suspend the turn (client tools, approval holds) sends them too, before
+	// its ChunkClientTool chunks.
 	ChunkToolCall
 
 	// ChunkMedia indicates the chunk contains media content.
@@ -68,6 +82,13 @@ const (
 
 	// ChunkClientTool indicates a client tool request that needs caller fulfillment.
 	ChunkClientTool
+
+	// ChunkToolResult indicates the chunk contains a tool result: one for
+	// each call of a tool round the turn went on from, once the call ran, in
+	// the order the model is given them. The results of a round that ended
+	// the turn are not sent; they are in the ChunkDone Response's
+	// TurnMessages.
+	ChunkToolResult
 )
 
 // String returns the string representation of the chunk type.
@@ -83,6 +104,8 @@ func (t ChunkType) String() string {
 		return "done"
 	case ChunkClientTool:
 		return "client_tool"
+	case ChunkToolResult:
+		return "tool_result"
 	default:
 		return "unknown"
 	}
@@ -94,6 +117,12 @@ type streamState struct {
 	lastToolCalls  []types.MessageToolCall
 	finalResult    *rtpipeline.ExecutionResult
 	pendingTools   []PendingClientTool
+	// heldTools are the suspended calls an OnToolAsync check holds for
+	// approval (Response.PendingTools), kept apart from client tools as Send
+	// keeps them.
+	heldTools []PendingTool
+	// round counts the tool rounds the stream has reported (Round).
+	round int
 }
 
 // accumulatedContent returns the accumulated content as a string.
@@ -175,6 +204,9 @@ func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOpti
 		// Carry WithJSONInput-bound variables on the context so the send-scoped
 		// variable provider resolves them for this turn.
 		ctx = withSendVars(ctx, sendCfg.jsonInputVars)
+
+		// Re-select this turn's skills from its text, as Send does.
+		c.refreshSelectorBoundCapabilities(ctx, extractUserText(userMsg))
 
 		// Execute streaming pipeline
 		if err := c.executeStreamingPipeline(ctx, userMsg, ch, startTime); err != nil {
@@ -470,23 +502,54 @@ func (c *Conversation) emitStreamChunk(
 		copy(state.lastToolCalls, chunk.ToolCalls)
 	}
 
-	// Handle pending client tools
+	emitRoundMessages(ctx, chunk.RoundMessages, outCh, state)
+
 	if chunk.FinishReason != nil && *chunk.FinishReason == "pending_tools" && len(chunk.PendingTools) > 0 {
-		for i := range chunk.PendingTools {
-			pct := buildPendingClientToolFromExecution(&chunk.PendingTools[i])
-			state.pendingTools = append(state.pendingTools, pct)
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkClientTool, ClientTool: &pct})
-		}
-		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
-			state.finalResult = result
-		}
-		return
+		c.emitSuspendedTools(ctx, chunk.PendingTools, outCh, state)
 	}
 
 	// Capture final result
 	if chunk.FinishReason != nil {
 		if result, ok := chunk.FinalResult.(*rtpipeline.ExecutionResult); ok {
 			state.finalResult = result
+		}
+	}
+}
+
+// emitSuspendedTools sorts the calls a turn suspended on: a client tool is
+// sent for the caller to answer; an approval hold is not, since the caller
+// resolves it (ResolveTool), not answers it.
+func (c *Conversation) emitSuspendedTools(
+	ctx context.Context, pending []tools.PendingToolExecution, outCh chan<- StreamChunk, state *streamState,
+) {
+	for i := range pending {
+		if held, ok := c.heldTool(ctx, &pending[i]); ok {
+			state.heldTools = append(state.heldTools, held)
+			continue
+		}
+		pct := buildPendingClientToolFromExecution(&pending[i])
+		state.pendingTools = append(state.pendingTools, pct)
+		sendChunk(ctx, outCh, StreamChunk{Type: ChunkClientTool, ClientTool: &pct})
+	}
+}
+
+// emitRoundMessages forwards a tool round the pipeline reported: a
+// ChunkToolCall for each call an assistant message made, and a
+// ChunkToolResult for each tool result. Each assistant message starts the
+// stream's next round.
+func emitRoundMessages(ctx context.Context, msgs []types.Message, outCh chan<- StreamChunk, state *streamState) {
+	for i := range msgs {
+		msg := &msgs[i]
+		if len(msg.ToolCalls) > 0 {
+			state.round++
+		}
+		for j := range msg.ToolCalls {
+			call := msg.ToolCalls[j]
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &call, Round: state.round})
+		}
+		if msg.ToolResult != nil {
+			result := *msg.ToolResult
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolResult, ToolResult: &result, Round: state.round})
 		}
 	}
 }
@@ -585,6 +648,7 @@ func (c *Conversation) buildStreamingResponse(
 	if len(state.pendingTools) > 0 {
 		resp.clientTools = state.pendingTools
 	}
+	resp.pendingTools = state.heldTools
 
 	return resp
 }
@@ -624,8 +688,9 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 			case ChunkMedia:
 				chunk.Type = streamPkg.ChunkMedia
 				chunk.Media = sdkChunk.Media
-			case ChunkClientTool:
-				// Client tool requests are SDK-level; skip in raw stream
+			case ChunkClientTool, ChunkToolResult:
+				// Client tool requests and tool results are SDK-level; skip in
+				// raw stream
 				continue
 			case ChunkDone:
 				chunk.Done = true

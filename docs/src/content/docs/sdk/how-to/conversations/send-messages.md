@@ -96,7 +96,13 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 }
 ```
 
-`StreamRaw` chunks, `TextDeltaEvent` and `stream.CollectText` carry the same marker. Over A2A, the server restarts the text artifact with the message, sending its update with `append: false`.
+`StreamRaw` chunks, `TextDeltaEvent` and `stream.CollectText` carry the same marker. Over A2A, the server restarts the text artifact with the message, sending its update with `append: false`. Over AG-UI, the adapter ends the streamed text message and sends the guardrail's message as a new one.
+
+A turn that calls tools streams each round in order. A round's text comes first. Once it has streamed, a `sdk.ChunkToolCall` chunk carries each call the round made (in `ToolCall`), before the calls run. Once they have run, a `sdk.ChunkToolResult` chunk carries each result the model is given (in `ToolResult`). Both carry `Round`, the round's number from 1. Text after them is the next round's reply. A round whose calls end the turn, such as a client tool waiting for an answer or a call held for approval, sends its calls; its results are in the `ChunkDone` response's `TurnMessages`.
+
+`ChunkToolResult` carries what your server-side tools returned. Drop it before forwarding chunks to a client that must not see tool output.
+
+A call held for approval (`OnToolAsync`) is not a client tool: no `ChunkClientTool` is sent for it. The `ChunkDone` response lists it in `PendingTools()`, and the turn is paused until you resolve it and call `Continue`. `StreamWithCallback` reports it as a `ToolApprovalEvent` before `StreamDoneEvent`.
 
 ## Read and clear history
 

@@ -59,9 +59,12 @@ for chunk := range conv.Stream(ctx, "Tell me a short story") {
 
 ```go
 const (
-    ChunkText     // Text content arrived
-    ChunkToolCall // Tool is being called
-    ChunkDone     // Stream completed
+    ChunkText       // Text content arrived
+    ChunkToolCall   // A tool round's call, once its reply has streamed
+    ChunkMedia      // Media content arrived
+    ChunkDone       // Stream completed
+    ChunkClientTool // A client tool call for the caller to answer
+    ChunkToolResult // The result a tool round fed back to the model
 )
 ```
 

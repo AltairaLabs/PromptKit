@@ -587,6 +587,7 @@ Mock response from mock model mock-model
 - [type StreamEvent](<#StreamEvent>)
 - [type StreamEventHandler](<#StreamEventHandler>)
 - [type TextDeltaEvent](<#TextDeltaEvent>)
+- [type ToolApprovalEvent](<#ToolApprovalEvent>)
 - [type ToolCall](<#ToolCall>)
 - [type ToolDescriptorPatchFn](<#ToolDescriptorPatchFn>)
 - [type ToolError](<#ToolError>)
@@ -1406,7 +1407,7 @@ type CapabilityContext struct {
 ```
 
 <a name="ChunkType"></a>
-## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L54>)
+## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L64>)
 
 ChunkType identifies the type of a streaming chunk.
 
@@ -1421,7 +1422,11 @@ const (
     // ChunkText indicates the chunk contains text content.
     ChunkText ChunkType = iota
 
-    // ChunkToolCall indicates the chunk contains a tool call.
+    // ChunkToolCall indicates the chunk contains a tool call. A tool round's
+    // calls arrive when the round's reply has streamed, before they run, so
+    // text after them belongs to the model's next round. A round whose calls
+    // suspend the turn (client tools, approval holds) sends them too, before
+    // its ChunkClientTool chunks.
     ChunkToolCall
 
     // ChunkMedia indicates the chunk contains media content.
@@ -1432,11 +1437,18 @@ const (
 
     // ChunkClientTool indicates a client tool request that needs caller fulfillment.
     ChunkClientTool
+
+    // ChunkToolResult indicates the chunk contains a tool result: one for
+    // each call of a tool round the turn went on from, once the call ran, in
+    // the order the model is given them. The results of a round that ended
+    // the turn are not sent; they are in the ChunkDone Response's
+    // TurnMessages.
+    ChunkToolResult
 )
 ```
 
 <a name="ChunkType.String"></a>
-### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L74>)
+### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L95>)
 
 ```go
 func (t ChunkType) String() string
@@ -1819,7 +1831,7 @@ AudioMonitor returns the channel that carries the conversation's monitored audio
 Delivery never slows the conversation: the channel is buffered, and a frame that finds it full is dropped. Close closes the channel.
 
 <a name="Conversation.Clear"></a>
-### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1612>)
+### func \(\*Conversation\) [Clear](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1622>)
 
 ```go
 func (c *Conversation) Clear() error
@@ -1830,7 +1842,7 @@ Clear removes all messages from the conversation history.
 This keeps the system prompt and variables but removes all user/assistant messages. Useful for starting fresh within the same conversation session. In duplex mode, this will close the session first if actively streaming.
 
 <a name="Conversation.Close"></a>
-### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1855>)
+### func \(\*Conversation\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1865>)
 
 ```go
 func (c *Conversation) Close() error
@@ -1845,7 +1857,7 @@ On a duplex session Close drains: it ends the session's input, lets the turn in 
 An event bus the SDK created is closed last, once this conversation and any forks of it are all closed. Before closing it, Close waits up to one second for pipeline executions still in flight, so the events a turn publishes after it returns \(pipeline.completed among them\) reach the bus's subscribers. A bus supplied via [WithEventBus](<#WithEventBus>) is left open for the caller to close.
 
 <a name="Conversation.Complete"></a>
-### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1874>)
+### func \(\*Conversation\) [Complete](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1884>)
 
 ```go
 func (c *Conversation) Complete() error
@@ -1922,7 +1934,7 @@ resp, _ = conv.Resume(ctx)
 It is the same binding as OnClientTool\(name, nil\).
 
 <a name="Conversation.Done"></a>
-### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1473>)
+### func \(\*Conversation\) [Done](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1483>)
 
 ```go
 func (c *Conversation) Done() (<-chan struct{}, error)
@@ -1931,7 +1943,7 @@ func (c *Conversation) Done() (<-chan struct{}, error)
 Done returns a channel that's closed when the duplex session ends. Only available when the conversation was opened with OpenDuplex\(\).
 
 <a name="Conversation.EventBus"></a>
-### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2231>)
+### func \(\*Conversation\) [EventBus](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2241>)
 
 ```go
 func (c *Conversation) EventBus() events.Bus
@@ -1950,7 +1962,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L948>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L952>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -1961,7 +1973,7 @@ FailClientTool reports that a deferred client tool failed.
 callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) values returned in the [Response](<#Response>). partial, when not nil, is the output the tool produced before failing and must be JSON\-serializable. The model is told about the failure, the stored tool result carries err as its Error, and the tool.client.resolved event reports the call as an error. Call [Conversation.Resume](<#Conversation.Resume>) once every pending tool is resolved.
 
 <a name="Conversation.Fork"></a>
-### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1672>)
+### func \(\*Conversation\) [Fork](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1682>)
 
 ```go
 func (c *Conversation) Fork() (*Conversation, error)
@@ -2076,7 +2088,7 @@ Alice true
 </details>
 
 <a name="Conversation.GetVar"></a>
-### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1582>)
+### func \(\*Conversation\) [GetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1592>)
 
 ```go
 func (c *Conversation) GetVar(name string) (string, bool)
@@ -2100,7 +2112,7 @@ Nothing in PromptKit acts on the result. A governance block describes and does n
 The result is a copy; adjusting it does not change the loaded pack.
 
 <a name="Conversation.ID"></a>
-### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2217>)
+### func \(\*Conversation\) [ID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2227>)
 
 ```go
 func (c *Conversation) ID() string
@@ -2109,7 +2121,7 @@ func (c *Conversation) ID() string
 ID returns the conversation's unique identifier.
 
 <a name="Conversation.Messages"></a>
-### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1595>)
+### func \(\*Conversation\) [Messages](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1605>)
 
 ```go
 func (c *Conversation) Messages(ctx context.Context) []types.Message
@@ -2161,7 +2173,7 @@ conv.OnClientTools(map[string]sdk.ClientToolHandler{
 ```
 
 <a name="Conversation.OnStreamEvent"></a>
-### func \(\*Conversation\) [OnStreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L70>)
+### func \(\*Conversation\) [OnStreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L82>)
 
 ```go
 func (c *Conversation) OnStreamEvent(handler StreamEventHandler)
@@ -2178,6 +2190,8 @@ conv.OnStreamEvent(func(event sdk.StreamEvent) {
         fmt.Print(e.Delta)
     case sdk.ClientToolRequestEvent:
         fmt.Printf("Tool %s needs fulfillment\n", e.ToolName)
+    case sdk.ToolApprovalEvent:
+        fmt.Printf("Tool %s awaits approval\n", e.Tool.Name)
     case sdk.StreamDoneEvent:
         fmt.Println("\nDone!")
     }
@@ -2542,7 +2556,7 @@ conv.OnTools(map[string]sdk.ToolHandler{
 ```
 
 <a name="Conversation.OwnSubscription"></a>
-### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2241>)
+### func \(\*Conversation\) [OwnSubscription](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L2251>)
 
 ```go
 func (c *Conversation) OwnSubscription(unsubscribe func())
@@ -2767,7 +2781,7 @@ resp, _ = conv.Continue(ctx)
 ```
 
 <a name="Conversation.Response"></a>
-### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1460>)
+### func \(\*Conversation\) [Response](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1470>)
 
 ```go
 func (c *Conversation) Response() (<-chan providers.StreamChunk, error)
@@ -2945,7 +2959,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.SendChunk"></a>
-### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1348>)
+### func \(\*Conversation\) [SendChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1358>)
 
 ```go
 func (c *Conversation) SendChunk(ctx context.Context, chunk *providers.StreamChunk) error
@@ -2956,7 +2970,7 @@ SendChunk sends a streaming chunk in duplex mode. Only available when the conver
 Once the session has ended \(Close, the idle timeout, a provider error, the provider closing the session\) it returns at once: with the error that ended the session, as SessionError reports it, else with [ErrSessionClosed](<#ErrSessionClosed>). SendText, SendFrame, SendVideoChunk and TriggerStart do the same.
 
 <a name="Conversation.SendFrame"></a>
-### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1387>)
+### func \(\*Conversation\) [SendFrame](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1397>)
 
 ```go
 func (c *Conversation) SendFrame(ctx context.Context, frame *session.ImageFrame) error
@@ -2976,7 +2990,7 @@ conv.SendFrame(ctx, frame)
 ```
 
 <a name="Conversation.SendText"></a>
-### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1365>)
+### func \(\*Conversation\) [SendText](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1375>)
 
 ```go
 func (c *Conversation) SendText(ctx context.Context, text string) error
@@ -3013,7 +3027,7 @@ callID must match one of the [PendingClientTool.CallID](<#PendingClientTool>) va
 After all pending tools have been resolved \(via SendToolResult, SendToolResultMultimodal, or RejectClientTool\), call [Conversation.Resume](<#Conversation.Resume>) to continue the pipeline.
 
 <a name="Conversation.SendVideoChunk"></a>
-### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1410>)
+### func \(\*Conversation\) [SendVideoChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1420>)
 
 ```go
 func (c *Conversation) SendVideoChunk(ctx context.Context, chunk *session.VideoChunk) error
@@ -3034,7 +3048,7 @@ conv.SendVideoChunk(ctx, chunk)
 ```
 
 <a name="Conversation.SessionError"></a>
-### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1490>)
+### func \(\*Conversation\) [SessionError](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1500>)
 
 ```go
 func (c *Conversation) SessionError() error
@@ -3043,7 +3057,7 @@ func (c *Conversation) SessionError() error
 SessionError returns the error that ended the duplex session \(the idle timeout, a provider error\): nil while the session runs, and nil when it ended without one \(Close, or the provider closing the session\). The error is also delivered on Response\(\) before it closes. Only available when the conversation was opened with OpenDuplex\(\). Note: This is named SessionError to avoid conflict with the Error interface method.
 
 <a name="Conversation.SetVar"></a>
-### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1515>)
+### func \(\*Conversation\) [SetVar](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1525>)
 
 ```go
 func (c *Conversation) SetVar(name, value string)
@@ -3062,7 +3076,7 @@ conv.SetVar("customer_name", "Alice")
 A unary conversation renders the system prompt on every Send, so a value changed between sends changes the next prompt. A duplex conversation \(OpenDuplex\) renders it once, when the first input starts the session, and the provider session is created with that render as its system instruction. Set duplex variables before the first SendChunk/SendText; a later SetVar is stored but never reaches the provider, and the first one is logged at Warn.
 
 <a name="Conversation.SetVars"></a>
-### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1533>)
+### func \(\*Conversation\) [SetVars](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1543>)
 
 ```go
 func (c *Conversation) SetVars(vars map[string]any)
@@ -3079,7 +3093,7 @@ conv.SetVars(map[string]any{
 ```
 
 <a name="Conversation.SetVarsFromEnv"></a>
-### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1555>)
+### func \(\*Conversation\) [SetVarsFromEnv](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1565>)
 
 ```go
 func (c *Conversation) SetVarsFromEnv(prefix string)
@@ -3107,7 +3121,7 @@ Start runs the bound audio session: it feeds every microphone source into the pi
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
 <a name="Conversation.Stream"></a>
-### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L133>)
+### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L162>)
 
 ```go
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
@@ -3217,7 +3231,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.StreamRaw"></a>
-### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L604>)
+### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L668>)
 
 ```go
 func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error)
@@ -3235,7 +3249,7 @@ err := stream.Process(ctx, conv, "Hello", func(chunk stream.Chunk) error {
 ```
 
 <a name="Conversation.StreamWithCallback"></a>
-### func \(\*Conversation\) [StreamWithCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L84>)
+### func \(\*Conversation\) [StreamWithCallback](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L96>)
 
 ```go
 func (c *Conversation) StreamWithCallback(ctx context.Context, message any, opts ...SendOption) (*Response, error)
@@ -3265,7 +3279,7 @@ for name, desc := range conv.ToolRegistry().GetTools() {
 ```
 
 <a name="Conversation.TriggerStart"></a>
-### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1432>)
+### func \(\*Conversation\) [TriggerStart](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/conversation.go#L1442>)
 
 ```go
 func (c *Conversation) TriggerStart(ctx context.Context, message string) error
@@ -7545,7 +7559,7 @@ func (r *StaticMCPEndpointResolver) Resolve(_ string) MCPEndpoint
 Resolve returns the static endpoint for any server name.
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L51>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L61>)
 
 StreamChunk represents a single chunk in a streaming response.
 
@@ -7568,6 +7582,16 @@ type StreamChunk struct {
     // Tool call (for ChunkToolCall type)
     ToolCall *types.MessageToolCall
 
+    // ToolResult is the result a tool call's round fed back to the model (for
+    // ChunkToolResult type).
+    ToolResult *types.MessageToolResult
+
+    // Round is the tool round of the turn a ChunkToolCall or ChunkToolResult
+    // belongs to, counted from 1 within one Stream or ResumeStream. Calls with
+    // the same Round were made by one model reply; a new Round is a new reply,
+    // even when no result came between them.
+    Round int
+
     // Media content (for ChunkMedia type)
     Media *providers.StreamMediaData
 
@@ -7586,7 +7610,7 @@ type StreamChunk struct {
 ```
 
 <a name="StreamDoneEvent"></a>
-## type [StreamDoneEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L45-L48>)
+## type [StreamDoneEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L55-L58>)
 
 StreamDoneEvent is emitted when the stream completes.
 
@@ -7609,7 +7633,7 @@ type StreamEvent interface {
 ```
 
 <a name="StreamEventHandler"></a>
-## type [StreamEventHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L53>)
+## type [StreamEventHandler](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L63>)
 
 StreamEventHandler is called for each event during streaming.
 
@@ -7630,6 +7654,18 @@ type TextDeltaEvent struct {
     // in this turn (StreamChunk.ReplacesText): discard what was shown and
     // show Delta instead.
     ReplacesText bool
+}
+```
+
+<a name="ToolApprovalEvent"></a>
+## type [ToolApprovalEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/stream_events.go#L47-L50>)
+
+ToolApprovalEvent is emitted, before StreamDoneEvent, for each call an OnToolAsync check holds for approval: the turn is paused, not finished. Resolve the call with ResolveTool or RejectTool, then Continue.
+
+```go
+type ToolApprovalEvent struct {
+    // Tool is the held call, as Response.PendingTools reports it.
+    Tool PendingTool
 }
 ```
 

@@ -41,6 +41,16 @@ type ClientToolRequestEvent struct {
 
 func (ClientToolRequestEvent) streamEvent() { /* marker method — intentionally empty */ }
 
+// ToolApprovalEvent is emitted, before StreamDoneEvent, for each call an
+// OnToolAsync check holds for approval: the turn is paused, not finished.
+// Resolve the call with ResolveTool or RejectTool, then Continue.
+type ToolApprovalEvent struct {
+	// Tool is the held call, as Response.PendingTools reports it.
+	Tool PendingTool
+}
+
+func (ToolApprovalEvent) streamEvent() { /* marker method — intentionally empty */ }
+
 // StreamDoneEvent is emitted when the stream completes.
 type StreamDoneEvent struct {
 	// Response contains the complete response with metadata.
@@ -63,6 +73,8 @@ type StreamEventHandler func(event StreamEvent)
 //	        fmt.Print(e.Delta)
 //	    case sdk.ClientToolRequestEvent:
 //	        fmt.Printf("Tool %s needs fulfillment\n", e.ToolName)
+//	    case sdk.ToolApprovalEvent:
+//	        fmt.Printf("Tool %s awaits approval\n", e.Tool.Name)
 //	    case sdk.StreamDoneEvent:
 //	        fmt.Println("\nDone!")
 //	    }
@@ -100,28 +112,39 @@ func (c *Conversation) StreamWithCallback(ctx context.Context, message any, opts
 			continue
 		}
 
-		switch chunk.Type {
-		case ChunkText:
-			handler(TextDeltaEvent{Delta: chunk.Text, ReplacesText: chunk.ReplacesText})
-		case ChunkClientTool:
-			if chunk.ClientTool != nil {
-				handler(ClientToolRequestEvent{
-					CallID:     chunk.ClientTool.CallID,
-					ToolName:   chunk.ClientTool.ToolName,
-					Args:       chunk.ClientTool.Args,
-					ConsentMsg: chunk.ClientTool.ConsentMsg,
-					Categories: chunk.ClientTool.Categories,
-				})
-			}
-		case ChunkToolCall, ChunkMedia:
-			// Pass through without event emission
-		case ChunkDone:
+		if chunk.Type == ChunkDone {
 			finalResp = chunk.Message
-			handler(StreamDoneEvent{Response: chunk.Message})
-		default:
-			// ChunkToolCall, ChunkMedia — no event type defined yet
 		}
+		dispatchStreamEvents(handler, &chunk)
 	}
 
 	return finalResp, nil
+}
+
+// dispatchStreamEvents hands the handler the events one chunk carries.
+func dispatchStreamEvents(handler StreamEventHandler, chunk *StreamChunk) {
+	switch chunk.Type {
+	case ChunkText:
+		handler(TextDeltaEvent{Delta: chunk.Text, ReplacesText: chunk.ReplacesText})
+	case ChunkClientTool:
+		if chunk.ClientTool != nil {
+			handler(ClientToolRequestEvent{
+				CallID:     chunk.ClientTool.CallID,
+				ToolName:   chunk.ClientTool.ToolName,
+				Args:       chunk.ClientTool.Args,
+				ConsentMsg: chunk.ClientTool.ConsentMsg,
+				Categories: chunk.ClientTool.Categories,
+			})
+		}
+	case ChunkDone:
+		// A call held for approval leaves the turn paused, not done.
+		if chunk.Message != nil {
+			for _, held := range chunk.Message.PendingTools() {
+				handler(ToolApprovalEvent{Tool: held})
+			}
+		}
+		handler(StreamDoneEvent{Response: chunk.Message})
+	case ChunkToolCall, ChunkToolResult, ChunkMedia:
+		// No event type defined yet.
+	}
 }
