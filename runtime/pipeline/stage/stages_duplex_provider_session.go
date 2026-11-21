@@ -1647,6 +1647,28 @@ func (s *DuplexProviderStage) hasQueuedTurnID() bool {
 	return len(s.turnIDQueue) > 0
 }
 
+// endChunkTurn reports whether chunk completes its turn. A completed turn's
+// accumulation resets (after its element is built), and a completed or
+// interrupted reply stops counting as output in progress.
+func (s *DuplexProviderStage) endChunkTurn(chunk *providers.StreamChunk, elem *StreamElement) bool {
+	turnDone := completesTurn(chunk, elem)
+	if turnDone {
+		s.resetTurnAccumulation()
+	}
+	if turnDone || chunk.Interrupted {
+		s.endReplyOut()
+	}
+	return turnDone
+}
+
+// markToolCallsRunning flags elem when the stage itself answers the tool calls
+// its message carries (queueToolRound).
+func markToolCallsRunning(round *duplexToolJob, elem *StreamElement) {
+	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+		elem.Meta.ToolCallsRunning = true
+	}
+}
+
 // handleResponseChunk processes and forwards a single response chunk.
 // It accumulates text and media content across chunks within a turn,
 // then resets the accumulation when the turn completes.
@@ -1749,13 +1771,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// Reset accumulation after turn completes (after creating the element)
 	// BUT: if this was an interrupted turn completion (no EndOfStream), don't reset -
 	// we need to accumulate the real response content that comes next
-	turnDone := completesTurn(chunk, &elem)
-	if turnDone {
-		s.resetTurnAccumulation()
-	}
-	if turnDone || chunk.Interrupted {
-		s.endReplyOut()
-	}
+	turnDone := s.endChunkTurn(chunk, &elem)
 
 	if err := s.settleTurnInput(ctx, &elem, turnDone, output); err != nil {
 		return err
@@ -1777,9 +1793,7 @@ func (s *DuplexProviderStage) handleResponseChunk(
 	// A blocked turn's note goes once the turn is over.
 	s.sendBlockNotes(ctx)
 
-	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
-		elem.Meta.ToolCallsRunning = true // the stage answers them (queueToolRound)
-	}
+	markToolCallsRunning(round, &elem)
 	logger.Debug("DuplexProviderStage: forwarding response element",
 		"hasText", elem.Text != nil,
 		"hasAudio", elem.Audio != nil,

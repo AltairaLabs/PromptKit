@@ -19,9 +19,11 @@ type recordingReporter struct {
 	begun, ended int
 }
 
-func (r *recordingReporter) Begin()                                       { r.begun++ }
-func (r *recordingReporter) End()                                         { r.ended++ }
-func (r *recordingReporter) TurnRecorded(_ context.Context, t TurnRecord) { r.turns = append(r.turns, t) }
+func (r *recordingReporter) Begin() { r.begun++ }
+func (r *recordingReporter) End()   { r.ended++ }
+func (r *recordingReporter) TurnRecorded(_ context.Context, t TurnRecord) {
+	r.turns = append(r.turns, t)
+}
 
 // observeTurns runs elems through a turn observer stage that waits no time
 // for late transcripts, and returns what it reported (each report's
