@@ -21,9 +21,11 @@ package vertex
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -84,7 +86,9 @@ func WithTaskType(taskType string) EmbeddingOption {
 }
 
 // WithBatchSize declares the most texts one request may carry, replacing the
-// family default that MaxBatchSize reports. Values below 1 are ignored.
+// family default that MaxBatchSize reports. For a known family, a size above
+// its API limit is clamped to the limit, with a warning. Values below 1 are
+// ignored.
 func WithBatchSize(n int) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		if n > 0 {
@@ -124,15 +128,29 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 		return nil, err
 	}
 
-	dims, batch := familyDefaults(modelID(p.ProviderModel))
+	family := modelID(p.ProviderModel)
+	dims, batch := familyDefaults(family)
 	p.BatchSize = batch
 	if p.batchSize > 0 {
 		p.BatchSize = p.batchSize
+		if limit, known := familyBatchLimit(family); known && p.batchSize > limit {
+			logger.Warn("vertex embedding: batch_size is above the model's limit; using the limit",
+				"model", p.ProviderModel, "batch_size", p.batchSize, "limit", limit)
+			p.BatchSize = limit
+		}
 	}
 	if !p.dimsExplicit {
 		p.Dimensions = dims
 	}
 	return p, nil
+}
+
+// familyBatchLimit returns the most instances one :predict request for the
+// model's family takes, and whether the family is known. It is the family's
+// default batch size: a declared batch_size above it is clamped to it.
+func familyBatchLimit(model string) (int, bool) {
+	dims, batch := familyDefaults(model)
+	return batch, dims > 0 // only an unknown family has no known size
 }
 
 // familyDefaults returns the dimension and batch defaults for a model id. A
@@ -168,14 +186,20 @@ func (p *EmbeddingProvider) predictURL(model string) string {
 	return base + "/" + model + ":predict"
 }
 
-// apiRoot returns the base URL up to and including its /v1 segment, or the
-// base URL with /v1 added when it has none (an explicit endpoint given as a
-// bare host).
+// apiVersionSegment matches a Vertex API version path segment: v1, v1beta1,
+// v2alpha, ...
+var apiVersionSegment = regexp.MustCompile(`^v\d+((alpha|beta)\d*)?$`)
+
+// apiRoot returns the part of the base URL a resource name is appended to:
+// everything before its projects/ segment, which keeps the API version beside
+// it and any proxy prefix ahead of it. A base with no projects/ segment (an
+// explicit endpoint) is the root itself when it ends in a version segment,
+// and gets /v1 added when it does not.
 func apiRoot(base string) string {
-	if i := strings.Index(base, "/v1/"); i >= 0 {
-		return base[:i+len("/v1")]
+	if i := strings.Index(base, "/"+resourcePrefix); i >= 0 {
+		return base[:i]
 	}
-	if strings.HasSuffix(base, "/v1") {
+	if apiVersionSegment.MatchString(base[strings.LastIndex(base, "/")+1:]) {
 		return base
 	}
 	return base + "/v1"
@@ -242,6 +266,9 @@ func (p *EmbeddingProvider) Embed(
 func (p *EmbeddingProvider) embedTexts(
 	ctx context.Context, texts []string, model string,
 ) (providers.EmbeddingResponse, error) {
+	if err := checkResourceName(model); err != nil {
+		return providers.EmbeddingResponse{}, err
+	}
 	start := time.Now()
 
 	instances := make([]predictInstance, len(texts))

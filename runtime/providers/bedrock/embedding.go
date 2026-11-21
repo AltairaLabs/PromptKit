@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -102,7 +103,8 @@ func WithEmbeddingFormat(format string) EmbeddingOption {
 }
 
 // WithBatchSize declares the most texts one request may carry, replacing the
-// family default that MaxBatchSize reports. Values below 1 are ignored.
+// family default that MaxBatchSize reports. A size above the family's API
+// limit is clamped to the limit, with a warning. Values below 1 are ignored.
 func WithBatchSize(n int) EmbeddingOption {
 	return func(p *EmbeddingProvider) {
 		if n > 0 {
@@ -141,9 +143,15 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The family's batch size is the API's limit (Titan's body holds one text,
+	// Cohere's at most 96), so a declared size may lower it, never raise it.
 	p.BatchSize = batch
 	if p.batchSize > 0 {
-		p.BatchSize = p.batchSize
+		p.BatchSize = min(p.batchSize, batch)
+		if p.batchSize > batch {
+			logger.Warn("bedrock embedding: batch_size is above the model's limit; using the limit",
+				"model", p.ProviderModel, "batch_size", p.batchSize, "limit", batch)
+		}
 	}
 	if !p.dimsExplicit {
 		p.Dimensions = dims

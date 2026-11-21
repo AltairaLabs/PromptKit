@@ -70,17 +70,19 @@ type ElevenLabsService struct {
 	inlineTags *bool
 }
 
-// SetInlineTags declares whether the model takes inline markup tags such as
-// "[whispers]". On, the tags are sent as written and PersonaRubric offers the
-// markup rubric; off, they are stripped from the text and no rubric is
-// offered. It wins over the model ID, which otherwise decides (eleven_v3*
-// takes tags). The declarative form is additional_config.inline_tags.
+// SetInlineTags declares whether the service's configured model takes inline
+// markup tags such as "[whispers]". On, the tags are sent as written and
+// PersonaRubric offers the markup rubric; off, they are stripped from the text
+// and no rubric is offered. It wins over the model ID, which otherwise decides
+// (eleven_v3* takes tags). A request for another model
+// (SynthesisConfig.Model) is decided by that model's ID. The declarative form
+// is additional_config.inline_tags.
 func (s *ElevenLabsService) SetInlineTags(on bool) { s.inlineTags = &on }
 
-// takesInlineTags reports whether model takes inline tags: the declaration,
-// else the model ID.
+// takesInlineTags reports whether model takes inline tags: the declaration
+// when model is the configured one, else the model ID.
 func (s *ElevenLabsService) takesInlineTags(model string) bool {
-	if s.inlineTags != nil {
+	if s.inlineTags != nil && model == s.Model {
 		return *s.inlineTags
 	}
 	return elevenLabsSupportsInlineTags(model)

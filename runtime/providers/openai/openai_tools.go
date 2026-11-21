@@ -343,10 +343,11 @@ func (p *ToolProvider) PredictWithTools(
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	var resp providers.PredictionResponse
 	var calls []types.MessageToolCall
-	err := p.withResponsesFallback(func() (err error) {
-		resp, calls, err = providers.RetryToolCall(&p.BaseProvider, req,
+	err := p.withResponsesFallback(func(v *Provider) (err error) {
+		tp := &ToolProvider{Provider: v}
+		resp, calls, err = providers.RetryToolCall(&v.BaseProvider, req,
 			func(r providers.PredictionRequest) (providers.PredictionResponse, []types.MessageToolCall, error) {
-				return p.predictWithToolsOnce(ctx, r, tools, toolChoice)
+				return tp.predictWithToolsOnce(ctx, r, tools, toolChoice)
 			})
 		return err
 	})
@@ -723,10 +724,11 @@ func (p *ToolProvider) PredictStreamWithTools(
 	ctx context.Context, req providers.PredictionRequest, tools any, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	var ch <-chan providers.StreamChunk
-	err := p.withResponsesFallback(func() (err error) {
-		ch, err = providers.RetryCall(&p.BaseProvider, req,
+	err := p.withResponsesFallback(func(v *Provider) (err error) {
+		tp := &ToolProvider{Provider: v}
+		ch, err = providers.RetryCall(&v.BaseProvider, req,
 			func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-				return p.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
+				return tp.predictStreamWithToolsOnce(ctx, r, tools, toolChoice)
 			})
 		return err
 	})

@@ -350,7 +350,8 @@ Several providers decided behavior from the model name alone, which fails for an
 | If you | You will see | Change |
 |---|---|---|
 | Use an OpenAI realtime model under a name without `realtime` (an Azure deployment, a proxy alias) | no stream input, as before | set `additional_config.realtime: true` |
-| Use a Responses-only OpenAI model behind a proxy under a name not ending in `-pro` (`gpt-5-pro-2025-10-06`, `gpt-5.3-codex`, an alias) | requests succeed, the first after one refused Chat Completions request; later requests go to the Responses API | set `additional_config.api_mode: responses` to skip that request |
+| Use a Responses-only OpenAI model behind a proxy under a name not ending in `-pro` (`gpt-5-pro-2025-10-06`, `gpt-5.3-codex`, an alias) | requests succeed, the first after one refused Chat Completions request; once a resend to the Responses API succeeds, later requests go there | set `additional_config.api_mode: responses` to skip that request |
+| Call a legacy completions model (`davinci-002`) through the `openai` provider behind a proxy | the request is resent to the Responses API and fails there too; you get Chat Completions' error with the Responses error after it, and the provider does not switch | nothing |
 | Use a Bedrock embedding inference profile or ARN | provider construction fails, as before, with an error that names `embedding_format` | set `additional_config.embedding_format` to `titan` or `cohere` |
 | Use a Vertex embedding model outside `text-embedding`, `textembedding-gecko` and `gemini-embedding` | the provider builds, sends one text per request and takes the size from the first response, where construction failed | set `dimensions` and `batch_size` if the defaults do not fit |
 | Use an ElevenLabs model that takes inline tags under an ID not starting with `eleven_v3` | tags stripped, as before | set `additional_config.inline_tags: true` |

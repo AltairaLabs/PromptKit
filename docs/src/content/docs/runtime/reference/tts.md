@@ -651,7 +651,7 @@ func (s *CartesiaService) Validate() error
 Validate performs synchronous config validation \(no\-op for TTS services\).
 
 <a name="ElevenLabsOption"></a>
-## type [ElevenLabsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L92>)
+## type [ElevenLabsOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L94>)
 
 ElevenLabsOption configures the ElevenLabs TTS service. It is a type alias for base.HTTPServiceOption so callers can pass base.WithBaseURL, base.WithClient, base.WithModel, etc. directly.
 
@@ -673,7 +673,7 @@ type ElevenLabsService struct {
 ```
 
 <a name="NewElevenLabs"></a>
-### func [NewElevenLabs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L95>)
+### func [NewElevenLabs](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L97>)
 
 ```go
 func NewElevenLabs(apiKey string, opts ...ElevenLabsOption) *ElevenLabsService
@@ -700,7 +700,7 @@ func (s *ElevenLabsService) HealthCheck(_ context.Context) error
 HealthCheck reports liveness \(no\-op for TTS services\).
 
 <a name="ElevenLabsService.ImplName"></a>
-### func \(\*ElevenLabsService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L108>)
+### func \(\*ElevenLabsService\) [ImplName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L110>)
 
 ```go
 func (s *ElevenLabsService) ImplName() string
@@ -718,7 +718,7 @@ func (s *ElevenLabsService) Init(_ context.Context) error
 Init performs asynchronous setup \(no\-op for TTS services\).
 
 <a name="ElevenLabsService.ModelName"></a>
-### func \(\*ElevenLabsService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L111>)
+### func \(\*ElevenLabsService\) [ModelName](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L113>)
 
 ```go
 func (s *ElevenLabsService) ModelName() string
@@ -727,7 +727,7 @@ func (s *ElevenLabsService) ModelName() string
 ModelName returns the configured model name for cost tracking.
 
 <a name="ElevenLabsService.PersonaRubric"></a>
-### func \(\*ElevenLabsService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L117>)
+### func \(\*ElevenLabsService\) [PersonaRubric](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L119>)
 
 ```go
 func (s *ElevenLabsService) PersonaRubric() string
@@ -736,16 +736,16 @@ func (s *ElevenLabsService) PersonaRubric() string
 PersonaRubric implements [PersonaRubricProvider](<#PersonaRubricProvider>). Returns the full markup rubric on a model that takes inline tags \(SetInlineTags, else v3\-class models\); older models \(v1, v2, turbo\) speak the brackets literally, so we return the empty string and the persona prompt is left untouched.
 
 <a name="ElevenLabsService.SetInlineTags"></a>
-### func \(\*ElevenLabsService\) [SetInlineTags](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L78>)
+### func \(\*ElevenLabsService\) [SetInlineTags](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L80>)
 
 ```go
 func (s *ElevenLabsService) SetInlineTags(on bool)
 ```
 
-SetInlineTags declares whether the model takes inline markup tags such as "\[whispers\]". On, the tags are sent as written and PersonaRubric offers the markup rubric; off, they are stripped from the text and no rubric is offered. It wins over the model ID, which otherwise decides \(eleven\_v3\* takes tags\). The declarative form is additional\_config.inline\_tags.
+SetInlineTags declares whether the service's configured model takes inline markup tags such as "\[whispers\]". On, the tags are sent as written and PersonaRubric offers the markup rubric; off, they are stripped from the text and no rubric is offered. It wins over the model ID, which otherwise decides \(eleven\_v3\* takes tags\). A request for another model \(SynthesisConfig.Model\) is decided by that model's ID. The declarative form is additional\_config.inline\_tags.
 
 <a name="ElevenLabsService.SpokenText"></a>
-### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L208>)
+### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L210>)
 
 ```go
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
@@ -754,7 +754,7 @@ func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) stri
 SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: a model that takes inline tags \(SetInlineTags, else eleven\_v3\) keeps them, other models strip them. Implements tts.SpokenTextReporter.
 
 <a name="ElevenLabsService.SupportedFormats"></a>
-### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L299>)
+### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L301>)
 
 ```go
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat
@@ -763,7 +763,7 @@ func (s *ElevenLabsService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by ElevenLabs.
 
 <a name="ElevenLabsService.SupportedVoices"></a>
-### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L284>)
+### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L286>)
 
 ```go
 func (s *ElevenLabsService) SupportedVoices() []Voice
@@ -772,7 +772,7 @@ func (s *ElevenLabsService) SupportedVoices() []Voice
 SupportedVoices returns a sample of available ElevenLabs voices. Note: ElevenLabs has many more voices including custom cloned voices. Use the ElevenLabs API to get a complete list of available voices.
 
 <a name="ElevenLabsService.Synthesize"></a>
-### func \(\*ElevenLabsService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L140-L142>)
+### func \(\*ElevenLabsService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L142-L144>)
 
 ```go
 func (s *ElevenLabsService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)

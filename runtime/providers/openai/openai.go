@@ -756,10 +756,10 @@ func (p *Provider) convertResponseFormat(rf *providers.ResponseFormat) *openAIRe
 // the Responses API if Chat Completions rejects the model as Responses-only.
 func (p *Provider) Predict(ctx context.Context, req providers.PredictionRequest) (providers.PredictionResponse, error) {
 	var resp providers.PredictionResponse
-	err := p.withResponsesFallback(func() (err error) {
-		resp, err = providers.RetryCall(&p.BaseProvider, req,
+	err := p.withResponsesFallback(func(v *Provider) (err error) {
+		resp, err = providers.RetryCall(&v.BaseProvider, req,
 			func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
-				return p.predictOnce(ctx, r)
+				return v.predictOnce(ctx, r)
 			})
 		return err
 	})
@@ -871,10 +871,10 @@ func (p *Provider) PredictStream(
 	ctx context.Context, req providers.PredictionRequest,
 ) (<-chan providers.StreamChunk, error) {
 	var ch <-chan providers.StreamChunk
-	err := p.withResponsesFallback(func() (err error) {
-		ch, err = providers.RetryCall(&p.BaseProvider, req,
+	err := p.withResponsesFallback(func(v *Provider) (err error) {
+		ch, err = providers.RetryCall(&v.BaseProvider, req,
 			func(r providers.PredictionRequest) (<-chan providers.StreamChunk, error) {
-				return p.predictStreamOnce(ctx, r)
+				return v.predictStreamOnce(ctx, r)
 			})
 		return err
 	})

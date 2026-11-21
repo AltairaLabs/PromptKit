@@ -100,11 +100,39 @@ func TestElevenLabs_UndeclaredInlineTagsFollowTheModel(t *testing.T) {
 	}
 }
 
-func TestElevenLabs_InlineTagsMustBeABool(t *testing.T) {
-	_, err := tts.CreateFromSpec(tts.ProviderSpec{ID: "voice", Type: "elevenlabs",
-		AdditionalConfig: map[string]any{"inline_tags": "yes"}})
-	want := `elevenlabs tts provider "voice": additional_config.inline_tags must be true or false, got "yes"`
-	if err == nil || err.Error() != want {
-		t.Errorf("err = %v, want %q", err, want)
+// A value that is not a boolean is ignored, with a warning: the provider
+// builds and the model ID decides, so a config that built before still does.
+func TestElevenLabs_NonBoolInlineTagsIsIgnored(t *testing.T) {
+	srv, texts := elevenLabsTextServer(t)
+	svc := elevenLabsFromSpec(t, srv.URL, tts.ElevenLabsModelV3, map[string]any{"inline_tags": "yes"})
+
+	synthesizeText(t, svc, taggedLine)
+
+	if len(*texts) != 1 || (*texts)[0] != taggedLine {
+		t.Errorf("sent %q, want %q (eleven_v3 keeps its tags)", *texts, taggedLine)
+	}
+}
+
+// The declaration describes the configured model only. A request naming
+// another model falls back to that model's ID.
+func TestElevenLabs_DeclarationAppliesToTheConfiguredModelOnly(t *testing.T) {
+	srv, texts := elevenLabsTextServer(t)
+	svc := elevenLabsFromSpec(t, srv.URL, "eleven_expressive_v4", map[string]any{"inline_tags": true})
+
+	for _, model := range []string{"eleven_expressive_v4", "eleven_multilingual_v2", tts.ElevenLabsModelV3} {
+		rc, err := svc.Synthesize(context.Background(), taggedLine, tts.SynthesisConfig{Voice: "v", Model: model})
+		if err != nil {
+			t.Fatalf("synthesize %s: %v", model, err)
+		}
+		_ = rc.Close()
+	}
+
+	want := []string{taggedLine, " hello there", taggedLine}
+	if len(*texts) != 3 || (*texts)[0] != want[0] || (*texts)[1] != want[1] || (*texts)[2] != want[2] {
+		t.Errorf("sent %q, want %q", *texts, want)
+	}
+	reporter := svc.(tts.SpokenTextReporter)
+	if got := reporter.SpokenText(taggedLine, tts.SynthesisConfig{Model: "eleven_multilingual_v2"}); got != " hello there" {
+		t.Errorf("spoken text for another model = %q, want the tags stripped", got)
 	}
 }

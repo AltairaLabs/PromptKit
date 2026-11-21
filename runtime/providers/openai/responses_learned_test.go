@@ -3,12 +3,14 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -258,4 +260,108 @@ func TestLearnedResponses_AlreadyOnResponsesIsNotResent(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, []string{"/responses"}, paths)
+}
+
+// When the Responses retry fails too (here a legacy completions model, which
+// neither API serves as chat), the caller gets Chat Completions' own error,
+// and the provider does not switch: the next request goes to Chat again.
+func TestLearnedResponses_FailedRetryReturnsTheChatErrorAndDoesNotSwitch(t *testing.T) {
+	const responsesReject = `{"error":{"message":"The model ` + "`davinci-002`" + ` does not exist or you do ` +
+		`not have access to it.","type":"invalid_request_error","param":null,"code":"model_not_found"}}`
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		if strings.HasSuffix(r.URL.Path, "/responses") {
+			_, _ = io.WriteString(w, responsesReject)
+			return
+		}
+		_, _ = io.WriteString(w, chatRejectNotChatModel)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "proxy", Type: "openai", Model: "davinci-002", BaseURL: srv.URL,
+		Defaults: providers.ProviderDefaults{MaxTokens: 32},
+	})
+	require.NoError(t, err)
+
+	_, err = p.Predict(context.Background(), hiRequest())
+
+	var httpErr *providers.ProviderHTTPError
+	require.True(t, errors.As(err, &httpErr), "got %T: %v", err, err)
+	assert.Equal(t, chatRejectNotChatModel, httpErr.Body, "the first error found is Chat Completions' own")
+	assert.Contains(t, err.Error(), "does not exist", "the Responses error is kept alongside it")
+	assert.Equal(t, []string{"/chat/completions", "/responses"}, paths)
+
+	paths = nil
+	_, err = p.Predict(context.Background(), hiRequest())
+	require.Error(t, err)
+	assert.Equal(t, []string{"/chat/completions", "/responses"}, paths, "the provider did not switch")
+}
+
+// A request made while another's resend to Responses is still in flight is
+// not moved to Responses: the provider switches only once a resend succeeds.
+func TestLearnedResponses_TrialDoesNotMoveOtherRequests(t *testing.T) {
+	trialArrived := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var paths []string
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		if !strings.HasSuffix(r.URL.Path, "/responses") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, chatRejectOnlyResponses)
+			return
+		}
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			close(trialArrived)
+			select {
+			case <-release:
+			case <-time.After(5 * time.Second):
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"r1","object":"response","status":"completed","model":"m",`+
+			`"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"OK"}]}],`+
+			`"usage":{"input_tokens":3,"output_tokens":1}}`)
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "proxy", Type: "openai", Model: "pro-alias", BaseURL: srv.URL,
+		Defaults: providers.ProviderDefaults{MaxTokens: 32},
+	})
+	require.NoError(t, err)
+
+	errA := make(chan error, 1)
+	go func() {
+		_, err := p.Predict(context.Background(), hiRequest())
+		errA <- err
+	}()
+	select {
+	case <-trialArrived:
+	case err := <-errA:
+		t.Fatalf("the first request ended before its resend reached Responses: %v", err)
+	}
+	mu.Lock()
+	paths = nil
+	mu.Unlock()
+
+	_, errB := p.Predict(context.Background(), hiRequest())
+	close(release)
+
+	require.NoError(t, errB)
+	require.NoError(t, <-errA)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"/chat/completions", "/responses"}, paths,
+		"B started on Chat Completions: A's resend had not succeeded yet")
 }

@@ -138,3 +138,54 @@ func TestResourceName_RegistryModelIsRefused(t *testing.T) {
 		`has no :predict method; deploy it and use its endpoint `+
 		`(projects/<project>/locations/<location>/endpoints/<id>) as the model`, err.Error())
 }
+
+// The API root is everything before projects/ in the base URL, so the
+// version segment beside it (v1, v1beta1, ...) and any proxy prefix ahead of
+// it are kept.
+func TestResourceName_KeepsTheBaseVersionAndPrefix(t *testing.T) {
+	const name = "projects/p1/locations/us-central1/endpoints/42"
+	for base, want := range map[string]string{
+		"https://us-central1-aiplatform.googleapis.com/v1beta1/projects/p1/locations/us-central1/publishers/google/models": "https://us-central1-aiplatform.googleapis.com/v1beta1/" + name + ":predict",
+		"https://proxy.example.com/v1/vertex/v1/projects/p1/locations/us-central1/publishers/google/models":                "https://proxy.example.com/v1/vertex/v1/" + name + ":predict",
+		"https://vertex.internal.example/v1beta1": "https://vertex.internal.example/v1beta1/" + name + ":predict",
+	} {
+		p, err := NewEmbeddingProvider(WithWiring(providers.EmbeddingWiring{Model: name, BaseURL: base}))
+		require.NoError(t, err)
+		assert.Equal(t, want, p.predictURL(name), base)
+	}
+}
+
+// A per-request model override that names a model-registry resource fails
+// with the same error as a configured one, before any request is sent.
+func TestResourceName_RegistryOverrideIsRefused(t *testing.T) {
+	srv, got := predictServer(t, fixtureVector(768, 1), 1)
+	p, err := providers.CreateEmbeddingProviderFromSpec(vertexSpecAt(srv.URL, "text-embedding-005", nil))
+	require.NoError(t, err)
+
+	_, err = p.Embed(context.Background(), providers.EmbeddingRequest{
+		Texts: []string{"x"}, Model: "projects/p1/locations/us-central1/models/987",
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, `vertex embedding model "projects/p1/locations/us-central1/models/987" `+
+		`has no :predict method; deploy it and use its endpoint `+
+		`(projects/<project>/locations/<location>/endpoints/<id>) as the model`, err.Error())
+	assert.Empty(t, *got, "no request is sent")
+}
+
+// A declared batch size above a known family's API limit is clamped to the
+// limit, so no request carries more instances than the API accepts. A model
+// of no known family has no known limit, so its declared size stands.
+func TestDeclaredBatchSize_ClampedToTheFamilyLimit(t *testing.T) {
+	for model, want := range map[string]int{
+		"text-embedding-005":                 textEmbeddingMaxBatch,
+		"gemini-embedding-001":               geminiEmbeddingMaxBatch,
+		"text-multilingual-embedding-002":    500,
+		"projects/p/locations/l/endpoints/1": 500,
+	} {
+		p, err := providers.CreateEmbeddingProviderFromSpec(vertexSpecAt("http://unused", model,
+			map[string]any{"batch_size": 500}))
+		require.NoError(t, err)
+		assert.Equal(t, want, p.MaxBatchSize(), model)
+	}
+}

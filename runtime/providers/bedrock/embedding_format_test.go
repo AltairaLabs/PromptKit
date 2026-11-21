@@ -132,3 +132,21 @@ func TestDeclaredFormat_KnownModelKeepsItsSize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1536, p.EmbeddingDimensions())
 }
+
+// A declared batch size above the format's API limit is clamped to it: Cohere
+// takes at most 96 texts, Titan one.
+func TestDeclaredBatchSize_ClampedToTheFormatLimit(t *testing.T) {
+	for _, tc := range []struct {
+		model  string
+		extra  map[string]any
+		expect int
+	}{
+		{"cohere.embed-english-v3", map[string]any{"batch_size": 500}, 96},
+		{"amazon.titan-embed-text-v2:0", map[string]any{"batch_size": 500}, 1},
+		{"us.cohere.embed-v4:0", map[string]any{"batch_size": 500, "embedding_format": "cohere"}, 96},
+	} {
+		p, err := providers.CreateEmbeddingProviderFromSpec(bedrockSpecAt("http://unused", tc.model, tc.extra))
+		require.NoError(t, err)
+		assert.Equal(t, tc.expect, p.MaxBatchSize(), tc.model)
+	}
+}

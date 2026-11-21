@@ -97,7 +97,7 @@ Cartesia reads `additional_config.ws_url` as its websocket streaming endpoint.
 
 An `openai` TTS entry sends the directives of the text's markup tags in the request's `instructions` field, on any model. `tts-1` and `tts-1-hd` accept the field and ignore it. To spend no persona tokens on tags such a model cannot act on, set `additional_config.instructions: false`: the service then offers no markup rubric and strips the tags. Programmatically, call `SetInstructions(false)` on the `tts.OpenAIService`.
 
-An `elevenlabs` TTS entry sends markup tags as written to a model whose ID starts with `eleven_v3`, and offers it the markup rubric. Every other model gets the text with the tags stripped and no rubric. `additional_config.inline_tags` declares it instead: `true` keeps the tags and offers the rubric on any model, and `false` strips them on any model. A value that is not a boolean fails provider construction. Programmatically, call `SetInlineTags` on the `tts.ElevenLabsService`.
+An `elevenlabs` TTS entry sends markup tags as written to a model whose ID starts with `eleven_v3`, and offers it the markup rubric. Every other model gets the text with the tags stripped and no rubric. `additional_config.inline_tags` declares it for the entry's `model` instead: `true` keeps the tags and offers the rubric, and `false` strips them. A request that names another model in `SynthesisConfig.Model` is decided by that model's ID. A value that is not a boolean is ignored with a warning, and the model ID decides. Programmatically, call `SetInlineTags` on the `tts.ElevenLabsService`.
 
 An `openai` STT entry asks every model for the `json` response format. Its usage reports the billed seconds on `whisper-1` and the billed tokens on the `gpt-4o-*-transcribe` models.
 

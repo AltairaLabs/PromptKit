@@ -3,6 +3,7 @@ package tts
 import (
 	"fmt"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
@@ -21,12 +22,12 @@ func init() {
 			svc.SetPricing(p)
 		}
 		if raw, set := spec.AdditionalConfig["inline_tags"]; set {
-			on, ok := raw.(bool)
-			if !ok {
-				return nil, fmt.Errorf("elevenlabs tts provider %q: additional_config.inline_tags must be true or false, got %q",
-					spec.ID, fmt.Sprint(raw))
+			if on, ok := raw.(bool); ok {
+				svc.SetInlineTags(on)
+			} else {
+				logger.Warn("elevenlabs tts: ignoring non-boolean additional_config.inline_tags; "+
+					"the model ID decides", "provider", spec.ID, "value", fmt.Sprint(raw), "expected", "true|false")
 			}
-			svc.SetInlineTags(on)
 		}
 		return svc, nil
 	})

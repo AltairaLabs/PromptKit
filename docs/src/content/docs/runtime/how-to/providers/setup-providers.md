@@ -230,7 +230,7 @@ provider := openai.NewProvider("local-llm", "model-name", "http://localhost:8080
 
 Against any host other than `api.openai.com`, the provider sends requests to Chat Completions, unless the model name ends in `-pro`, which sends them to the Responses API. `additional_config.api_mode` (`completions` or `responses`) chooses the API and is always followed.
 
-Without `api_mode`, a model the host serves only on the Responses API is still reached. When Chat Completions answers 404 with OpenAI's message for such a model, such as "This model is only supported in v1/responses", the provider sends the request again to the Responses API and sends every later request there. Set `api_mode: responses` to skip that first request. Azure, Bedrock and Vertex providers always use Chat Completions and never switch.
+Without `api_mode`, a model the host serves only on the Responses API is still reached. When Chat Completions answers 404 with OpenAI's message for such a model, such as "This model is only supported in v1/responses", the provider sends the request again to the Responses API. When that resend succeeds, every later request goes to the Responses API. When it fails too, the request returns Chat Completions' error, with the Responses error after it, and later requests start on Chat Completions again. Set `api_mode: responses` to skip that first request. Azure, Bedrock and Vertex providers always use Chat Completions and never switch.
 
 ## Use Ollama
 

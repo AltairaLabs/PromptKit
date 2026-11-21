@@ -2,6 +2,7 @@ package openai
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -64,21 +65,29 @@ func isResponsesOnlyRejection(err error) bool {
 	return false
 }
 
-// withResponsesFallback runs call, and when Chat Completions rejects the model
-// as served only by the Responses API, switches this provider to Responses for
-// this and every later request and runs call once more. A declared api_mode is
-// never second-guessed.
-func (p *Provider) withResponsesFallback(call func() error) error {
+// withResponsesFallback runs call on p, and when Chat Completions rejects the
+// model as served only by the Responses API, runs call once more on a copy of
+// p that uses the Responses API. Only when that resend succeeds does p switch
+// to Responses for every later request; until then, other requests keep
+// going to Chat Completions. When the resend fails too, the caller gets Chat
+// Completions' error, with the Responses error joined after it, and p does
+// not switch. A declared api_mode is never second-guessed.
+func (p *Provider) withResponsesFallback(call func(*Provider) error) error {
 	if !p.canLearnResponses() {
-		return call()
+		return call(p)
 	}
-	err := call()
+	err := call(p)
 	if err == nil || !isResponsesOnlyRejection(err) {
 		return err
+	}
+	trial := *p
+	trial.apiMode = APIModeResponses
+	if retryErr := call(&trial); retryErr != nil {
+		return fmt.Errorf("%w (resent to the Responses API: %w)", err, retryErr)
 	}
 	p.learnedResponses.Store(true)
 	logger.Warn("openai: Chat Completions rejected the model as Responses-only; using the Responses API "+
 		"(set additional_config.api_mode: responses to skip the first attempt)",
 		"provider", p.ID(), "model", p.model)
-	return call()
+	return nil
 }
