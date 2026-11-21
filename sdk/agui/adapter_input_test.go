@@ -378,3 +378,28 @@ func TestMessagesFromAGUI_KeepsIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"meta":{"_message_id":"u-1"}`)
 }
+
+// A message made of parts keeps them after the context block, and only a
+// message that opens with its own block is given back without it.
+func TestRunSend_InputContextBeforeAMessageOfParts(t *testing.T) {
+	provider := newInputRecorder(say("Seen."))
+	conv := openConv(t, provider)
+	msg := &types.Message{Role: "user"}
+	msg.AddTextPart("look")
+	a := NewEventAdapter(conv, WithInputContext([]aguitypes.Context{{Description: "d", Value: "v"}}))
+	_, err := runAndCollect(t, a, func(ctx context.Context) error { return a.RunSend(ctx, msg) })
+	require.NoError(t, err)
+
+	block := contextBlock([]aguitypes.Context{{Description: "d", Value: "v"}})
+	assert.Equal(t, []string{"user: [" + block + "] [look]"}, onTheWire(provider.recorded()[0].messages))
+
+	stored := conv.Messages(context.Background())
+	assert.Equal(t, "look", MessageToAGUI(&stored[0]).Content)
+
+	other := types.Message{Role: "user", Parts: []types.ContentPart{types.NewTextPart("not the block")},
+		Meta: map[string]interface{}{metaContextBlock: block}}
+	assert.Equal(t, "not the block", MessageToAGUI(&other).Content, "a message that does not open with its block is kept whole")
+	moved := types.Message{Role: "user", Parts: []types.ContentPart{types.NewTextPart(block), types.NewTextPart("x")},
+		Meta: map[string]interface{}{metaContextBlock: "another block"}}
+	assert.Equal(t, block+"x", MessageToAGUI(&moved).Content)
+}

@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 
@@ -459,4 +460,34 @@ func TestMessageIDs_StoredAndReportedTheSame(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unreadableHistoryStore is a memory store whose whole-state reads fail once
+// failing is set.
+type unreadableHistoryStore struct {
+	*statestore.MemoryStore
+	failing bool
+}
+
+func (s *unreadableHistoryStore) Load(ctx context.Context, id string) (*statestore.ConversationState, error) {
+	if s.failing {
+		return nil, errors.New("store unavailable")
+	}
+	return s.MemoryStore.Load(ctx, id)
+}
+
+// A store that cannot read the conversation back fails the replacement, which
+// writes nothing.
+func TestReplaceHistory_StoreReadFails(t *testing.T) {
+	store := &unreadableHistoryStore{MemoryStore: statestore.NewMemoryStore()}
+	t.Cleanup(store.Close)
+	conv := openHistoryConv(t, newRecordingProvider(say("Hi.")), WithStateStore(store), WithConversationID("conv-f"))
+	_, err := conv.Send(context.Background(), "hi")
+	require.NoError(t, err)
+
+	store.failing = true
+	err = conv.ReplaceHistory(context.Background(), []types.Message{types.NewUserMessage("new")})
+	require.EqualError(t, err, "replace history: loading the conversation: store unavailable")
+	store.failing = false
+	assert.Equal(t, []string{"user: hi", "assistant: Hi."}, wire(conv.Messages(context.Background())))
 }
