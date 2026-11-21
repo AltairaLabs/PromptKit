@@ -460,3 +460,159 @@ func TestStrictness_CanceledStreamReportsATimestamp(t *testing.T) {
 		t.Fatal("stream did not end after its task was canceled")
 	}
 }
+
+// sendWithVersionLines posts a blocking SendMessage with one A2A-Version
+// header line per entry of lines, to path (which may carry a query).
+func sendWithVersionLines(t *testing.T, ts *httptest.Server, path string, lines ...string) map[string]any {
+	t.Helper()
+	body, err := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendMessage,
+		Params: mustMarshal(t, a2a.SendMessageRequest{Message: userMessage("ctx-lines")})})
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+path, strings.NewReader(string(body)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	for _, line := range lines {
+		req.Header.Add(a2a.HeaderVersion, line)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	var env map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	return env
+}
+
+// A blank A2A-Version is no version: the query parameter is read next, and
+// with neither the request is 0.3. Every header line counts, and lines that
+// name different versions are refused.
+func TestStrictness_VersionHeaderLines(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return completingMock(), nil })
+	defer ts.Close()
+
+	served := func(env map[string]any) string {
+		result, _ := env["result"].(map[string]any)
+		task, _ := result["task"].(map[string]any)
+		status, _ := task["status"].(map[string]any)
+		state, _ := status["state"].(string)
+		return state
+	}
+	errorMessage := func(env map[string]any) string {
+		e, _ := env["error"].(map[string]any)
+		msg, _ := e["message"].(string)
+		return msg
+	}
+
+	assert.Equal(t, "TASK_STATE_COMPLETED", served(sendWithVersionLines(t, ts, "/a2a?A2A-Version=1.0", "  ")),
+		"a blank header falls through to the query parameter")
+	assert.Equal(t, "TASK_STATE_COMPLETED", served(sendWithVersionLines(t, ts, "/a2a", " ", " 1.0 ")),
+		"a blank first line does not hide the next one")
+	assert.Equal(t, "TASK_STATE_COMPLETED", served(sendWithVersionLines(t, ts, "/a2a", "1.0", "1.0.2")),
+		"lines naming the same Major.Minor agree")
+
+	assert.Equal(t, "Version not supported: SendMessage is an A2A 1.0 method, and a request without "+
+		"A2A-Version is A2A 0.3; send A2A-Version: 1.0", errorMessage(sendWithVersionLines(t, ts, "/a2a", " \t")),
+		"a blank header is no header")
+
+	conflict := sendWithVersionLines(t, ts, "/a2a", "1.0", "0.3")
+	e, _ := conflict["error"].(map[string]any)
+	assert.Equal(t, float64(a2a.ErrCodeVersionNotSupported), e["code"])
+	assert.Equal(t, `a2a: A2A-Version names more than one version ("1.0", "0.3")`, e["message"])
+}
+
+// recordedAt is the status time storedAtStore records, far from now so an
+// emitted status stamped with the current time cannot match it by chance.
+var recordedAt = time.Date(2001, 2, 3, 4, 5, 6, 789_000_000, time.UTC)
+
+// storedAtStore is a store whose every status was recorded at recordedAt.
+func storedAtStore() TaskStore {
+	return zonedStore{TaskStore: NewInMemoryTaskStore(), at: recordedAt}
+}
+
+// The status a stream ends with, and the one a subscriber sees, is the
+// status the store recorded: GetTask returns the same timestamp.
+func TestStrictness_EmittedStatusIsTheStoredStatus(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
+		return streamConv(StreamEvent{Kind: EventText, Text: "a"}), nil
+	}, WithTaskStore(storedAtStore()))
+	defer ts.Close()
+
+	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
+		a2a.SendMessageRequest{Message: userMessage("ctx-stored")}))
+	require.NotEmpty(t, events)
+	final, ok := statusOf(events[len(events)-1])
+	require.True(t, ok)
+	opening := events[0]["task"].(map[string]any)
+
+	stored, _ := statusOf(rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetTask,
+		a2a.GetTaskRequest{ID: opening["id"].(string)})))
+	assert.Equal(t, "TASK_STATE_COMPLETED", stored["state"])
+	assert.Equal(t, "2001-02-03T04:05:06.789Z", stored["timestamp"])
+	assert.Equal(t, stored["timestamp"], final["timestamp"])
+}
+
+// A subscriber's completion status is the stored one too.
+func TestStrictness_SubscribedStatusIsTheStoredStatus(t *testing.T) {
+	release := make(chan struct{})
+	mock := &mockConv{sendFunc: func(context.Context, any) (SendResult, error) {
+		<-release
+		return &mockSendResult{text: "done"}, nil
+	}}
+	srv, ts := newTestServer(func(string) (Conversation, error) { return mock, nil }, WithTaskStore(storedAtStore()))
+	defer ts.Close()
+
+	task := decodeTaskResult(t, a2aRPCRequest(t, ts, a2a.MethodV1SendMessage, a2a.SendMessageRequest{
+		Message:       userMessage("ctx-sub-stored"),
+		Configuration: &a2a.SendMessageConfiguration{ReturnImmediately: true},
+	}).Result)
+	got := make(chan []map[string]any, 1)
+	go func() {
+		_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SubscribeToTask, a2a.SubscribeTaskRequest{ID: task.ID}))
+		got <- events
+	}()
+	subscribed(t, srv, task.ID)
+	close(release)
+
+	var events []map[string]any
+	select {
+	case events = <-got:
+	case <-time.After(3 * time.Second):
+		t.Fatal("subscription did not end when the task completed")
+	}
+	final, ok := statusOf(events[len(events)-1])
+	require.True(t, ok)
+	stored, _ := statusOf(rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: task.ID})))
+	assert.Equal(t, "TASK_STATE_COMPLETED", final["state"])
+	assert.Equal(t, "2001-02-03T04:05:06.789Z", stored["timestamp"])
+	assert.Equal(t, stored["timestamp"], final["timestamp"])
+}
+
+// movedOnStore reports every finished task as canceled, as a store does when
+// a CancelTask lands between a turn's write and its read-back.
+type movedOnStore struct{ TaskStore }
+
+func (m movedOnStore) Get(taskID string) (*a2a.Task, error) {
+	task, err := m.TaskStore.Get(taskID)
+	if err == nil && task.Status.State == a2a.TaskStateCompleted {
+		task.Status = a2a.TaskStatus{State: a2a.TaskStateCanceled, Timestamp: &recordedAt}
+	}
+	return task, err
+}
+
+// When the stored status has already moved on, the stream still reports the
+// state this turn recorded, stamped with the current time — not a later
+// state that belongs to whoever moved it.
+func TestStrictness_EmittedStatusWhenTheTaskMovedOn(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) {
+		return streamConv(StreamEvent{Kind: EventText, Text: "a"}), nil
+	}, WithTaskStore(movedOnStore{NewInMemoryTaskStore()}))
+	defer ts.Close()
+
+	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage,
+		a2a.SendMessageRequest{Message: userMessage("ctx-moved")}))
+	require.NotEmpty(t, events)
+	final, ok := statusOf(events[len(events)-1])
+	require.True(t, ok)
+	assert.Equal(t, "TASK_STATE_COMPLETED", final["state"])
+	assert.Regexp(t, utcTimestamp, final["timestamp"])
+	assert.NotEqual(t, "2001-02-03T04:05:06.789Z", final["timestamp"])
+}

@@ -421,6 +421,8 @@ A request is answered in the version its `A2A-Version` header or query parameter
 
 | If you | You will see | Change |
 |---|---|---|
+| Test against `runtime/a2a/mock` | the mock applies these rules too: it reads requests with `a2a.ReadServerRequest`, the server's own code | send requests a conforming client would |
+| Send a blank `A2A-Version`, or several header lines | a blank value counts as no header, and the query parameter is read next; lines naming different versions get `-32009` | send one version |
 | Call a 1.0 method (`SendMessage`, `GetTask`, ...) without `A2A-Version`, for example from `curl` or a hand-written client | `-32009` VersionNotSupportedError, whose message says to send `A2A-Version: 1.0` | send `A2A-Version: 1.0`, or the `A2A-Version=1.0` query parameter |
 | Send `A2A-Version: 0.3` with a 1.0 method name | `-32009`, where the call was answered in 0.3 shapes | use the 0.3 name (`message/send`), or send `1.0` |
 | Send `A2A-Version: 1.0` with a 0.3 method name (`message/send`, `tasks/get`, ...) | `-32601` Method not found, naming the 1.0 method, where the call was answered in 1.0 shapes | use the 1.0 name (`SendMessage`) |
@@ -428,7 +430,7 @@ A request is answered in the version its `A2A-Version` header or query parameter
 | Send a JSON-RPC batch (an array) | `-32600`, where it failed with `-32700` | send one request per call |
 | Use a numeric `id` larger than 2^53 | the response echoes it exactly, where it came back rounded | nothing |
 | Read `error.data` on an A2A error (`-32001` to `-32009`) answered in 1.0 | an array holding one `google.rpc.ErrorInfo`: `reason` (`TASK_NOT_FOUND`, ...), `domain` `a2a-protocol.org`, and `metadata.taskId` on errors about a task, where `data` was unset (A2A 1.0 §9.5). `-32009` carries it in 0.3 too. Other 0.3 errors still have none | read `reason` instead of matching message text; `a2a.RPCError.Data` holds the array |
-| Read a status `timestamp` from a stream or subscription | every status update has one, where the update that ended a stream had none | nothing |
+| Read a status `timestamp` from a stream or subscription | every status update has one, where the update that ended a stream had none. It is the time the task store recorded, the one `GetTask` returns, where updates carried a time of their own | nothing |
 | Keep tasks in a custom `TaskStore` with timestamps in a zone other than UTC | `timestamp` sent in UTC with a `Z` suffix and 0, 3, 6 or 9 fractional digits, where it carried the store's offset (A2A 1.0 §5.6.1). Every `a2a.TaskStatus` the runtime marshals is written the same way | nothing |
 
 ## v2.21.0

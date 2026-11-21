@@ -591,7 +591,7 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	v, _, err := requestVersion(r)
+	v, _, err := a2a.RequestVersion(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -663,34 +663,13 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodySize)
 
-	var body json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeRPCError(w, nil, a2a.ErrCodeParse, "Parse error")
+	in, refusal := a2a.ReadServerRequest(r)
+	if refusal != nil {
+		writeRPCResponse(w, http.StatusOK, refusal)
 		return
 	}
-	parsed, id, problem := decodeRequest(body)
-	if problem != "" {
-		writeRPCError(w, id, a2a.ErrCodeInvalidRequest, "Invalid Request: "+problem)
-		return
-	}
-	req := *parsed
-
-	op, methodVersion, known := a2a.LookupMethod(req.Method)
-	if !known {
-		writeRPCError(w, req.ID, a2a.ErrCodeMethodNotFound, "Method not found")
-		return
-	}
-	v, raw, err := requestVersion(r)
-	if err != nil {
-		writeRPCErrorObject(w, http.StatusOK, req.ID,
-			rpcError(a2a.ProtocolVersion10, a2a.ErrCodeVersionNotSupported, err.Error(), versionMetadata(raw)))
-		return
-	}
-	if code, msg := methodMismatch(req.Method, methodVersion, v, raw != ""); code != 0 {
-		writeRPCErrorObject(w, http.StatusOK, req.ID, rpcError(v, code, msg, versionMetadata(string(v))))
-		return
-	}
-	call := &rpcCall{w: w, r: r, req: &req, v: v, log: s.log}
+	req, op, v := &in.JSONRPCRequest, in.Operation, in.Version
+	call := &rpcCall{w: w, r: r, req: req, v: v, log: s.log}
 	if s.owner != nil {
 		if call.owner = s.owner(r); call.owner == "" {
 			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
@@ -792,7 +771,7 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 
 	switch err := s.taskStore.SetState(target.taskID, a2a.TaskStateWorking, nil); {
 	case err == nil:
-		s.publishStatus(target.taskID, target.contextID, a2a.TaskStatus{State: a2a.TaskStateWorking})
+		s.publishStatus(target.taskID, target.contextID, s.recordedStatus(target.taskID, a2a.TaskStateWorking, nil))
 		target.claimed = true
 		return true
 	case errors.Is(err, ErrTaskNotFound):
@@ -1077,7 +1056,18 @@ func (s *Server) setState(taskID, contextID string, state a2a.TaskState, msg *a2
 		s.logStateWriteError(taskID, state, err)
 		return
 	}
-	s.publishStatus(taskID, contextID, a2a.TaskStatus{State: state, Message: msg})
+	s.publishStatus(taskID, contextID, s.recordedStatus(taskID, state, msg))
+}
+
+// recordedStatus returns the status the store holds for taskID just after it
+// recorded state, so an emitted status carries exactly the timestamp GetTask
+// returns. If the store cannot be read, or the task has moved on already (a
+// CancelTask got in between), the status is state and msg, stamped now.
+func (s *Server) recordedStatus(taskID string, state a2a.TaskState, msg *a2a.Message) a2a.TaskStatus {
+	if task, err := s.taskStore.Get(taskID); err == nil && task.Status.State == state {
+		return stamped(task.Status)
+	}
+	return stamped(a2a.TaskStatus{State: state, Message: msg})
 }
 
 // log returns the logger the server writes to: the WithLogger logger, or
@@ -1533,20 +1523,16 @@ func writeRPCErrorWithStatus(w http.ResponseWriter, status int, id any, code int
 // writeRPCErrorObject writes a JSON-RPC 2.0 error response carrying e, with
 // HTTP status status.
 func writeRPCErrorObject(w http.ResponseWriter, status int, id any, e *a2a.JSONRPCError) {
+	writeRPCResponse(w, status, &a2a.JSONRPCResponse{JSONRPC: jsonRPCVersion, ID: id, Error: e})
+}
+
+// writeRPCResponse writes resp with HTTP status status.
+func writeRPCResponse(w http.ResponseWriter, status int, resp *a2a.JSONRPCResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	if status != http.StatusOK {
 		w.WriteHeader(status)
 	}
-	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{JSONRPC: jsonRPCVersion, ID: id, Error: e})
-}
-
-// versionMetadata is a VersionNotSupportedError's ErrorInfo metadata: the
-// version the request named and the versions this server speaks.
-func versionMetadata(requested string) map[string]string {
-	return map[string]string{
-		"requestedVersion":  requested,
-		"supportedVersions": string(a2a.ProtocolVersion10) + "," + string(a2a.ProtocolVersion03),
-	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // evictionLoop periodically sweeps expired tasks, conversations, and

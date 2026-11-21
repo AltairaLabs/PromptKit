@@ -30,6 +30,7 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
 - [func PartToContentPart\(part \*Part\) \(types.ContentPart, error\)](<#PartToContentPart>)
 - [func ReadSSE\(ctx context.Context, r io.Reader, ch chan\<\- StreamEvent\)](<#ReadSSE>)
 - [func ReadSSEWithIdleTimeout\(ctx context.Context, r io.Reader, ch chan\<\- StreamEvent, idleTimeout time.Duration\)](<#ReadSSEWithIdleTimeout>)
+- [func ReadServerRequest\(r \*http.Request\) \(\*ServerRequest, \*JSONRPCResponse\)](<#ReadServerRequest>)
 - [type APIKeySecurityScheme](<#APIKeySecurityScheme>)
 - [type AgentCapabilities](<#AgentCapabilities>)
 - [type AgentCard](<#AgentCard>)
@@ -80,6 +81,7 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
 - [type HTTPStatusError](<#HTTPStatusError>)
   - [func \(e \*HTTPStatusError\) Error\(\) string](<#HTTPStatusError.Error>)
 - [type JSONRPCError](<#JSONRPCError>)
+  - [func ErrorFor\(v ProtocolVersion, code int, message string, metadata map\[string\]string\) \*JSONRPCError](<#ErrorFor>)
 - [type JSONRPCRequest](<#JSONRPCRequest>)
 - [type JSONRPCResponse](<#JSONRPCResponse>)
 - [type ListTasksRequest](<#ListTasksRequest>)
@@ -97,6 +99,7 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
   - [func \(p \*Part\) UnmarshalJSON\(data \[\]byte\) error](<#Part.UnmarshalJSON>)
 - [type ProtocolVersion](<#ProtocolVersion>)
   - [func ParseProtocolVersion\(s string\) \(ProtocolVersion, error\)](<#ParseProtocolVersion>)
+  - [func RequestVersion\(r \*http.Request\) \(v ProtocolVersion, named string, err error\)](<#RequestVersion>)
   - [func \(v ProtocolVersion\) Method\(op Operation\) string](<#ProtocolVersion.Method>)
   - [func \(v ProtocolVersion\) WireAgentCard\(card \*AgentCard\) any](<#ProtocolVersion.WireAgentCard>)
   - [func \(v ProtocolVersion\) WireSendParams\(req \*SendMessageRequest\) any](<#ProtocolVersion.WireSendParams>)
@@ -121,6 +124,7 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
   - [func \(c \*SendMessageConfiguration\) WaitsForCompletion\(v ProtocolVersion\) bool](<#SendMessageConfiguration.WaitsForCompletion>)
 - [type SendMessageRequest](<#SendMessageRequest>)
 - [type SendMessageResponse](<#SendMessageResponse>)
+- [type ServerRequest](<#ServerRequest>)
 - [type StreamEvent](<#StreamEvent>)
 - [type StreamResponse](<#StreamResponse>)
 - [type SubscribeTaskRequest](<#SubscribeTaskRequest>)
@@ -423,6 +427,22 @@ func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEv
 ```
 
 ReadSSEWithIdleTimeout reads SSE events from r and sends parsed StreamEvents to ch. If idleTimeout is positive and no line is received within that duration, it sends a last event whose Error is [ErrSSEIdleTimeout](<#ErrSSEIdleTimeout>) and stops reading, so the caller can tell a stall from a clean end and reconnect. A zero or negative idleTimeout disables idle detection. It does not close ch.
+
+<a name="ReadServerRequest"></a>
+## func [ReadServerRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/server_request.go#L49>)
+
+```go
+func ReadServerRequest(r *http.Request) (*ServerRequest, *JSONRPCResponse)
+```
+
+ReadServerRequest reads one JSON\-RPC request from r's body and checks it as an A2A server must. When the request cannot be served it returns nil and the error response to send, with the request's id when that could be read:
+
+- a body that is not JSON is Parse error \(\-32700\);
+- a body that is not a JSON\-RPC 2.0 Request object is Invalid Request \(\-32600\): "jsonrpc" not exactly "2.0", a method that is not a non\-empty string, an id that is not a string, number or null, or a batch;
+- an unknown method is Method not found \(\-32601\);
+- an unsupported A2A\-Version, or a 1.0 method name in a 0.3 request, is VersionNotSupportedError \(\-32009\), and a 0.3 method name in a 1.0 request is Method not found.
+
+The version is the one A2A\-Version names \(see [RequestVersion](<#RequestVersion>)\); a request that names none is 0.3 \(A2A 1.0 §3.6.2\). The id is kept as the JSON text it was sent as, so a response echoes it exactly.
 
 <a name="APIKeySecurityScheme"></a>
 ## type [APIKeySecurityScheme](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/security.go#L19-L24>)
@@ -981,6 +1001,15 @@ type JSONRPCError struct {
 }
 ```
 
+<a name="ErrorFor"></a>
+### func [ErrorFor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/server_request.go#L226>)
+
+```go
+func ErrorFor(v ProtocolVersion, code int, message string, metadata map[string]string) *JSONRPCError
+```
+
+ErrorFor builds the JSON\-RPC error object a server sends for code, in version v's shape. A 1.0 A2A error \(\-32001 to \-32009\) carries a google.rpc.ErrorInfo in data, an array of typed details \(A2A 1.0 §9.5\), with metadata when there is any; so does VersionNotSupportedError, which only 1.0 defines, whatever version the request was read as. A 0.3 error, whose clients read data as an object, and a standard JSON\-RPC error carry no data.
+
 <a name="JSONRPCRequest"></a>
 ## type [JSONRPCRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L500-L505>)
 
@@ -1229,6 +1258,15 @@ func ParseProtocolVersion(s string) (ProtocolVersion, error)
 ```
 
 ParseProtocolVersion resolves an A2A\-Version value to a supported version. Patch numbers are ignored, as the spec requires. An empty value returns \("", nil\): the caller decides what an unversioned request means.
+
+<a name="RequestVersion"></a>
+### func [RequestVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/server_request.go#L84>)
+
+```go
+func RequestVersion(r *http.Request) (v ProtocolVersion, named string, err error)
+```
+
+RequestVersion resolves the protocol version a request names in its A2A\-Version header or, when no header line names one, its A2A\-Version query parameter. A blank value names nothing, and a request that names nothing is 0.3 \(A2A 1.0 §3.6.2\). named is the value the request named, "" for none. Header lines that name different versions are an error, as is a version the package does not speak.
 
 <a name="ProtocolVersion.Method"></a>
 ### func \(ProtocolVersion\) [Method](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/version.go#L144>)
@@ -1497,6 +1535,21 @@ SendMessageResponse is the A2A 1.0 result of SendMessage: exactly one of Task or
 type SendMessageResponse struct {
     Task    *Task    `json:"task,omitempty"`
     Message *Message `json:"message,omitempty"`
+}
+```
+
+<a name="ServerRequest"></a>
+## type [ServerRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/server_request.go#L25-L31>)
+
+ServerRequest is one JSON\-RPC request a server has read and checked: a JSON\-RPC 2.0 Request object, for a method the server knows, in a protocol version that has that method.
+
+```go
+type ServerRequest struct {
+    JSONRPCRequest
+    // Operation is what Method names, independent of its version.
+    Operation Operation
+    // Version is the protocol version to answer in.
+    Version ProtocolVersion
 }
 ```
 

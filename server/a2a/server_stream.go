@@ -231,7 +231,7 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 		return
 	}
 	st.emit(TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
-		TaskID: st.taskID, ContextID: st.contextID, Status: stamped(a2a.TaskStatus{State: state, Message: msg}),
+		TaskID: st.taskID, ContextID: st.contextID, Status: st.srv.recordedStatus(st.taskID, state, msg),
 	}})
 }
 

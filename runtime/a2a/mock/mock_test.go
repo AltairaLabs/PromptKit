@@ -41,7 +41,15 @@ func sendRPC(t *testing.T, url, method string, params any) a2a.JSONRPCResponse {
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	resp, err := http.Post(url+"/a2a", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, url+"/a2a", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if _, v, ok := a2a.LookupMethod(method); ok {
+		req.Header.Set(a2a.HeaderVersion, string(v))
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST /a2a: %v", err)
 	}
@@ -400,5 +408,52 @@ func TestMockNoMatchingRule(t *testing.T) {
 	}
 	if !strings.Contains(resp.Error.Message, "no matching rule") {
 		t.Errorf("message = %q, want to contain 'no matching rule'", resp.Error.Message)
+	}
+}
+
+// The mock refuses what the PromptKit server refuses, with the same response:
+// it reads requests with a2a.ReadServerRequest.
+func TestMockRefusesWhatTheServerRefuses(t *testing.T) {
+	m := NewA2AServer(testCard(), WithSkillResponse("", Response{Parts: []a2a.Part{{Text: testutil.Ptr("ok")}}}))
+	m.Start()
+	defer m.Close()
+
+	for _, tc := range []struct {
+		name, body, version, want string
+	}{
+		{"no jsonrpc", `{"id":1,"method":"SendMessage","params":{}}`, "1.0",
+			`{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Invalid Request: \"jsonrpc\" must be exactly \"2.0\""}}`},
+		{"1.0 method without A2A-Version", `{"jsonrpc":"2.0","id":9007199254740993,"method":"SendMessage","params":{}}`, "",
+			`{"jsonrpc":"2.0","id":9007199254740993,"error":{"code":-32009,"message":"Version not supported: SendMessage ` +
+				`is an A2A 1.0 method, and a request without A2A-Version is A2A 0.3; send A2A-Version: 1.0","data":[` +
+				`{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"VERSION_NOT_SUPPORTED","domain":"a2a-protocol.org",` +
+				`"metadata":{"requestedVersion":"0.3","supportedVersions":"1.0,0.3"}}]}}`},
+	} {
+		req, err := http.NewRequest(http.MethodPost, m.URL()+"/a2a", strings.NewReader(tc.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.version != "" {
+			req.Header.Set(a2a.HeaderVersion, tc.version)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got bytes.Buffer
+		_, _ = got.ReadFrom(resp.Body)
+		resp.Body.Close()
+		if strings.TrimSpace(got.String()) != tc.want {
+			t.Errorf("%s:\n got %s\nwant %s", tc.name, strings.TrimSpace(got.String()), tc.want)
+		}
+		if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+			t.Errorf("%s: Content-Type %q", tc.name, ct)
+		}
+	}
+
+	// A known method the mock does not serve is Method not found.
+	resp := sendRPC(t, m.URL(), a2a.MethodV1GetTask, map[string]string{"id": "x"})
+	if resp.Error == nil || resp.Error.Code != a2a.ErrCodeMethodNotFound {
+		t.Errorf("GetTask: got %+v, want -32601", resp.Error)
 	}
 }

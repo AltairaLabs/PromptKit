@@ -75,6 +75,12 @@ Every request is a JSON-RPC envelope:
 
 The envelope must be a JSON-RPC 2.0 Request object: `"jsonrpc"` exactly `"2.0"`, a non-empty string `method`, and an `id` that is a string, a number or null. Anything else fails with `-32600` Invalid Request, which echoes the `id` when the `id` itself is valid. A body that is not JSON fails with `-32700` Parse error. A batch (a JSON array) also fails with `-32600`, because the server does not take batches. Every response echoes the request's `id` exactly as it was sent, so a number larger than 2^53 is not rounded.
 
+A blank `A2A-Version` header names no version, so the server reads the query parameter next. Every header line counts. Lines that name different versions fail with `-32009`.
+
+A request without an `id` is a JSON-RPC notification. JSON-RPC 2.0 §4.1 says a server must not reply to one, but PromptKit runs it and answers with `"id": null`. Every A2A method returns a result or an error the caller needs, and an HTTP request gets a response either way, so an empty reply would only hide what happened. Send an `id`.
+
+The mock server in `runtime/a2a/mock` reads requests with the same code as the real server (`a2a.ReadServerRequest`), so a test against it gets the same refusals.
+
 The two versions carry the same operations in different wire shapes:
 
 | | A2A 1.0 | A2A 0.3 |
@@ -97,7 +103,7 @@ In 1.0, an A2A error carries an array in `error.data` with one `google.rpc.Error
 
 `VersionNotSupportedError` carries it in either version, with `requestedVersion` and `supportedVersions` (`1.0,0.3`) in its metadata, because only 1.0 defines that error. Other 0.3 errors have no `error.data`: 0.3 clients, a2a-go's among them, read it as an object, and an array would fail their decode. Standard JSON-RPC errors (`-32600`, `-32601`, `-32602`, `-32603`, `-32700`) carry no `error.data` in either version.
 
-A task status's `timestamp` is always sent in UTC with a `Z` suffix, as A2A 1.0 §5.6.1 requires, with 0, 3, 6 or 9 fractional digits, as ProtoJSON writes a timestamp. A time a custom `TaskStore` keeps in another zone is converted. Every status update a stream or subscription sends carries one.
+A status update carries the status the task store recorded, so its `timestamp` is the one `GetTask` returns. A task status's `timestamp` is always sent in UTC with a `Z` suffix, as A2A 1.0 §5.6.1 requires, with 0, 3, 6 or 9 fractional digits, as ProtoJSON writes a timestamp. A time a custom `TaskStore` keeps in another zone is converted. Every status update a stream or subscription sends carries one.
 
 A file part sent by URL is a URL the caller chose. OpenAI and Claude hand an image URL to the vendor to fetch. The host fetches the other parts itself: every media part for Gemini, documents for Claude, audio for OpenAI, and every image for Ollama, whose server usually sits inside the host's network. The host refuses to fetch from loopback, private, link-local or otherwise non-public addresses, including redirects to them, so a caller cannot point it at the cloud metadata service or the internal network. The same applies to AG-UI messages. `sdk.WithUnsafePrivateNetworkMedia()` turns the check off; use it only when every media URL comes from a source you trust, and use your egress policy to allow specific internal destinations.
 
