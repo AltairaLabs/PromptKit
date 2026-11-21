@@ -10,12 +10,14 @@ verified:
     - runtime/credentials/resolver.go
     - runtime/pipeline/stage/stages_context.go
     - runtime/providers/base_embedding.go
+    - runtime/providers/bedrock/embedding.go
     - runtime/providers/bedrock/embedding_register.go
     - runtime/providers/embedding_factory.go
     - runtime/providers/embedding_platform.go
     - runtime/providers/gemini/embedding.go
     - runtime/providers/huggingface/embedding_register.go
     - runtime/providers/openai/embedding.go
+    - runtime/providers/vertex/embedding.go
     - runtime/providers/vertex/embedding_register.go
     - runtime/providers/voyageai/embedding.go
     - runtime/providers/voyageai/embedding_register.go
@@ -80,8 +82,16 @@ The `type` is one of the values `sdk.RegisteredProviderTypes()["embedding"]` ret
 |---|---|---|
 | `dimensions` | every type | Vector size to request. The provider sends it to the API as `dimensions`, `outputDimensionality` or `output_dimension`, and fails any response whose vectors have a different length. |
 | `input_type` | `voyageai` | `query` or `document`. |
+| `embedding_format` | `bedrock` | `titan` or `cohere`: the request body the model takes. Any other value fails provider construction. |
+| `batch_size` | `bedrock`, `vertex` | The most texts one request carries, reported by `MaxBatchSize`. Replaces the model family's default. A size above the family's API limit (Titan 1, Cohere 96, `text-embedding` and `textembedding-gecko` 250, `gemini-embedding` 1) is lowered to the limit, with a warning. |
 
 Without `dimensions`, the provider reports the size of a model it knows. For any other model it reports `0` until the first response arrives.
+
+A `bedrock` provider reads the request body from the model ID when `embedding_format` is not set: an `amazon.titan-embed` ID takes Titan's body and a `cohere.embed` ID takes Cohere's. Any other ID, such as an inference profile (`us.cohere.embed-english-v3`), an application inference profile ARN or a provisioned-throughput ARN, fails provider construction until `embedding_format` names the body. With `embedding_format` set, a Titan request carries a declared `dimensions` unless the ID names a Titan model other than `text-v2`, and Cohere requests never carry it.
+
+A `vertex` provider builds for any model. A `text-embedding`, `textembedding-gecko` or `gemini-embedding` model gets that family's size and batch size; any other model gets a batch size of 1 and the size of its first response.
+
+A `vertex` model can also be a full resource name. A publisher model (`projects/<project>/locations/<location>/publishers/google/models/<model>`) or an endpoint serving a tuned or self-deployed model (`projects/<project>/locations/<location>/endpoints/<id>`) is sent to `<root>/<name>:predict`, where the root is the platform URL up to its `projects/` segment: the host, any proxy path, and the API version (`v1`, `v1beta1`, ...). A platform endpoint with no `projects/` segment is the root when it ends in a version segment, and gets `/v1` added when it does not. A publisher model's name gets its family's defaults. A model-registry name (`projects/<project>/locations/<location>/models/<id>`) has no `:predict` method: as the configured model it fails provider construction, and as a request's model it fails that request. Deploy the model and use its endpoint name.
 
 ### 3. Open the conversation
 

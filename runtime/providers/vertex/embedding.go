@@ -21,13 +21,15 @@ package vertex
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
-// Model family prefixes used to select defaults.
+// Model family prefixes used to select defaults. A model outside them is not
+// refused: it gets unknownModelMaxBatch and the size of its first response.
 const (
 	textEmbeddingPrefix   = "text-embedding"
 	geckoEmbeddingPrefix  = "textembedding-gecko"
@@ -48,6 +50,9 @@ const (
 	geminiEmbeddingDimensions = 3072
 	textEmbeddingMaxBatch     = 250
 	geminiEmbeddingMaxBatch   = 1
+	// unknownModelMaxBatch is the batch size of a model no prefix matches: one
+	// text per request is the one size every :predict embedding model takes.
+	unknownModelMaxBatch = 1
 )
 
 // DefaultTaskType is Vertex's task type for embedding documents to be indexed.
@@ -61,6 +66,8 @@ const vertexTimeout = 60 * time.Second
 type EmbeddingProvider struct {
 	*providers.BaseEmbeddingProvider
 	taskType string
+	// batchSize is the declared batch size, 0 for the family's.
+	batchSize int
 	// dimsExplicit records that the caller set Dimensions, so the family
 	// default must not overwrite it and outputDimensionality is only sent when
 	// actually requested — tracking intent rather than comparing to a default,
@@ -70,6 +77,14 @@ type EmbeddingProvider struct {
 
 // EmbeddingOption configures the EmbeddingProvider.
 type EmbeddingOption func(*EmbeddingProvider)
+
+// WithBatchSize declares the most texts one request may carry, replacing the
+// family default that MaxBatchSize reports. For a known family, a size above
+// its API limit is clamped to the limit, with a warning. Values below 1 are
+// ignored.
+func WithBatchSize(n int) EmbeddingOption {
+	return func(p *EmbeddingProvider) { p.batchSize = max(n, 0) }
+}
 
 // WithTaskType sets the Vertex task type ("RETRIEVAL_DOCUMENT",
 // "RETRIEVAL_QUERY", "SEMANTIC_SIMILARITY", …).
@@ -89,9 +104,10 @@ func WithWiring(w providers.EmbeddingWiring) EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.dimsExplicit = p.ApplyWiring(w) }
 }
 
-// NewEmbeddingProvider creates a Vertex embedding provider. It fails when the
-// model is not a recognized embedding family rather than sending a body the
-// endpoint would reject at request time.
+// NewEmbeddingProvider creates a Vertex embedding provider. The model family
+// sets the default dimensions and batch size; declared ones win. A model of no
+// known family is sent one text per request, and its size is taken from the
+// first response unless one is declared.
 func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	p := &EmbeddingProvider{
 		BaseEmbeddingProvider: providers.NewBaseEmbeddingProvider(
@@ -103,38 +119,99 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	for _, opt := range opts {
 		opt(p)
 	}
-
-	dims, batch, err := familyDefaults(p.ProviderModel)
-	if err != nil {
+	if err := checkResourceName(p.ProviderModel); err != nil {
 		return nil, err
 	}
+
+	family := modelID(p.ProviderModel)
+	dims, batch := familyDefaults(family)
 	p.BatchSize = batch
+	// An unknown family's batch of one is a default, not an API limit, so a
+	// declared size is not clamped to it.
+	limit := 0
+	if dims > 0 {
+		limit = batch
+	}
+	p.ApplyDeclaredBatchSize(p.batchSize, limit)
 	if !p.dimsExplicit {
 		p.Dimensions = dims
 	}
 	return p, nil
 }
 
-// familyDefaults returns the dimension and batch defaults for a model id, and
-// an error when the model is not a known Vertex embedding family.
-func familyDefaults(model string) (dims, batch int, err error) {
+// familyDefaults returns the dimension and batch defaults for a model id. A
+// model of no known family has no known size (0) and a batch of one.
+func familyDefaults(model string) (dims, batch int) {
 	switch {
 	case strings.HasPrefix(model, geminiEmbeddingPrefix):
-		return geminiEmbeddingDimensions, geminiEmbeddingMaxBatch, nil
+		return geminiEmbeddingDimensions, geminiEmbeddingMaxBatch
 	case strings.HasPrefix(model, textEmbeddingPrefix),
 		strings.HasPrefix(model, geckoEmbeddingPrefix):
-		return textEmbeddingDimensions, textEmbeddingMaxBatch, nil
+		return textEmbeddingDimensions, textEmbeddingMaxBatch
 	default:
-		return 0, 0, fmt.Errorf(
-			"unsupported vertex embedding model %q: expected a %s*, %s* or %s* model",
-			model, textEmbeddingPrefix, geckoEmbeddingPrefix, geminiEmbeddingPrefix)
+		return 0, unknownModelMaxBatch
 	}
 }
 
+// resourcePrefix marks a model given as a full Vertex resource name.
+const resourcePrefix = "projects/"
+
 // predictURL builds the :predict URL for a model. The model is part of the
 // path, so a per-request override changes the URL rather than the body.
+//
+// A model ID is appended to the base URL, the publisher's models collection.
+// A full resource name (projects/.../publishers/<p>/models/<m>, or
+// projects/.../endpoints/<id> for a tuned or self-deployed model) is sent to
+// POST /v1/{name}:predict on the base URL's host, as Vertex documents for
+// both.
 func (p *EmbeddingProvider) predictURL(model string) string {
-	return strings.TrimSuffix(p.BaseURL, "/") + "/" + model + ":predict"
+	base := strings.TrimSuffix(p.BaseURL, "/")
+	if strings.HasPrefix(model, resourcePrefix) {
+		return apiRoot(base) + "/" + model + ":predict"
+	}
+	return base + "/" + model + ":predict"
+}
+
+// apiVersionSegment matches a Vertex API version path segment: v1, v1beta1,
+// v2alpha, ...
+var apiVersionSegment = regexp.MustCompile(`^v\d+((alpha|beta)\d*)?$`)
+
+// apiRoot returns the part of the base URL a resource name is appended to:
+// everything before its projects/ segment, which keeps the API version beside
+// it and any proxy prefix ahead of it. A base with no projects/ segment (an
+// explicit endpoint) is the root itself when it ends in a version segment,
+// and gets /v1 added when it does not.
+func apiRoot(base string) string {
+	if i := strings.Index(base, "/"+resourcePrefix); i >= 0 {
+		return base[:i]
+	}
+	if apiVersionSegment.MatchString(base[strings.LastIndex(base, "/")+1:]) {
+		return base
+	}
+	return base + "/v1"
+}
+
+// modelID returns the model ID inside a publisher model's resource name, so
+// the family rule can read it; any other model string is returned unchanged.
+func modelID(model string) string {
+	if strings.HasPrefix(model, resourcePrefix) {
+		if i := strings.LastIndex(model, "/models/"); i >= 0 {
+			return model[i+len("/models/"):]
+		}
+	}
+	return model
+}
+
+// checkResourceName refuses a resource name that has no :predict method: a
+// model-registry model (projects/.../models/<id>) is served only through an
+// endpoint it is deployed to.
+func checkResourceName(model string) error {
+	if !strings.HasPrefix(model, resourcePrefix) ||
+		strings.Contains(model, "/publishers/") || strings.Contains(model, "/endpoints/") {
+		return nil
+	}
+	return fmt.Errorf("vertex embedding model %q has no :predict method; deploy it and use its endpoint "+
+		"(projects/<project>/locations/<location>/endpoints/<id>) as the model", model)
 }
 
 // predictInstance is one text to embed. task_type is omitted when unset so a
@@ -175,6 +252,9 @@ func (p *EmbeddingProvider) Embed(
 func (p *EmbeddingProvider) embedTexts(
 	ctx context.Context, texts []string, model string,
 ) (providers.EmbeddingResponse, error) {
+	if err := checkResourceName(model); err != nil {
+		return providers.EmbeddingResponse{}, err
+	}
 	start := time.Now()
 
 	instances := make([]predictInstance, len(texts))

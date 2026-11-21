@@ -151,14 +151,6 @@ func TestNewEmbeddingProvider_FamilyDefaults(t *testing.T) {
 	}
 }
 
-// An unknown model is rejected at construction rather than producing a request
-// the endpoint rejects later.
-func TestNewEmbeddingProvider_RejectsUnknownModel(t *testing.T) {
-	_, err := NewEmbeddingProvider(WithWiring(providers.EmbeddingWiring{Model: "gpt-4o"}))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported vertex embedding model")
-}
-
 // A response with fewer predictions than instances is a protocol violation, and
 // silently returning short results would corrupt a vector index.
 func TestEmbeddingProvider_RejectsPredictionCountMismatch(t *testing.T) {

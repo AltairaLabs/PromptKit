@@ -15,6 +15,12 @@ func init() {
 			if v, ok := spec.AdditionalConfig["input_type"].(string); ok && v != "" {
 				opts = append(opts, WithInputType(v))
 			}
+			if v, ok := spec.AdditionalConfig["embedding_format"].(string); ok && v != "" {
+				opts = append(opts, WithEmbeddingFormat(v))
+			}
+			if n, ok := providers.IntFromConfig(spec.AdditionalConfig, "batch_size"); ok {
+				opts = append(opts, WithBatchSize(n))
+			}
 			return NewEmbeddingProvider(opts...)
 		},
 	})
