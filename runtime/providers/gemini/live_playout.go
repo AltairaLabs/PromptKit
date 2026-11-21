@@ -53,6 +53,7 @@ func (s *StreamSession) replyStarted() {
 	if s.turnOpen {
 		return
 	}
+	s.generationDone = false
 	s.turnOpen = true
 	s.gen++ // a new generation: the reply
 	s.withPlayout(func(p *audio.Playout) { p.NewResponse() })
@@ -78,7 +79,7 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	now := s.clock()
 	continues := s.lateInput && !s.inputClosed && now.Sub(s.inputLastAt) < inputSegmentGap
 	s.inputLastAt, s.inputClosed = now, tx.Finished
-	if !s.replyDone {
+	if !s.replyDone && !(s.generationDone && s.holdingAudio()) {
 		// The model is generating (the server reports barge-in itself), or has
 		// not answered yet: a fragment now is the caller's earlier speech.
 		s.lateInput = s.lateInput || s.turnOpen
@@ -92,7 +93,7 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	s.withPlayout(func(p *audio.Playout) {
 		if playing = p.Playing(); playing {
 			p.Stop()
-		} else if s.heldPending > 0 {
+		} else if s.heldPending != 0 {
 			// Audio the pipeline still holds waits for the caller, though
 			// they hear nothing of it yet: speech now is over it.
 			playing, s.heldInterrupted, s.heldPending = true, true, 0
@@ -110,6 +111,14 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 		return err
 	}
 	return s.sendChunk(&providers.StreamChunk{Interrupted: true})
+}
+
+// holdingAudio reports whether reply audio the pipeline holds back still
+// waits for the caller.
+func (s *StreamSession) holdingAudio() bool {
+	s.playoutMu.Lock()
+	defer s.playoutMu.Unlock()
+	return s.heldPending != 0
 }
 
 // withPlayout runs fn on the playout estimate under playoutMu.

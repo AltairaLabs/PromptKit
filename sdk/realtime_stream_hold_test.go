@@ -741,3 +741,19 @@ func TestRealtimeHold_TranscriptOnlyReply(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "Sunny skies. Rain later.", msgs[0].Content)
 }
+
+// A held reply the provider cancels before any of it was released (the
+// caller spoke while it generated) ends with no error and leaves no turn.
+func TestRealtimeHold_CanceledBeforeReleaseLeavesNoTurn(t *testing.T) {
+	s := openRealtimeHold(t, nil, []bool{true}, realtimeHold(RealtimeHoldTurn))
+	r := &heldRead{}
+	canceled := types.FinishReasonInterrupted
+	s.emit(said("Sunny skies."), spoke(1), &providers.StreamChunk{FinishReason: &canceled})
+	s.quiet(t, r) // fails on an error chunk
+
+	assert.NotContains(t, r.trace, "audio:1")
+	assert.NotContains(t, r.trace, "text:Sunny skies.")
+	assert.NotContains(t, r.trace, "text:"+holdMessage, "an unheard reply is not judged, so no message plays")
+	assert.Empty(t, s.judge.calls(), "nothing reached the caller to judge")
+	assert.Empty(t, s.assistants(t), "nothing was heard")
+}

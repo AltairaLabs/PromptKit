@@ -103,6 +103,9 @@ func (s *RealtimeSession) countDeliveredAudio(itemID string, contentIndex int, d
 type heldItem struct {
 	key                 heldItemKey
 	delivered, released time.Duration
+	// cut is set once the model's copy of the item was cut to what was
+	// heard of it, so it is not cut again.
+	cut bool
 }
 
 // heldItemKey names an audio item's content part.
@@ -136,21 +139,43 @@ func (s *RealtimeSession) holdItemAudio(itemID string, contentIndex int, d time.
 // interrupted (HeldAudioInterrupted) and cuts the model's copy of each held
 // item to what was released of it. Called with recvMu held.
 func (s *RealtimeSession) interruptHeldAudio() bool {
-	var waiting []heldItem
-	for _, it := range s.heldItems {
-		if it.delivered > it.released {
-			waiting = append(waiting, it)
-		}
-	}
-	if len(waiting) == 0 {
+	if !s.cutHeldItems(nil) {
 		return false
 	}
 	s.heldInterrupted = true
-	for _, it := range waiting {
+	return true
+}
+
+// cutHeldItems cuts the model's copy of each held item some of whose audio
+// was never released, and not cut already (cut, the items the playout
+// estimate cut to what was heard), to what was released of it: the caller
+// never heard the rest. Reports whether there was one. Called with recvMu
+// held.
+func (s *RealtimeSession) cutHeldItems(cut map[heldItemKey]bool) bool {
+	found := false
+	for i := range s.heldItems {
+		it := &s.heldItems[i]
+		if cut[it.key] {
+			it.cut = true // to what was heard of it
+		}
+		if it.cut || it.delivered <= it.released {
+			continue
+		}
+		found, it.cut = true, true
 		s.sendTruncate(it.key.itemID, it.key.contentIndex, it.released)
 	}
-	s.heldItems = nil
-	return true
+	return found
+}
+
+// holdingAudio reports whether audio the pipeline holds still waits for the
+// caller. Called with recvMu held.
+func (s *RealtimeSession) holdingAudio() bool {
+	for _, it := range s.heldItems {
+		if it.delivered > it.released {
+			return true
+		}
+	}
+	return false
 }
 
 // HeldAudioInterrupted implements providers.PlayoutHolder: whether the caller
@@ -167,6 +192,13 @@ func (s *RealtimeSession) HeldAudioInterrupted() bool {
 func (s *RealtimeSession) HeldAudioDropped() {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	s.heldItems = nil
+	// What was never released was never heard: the model's copy is cut to
+	// what was. A response still in progress is cut once it is canceled
+	// (InterruptResponse) or when its turn ends and the pipeline says so
+	// again, as an unheld reply is.
+	if !s.responseActive {
+		s.cutHeldItems(nil)
+		s.heldItems = nil
+	}
 	s.heldInterrupted = false
 }

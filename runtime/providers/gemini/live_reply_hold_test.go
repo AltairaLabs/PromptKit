@@ -14,9 +14,9 @@ import (
 // know when the reply's content is complete: Gemini Live's turnComplete comes
 // about a reply's playing time later, its generationComplete at once.
 
-// A reply's generationComplete is reported as a chunk marked
-// GenerationComplete, in the reply's generation, after its content and before
-// its turn completion.
+// To a pipeline that holds reply audio back (HoldPlayout), a reply's
+// generationComplete is reported as a chunk marked GenerationComplete, in the
+// reply's generation, after its content and before its turn completion.
 func TestLiveReplyHold_GenerationCompleteIsReported(t *testing.T) {
 	withContent := audioSecond()
 	withContent.ServerContent.GenerationComplete = true
@@ -26,6 +26,7 @@ func TestLiveReplyHold_GenerationCompleteIsReported(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := newProtocolTestSession(t)
+			s.HoldPlayout()
 			process(t, s, msgs...)
 			assertGenerationCompleteOrder(t, drainChunks(t, s))
 		})
@@ -68,6 +69,7 @@ func TestLiveReplyHold_GenerationCompleteNotReported(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := newProtocolTestSession(t)
+			s.HoldPlayout()
 			process(t, s, msgs...)
 			chunks := drainChunks(t, s)
 			require.NotEmpty(t, chunks)
@@ -134,4 +136,68 @@ func TestLiveReplyHold_ReportsItsTranscriptLag(t *testing.T) {
 	lagger, ok := s.(providers.TranscriptLagger)
 	require.True(t, ok)
 	assert.Equal(t, 1500*time.Millisecond, lagger.OutputTranscriptLag())
+}
+
+// A pipeline that does not hold reply audio gets no GenerationComplete
+// chunk: its Response() reads as it did before holds.
+func TestLiveReplyHold_GenerationCompleteNotReportedWithoutAHold(t *testing.T) {
+	s := newProtocolTestSession(t)
+	process(t, s, said("Hello there."), audioSecond(), generationComplete(), turnComplete(textUsage(10, 5)))
+	chunks := drainChunks(t, s)
+	require.NotEmpty(t, chunks)
+	for _, c := range chunks {
+		assert.False(t, c.GenerationComplete)
+	}
+}
+
+// Gemini reports barge-in itself only while it generates: once a held
+// reply's generation completed, before its turn completes, the caller
+// speaking over the held audio is a barge-in the session reports.
+func TestLiveReplyHold_SpeechAfterGenerationCompleteOverHeldAudioBargesIn(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	s.HoldPlayout()
+	process(t, s, audioSecond(), generationComplete())
+	drainChunks(t, s)
+	*now = t0.Add(2 * time.Second)
+	process(t, s, callerSays("wait"))
+
+	assert.True(t, barged(s))
+	assert.True(t, s.HeldAudioInterrupted())
+	assert.Equal(t, 1, interrupted(drainChunks(t, s)))
+}
+
+// Gemini's own interruption of a reply whose audio is still held ends the
+// wait for it: the session reports the held audio interrupted, and the
+// caller's speech after is not taken for a second barge-in on it.
+func TestLiveReplyHold_ServerInterruptionEndsTheHeldWait(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	s.HoldPlayout()
+	process(t, s, audioSecond(), generationComplete(),
+		&ServerMessage{ServerContent: &ServerContent{Interrupted: true}},
+		&ServerMessage{ServerContent: &ServerContent{TurnComplete: true}})
+	assert.True(t, barged(s), "Gemini's interruption")
+	assert.True(t, s.HeldAudioInterrupted())
+	drainChunks(t, s)
+	*now = t0.Add(3 * time.Second)
+	process(t, s, callerSays("and another thing"))
+
+	assert.False(t, barged(s), "no second barge-in")
+	assert.Zero(t, interrupted(drainChunks(t, s)))
+}
+
+// While a held reply is still generating, Gemini reports barge-in itself: the
+// session does not take the caller's speech for one.
+func TestLiveReplyHold_SpeechWhileAHeldReplyGeneratesIsLeftToGemini(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	s.HoldPlayout()
+	process(t, s, audioSecond())
+	drainChunks(t, s)
+	*now = t0.Add(2 * time.Second)
+	process(t, s, callerSays("wait"))
+
+	assert.False(t, barged(s))
+	assert.False(t, s.HeldAudioInterrupted())
 }

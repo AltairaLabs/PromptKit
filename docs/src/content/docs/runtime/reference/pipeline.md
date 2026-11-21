@@ -2374,7 +2374,7 @@ func (s *DuplexProviderStage) RunsToolCalls() bool
 RunsToolCalls reports whether the stage runs the session's tool calls itself, which SetToolExecution with a registry turns on \(ToolCallRunner\).
 
 <a name="DuplexProviderStage.SetBlockedMessage"></a>
-### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L92>)
+### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L93>)
 
 ```go
 func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc)
@@ -2383,7 +2383,7 @@ func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc)
 SetBlockedMessage sets the function that chooses the text a guardrail's block replaces a turn with, as ProviderConfig.BlockedMessage does for ProviderStage, so a blocked turn reads and sounds the same on both paths. The text it returns is shown, stored and spoken by the cue stage. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetCaller"></a>
-### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L83>)
+### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L84>)
 
 ```go
 func (s *DuplexProviderStage) SetCaller(caller types.Caller)
@@ -2392,7 +2392,7 @@ func (s *DuplexProviderStage) SetCaller(caller types.Caller)
 SetCaller sets who the conversation acts for, so each provider hook call and chunk interceptor call carries it \(ProviderRequest.Caller, ChunkRequest.Caller\), as ProviderStage's do through ProviderConfig.Caller. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetHookRegistry"></a>
-### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L66>)
+### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L67>)
 
 ```go
 func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
@@ -2401,7 +2401,7 @@ func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
 SetHookRegistry installs the provider hooks \(guardrails\) the stage runs. A nil registry, the default, runs none. The registry is handed the stage's emitter, as ProviderStage does, so its guardrails report through it. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetPromptDeclarations"></a>
-### func \(\*DuplexProviderStage\) [SetPromptDeclarations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L75>)
+### func \(\*DuplexProviderStage\) [SetPromptDeclarations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L76>)
 
 ```go
 func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.Prompt)
@@ -2419,7 +2419,7 @@ func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSe
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
 
 <a name="DuplexProviderStage.SetStreamHold"></a>
-### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1105>)
+### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1146>)
 
 ```go
 func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)

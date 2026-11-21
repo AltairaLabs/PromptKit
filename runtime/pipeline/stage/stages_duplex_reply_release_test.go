@@ -46,6 +46,8 @@ type released struct {
 	out  chan StreamElement
 	mu   sync.Mutex
 	cuts []*events.StreamHoldCutData
+	// completed is the provider.call.completed events.
+	completed []*events.ProviderCallCompletedData
 }
 
 // newReleased is a duplex stage holding replies by segment for hooks, on a
@@ -55,6 +57,11 @@ func newReleased(t *testing.T, cfg StreamHoldConfig, lag time.Duration, hs ...ho
 	bus := events.NewEventBus()
 	t.Cleanup(bus.Close)
 	r := &released{t: t, out: make(chan StreamElement, 256)}
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.completed = append(r.completed, e.Data.(*events.ProviderCallCompletedData))
+	})
 	bus.Subscribe(events.EventStreamHoldCut, func(e *events.Event) {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -136,6 +143,19 @@ func (r *released) drainElems() []StreamElement {
 			return elems
 		}
 	}
+}
+
+// completions is the provider.call.completed events, once n have arrived.
+func (r *released) completions(n int) []*events.ProviderCallCompletedData {
+	r.t.Helper()
+	require.Eventually(r.t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return len(r.completed) >= n
+	}, holdTestDeadline, time.Millisecond)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]*events.ProviderCallCompletedData(nil), r.completed...)
 }
 
 func (r *released) cutEvents() []*events.StreamHoldCutData {

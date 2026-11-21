@@ -858,6 +858,9 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 	}
 	logger.Debug("OpenAI Realtime: barge-in", "item_id", e.ItemID,
 		"response_active", s.responseActive, "playing", playing)
+	// Speech over a reply whose audio is still held is over the held audio
+	// too: none of it is to be released.
+	s.heldInterrupted = s.heldInterrupted || s.holdingAudio()
 	s.Barge()
 	s.emit(providers.BargeMarker())
 	s.truncateHeard()
@@ -870,9 +873,13 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 // caller had not fully heard to what they had heard, with
 // conversation.item.truncate.
 func (s *RealtimeSession) truncateHeard() {
-	for _, cut := range s.playoutEstimate().Stop() {
-		s.sendTruncate(cut.ItemID, cut.ContentIndex, cut.Heard)
+	cut := map[heldItemKey]bool{}
+	for _, c := range s.playoutEstimate().Stop() {
+		s.sendTruncate(c.ItemID, c.ContentIndex, c.Heard)
+		cut[heldItemKey{itemID: c.ItemID, contentIndex: c.ContentIndex}] = true
 	}
+	// Audio the pipeline still holds was not heard either.
+	s.cutHeldItems(cut)
 }
 
 // sendTruncate cuts the model's copy of an audio item to the heard part,

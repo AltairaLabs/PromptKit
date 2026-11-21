@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -125,7 +126,8 @@ type duplexTurnGuard struct {
 // passedAsIs reports whether msg is the reply the completed-reply check
 // already passed.
 func (g *duplexTurnGuard) passedAsIs(msg *types.Message) bool {
-	return g.passed != nil && *g.passed == msg.Content && len(msg.ToolCalls) == 0
+	return g.passed != nil && slices.Equal(strings.Fields(*g.passed), strings.Fields(msg.Content)) &&
+		len(msg.ToolCalls) == 0
 }
 
 // duplexHistory is the conversation the session has seen, which the hooks'
@@ -581,6 +583,11 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	ctx context.Context, chunk *providers.StreamChunk, isOutputTranscription bool,
 ) {
 	if s.turnGuard.blocked {
+		if chunk.MediaData != nil {
+			// A blocked reply has no hold (blockTurn dropped it): its audio
+			// is dropped here, and none of it waits for the caller.
+			s.heldAudioDropped()
+		}
 		dropAssistantOutput(chunk, isOutputTranscription)
 		return
 	}
@@ -998,21 +1005,55 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 		markBlockedTurn(msg, elem, &guard)
 	}
 	s.endedTurnCut = guard.blocked
-	if !guard.replaced && !guard.passedAsIs(msg) && s.runTurnAfterCallHooks(ctx, msg, elem) {
-		if !guard.blocked {
-			s.cutReplyOf(s.replyGeneration())
-		}
-		s.endedTurnCut = true
-		message := msg.Content
-		content, live, replaces := heardAndMessage(s.heardReply(), message)
-		if content != message {
-			msg.Content = content
-			msg.Parts = replaceTextParts(msg.Parts, content)
-		}
-		s.showBlockedText(live, true, replaces)
+	// A held reply known unheard (spoken over, or canceled) is not judged:
+	// nothing of it reached the caller to judge. One found so after its
+	// judgment, once the judge returns, is dropped then.
+	if s.dropUnheardReply(elem) {
+		return
 	}
-	s.history.add(msg)
+	s.judgeCompletedTurn(ctx, elem, &guard)
+	if s.dropUnheardReply(elem) {
+		return
+	}
+	s.history.add(elem.Message)
 	s.completeAssistantTurn()
+}
+
+// judgeCompletedTurn runs the output guardrails on the completed turn's
+// message, unless a guardrail's own text replaced it or the reply already
+// passed as it is; a block cuts the reply and shows the message after what
+// the caller heard.
+func (s *DuplexProviderStage) judgeCompletedTurn(ctx context.Context, elem *StreamElement, guard *duplexTurnGuard) {
+	msg := elem.Message
+	if guard.replaced || guard.passedAsIs(msg) || !s.runTurnAfterCallHooks(ctx, msg, elem) {
+		return
+	}
+	if !guard.blocked {
+		s.cutReplyOf(s.replyGeneration())
+	}
+	s.endedTurnCut = true
+	message := msg.Content
+	content, live, replaces := heardAndMessage(s.heardReply(), message)
+	if content != message {
+		msg.Content = content
+		msg.Parts = replaceTextParts(msg.Parts, content)
+	}
+	s.showBlockedText(live, true, replaces)
+}
+
+// dropUnheardReply makes a turn the caller spoke over before more of its held
+// reply was released, or that ended canceled, what they heard of it, and
+// reports whether that was nothing: then the reply leaves no turn.
+func (s *DuplexProviderStage) dropUnheardReply(elem *StreamElement) bool {
+	if s.endedTurnCut || s.replyHold == nil {
+		return false
+	}
+	canceled := elem.Meta.FinishReason != nil && *elem.Meta.FinishReason == finishReasonInterrupted
+	if !s.replyHoldInterrupted() && !canceled {
+		return false
+	}
+	keepHeardReply(elem, s.replyHold)
+	return elem.Message == nil
 }
 
 // markBlockedTurn marks a turn a guardrail blocked while it streamed: its text

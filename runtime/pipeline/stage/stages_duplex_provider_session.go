@@ -1931,7 +1931,8 @@ func (s *DuplexProviderStage) completeChunkTurn(
 		settled := s.settleTurnCall(ctx, elem)
 		s.guardCompletedTurn(ctx, elem)
 		if settled != nil {
-			s.emitCompletion(ctx, settled.done, settled.msg == nil)
+			// A reply left no message when the caller spoke over it unheard.
+			s.emitCompletion(ctx, settled.done, settled.msg == nil || elem.Message == nil)
 		}
 		round = s.toolJob(settled)
 	}

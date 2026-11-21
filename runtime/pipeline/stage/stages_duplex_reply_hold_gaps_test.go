@@ -201,3 +201,128 @@ func TestReplyHold_ScenarioPathJudgesWithTheCallersTurn(t *testing.T) {
 	assert.Equal(t, []string{"Sunny skies."}, hook.calls())
 	assert.Equal(t, "Is it sunny?", hook.lastCallerSaid())
 }
+
+// A held reply the caller spoke over before it was released, found so at its
+// turn's end, was never heard: it leaves nothing in the history the
+// guardrails see, is not a session turn, and its tool calls are not queued to
+// run. The same reply, not spoken over, does all three.
+func TestReplyHold_ReplySpokenOverAtItsEndLeavesNoTurn(t *testing.T) {
+	call := types.MessageToolCall{ID: "c1", Name: "weather", Args: []byte(`{}`)}
+	for name, tc := range map[string]struct {
+		interrupted bool
+		turns       int
+		assistant   []string
+		rounds      int
+	}{
+		"spoken over": {true, 0, nil, 0},
+		"heard":       {false, 1, []string{"Let me check."}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+			r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+			exec := &realtimeToolExec{result: []byte(`"sunny"`)}
+			r.s.SetToolExecution(newWeatherRegistry(t, exec), nil, DuplexToolConfig{}, nil)
+			r.s.turnState = NewTurnState()
+			r.feed(transcriptChunk("Let me check.", pcm(10)))
+			r.feed(providers.StreamChunk{ToolCalls: []types.MessageToolCall{call}})
+			sess.interrupted = tc.interrupted
+			r.feed(toolStopChunk())
+
+			var assistant []string
+			for _, m := range r.s.history.snapshot() {
+				if m.Role == roleAssistant {
+					assistant = append(assistant, m.Content)
+				}
+			}
+			assert.Equal(t, tc.assistant, assistant)
+			assert.Equal(t, tc.turns, r.s.turnState.SessionTurns())
+			assert.Len(t, r.s.tools.jobs, tc.rounds, "the tool rounds queued to run")
+			done := r.completions(1)
+			assert.Equal(t, tc.interrupted, done[len(done)-1].NoMessage, "the call completed with no message")
+		})
+	}
+}
+
+// Once a reply passed when its generation completed, transcript that trails
+// in after the holdback is held for the turn's completion, which judges it
+// only when it adds words: a failure in it keeps it from the caller, and a
+// difference of spacing alone is not judged again.
+func TestReplyHold_LateTranscriptAfterAPassIsHeld(t *testing.T) {
+	msg := prompt.DefaultBlockedMessage
+	for name, tc := range map[string]struct {
+		late   string
+		failOn string
+		want   []string
+		calls  int
+	}{
+		"new words pass":  {" Mild later.", "", []string{"text: Mild later.", "end:Sunny skies. Mild later.|stop"}, 2},
+		"new words fail":  {" Bruno sings.", "Bruno", []string{"interrupt", "text: " + msg, "end:Sunny skies. " + msg + "|safety"}, 2},
+		"only whitespace": {" ", "", []string{"text: ", "end:Sunny skies. |stop"}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			hook := &replyHoldHook{mode: hooks.StreamHoldTurn, failOn: tc.failOn}
+			r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+			r.feed(transcriptChunk("Sunny skies.", pcm(10)))
+			assert.Equal(t, []string{"text:Sunny skies.", "audio:10"}, r.feed(providers.StreamChunk{GenerationComplete: true}))
+			assert.Empty(t, r.feed(saidChunk(tc.late)), "late transcript waits for the turn's check")
+			assert.Equal(t, tc.want, r.feed(stopChunk()))
+			assert.Len(t, hook.calls(), tc.calls)
+		})
+	}
+}
+
+// A caller who starts speaking while a reply is being released stops the
+// release there: nothing after the point they spoke goes out.
+func TestReplyHold_SpeakingDuringTheReleaseStopsIt(t *testing.T) {
+	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+	r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+	sess.interruptAfter = 1 // the caller speaks once the first audio is out
+	r.feed(transcriptChunk("Sunny skies.", pcm(10)))
+	r.feed(transcriptChunk(" Rain later.", pcm(20)))
+	trace := r.feed(stopChunk())
+	assert.Equal(t, 10, sess.released)
+	assert.NotContains(t, trace, "audio:20")
+	assert.NotContains(t, trace, "text: Rain later.")
+}
+
+// Audio of a reply the stage drops with no hold on it (a reply already
+// blocked) tells the session nothing of it waits for the caller, so speech
+// then is not taken for a barge-in on it.
+func TestReplyHold_AudioDroppedWithoutAHoldIsNotWaiting(t *testing.T) {
+	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+	excl, err := guardrails.NewGuardrailHook("content_excludes", map[string]any{"patterns": []any{"Bruno"}})
+	require.NoError(t, err)
+	r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook, excl)
+	r.feed(transcriptChunk("About Bruno.", pcm(10)))
+	before := sess.dropped
+	r.feed(spokenChunk(20))
+	assert.Greater(t, sess.dropped, before, "the dropped audio is reported")
+}
+
+// A held reply the provider ends canceled (the caller barged in while it was
+// generating) before any of it was released was never heard: it leaves no
+// turn, rather than an empty one.
+func TestReplyHold_CanceledReplyNothingHeardLeavesNoTurn(t *testing.T) {
+	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+	r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+	r.s.turnState = NewTurnState()
+	r.feed(transcriptChunk("Sunny skies.", pcm(10)))
+	canceled := types.FinishReasonInterrupted
+	elems := r.feedElems(providers.StreamChunk{FinishReason: &canceled})
+	for _, e := range elems {
+		assert.Nil(t, e.Message, "no turn of the unheard reply")
+	}
+	assert.Zero(t, r.s.turnState.SessionTurns())
+	assert.Empty(t, hook.calls(), "an unheard reply is not judged")
+}
+
+// A reply released when its generation completed is not judged again by a
+// repeated generationComplete.
+func TestReplyHold_RepeatedGenerationCompleteJudgesOnce(t *testing.T) {
+	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+	r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+	r.feed(transcriptChunk("Sunny skies.", pcm(10)))
+	assert.Equal(t, []string{"text:Sunny skies.", "audio:10"}, r.feed(providers.StreamChunk{GenerationComplete: true}))
+	assert.Empty(t, r.feed(providers.StreamChunk{GenerationComplete: true}))
+	assert.Equal(t, []string{"Sunny skies."}, hook.calls())
+}

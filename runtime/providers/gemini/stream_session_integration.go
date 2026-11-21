@@ -122,10 +122,13 @@ type StreamSession struct {
 	heldPending     time.Duration
 	heldInterrupted bool
 	replyDone       bool
-	inputLastAt     time.Time
-	inputClosed     bool
-	lateInput       bool
-	now             func() time.Time
+	// generationDone is set once the reply in progress reported
+	// generationComplete; its turn completes later.
+	generationDone bool
+	inputLastAt    time.Time
+	inputClosed    bool
+	lateInput      bool
+	now            func() time.Time
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.

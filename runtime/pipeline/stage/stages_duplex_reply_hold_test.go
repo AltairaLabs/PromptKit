@@ -131,11 +131,19 @@ type heldPlayoutSession struct {
 	// held audio. HeldAudioDropped clears it and counts dropped.
 	interrupted bool
 	dropped     int
+	// interruptAfter, when set, has the caller speak (interrupted) once that
+	// many audio chunks were released.
+	interruptAfter int
 }
 
 func (p *heldPlayoutSession) HoldPlayout() { p.held = true }
 func (p *heldPlayoutSession) AudioReleased(c *providers.StreamChunk) {
 	p.released += len(c.MediaData.Data)
+	if p.interruptAfter > 0 {
+		if p.interruptAfter--; p.interruptAfter == 0 {
+			p.interrupted = true
+		}
+	}
 }
 func (p *heldPlayoutSession) OutputTranscriptLag() time.Duration { return p.lag }
 func (p *heldPlayoutSession) HeldAudioInterrupted() bool         { return p.interrupted }

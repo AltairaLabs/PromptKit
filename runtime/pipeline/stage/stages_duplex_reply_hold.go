@@ -157,11 +157,14 @@ func (s *DuplexProviderStage) holdReplyOutput(chunk *providers.StreamChunk, elem
 		return false
 	}
 	h := s.replyHold
-	if h == nil || h.passed {
+	if h == nil {
 		if elem.Audio != nil && s.playoutHeld != nil {
 			s.playoutHeld.AudioReleased(chunk)
 		}
 		return false
+	}
+	if h.passed {
+		return s.holdAfterPass(h, chunk, elem)
 	}
 	if h.interrupted {
 		// The caller spoke over the reply: the rest of it is never heard.
@@ -204,6 +207,47 @@ func (s *DuplexProviderStage) onReplyHoldSettled(ctx context.Context, output cha
 	}
 	s.replyHold.settle = nil
 	return s.settleGeneratedReply(ctx, output)
+}
+
+// holdAfterPass handles the output of a reply that passed when its generation
+// completed: its audio plays as it arrives, and transcript that trails in
+// after it is held for the turn's completion, whose check judges it when it
+// adds words (duplexTurnGuard.passedAsIs). Reports whether it took the text.
+func (s *DuplexProviderStage) holdAfterPass(
+	h *duplexReplyHold, chunk *providers.StreamChunk, elem *StreamElement,
+) bool {
+	if elem.Audio != nil {
+		h.heardAudio += len(elem.Audio.Samples)
+		if s.playoutHeld != nil {
+			s.playoutHeld.AudioReleased(chunk)
+		}
+	}
+	if elem.Text == nil {
+		return false
+	}
+	h.text += len(*elem.Text)
+	h.held = append(h.held, heldOutput{
+		elem: StreamElement{Text: elem.Text, Timestamp: elem.Timestamp}, text: *elem.Text, textEnd: h.text,
+	})
+	elem.Text = nil
+	return true
+}
+
+// replyHoldInterrupted reports whether the caller began speaking over the
+// held reply before it was released (providers.PlayoutHolder
+// HeldAudioInterrupted), marking the hold so: none of it is released after.
+func (s *DuplexProviderStage) replyHoldInterrupted() bool {
+	h := s.replyHold
+	if h == nil {
+		return false
+	}
+	if h.interrupted {
+		return true
+	}
+	if s.playoutHeld != nil {
+		h.interrupted = s.playoutHeld.HeldAudioInterrupted()
+	}
+	return h.interrupted
 }
 
 // replyHoldVerdicts is the channel the held reply's segment judgments
@@ -287,15 +331,14 @@ func (s *DuplexProviderStage) releaseCleared(ctx context.Context, output chan<- 
 // reports their audio to a session that counts released audio.
 func (s *DuplexProviderStage) releaseHeldOutput(ctx context.Context, n int, output chan<- StreamElement) error {
 	h := s.replyHold
-	if h.interrupted || s.playoutHeld != nil && s.playoutHeld.HeldAudioInterrupted() {
-		// The caller began speaking over the held reply's silence: it is
-		// a turn of their own, and the held reply is never heard.
-		h.interrupted = true
-		h.held = nil
-		h.judge.stop()
-		return nil
-	}
 	for range n {
+		if s.replyHoldInterrupted() {
+			// The caller began speaking over the held reply: it is a turn
+			// of their own, and what is still held is never heard.
+			h.held = nil
+			h.judge.stop()
+			return nil
+		}
 		o := h.held[0]
 		h.held = h.held[1:]
 		if err := s.emit(ctx, o.elem, output); err != nil {
@@ -415,6 +458,8 @@ func keepHeardReply(elem *StreamElement, h *duplexReplyHold) {
 	if msg == nil {
 		return
 	}
+	// Calls the caller never heard asked for are not run.
+	msg.ToolCalls = nil
 	if h.heard.Len() == 0 && h.heardAudio == 0 {
 		elem.Message, elem.EndOfStream = nil, false
 		elem.Meta.Interrupted = true
