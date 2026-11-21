@@ -45,6 +45,7 @@ func (s *Server) handleSendViaHandler(call *rpcCall, target *turnTarget, params 
 				ContextID: contextID,
 				TaskID:    taskID,
 				Results:   toToolResults(toolResults),
+				Tenant:    call.tenant,
 			})
 		})
 	} else {
@@ -53,6 +54,7 @@ func (s *Server) handleSendViaHandler(call *rpcCall, target *turnTarget, params 
 				ContextID: contextID,
 				TaskID:    taskID,
 				Message:   params.Message,
+				Tenant:    call.tenant,
 			})
 		})
 	}

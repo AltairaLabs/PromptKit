@@ -230,6 +230,7 @@ func (st *streamTurn) finish(state a2a.TaskState, msg *a2a.Message) {
 		st.reportActualState()
 		return
 	}
+	st.srv.recordHistory(st.taskID, msg)
 	st.emit(TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
 		TaskID: st.taskID, ContextID: st.contextID, Status: st.srv.recordedStatus(st.taskID, state, msg),
 	}})
@@ -351,7 +352,7 @@ func (st *streamTurn) handle(evt StreamEvent) (done bool) {
 // task.
 func (s *Server) handleStreamMessage(call *rpcCall) {
 	var params a2a.SendMessageRequest
-	if !call.decodeParams(&params) {
+	if !call.decodeSendParams(&params) {
 		return
 	}
 
@@ -601,12 +602,14 @@ func (s *Server) statelessStreamTurn(
 				ContextID: contextID,
 				TaskID:    taskID,
 				Results:   toToolResults(toolResults),
+				Tenant:    call.tenant,
 			})
 		}
 		return s.handler.Handle(ctx, MessageRequest{
 			ContextID: contextID,
 			TaskID:    taskID,
 			Message:   params.Message,
+			Tenant:    call.tenant,
 		})
 	}, true
 }

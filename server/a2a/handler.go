@@ -51,6 +51,9 @@ type MessageRequest struct {
 
 	// Message is the inbound A2A message.
 	Message a2a.Message
+
+	// Tenant is the request's tenant (A2A 1.0), "" when it named none.
+	Tenant string
 }
 
 // ToolResultHandler is the optional client-tool half of [MessageHandler]. A
@@ -72,6 +75,9 @@ type ToolResultRequest struct {
 	// Results are the fulfilled tool calls, keyed by the call id the handler
 	// supplied in its [EventClientTool] events.
 	Results []ToolResult
+
+	// Tenant is the request's tenant (A2A 1.0), "" when it named none.
+	Tenant string
 }
 
 // ToolResult is one fulfilled (or refused) client-side tool call.

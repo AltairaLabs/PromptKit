@@ -458,7 +458,10 @@ func TestParseStreamEvent_AllShapes(t *testing.T) {
 		require.True(t, ok, name)
 		assert.True(t, tc.check(evt), name)
 	}
-	for _, bad := range []string{`{"task":{"status":{"state":"bogus"}}}`, `{"kind":"status-update","status":{"state":"bogus"}}`, `{}`, `nope`} {
+	// An unknown state is decoded as TaskStateUnknown (see
+	// TestParseStreamEvent_UnknownStateIsNotDropped); a state that is not a
+	// string is malformed, and so is the event.
+	for _, bad := range []string{`{"task":{"status":{"state":3}}}`, `{"kind":"status-update","status":{"state":true}}`, `{}`, `nope`} {
 		_, ok := parseStreamEvent(bad)
 		assert.False(t, ok, bad)
 	}

@@ -859,11 +859,53 @@ func decodeMessageResult(raw json.RawMessage) (*Task, error) {
 // StreamEvent.Error set. An agent that refuses
 // the request before streaming returns an *RPCError from this call.
 func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageRequest) (<-chan StreamEvent, error) {
+	return c.stream(ctx, OpSendStreamingMessage, func(v ProtocolVersion) any { return v.WireSendParams(params) })
+}
+
+// SubscribeToTask follows a task that is already running (SubscribeToTask;
+// 0.3: tasks/resubscribe), as after a stream dropped or a SendMessage that
+// returned early. The first event is the task as it stands (A2A 1.0 §3.1.6),
+// then its status and artifact updates; the channel closes when the task
+// finishes or needs the caller, and otherwise behaves as SendMessageStream's.
+// A refusal is an *RPCError from this call: TaskNotFoundError for an unknown
+// task, UnsupportedOperationError for a finished one or an agent that does
+// not stream.
+func (c *Client) SubscribeToTask(ctx context.Context, taskID string) (<-chan StreamEvent, error) {
+	return c.stream(ctx, OpSubscribeToTask, sameParams(SubscribeTaskRequest{ID: taskID}))
+}
+
+// GetExtendedAgentCard fetches the card the agent serves to an authenticated
+// caller (GetExtendedAgentCard; 0.3: agent/getAuthenticatedExtendedCard),
+// using the client's credentials. The returned card replaces the one
+// Discover cached, as A2A 1.0 §3.1.11 recommends, so later calls are routed
+// by it. An agent without one answers UnsupportedOperationError, or
+// ExtendedAgentCardNotConfiguredError when its card declares one it has not
+// configured; both come back as an *RPCError.
+func (c *Client) GetExtendedAgentCard(ctx context.Context) (*AgentCard, error) {
+	raw, err := c.rpcCall(ctx, OpGetExtendedAgentCard, sameParams(struct{}{}))
+	if err != nil {
+		return nil, err
+	}
+	var card AgentCard
+	if err := json.Unmarshal(raw, &card); err != nil {
+		return nil, fmt.Errorf("a2a: %s: decode result: %w", MethodV1GetExtendedAgentCard, err)
+	}
+	c.mu.Lock()
+	c.adoptCardLocked(&card)
+	c.mu.Unlock()
+	return &card, nil
+}
+
+// stream opens op's SSE stream, in the negotiated version, and returns a
+// channel of its events; see SendMessageStream.
+func (c *Client) stream(
+	ctx context.Context, op Operation, params func(ProtocolVersion) any,
+) (<-chan StreamEvent, error) {
 	var resp *http.Response
 	err := c.withVersionFallback(func(v ProtocolVersion) error {
 		var err error
 		//nolint:bodyclose // closed by the reader goroutine below
-		resp, err = c.openStream(ctx, v, v.Method(OpSendStreamingMessage), v.WireSendParams(params))
+		resp, err = c.openStream(ctx, v, v.Method(op), params(v))
 		return err
 	})
 	if err != nil {

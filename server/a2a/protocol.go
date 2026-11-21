@@ -34,6 +34,9 @@ type rpcCall struct {
 	owner string
 	// caller is who the request acts for, under NewServerFor (convCaller).
 	caller string
+	// tenant is the tenant an A2A 1.0 request names in its params, "" for
+	// none; 0.3 has no tenant.
+	tenant string
 	// log returns the server's logger; nil means PromptKit's logger.
 	log func() *slog.Logger
 }
@@ -92,6 +95,25 @@ func (c *rpcCall) decodeParams(dst any) bool {
 	return true
 }
 
+// errPushNotSupported is PushNotificationNotSupportedError's message.
+const errPushNotSupported = "Push notifications are not supported"
+
+// decodeSendParams decodes SendMessage params, as decodeParams does, and
+// refuses a message carrying an inline push notification config: the server
+// delivers no push notifications, and running the message with the config
+// silently dropped would leave the caller waiting for notifications that
+// never come (A2A 1.0 §3.3.4).
+func (c *rpcCall) decodeSendParams(params *a2a.SendMessageRequest) bool {
+	if !c.decodeParams(params) {
+		return false
+	}
+	if params.Configuration != nil && params.Configuration.TaskPushNotificationConfig != nil {
+		c.fail(a2a.ErrCodePushNotificationNotSupported, errPushNotSupported)
+		return false
+	}
+	return true
+}
+
 // applyHistoryLength trims task history per the historyLength semantics
 // (A2A 1.0 §3.2.4): unset keeps it all, 0 drops it, n keeps the last n.
 func applyHistoryLength(task *a2a.Task, historyLength *int) {
@@ -105,6 +127,33 @@ func applyHistoryLength(task *a2a.Task, historyLength *int) {
 	case n < len(task.History):
 		task.History = task.History[len(task.History)-n:]
 	}
+}
+
+// requestTenant reads the tenant every A2A 1.0 request's params may carry.
+// Params that are not an object name none.
+func requestTenant(params json.RawMessage) string {
+	var p struct {
+		Tenant string `json:"tenant"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return ""
+	}
+	return p.Tenant
+}
+
+// checkStatusFilter refuses a ListTasks status filter that names no state. The
+// runtime decodes an unrecognized state as TaskStateUnknown, which suits a
+// client reading a newer server; a filter is a caller's input, and listing
+// every task for a misspelled one would answer a question nobody asked.
+func checkStatusFilter(params json.RawMessage) error {
+	var raw struct {
+		Status *string `json:"status"`
+	}
+	if json.Unmarshal(params, &raw) != nil || raw.Status == nil {
+		return nil
+	}
+	_, err := a2a.ParseTaskState(*raw.Status)
+	return err
 }
 
 // encodePageToken and decodePageToken make an opaque cursor from a position in
@@ -130,7 +179,8 @@ func decodePageToken(token string) (int, error) {
 
 // servedCard returns the card as this server should publish it: a copy with
 // the JSON-RPC interface declared for both versions the server speaks, and
-// the streaming and push notification capabilities the server actually has.
+// the streaming and push notification capabilities the server actually has:
+// streaming unless the server was built WithoutStreaming.
 //
 // A card with no interfaces gets one pointing at this server's /a2a endpoint,
 // derived from the request's Host. A JSON-RPC interface under any of the names
@@ -138,7 +188,7 @@ func decodePageToken(token string) (int, error) {
 // 1.0, and if no 0.3 JSON-RPC interface is declared a twin of the first 1.0 one
 // is added, so 0.3 clients (which read url/preferredTransport) and 1.0 clients
 // (which read supportedInterfaces) both find the endpoint.
-func servedCard(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
+func servedCard(card *a2a.AgentCard, r *http.Request, streaming bool) *a2a.AgentCard {
 	cp := *card
 	cp.SupportedInterfaces = normalizeInterfaces(card.SupportedInterfaces)
 
@@ -162,10 +212,11 @@ func servedCard(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
 	}
 
 	// Declare what the server serves, whatever the card said (A2A 1.0
-	// §3.3.4): it answers SendStreamingMessage and SubscribeToTask in every
-	// mode — a conversation that cannot stream is streamed from its Send
-	// result (sendAsStream) — and refuses every push notification method.
-	cp.Capabilities.Streaming = true
+	// §3.3.4): unless streaming is off, it answers SendStreamingMessage and
+	// SubscribeToTask in every mode — a conversation that cannot stream is
+	// streamed from its Send result (sendAsStream) — and it refuses every
+	// push notification method.
+	cp.Capabilities.Streaming = streaming
 	cp.Capabilities.PushNotifications = false
 	return &cp
 }

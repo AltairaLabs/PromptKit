@@ -180,6 +180,10 @@ func (s TaskState) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements json.Unmarshaler, accepting any version's spelling.
+// A spelling no version defines (a state a later version adds, say) decodes
+// as TaskStateUnknown rather than failing the object it is in: A2A 1.0 §5.7
+// asks implementations to ignore what they do not recognize. Use
+// ParseTaskState to refuse it instead.
 func (s *TaskState) UnmarshalJSON(data []byte) error {
 	var str string
 	if err := json.Unmarshal(data, &str); err != nil {
@@ -187,7 +191,7 @@ func (s *TaskState) UnmarshalJSON(data []byte) error {
 	}
 	state, err := ParseTaskState(str)
 	if err != nil {
-		return err
+		state = TaskStateUnknown
 	}
 	*s = state
 	return nil
@@ -543,6 +547,36 @@ type SendMessageConfiguration struct {
 	Blocking bool `json:"blocking,omitempty"`
 	// ReturnImmediately is A2A 1.0's switch.
 	ReturnImmediately bool `json:"returnImmediately,omitempty"`
+	// TaskPushNotificationConfig asks the agent to push the task's updates to
+	// a webhook (0.3: pushNotificationConfig). Only an agent whose card
+	// declares capabilities.pushNotifications honors it; a PromptKit server
+	// does not, and refuses a message that carries one with
+	// PushNotificationNotSupportedError.
+	TaskPushNotificationConfig *TaskPushNotificationConfig `json:"taskPushNotificationConfig,omitempty"`
+}
+
+// TaskPushNotificationConfig is where, and with what credentials, an agent
+// pushes a task's updates (A2A 1.0 §4.3.1). In a SendMessage configuration
+// TaskID is left empty.
+type TaskPushNotificationConfig struct {
+	Tenant string `json:"tenant,omitempty"`
+	ID     string `json:"id,omitempty"`
+	TaskID string `json:"taskId,omitempty"`
+	// URL is the webhook the agent POSTs to. REQUIRED.
+	URL string `json:"url"`
+	// Token is a value unique to the task or session, sent with each
+	// notification so the receiver can check it.
+	Token          string              `json:"token,omitempty"`
+	Authentication *AuthenticationInfo `json:"authentication,omitempty"`
+}
+
+// AuthenticationInfo is how an agent authenticates to a push webhook (A2A
+// 1.0 §4.3.2).
+type AuthenticationInfo struct {
+	// Scheme is an HTTP authentication scheme (Bearer, Basic, ...). REQUIRED.
+	Scheme string `json:"scheme"`
+	// Credentials are the scheme's credentials, a token for Bearer.
+	Credentials string `json:"credentials,omitempty"`
 }
 
 // WaitsForCompletion reports whether a SendMessage under version v should

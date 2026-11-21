@@ -196,6 +196,11 @@ func TestContinuation_SubmitFailureRestoresTheWaitingTask(t *testing.T) {
 		assert.Equal(t, a2a.TaskStateInputRequired, task.Status.State, method)
 		require.NotNil(t, task.Status.Message, method)
 		assert.Equal(t, "call-1", task.Status.Message.Parts[0].Metadata["tool_call_id"], method)
+		// The refused message is not history, and the restored request is
+		// not recorded a second time.
+		require.Len(t, task.History, 2, method)
+		assert.Equal(t, "m1", task.History[0].MessageID, method)
+		assert.Equal(t, task.Status.Message.MessageID, task.History[1].MessageID, method)
 		ts.Close()
 	}
 }

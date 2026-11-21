@@ -71,12 +71,12 @@ func TestTaskState_Classification(t *testing.T) {
 }
 
 func TestTaskState_InvalidJSON(t *testing.T) {
+	// An unrecognized spelling decodes as the unknown state (A2A 1.0 §5.7).
 	var s TaskState
-	err := json.Unmarshal([]byte(`"bogus"`), &s)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid task state")
+	require.NoError(t, json.Unmarshal([]byte(`"bogus"`), &s))
+	assert.Equal(t, TaskStateUnknown, s)
 
-	_, err = TaskState("bogus").MarshalJSON()
+	_, err := TaskState("bogus").MarshalJSON()
 	assert.Error(t, err)
 }
 

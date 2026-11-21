@@ -84,11 +84,38 @@ type TaskStore interface {
 	EvictTerminal(olderThan time.Time) []string
 }
 
+// InterruptedTaskEvictor is optionally implemented by a TaskStore that can
+// evict tasks left waiting for the caller (WithInterruptedTaskTTL).
+// InMemoryTaskStore is one. A store without it keeps such tasks until they
+// are canceled, so it must bound them itself.
+type InterruptedTaskEvictor interface {
+	// EvictInterrupted removes tasks in the input-required or auth-required
+	// state whose last status timestamp is older than olderThan, and returns
+	// their IDs.
+	EvictInterrupted(olderThan time.Time) []string
+}
+
+// TaskHistoryStore is optionally implemented by a TaskStore that keeps each
+// task's history (A2A 1.0 Task.history): the messages its turns exchanged.
+// InMemoryTaskStore is one. The server appends the caller's message when a
+// turn begins and the agent's status message when a turn ends with one, and
+// expects Get to return them, oldest first, in Task.History; GetTask,
+// ListTasks and SendMessage trim them to the caller's historyLength. A store
+// without it serves tasks with no history.
+type TaskHistoryStore interface {
+	// AppendHistory adds msgs to the end of the task's history, or returns
+	// ErrTaskNotFound.
+	AppendHistory(taskID string, msgs ...a2a.Message) error
+}
+
 // TaskQuery selects a page of tasks for ListTasks.
 type TaskQuery struct {
 	// Owner, when set, restricts the query to the tasks that caller created
 	// (see OwnedTaskStore).
 	Owner string
+	// Tenant keeps only the tasks created in that tenant, "" only those
+	// created in none (see TenantTaskStore).
+	Tenant string
 	// ContextID, when set, restricts the query to one context.
 	ContextID string
 	// Status, when set, keeps only tasks in that state.
@@ -128,7 +155,21 @@ func queryTasks(store TaskStore, q TaskQuery) (TaskPage, error) {
 	if q.Owner != "" {
 		all = ownedBy(store, all, q.Owner)
 	}
+	if tenants, ok := store.(TenantTaskStore); ok {
+		all = inTenant(tenants, all, q.Tenant)
+	}
 	return pageTasks(all, q), nil
+}
+
+// inTenant keeps the tasks created in tenant.
+func inTenant(store TenantTaskStore, tasks []*a2a.Task, tenant string) []*a2a.Task {
+	kept := tasks[:0]
+	for _, t := range tasks {
+		if got, err := store.Tenant(t.ID); err == nil && got == tenant {
+			kept = append(kept, t)
+		}
+	}
+	return kept
 }
 
 // listAll reads every task in a context (every task, for an empty one)
@@ -216,18 +257,21 @@ func sortByRecency(tasks []*a2a.Task) {
 }
 
 // InMemoryTaskStore is a concurrency-safe, in-memory implementation of
-// TaskStore, TaskQuerier and OwnedTaskStore.
+// TaskStore, TaskQuerier, OwnedTaskStore, TenantTaskStore, TaskHistoryStore
+// and InterruptedTaskEvictor.
 type InMemoryTaskStore struct {
-	mu     sync.RWMutex
-	tasks  map[string]*a2a.Task
-	owners map[string]string // task_id → owner, for tasks created with one
+	mu      sync.RWMutex
+	tasks   map[string]*a2a.Task
+	owners  map[string]string // task_id → owner, for tasks created with one
+	tenants map[string]string // task_id → tenant, for tasks created in one
 }
 
 // NewInMemoryTaskStore creates a new InMemoryTaskStore.
 func NewInMemoryTaskStore() *InMemoryTaskStore {
 	return &InMemoryTaskStore{
-		tasks:  make(map[string]*a2a.Task),
-		owners: make(map[string]string),
+		tasks:   make(map[string]*a2a.Task),
+		owners:  make(map[string]string),
+		tenants: make(map[string]string),
 	}
 }
 
@@ -238,6 +282,12 @@ func (s *InMemoryTaskStore) Create(taskID, contextID string) (*a2a.Task, error) 
 
 // CreateOwned implements OwnedTaskStore. An empty owner records none.
 func (s *InMemoryTaskStore) CreateOwned(taskID, contextID, owner string) (*a2a.Task, error) {
+	return s.CreateInTenant(taskID, contextID, owner, "")
+}
+
+// CreateInTenant implements TenantTaskStore. An empty owner or tenant records
+// none.
+func (s *InMemoryTaskStore) CreateInTenant(taskID, contextID, owner, tenant string) (*a2a.Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -246,6 +296,9 @@ func (s *InMemoryTaskStore) CreateOwned(taskID, contextID, owner string) (*a2a.T
 	}
 	if owner != "" {
 		s.owners[taskID] = owner
+	}
+	if tenant != "" {
+		s.tenants[taskID] = tenant
 	}
 
 	now := time.Now().UTC()
@@ -270,6 +323,16 @@ func (s *InMemoryTaskStore) Owner(taskID string) (string, error) {
 		return "", ErrTaskNotFound
 	}
 	return s.owners[taskID], nil
+}
+
+// Tenant implements TenantTaskStore. A task created in no tenant has "".
+func (s *InMemoryTaskStore) Tenant(taskID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.tasks[taskID]; !ok {
+		return "", ErrTaskNotFound
+	}
+	return s.tenants[taskID], nil
 }
 
 // Get retrieves a deep copy of a task by ID. The returned task is safe to
@@ -328,6 +391,21 @@ func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact
 	return nil
 }
 
+// AppendHistory implements TaskHistoryStore.
+func (s *InMemoryTaskStore) AppendHistory(taskID string, msgs ...a2a.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return ErrTaskNotFound
+	}
+	for i := range msgs {
+		task.History = append(task.History, *cloneMessage(&msgs[i]))
+	}
+	return nil
+}
+
 // Cancel transitions the task to the canceled state from any non-terminal state,
 // and returns ErrTaskTerminal otherwise.
 func (s *InMemoryTaskStore) Cancel(taskID string) error {
@@ -354,17 +432,31 @@ func (s *InMemoryTaskStore) Cancel(taskID string) error {
 // EvictTerminal removes tasks in a terminal state whose last status timestamp
 // is older than cutoff. It returns the IDs of evicted tasks.
 func (s *InMemoryTaskStore) EvictTerminal(cutoff time.Time) []string {
+	return s.evictWhere(cutoff, a2a.TaskState.IsTerminal)
+}
+
+// EvictInterrupted implements InterruptedTaskEvictor: it removes tasks
+// waiting for the caller (input-required, auth-required) whose last status
+// timestamp is older than cutoff, and returns their IDs.
+func (s *InMemoryTaskStore) EvictInterrupted(cutoff time.Time) []string {
+	return s.evictWhere(cutoff, a2a.TaskState.IsInterrupted)
+}
+
+// evictWhere removes the tasks in a state selected accepts whose last status
+// timestamp is older than cutoff, and returns their IDs.
+func (s *InMemoryTaskStore) evictWhere(cutoff time.Time, selected func(a2a.TaskState) bool) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var evicted []string
 	for id, task := range s.tasks {
-		if !terminalStates[task.Status.State] {
+		if !selected(task.Status.State) {
 			continue
 		}
 		if task.Status.Timestamp != nil && task.Status.Timestamp.Before(cutoff) {
 			delete(s.tasks, id)
 			delete(s.owners, id)
+			delete(s.tenants, id)
 			evicted = append(evicted, id)
 		}
 	}
@@ -379,6 +471,9 @@ func (s *InMemoryTaskStore) Query(q TaskQuery) (TaskPage, error) {
 	candidates := make([]*a2a.Task, 0, len(s.tasks))
 	for id, task := range s.tasks {
 		if q.Owner != "" && s.owners[id] != q.Owner {
+			continue
+		}
+		if s.tenants[id] != q.Tenant {
 			continue
 		}
 		candidates = append(candidates, task)

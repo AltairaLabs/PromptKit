@@ -75,9 +75,10 @@ func (v ProtocolVersion) WireSendParams(req *SendMessageRequest) any {
 	out := v03SendParams{Message: toV03Message(&req.Message), Metadata: req.Metadata}
 	if c := req.Configuration; c != nil {
 		out.Configuration = &v03SendConfig{
-			AcceptedOutputModes: c.AcceptedOutputModes,
-			HistoryLength:       c.HistoryLength,
-			Blocking:            c.Blocking,
+			AcceptedOutputModes:    c.AcceptedOutputModes,
+			HistoryLength:          c.HistoryLength,
+			Blocking:               c.Blocking,
+			PushNotificationConfig: toV03PushConfig(c.TaskPushNotificationConfig),
 		}
 	}
 	return out
@@ -319,9 +320,65 @@ func toV03ArtifactUpdate(e *TaskArtifactUpdateEvent) v03ArtifactUpdate {
 }
 
 type v03SendConfig struct {
-	AcceptedOutputModes []string `json:"acceptedOutputModes,omitempty"`
-	HistoryLength       *int     `json:"historyLength,omitempty"`
-	Blocking            bool     `json:"blocking,omitempty"`
+	AcceptedOutputModes    []string       `json:"acceptedOutputModes,omitempty"`
+	HistoryLength          *int           `json:"historyLength,omitempty"`
+	Blocking               bool           `json:"blocking,omitempty"`
+	PushNotificationConfig *v03PushConfig `json:"pushNotificationConfig,omitempty"`
+}
+
+// v03PushConfig is 0.3's PushNotificationConfig, whose authentication lists
+// schemes where 1.0 names one.
+type v03PushConfig struct {
+	ID             string   `json:"id,omitempty"`
+	URL            string   `json:"url"`
+	Token          string   `json:"token,omitempty"`
+	Authentication *v03Auth `json:"authentication,omitempty"`
+}
+
+type v03Auth struct {
+	Schemes     []string `json:"schemes"`
+	Credentials string   `json:"credentials,omitempty"`
+}
+
+func toV03PushConfig(c *TaskPushNotificationConfig) *v03PushConfig {
+	if c == nil {
+		return nil
+	}
+	out := &v03PushConfig{ID: c.ID, URL: c.URL, Token: c.Token}
+	if a := c.Authentication; a != nil {
+		out.Authentication = &v03Auth{Schemes: []string{a.Scheme}, Credentials: a.Credentials}
+	}
+	return out
+}
+
+// v1 converts a 0.3 config, taking its first scheme.
+func (c *v03PushConfig) v1() *TaskPushNotificationConfig {
+	out := &TaskPushNotificationConfig{ID: c.ID, URL: c.URL, Token: c.Token}
+	if a := c.Authentication; a != nil {
+		out.Authentication = &AuthenticationInfo{Credentials: a.Credentials}
+		if len(a.Schemes) > 0 {
+			out.Authentication.Scheme = a.Schemes[0]
+		}
+	}
+	return out
+}
+
+// UnmarshalJSON implements json.Unmarshaler. Besides 1.0's
+// taskPushNotificationConfig it accepts 0.3's pushNotificationConfig.
+func (c *SendMessageConfiguration) UnmarshalJSON(data []byte) error {
+	type plain SendMessageConfiguration
+	var wire struct {
+		plain
+		V03Push *v03PushConfig `json:"pushNotificationConfig"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	*c = SendMessageConfiguration(wire.plain)
+	if c.TaskPushNotificationConfig == nil && wire.V03Push != nil {
+		c.TaskPushNotificationConfig = wire.V03Push.v1()
+	}
+	return nil
 }
 
 type v03SendParams struct {

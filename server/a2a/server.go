@@ -62,6 +62,10 @@ const (
 	// before eviction.
 	defaultTaskTTL = 1 * time.Hour
 
+	// defaultInterruptedTaskTTL is how long a task waiting for the caller
+	// (input-required, auth-required) is kept before eviction.
+	defaultInterruptedTaskTTL = 24 * time.Hour
+
 	// defaultConversationTTL is how long idle conversations are kept
 	// before eviction.
 	defaultConversationTTL = 1 * time.Hour
@@ -107,7 +111,8 @@ type Option func(*Server)
 // The server completes a copy of the card before serving it. A card with no
 // interfaces gets a JSON-RPC interface pointing at this server's /a2a endpoint,
 // derived from the request's Host; JSON-RPC interfaces are declared for both
-// A2A 1.0 and 0.3; Streaming is set to true and PushNotifications to false.
+// A2A 1.0 and 0.3; Streaming is set to true (false WithoutStreaming) and
+// PushNotifications to false.
 // Declare SecuritySchemes and SecurityRequirements on the card when
 // WithAuthenticator is in use, so callers can discover how to authenticate.
 func WithCard(card *a2a.AgentCard) Option {
@@ -117,6 +122,18 @@ func WithCard(card *a2a.AgentCard) Option {
 // WithCardProvider sets a dynamic agent card provider.
 func WithCardProvider(p AgentCardProvider) Option {
 	return func(s *Server) { s.cardProvider = p }
+}
+
+// WithExtendedCardProvider sets the extended agent card: the card
+// GetExtendedAgentCard returns to a caller that has authenticated (A2A 1.0
+// §3.1.11), which may name skills or details the public card leaves out. The
+// public card then declares capabilities.extendedAgentCard, and the server
+// completes the extended card as WithCard describes. The provider is given
+// the request, so it can tailor the card to the caller; use WithAuthenticator
+// so that only authenticated callers reach it. A *StaticCard serves the same
+// card to everyone.
+func WithExtendedCardProvider(p AgentCardProvider) Option {
+	return func(s *Server) { s.extendedCard = p }
 }
 
 // WithCardMaxAge sets the max-age of the Cache-Control header on the served
@@ -198,6 +215,20 @@ func WithTaskTTL(d time.Duration) Option {
 	return func(s *Server) { s.taskTTL = d }
 }
 
+// WithInterruptedTaskTTL sets how long a task left waiting for the caller
+// (input-required or auth-required) is kept, from its last status change,
+// before it is evicted; GetTask then reports it not found. A caller that never
+// comes back would otherwise leave it in the store for good, as does a client
+// that resumes without the task's taskId, which starts a new task instead.
+// Default: 24 hours. Set to 0 to keep waiting tasks until they are canceled.
+//
+// The default in-memory store supports it. A custom TaskStore takes part by
+// implementing InterruptedTaskEvictor; one that does not is left to bound its
+// waiting tasks itself.
+func WithInterruptedTaskTTL(d time.Duration) Option {
+	return func(s *Server) { s.interruptedTTL = d }
+}
+
 // WithConversationTTL sets how long idle conversations are retained before
 // automatic eviction. A conversation is considered idle when its last-use
 // timestamp exceeds this duration. Default: 1 hour. Set to 0 to disable.
@@ -214,6 +245,16 @@ func WithConversationTTL(d time.Duration) Option {
 // would score the conversation more than once. Shutdown always calls Close.
 func WithCompleteOnEviction() Option {
 	return func(s *Server) { s.completeOnEviction = true }
+}
+
+// WithoutStreaming turns streaming off. The served card declares
+// capabilities.streaming false, and SendStreamingMessage and SubscribeToTask
+// (0.3: message/stream, tasks/resubscribe) fail with UnsupportedOperationError
+// (-32004), as A2A 1.0 §3.3.4 requires of an agent that does not declare
+// streaming. Callers send with SendMessage and poll GetTask. Use it when
+// something in front of the server cannot carry Server-Sent Events.
+func WithoutStreaming() Option {
+	return func(s *Server) { s.noStreaming = true }
 }
 
 // WithAuthenticator sets an authenticator for incoming JSON-RPC requests.
@@ -258,6 +299,7 @@ type Server struct {
 	handler       MessageHandler
 	taskStore     TaskStore
 	cardProvider  AgentCardProvider
+	extendedCard  AgentCardProvider
 	cardMaxAge    time.Duration
 	cardMaxAgeSet bool
 	authenticator Authenticator
@@ -271,6 +313,9 @@ type Server struct {
 	idleTimeout     time.Duration
 	maxBodySize     int64
 
+	// noStreaming turns streaming off (WithoutStreaming).
+	noStreaming bool
+
 	// Readiness flag: set to true after NewServer completes, false on Shutdown.
 	isReady atomic.Bool
 
@@ -281,8 +326,9 @@ type Server struct {
 	healthChecks []namedChecker
 
 	// TTL-based eviction configuration.
-	taskTTL time.Duration // 0 disables task eviction
-	convTTL time.Duration // 0 disables conversation eviction
+	taskTTL        time.Duration // 0 disables task eviction
+	interruptedTTL time.Duration // 0 disables eviction of waiting tasks
+	convTTL        time.Duration // 0 disables conversation eviction
 	// completeOnEviction makes eviction call Complete (WithCompleteOnEviction).
 	completeOnEviction bool
 	stopOnce           sync.Once
@@ -365,18 +411,19 @@ func NewServerFor(callerID OwnerFunc, opener RequestConversationOpener, opts ...
 // newServer builds the parts both modes share.
 func newServer(opts ...Option) *Server {
 	s := &Server{
-		convs:       make(map[string]Conversation),
-		convLastUse: make(map[string]time.Time),
-		convOwner:   make(map[string]string),
-		convOpening: make(map[string]chan struct{}),
-		cancels:     make(map[string]context.CancelFunc),
-		cancelRegs:  make(map[string]uint64),
-		readTimeout: defaultReadTimeout,
-		idleTimeout: defaultIdleTimeout,
-		maxBodySize: defaultMaxBodySize,
-		taskTTL:     defaultTaskTTL,
-		convTTL:     defaultConversationTTL,
-		stopCh:      make(chan struct{}),
+		convs:          make(map[string]Conversation),
+		convLastUse:    make(map[string]time.Time),
+		convOwner:      make(map[string]string),
+		convOpening:    make(map[string]chan struct{}),
+		cancels:        make(map[string]context.CancelFunc),
+		cancelRegs:     make(map[string]uint64),
+		readTimeout:    defaultReadTimeout,
+		idleTimeout:    defaultIdleTimeout,
+		maxBodySize:    defaultMaxBodySize,
+		taskTTL:        defaultTaskTTL,
+		interruptedTTL: defaultInterruptedTaskTTL,
+		convTTL:        defaultConversationTTL,
+		stopCh:         make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -395,7 +442,7 @@ func newServer(opts ...Option) *Server {
 	s.handlers = s.rpcHandlers()
 
 	// Start background eviction if at least one TTL is enabled.
-	if s.taskTTL > 0 || s.convTTL > 0 {
+	if s.taskTTL > 0 || s.interruptedTTL > 0 || s.convTTL > 0 {
 		go s.evictionLoop()
 	}
 
@@ -629,15 +676,34 @@ func (s *Server) card(r *http.Request) (*a2a.AgentCard, error) {
 		}
 		card = provided
 	}
-	return servedCard(card, r), nil
+	return s.serve(card, r), nil
+}
+
+// serve completes card for publishing to r (see servedCard), declaring the
+// extended card when there is one.
+func (s *Server) serve(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
+	served := servedCard(card, r, !s.noStreaming)
+	if s.extendedCard != nil {
+		served.Capabilities.ExtendedAgentCard = true
+	}
+	return served
 }
 
 // handleGetExtendedAgentCard processes GetExtendedAgentCard (0.3:
-// agent/getAuthenticatedExtendedCard). The server holds no extended card, so
-// the answer depends only on whether the card declares one (A2A 1.0 §3.3.4):
-// UnsupportedOperation when it does not, ExtendedAgentCardNotConfigured when it
-// does.
+// agent/getAuthenticatedExtendedCard): the WithExtendedCardProvider card, in
+// the caller's version. Without one, the answer depends only on whether the
+// public card declares one (A2A 1.0 §3.3.4): UnsupportedOperation when it
+// does not, ExtendedAgentCardNotConfigured when it does.
 func (s *Server) handleGetExtendedAgentCard(call *rpcCall) {
+	if s.extendedCard != nil {
+		extended, err := s.extendedCard.AgentCard(call.r)
+		if err != nil {
+			call.internalError("failed to get extended agent card", err)
+			return
+		}
+		call.result(call.v.WireAgentCard(s.serve(extended, call.r)))
+		return
+	}
 	card, err := s.card(call.r)
 	if err != nil {
 		call.internalError("failed to get agent card", err)
@@ -670,6 +736,9 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	req, op, v := &in.JSONRPCRequest, in.Operation, in.Version
 	call := &rpcCall{w: w, r: r, req: req, v: v, log: s.log}
+	if v != a2a.ProtocolVersion03 {
+		call.tenant = requestTenant(req.Params)
+	}
 	if s.owner != nil {
 		if call.owner = s.owner(r); call.owner == "" {
 			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
@@ -690,18 +759,29 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rpcHandlers() map[a2a.Operation]func(*rpcCall) {
 	return map[a2a.Operation]func(*rpcCall){
 		a2a.OpSendMessage:          s.handleSendMessage,
-		a2a.OpSendStreamingMessage: s.handleStreamMessage,
+		a2a.OpSendStreamingMessage: s.ifStreaming(s.handleStreamMessage),
 		a2a.OpGetTask:              s.handleGetTask,
 		a2a.OpCancelTask:           s.handleCancelTask,
 		a2a.OpListTasks:            s.handleListTasks,
-		a2a.OpSubscribeToTask:      s.handleTaskSubscribe,
+		a2a.OpSubscribeToTask:      s.ifStreaming(s.handleTaskSubscribe),
 		a2a.OpPushNotificationConfig: func(call *rpcCall) {
-			call.fail(a2a.ErrCodePushNotificationNotSupported, "Push notifications are not supported")
+			call.fail(a2a.ErrCodePushNotificationNotSupported, errPushNotSupported)
 		},
 		a2a.OpGetExtendedAgentCard: s.handleGetExtendedAgentCard,
 		a2a.OpUnknown: func(call *rpcCall) {
 			call.fail(a2a.ErrCodeMethodNotFound, "Method not found")
 		},
+	}
+}
+
+// ifStreaming serves a streaming method with handle, or, when streaming is
+// off, refuses it as A2A 1.0 §3.3.4 requires.
+func (s *Server) ifStreaming(handle func(*rpcCall)) func(*rpcCall) {
+	if !s.noStreaming {
+		return handle
+	}
+	return func(call *rpcCall) {
+		call.fail(a2a.ErrCodeUnsupportedOperation, "Streaming is not supported by this agent")
 	}
 }
 
@@ -716,6 +796,9 @@ type turnTarget struct {
 	prior    a2a.TaskStatus
 	// claimed is true once beginTask has made the task this turn's.
 	claimed bool
+	// msg is the caller's message, recorded in the task's history once the
+	// turn begins.
+	msg *a2a.Message
 }
 
 // resolveTarget works out which task a message runs on. A message without a
@@ -726,6 +809,7 @@ type turnTarget struct {
 // differs from the task's is refused (§3.4.3). ok is false when the call has
 // been answered with an error.
 func (s *Server) resolveTarget(call *rpcCall, msg *a2a.Message) (target turnTarget, ok bool) {
+	target.msg = msg
 	if msg.TaskID == "" {
 		target.contextID = msg.ContextID
 		if target.contextID == "" {
@@ -746,7 +830,7 @@ func (s *Server) resolveTarget(call *rpcCall, msg *a2a.Message) (target turnTarg
 		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: contextId does not match the task's context")
 		return target, false
 	}
-	return turnTarget{taskID: task.ID, contextID: task.ContextID, existing: true, prior: task.Status}, true
+	return turnTarget{taskID: task.ID, contextID: task.ContextID, existing: true, prior: task.Status, msg: msg}, true
 }
 
 // beginTask readies the target's task for a turn and marks it working: it
@@ -764,6 +848,7 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 			call.internalError(fmt.Sprintf("failed to create task for context %s", target.contextID), err)
 			return false
 		}
+		s.recordCallerMessage(target)
 		s.setState(target.taskID, target.contextID, a2a.TaskStateWorking, nil)
 		target.claimed = true
 		return true
@@ -771,6 +856,7 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 
 	switch err := s.taskStore.SetState(target.taskID, a2a.TaskStateWorking, nil); {
 	case err == nil:
+		s.recordCallerMessage(target)
 		s.publishStatus(target.taskID, target.contextID, s.recordedStatus(target.taskID, a2a.TaskStateWorking, nil))
 		target.claimed = true
 		return true
@@ -788,10 +874,33 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 	return false
 }
 
+// recordCallerMessage records the message a turn begins with in its task's
+// history, naming the task and its context.
+func (s *Server) recordCallerMessage(target *turnTarget) {
+	if target.msg == nil {
+		return
+	}
+	msg := *target.msg
+	msg.TaskID, msg.ContextID = target.taskID, target.contextID
+	s.recordHistory(target.taskID, &msg)
+}
+
+// recordHistory appends msg to the task's history, when the store keeps one
+// (TaskHistoryStore) and there is a message.
+func (s *Server) recordHistory(taskID string, msg *a2a.Message) {
+	history, ok := s.taskStore.(TaskHistoryStore)
+	if !ok || msg == nil {
+		return
+	}
+	if err := history.AppendHistory(taskID, *msg); err != nil {
+		s.log().Warn("a2a: failed to record task history", "task_id", taskID, "error", err)
+	}
+}
+
 // handleSendMessage processes SendMessage (0.3: message/send).
 func (s *Server) handleSendMessage(call *rpcCall) {
 	var params a2a.SendMessageRequest
-	if !call.decodeParams(&params) {
+	if !call.decodeSendParams(&params) {
 		return
 	}
 
@@ -906,6 +1015,9 @@ func (s *Server) claimAndSubmit(
 		call.fail(a2a.ErrCodeUnsupportedOperation, "Conversation does not support client tool results")
 		return nil
 	}
+	// The message becomes history only once its results are taken.
+	msg := target.msg
+	target.msg = nil
 	if !s.beginTask(call, target) {
 		return nil
 	}
@@ -920,6 +1032,8 @@ func (s *Server) claimAndSubmit(
 			return nil
 		}
 	}
+	target.msg = msg
+	s.recordCallerMessage(target)
 	return resumable
 }
 
@@ -931,7 +1045,14 @@ func (s *Server) releaseTask(target *turnTarget, cause error) {
 		s.failTask(target.taskID, target.contextID, cause)
 		return
 	}
-	s.setState(target.taskID, target.contextID, target.prior.State, target.prior.Message)
+	// Not setState: the status message being restored is in the history
+	// already.
+	if err := s.taskStore.SetState(target.taskID, target.prior.State, target.prior.Message); err != nil {
+		s.logStateWriteError(target.taskID, target.prior.State, err)
+		return
+	}
+	s.publishStatus(target.taskID, target.contextID,
+		s.recordedStatus(target.taskID, target.prior.State, target.prior.Message))
 }
 
 // handleToolResultMessage processes a SendMessage that carries client tool
@@ -1048,14 +1169,16 @@ func (s *Server) cancelLocal(taskID string) {
 	}
 }
 
-// setState records a state change and publishes it to the task's
-// subscribers. A failed store write is logged and not published: a
-// subscriber must never see a state the store does not hold.
+// setState records a state change, adds its status message to the task's
+// history, and publishes it to the task's subscribers. A failed store write
+// is logged and not published: a subscriber must never see a state the store
+// does not hold.
 func (s *Server) setState(taskID, contextID string, state a2a.TaskState, msg *a2a.Message) {
 	if err := s.taskStore.SetState(taskID, state, msg); err != nil {
 		s.logStateWriteError(taskID, state, err)
 		return
 	}
+	s.recordHistory(taskID, msg)
 	s.publishStatus(taskID, contextID, s.recordedStatus(taskID, state, msg))
 }
 
@@ -1314,27 +1437,18 @@ func (s *Server) handleListTasks(call *rpcCall) {
 	if len(call.req.Params) > 0 && !call.decodeParams(&params) {
 		return
 	}
+	if err := checkStatusFilter(call.req.Params); err != nil {
+		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: status: "+err.Error())
+		return
+	}
 	if params.ContextID == "" && s.owner == nil {
 		call.fail(a2a.ErrCodeInvalidParams,
 			"Invalid params: contextId is required unless the server scopes tasks by caller")
 		return
 	}
 
-	limit := params.PageSize
-	switch {
-	case limit <= 0 && call.v == a2a.ProtocolVersion03:
-		limit = maxPageSize
-	case limit <= 0:
-		limit = defaultPageSize
-	case limit > maxPageSize:
-		limit = maxPageSize
-	}
-	// In 1.0, TASK_STATE_UNSPECIFIED is the proto's zero value: no status
-	// filter. In 0.3 the same TaskState is the real "unknown" state.
-	status := params.Status
-	if status != nil && *status == a2a.TaskStateUnknown && call.v != a2a.ProtocolVersion03 {
-		status = nil
-	}
+	limit := listPageSize(call.v, params.PageSize)
+	status := statusFilter(call.v, params.Status)
 	offset, err := decodePageToken(params.PageToken)
 	if err != nil {
 		call.fail(a2a.ErrCodeInvalidParams, "Invalid params: "+err.Error())
@@ -1343,6 +1457,7 @@ func (s *Server) handleListTasks(call *rpcCall) {
 
 	page, err := queryTasks(s.taskStore, TaskQuery{
 		Owner:       call.owner,
+		Tenant:      call.tenant,
 		ContextID:   params.ContextID,
 		Status:      status,
 		StatusAfter: params.StatusTimestampAfter,
@@ -1374,6 +1489,30 @@ func (s *Server) handleListTasks(call *rpcCall) {
 		PageSize      int    `json:"pageSize"`
 		TotalSize     int    `json:"totalSize"`
 	}{tasks, next, limit, page.Total})
+}
+
+// listPageSize is the page size a ListTasks in version v gets for the size it
+// asked for: the default when unset, capped at the maximum.
+func listPageSize(v a2a.ProtocolVersion, requested int) int {
+	switch {
+	case requested <= 0 && v == a2a.ProtocolVersion03:
+		return maxPageSize
+	case requested <= 0:
+		return defaultPageSize
+	case requested > maxPageSize:
+		return maxPageSize
+	}
+	return requested
+}
+
+// statusFilter is the state a ListTasks in version v filters by, nil for
+// none. In 1.0, TASK_STATE_UNSPECIFIED is the proto's zero value: no status
+// filter. In 0.3 the same TaskState is the real "unknown" state.
+func statusFilter(v a2a.ProtocolVersion, status *a2a.TaskState) *a2a.TaskState {
+	if status != nil && *status == a2a.TaskStateUnknown && v != a2a.ProtocolVersion03 {
+		return nil
+	}
+	return status
 }
 
 // getOrCreateConversation retrieves an existing conversation for the context ID
@@ -1418,7 +1557,7 @@ func (s *Server) getOrCreateConversation(call *rpcCall, contextID string) (Conve
 // reuseConversation hands back contextID's cached conversation conv when
 // owner may use it, marking it used. Caller must hold convsMu.
 func (s *Server) reuseConversation(conv Conversation, contextID, owner string) (Conversation, error) {
-	if s.ownsConversations() && s.convOwner[contextID] != owner {
+	if s.convOwner[contextID] != owner {
 		return nil, errContextTaken
 	}
 	s.convLastUse[contextID] = time.Now()
@@ -1444,9 +1583,7 @@ func (s *Server) openNewConversation(
 		}
 		s.convs[contextID] = conv
 		s.convLastUse[contextID] = time.Now()
-		if s.ownsConversations() {
-			s.convOwner[contextID] = owner
-		}
+		s.convOwner[contextID] = owner
 	}()
 
 	opened, err := s.opener(call.r, contextID)
@@ -1457,19 +1594,18 @@ func (s *Server) openNewConversation(
 	return conv, nil
 }
 
-// ownsConversations reports whether each conversation belongs to the caller
-// that opened it: under NewServerFor, or with tasks scoped by caller.
-func (s *Server) ownsConversations() bool {
-	return s.convCaller != nil || s.owner != nil
-}
-
 // conversationOwner is who a conversation the call opens belongs to: the
-// caller NewServerFor identified, else the task owner.
+// caller NewServerFor identified, else the task owner (both "" when the
+// server does not tell callers apart), in the request's tenant.
 func (s *Server) conversationOwner(call *rpcCall) string {
+	owner := call.owner
 	if s.convCaller != nil {
-		return call.caller
+		owner = call.caller
 	}
-	return call.owner
+	if call.tenant == "" {
+		return owner
+	}
+	return owner + "\x00" + call.tenant
 }
 
 // openConversation answers the call itself when the conversation for
@@ -1556,6 +1692,7 @@ func (s *Server) evictionLoop() {
 func (s *Server) evictOnce() {
 	now := time.Now()
 	s.evictTerminalTasks(now)
+	s.evictInterruptedTasks(now)
 	s.evictIdleConversations(now)
 }
 
@@ -1565,8 +1702,19 @@ func (s *Server) evictTerminalTasks(now time.Time) {
 	if s.taskTTL <= 0 {
 		return
 	}
-	evicted := s.taskStore.EvictTerminal(now.Add(-s.taskTTL))
-	for _, taskID := range evicted {
+	for _, taskID := range s.taskStore.EvictTerminal(now.Add(-s.taskTTL)) {
+		s.forgetCancel(taskID)
+	}
+}
+
+// evictInterruptedTasks removes tasks left waiting for the caller past
+// WithInterruptedTaskTTL, when the store can.
+func (s *Server) evictInterruptedTasks(now time.Time) {
+	evictor, ok := s.taskStore.(InterruptedTaskEvictor)
+	if !ok || s.interruptedTTL <= 0 {
+		return
+	}
+	for _, taskID := range evictor.EvictInterrupted(now.Add(-s.interruptedTTL)) {
 		s.forgetCancel(taskID)
 	}
 }

@@ -36,6 +36,24 @@ type OwnedTaskStore interface {
 	Owner(taskID string) (string, error)
 }
 
+// TenantTaskStore is an OwnedTaskStore that also records the tenant each
+// task was created in: the tenant an A2A 1.0 request names, as the client
+// takes it from the AgentInterface it calls. With one, a task is visible only
+// to requests in its tenant (another tenant, or none, gets TaskNotFound), and
+// a context belongs to the tenant that first used it. InMemoryTaskStore is
+// one. With a store that is not, the server does not partition by tenant.
+//
+// A store that also implements TaskQuerier must honor TaskQuery.Tenant.
+type TenantTaskStore interface {
+	OwnedTaskStore
+	// CreateInTenant creates a task, as CreateOwned does, recording tenant
+	// as the tenant it was created in ("" for none).
+	CreateInTenant(taskID, contextID, owner, tenant string) (*a2a.Task, error)
+	// Tenant returns the tenant recorded for a task ("" for none), or
+	// ErrTaskNotFound.
+	Tenant(taskID string) (string, error)
+}
+
 // WithTaskOwner scopes every task to the caller that created it. owner
 // identifies the caller of each request; GetTask, CancelTask, ListTasks and
 // SubscribeToTask then see only the caller's own tasks, and ListTasks without
@@ -74,8 +92,20 @@ func (s *Server) checkOwnershipConfig() {
 	}
 }
 
-// createTask creates a task for the call's caller.
+// tenantStore returns the store's tenant-aware half, or nil.
+func (s *Server) tenantStore() TenantTaskStore {
+	tenants, _ := s.taskStore.(TenantTaskStore)
+	return tenants
+}
+
+// createTask creates a task for the call's caller, in the call's tenant. A
+// task in no tenant is created as it always was (CreateOwned, or Create), so
+// a store wrapping one of those is not bypassed.
 func (s *Server) createTask(call *rpcCall, taskID, contextID string) error {
+	if tenants := s.tenantStore(); tenants != nil && call.tenant != "" {
+		_, err := tenants.CreateInTenant(taskID, contextID, call.owner, call.tenant)
+		return err
+	}
 	if owned := s.ownedStore(); owned != nil {
 		_, err := owned.CreateOwned(taskID, contextID, call.owner)
 		return err
@@ -84,8 +114,14 @@ func (s *Server) createTask(call *rpcCall, taskID, contextID string) error {
 	return err
 }
 
-// callerOwns reports whether the call's caller may see taskID.
+// callerOwns reports whether the call's caller may see taskID: it is the
+// caller's own, when tasks are scoped by caller, and in the call's tenant.
 func (s *Server) callerOwns(call *rpcCall, taskID string) bool {
+	if tenants := s.tenantStore(); tenants != nil {
+		if tenant, err := tenants.Tenant(taskID); err != nil || tenant != call.tenant {
+			return false
+		}
+	}
 	owned := s.ownedStore()
 	if owned == nil {
 		return true
@@ -110,22 +146,20 @@ func (s *Server) getTaskFor(call *rpcCall, taskID string) *a2a.Task {
 var errContextTaken = errors.New("a2a: context belongs to another caller")
 
 // checkContextTasks refuses to open a conversation for contextID when the
-// context's tasks belong to another caller — as they do after that caller's
-// conversation was evicted, or when it lives on another replica. It reads the
-// store, so it runs only when a conversation is opened, not per message.
+// context's tasks belong to another caller or tenant — as they do after that
+// caller's conversation was evicted, or when it lives on another replica. It
+// reads the store, so it runs only when a conversation is opened, not per
+// message.
 func (s *Server) checkContextTasks(call *rpcCall, contextID string) error {
-	owned := s.ownedStore()
-	if owned == nil {
+	if s.ownedStore() == nil && s.tenantStore() == nil {
 		return nil
 	}
-	page, err := queryTasks(s.taskStore, TaskQuery{ContextID: contextID, Limit: 1})
+	// List, not a query: a query sees only the caller's own tenant.
+	tasks, err := s.taskStore.List(contextID, 1, 0)
 	if err != nil {
 		return fmt.Errorf("check access to context %s: %w", contextID, err)
 	}
-	if len(page.Tasks) == 0 {
-		return nil
-	}
-	if owner, ownerErr := owned.Owner(page.Tasks[0].ID); ownerErr == nil && owner == call.owner {
+	if len(tasks) == 0 || s.callerOwns(call, tasks[0].ID) {
 		return nil
 	}
 	return errContextTaken
