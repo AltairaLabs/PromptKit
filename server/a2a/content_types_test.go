@@ -12,8 +12,13 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// pngHeader is the start of a PNG file: enough for content sniffing.
-var pngHeader = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+// File headers: enough for content sniffing.
+var (
+	pngHeader = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	wavHeader = []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00")
+	m4aHeader = []byte("\x00\x00\x00\x1cftypM4A \x00\x00\x00\x00M4A mp42isom")
+	mp4Header = []byte("\x00\x00\x00\x1cftypisom\x00\x00\x02\x00isomiso2mp41")
+)
 
 func strPtr(s string) *string { return &s }
 
@@ -54,6 +59,64 @@ func TestServer_SendMessage_PartContentReachesConversation(t *testing.T) {
 			part: a2a.Part{Raw: pngHeader},
 			want: types.ContentPart{Type: types.ContentTypeImage, Media: &types.MediaContent{
 				Data: strPtr(base64.StdEncoding.EncodeToString(pngHeader)), MIMEType: "image/png",
+			}},
+		},
+		{
+			// http.DetectContentType says audio/wave; providers list audio/wav.
+			name: "raw WAV without mediaType gets the name providers list",
+			part: a2a.Part{Raw: wavHeader},
+			want: types.ContentPart{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+				Data: strPtr(base64.StdEncoding.EncodeToString(wavHeader)), MIMEType: "audio/wav",
+			}},
+		},
+		{
+			// An M4A file sniffs as video/mp4; its ftyp brand says it is audio.
+			name: "raw M4A without mediaType is audio",
+			part: a2a.Part{Raw: m4aHeader},
+			want: types.ContentPart{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+				Data: strPtr(base64.StdEncoding.EncodeToString(m4aHeader)), MIMEType: "audio/m4a",
+			}},
+		},
+		{
+			name: "raw MP4 video without mediaType stays video",
+			part: a2a.Part{Raw: mp4Header},
+			want: types.ContentPart{Type: types.ContentTypeVideo, Media: &types.MediaContent{
+				Data: strPtr(base64.StdEncoding.EncodeToString(mp4Header)), MIMEType: "video/mp4",
+			}},
+		},
+		{
+			name: "declared alias gets the name providers list",
+			part: a2a.Part{Raw: []byte{0, 1, 2}, MediaType: " Audio/X-WAV; rate=16000"},
+			want: types.ContentPart{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+				Data: strPtr(base64.StdEncoding.EncodeToString([]byte{0, 1, 2})), MIMEType: "audio/wav",
+			}},
+		},
+		{
+			name: "filename extension is matched without regard to case",
+			part: a2a.Part{Raw: []byte{0, 1, 2}, Filename: "Take 1.WAV"},
+			want: types.ContentPart{Type: types.ContentTypeAudio, Media: &types.MediaContent{
+				Data: strPtr(base64.StdEncoding.EncodeToString([]byte{0, 1, 2})), MIMEType: "audio/wav",
+			}},
+		},
+		{
+			name: "url .mov is video/mov, the name providers list",
+			part: a2a.Part{URL: strPtr("https://example.com/clip.mov")},
+			want: types.ContentPart{Type: types.ContentTypeVideo, Media: &types.MediaContent{
+				URL: strPtr("https://example.com/clip.mov"), MIMEType: "video/mov",
+			}},
+		},
+		{
+			name: "data URL scheme and type are case-insensitive",
+			part: a2a.Part{URL: strPtr("DATA:Image/PNG ;base64,iVBORw==")},
+			want: types.ContentPart{Type: types.ContentTypeImage, Media: &types.MediaContent{
+				URL: strPtr("DATA:Image/PNG ;base64,iVBORw=="), MIMEType: "image/png",
+			}},
+		},
+		{
+			name: "data URL without a type is text/plain (RFC 2397)",
+			part: a2a.Part{URL: strPtr("data:;base64,aGk=")},
+			want: types.ContentPart{Type: types.ContentTypeDocument, Media: &types.MediaContent{
+				URL: strPtr("data:;base64,aGk="), MIMEType: "text/plain",
 			}},
 		},
 		{
@@ -187,6 +250,61 @@ func TestServer_SendMessage_RejectsContentItCannotType(t *testing.T) {
 				"url part has no mediaType and neither its filename nor its URL names a type",
 		},
 		{
+			name:     "declared application/octet-stream",
+			part:     a2a.Part{Raw: pngHeader, MediaType: "application/octet-stream"},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"application/octet-stream names no type of content",
+		},
+		{
+			name:     "url declared application/octet-stream",
+			part:     a2a.Part{URL: strPtr("https://example.com/a.png"), MediaType: "Application/Octet-Stream"},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"application/octet-stream names no type of content",
+		},
+		{
+			name:     "data URL declaring application/octet-stream",
+			part:     a2a.Part{URL: strPtr("data:application/octet-stream;base64,AAEC")},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"application/octet-stream names no type of content",
+		},
+		{
+			name:     "raw with a filename extension of no known type",
+			part:     a2a.Part{Raw: []byte{0x00, 0x01, 0x02, 0x03}, Filename: "setup.exe"},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"raw part has no mediaType and its content is not a recognized type",
+		},
+		{
+			name:     "url with an extension of no known type",
+			part:     a2a.Part{URL: strPtr("https://example.com/firmware.bin")},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"url part has no mediaType and neither its filename nor its URL names a type",
+		},
+		{
+			name:     "raw UTF-16 text without mediaType",
+			part:     a2a.Part{Raw: []byte("\xff\xfeh\x00i\x00")},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"raw part has no mediaType and its text is not UTF-8",
+		},
+		{
+			name:     "raw Latin-1 text named by its filename",
+			part:     a2a.Part{Raw: []byte("caf\xe9"), Filename: "menu.txt"},
+			wantCode: a2a.ErrCodeContentTypeNotSupported,
+			wantMsg: "Invalid message: a2a: converting part 0: a2a: content type not supported: " +
+				"raw part has no mediaType and its text is not UTF-8",
+		},
+		{
+			name:     "data URL without a comma",
+			part:     a2a.Part{URL: strPtr("data:image/png;base64")},
+			wantCode: a2a.ErrCodeInvalidParams,
+			wantMsg:  "Invalid message: a2a: converting part 0: a2a: url part is a malformed data URL: it has no comma",
+		},
+		{
 			name:     "empty url",
 			part:     a2a.Part{URL: strPtr(""), MediaType: "image/png"},
 			wantCode: a2a.ErrCodeInvalidParams,
@@ -230,6 +348,36 @@ func TestServer_SendMessage_RejectsContentItCannotType(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A message mixing text and data parts reaches the conversation with every
+// part in order, and its Content is the text parts' text.
+func TestServer_SendMessage_TextAndDataPartsReachConversation(t *testing.T) {
+	conv := &recordingConv{}
+	_, ts := newTestServer(func(string) (Conversation, error) { return conv, nil })
+	defer ts.Close()
+
+	task := a2aSendMessageWithParts(t, ts, "ctx-mixed", []a2a.Part{
+		{Text: strPtr("Ship this order: ")},
+		{Data: map[string]any{"id": 7, "items": []any{"A-1"}}},
+		{Text: strPtr(" today.")},
+	})
+	if task.Status.State != a2a.TaskStateCompleted {
+		t.Fatalf("state = %q, want completed", task.Status.State)
+	}
+
+	got := conv.received()
+	want := []types.ContentPart{
+		{Type: types.ContentTypeText, Text: strPtr("Ship this order: ")},
+		{Type: types.ContentTypeText, Text: strPtr(`{"id":7,"items":["A-1"]}`)},
+		{Type: types.ContentTypeText, Text: strPtr(" today.")},
+	}
+	if got == nil || !reflect.DeepEqual(got.Parts, want) {
+		t.Fatalf("parts = %+v, want %s", got, describeParts(want))
+	}
+	if wantContent := `Ship this order: {"id":7,"items":["A-1"]} today.`; got.Content != wantContent {
+		t.Fatalf("content = %q, want %q", got.Content, wantContent)
 	}
 }
 

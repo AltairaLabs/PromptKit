@@ -223,7 +223,9 @@ In conversation mode the server converts each part of an incoming message for th
 | `raw` or `url` | an image, audio, video or document part, by media type |
 | `data` | a text part holding the value as JSON |
 
-`mediaType` is optional in A2A 1.0. When a `raw` or `url` part omits it, the server takes the type from the part's `filename` extension, then from a data URL's header or the URL path's extension, or by sniffing the raw bytes. A part whose type none of these name fails with `ContentTypeNotSupportedError` (`-32005`). A part with no content, or with an empty `url`, fails with `-32602`. A refused message opens no conversation.
+`mediaType` is optional in A2A 1.0. When a `raw` or `url` part omits it, the server takes the type from the part's `filename` extension, then from a data URL's header or the URL path's extension, or by sniffing the raw bytes. A data URL whose header names no type is `text/plain`, as RFC 2397 says. Every type, declared or inferred, reaches the conversation under the name the providers list: lowercase, without parameters, and with aliases resolved, so `audio/x-wav` and `audio/wave` arrive as `audio/wav` and `video/quicktime` as `video/mov`.
+
+The server refuses a message with `ContentTypeNotSupportedError` (`-32005`) when a part's type cannot be determined, when it is `application/octet-stream`, or when raw text without a declared `mediaType` is not UTF-8. It refuses a part with no content, an empty `url`, or a data URL without a comma with `-32602`. A refused message opens no conversation. The server does not check a resolved type against what the conversation's provider accepts, because it cannot see the provider before the conversation is opened. A type the provider rejects fails the task instead.
 
 ---
 

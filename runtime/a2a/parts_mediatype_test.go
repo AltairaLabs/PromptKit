@@ -22,6 +22,14 @@ func TestPartToContentPart_InfersMissingMediaType(t *testing.T) {
 		{"raw keeps its mediaType", Part{Raw: png, MediaType: "image/x-custom"}, types.ContentTypeImage, "image/x-custom"},
 		{"raw from filename before bytes", Part{Raw: png, Filename: "scan.PDF"}, types.ContentTypeDocument, "application/pdf"},
 		{"raw sniffed", Part{Raw: png}, types.ContentTypeImage, "image/png"},
+		{"raw WAV sniffed as audio/wav", Part{Raw: []byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00")},
+			types.ContentTypeAudio, types.MIMETypeAudioWAV},
+		{"raw M4A sniffed as audio", Part{Raw: []byte("\x00\x00\x00\x1cftypM4A \x00\x00\x00\x00M4A mp42isom")},
+			types.ContentTypeAudio, "audio/m4a"},
+		{"raw MP4 sniffed as video", Part{Raw: []byte("\x00\x00\x00\x1cftypisom\x00\x00\x02\x00isomiso2mp41")},
+			types.ContentTypeVideo, types.MIMETypeVideoMP4},
+		{"data URL scheme in capitals", Part{URL: testutil.Ptr("Data:audio/x-wav;base64,UklGRg==")},
+			types.ContentTypeAudio, types.MIMETypeAudioWAV},
 		{"raw text sniffed without charset", Part{Raw: []byte("notes")}, types.ContentTypeDocument, "text/plain"},
 		{"url keeps its mediaType", Part{URL: testutil.Ptr("https://e.com/a.png"), MediaType: "audio/wav"},
 			types.ContentTypeAudio, "audio/wav"},
@@ -55,6 +63,10 @@ func TestPartToContentPart_RefusesContentOfNoKnownType(t *testing.T) {
 			"a2a: content type not supported: raw part has no mediaType and its content is not a recognized type"},
 		{"url naming no type", Part{URL: testutil.Ptr("https://e.com/download?id=1")},
 			"a2a: content type not supported: url part has no mediaType and neither its filename nor its URL names a type"},
+		{"declared octet-stream", Part{Raw: []byte("x"), MediaType: "application/octet-stream"},
+			"a2a: content type not supported: application/octet-stream names no type of content"},
+		{"undeclared text that is not UTF-8", Part{Raw: []byte("\xff\xfeh\x00i\x00")},
+			"a2a: content type not supported: raw part has no mediaType and its text is not UTF-8"},
 		{"unparseable url", Part{URL: testutil.Ptr("https://e.com/%zz.png")},
 			"a2a: content type not supported: url part has no mediaType and neither its filename nor its URL names a type"},
 	}
@@ -65,6 +77,16 @@ func TestPartToContentPart_RefusesContentOfNoKnownType(t *testing.T) {
 				t.Fatalf("error = %v, want %q wrapping ErrContentTypeNotSupported", err, tt.wantMsg)
 			}
 		})
+	}
+}
+
+func TestPartToContentPart_DataURLWithoutCommaIsMalformed(t *testing.T) {
+	for _, u := range []string{"data:", "data:image/png;base64"} {
+		_, err := PartToContentPart(&Part{URL: testutil.Ptr(u)})
+		if err == nil || err.Error() != "a2a: url part is a malformed data URL: it has no comma" ||
+			errors.Is(err, ErrContentTypeNotSupported) {
+			t.Fatalf("%q: error = %v, want the malformed data URL error", u, err)
+		}
 	}
 }
 

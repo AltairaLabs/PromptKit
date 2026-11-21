@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime"
-	"net/http"
-	"net/url"
-	"path"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -25,7 +21,7 @@ func InferContentType(mediaType string) string {
 		return types.ContentTypeAudio
 	case strings.HasPrefix(mediaType, "video/"):
 		return types.ContentTypeVideo
-	case mediaType == "application/pdf",
+	case mediaType == types.MIMETypePDF,
 		strings.HasPrefix(mediaType, "text/"):
 		return types.ContentTypeDocument
 	default:
@@ -34,26 +30,30 @@ func InferContentType(mediaType string) string {
 }
 
 // ErrContentTypeNotSupported is wrapped by the errors PartToContentPart and
-// MessageToMessage return for content whose media type cannot be determined.
-// A server answers it with ContentTypeNotSupportedError
-// (ErrCodeContentTypeNotSupported).
+// MessageToMessage return for content whose media type cannot be determined,
+// or is application/octet-stream, which names none. A server answers it with
+// ContentTypeNotSupportedError (ErrCodeContentTypeNotSupported).
 var ErrContentTypeNotSupported = errors.New("a2a: content type not supported")
 
 // errDataPart is PartToContentPart's error for a structured data part, which
 // has no media content part to become.
 var errDataPart = errors.New("a2a: structured data parts are not supported")
 
-// octetStream is what content sniffing reports for bytes of no known type.
-const octetStream = "application/octet-stream"
-
 // PartToContentPart converts an A2A Part to a PromptKit ContentPart. A text part
 // becomes a text content part. A Raw or URL part becomes a media content part.
+//
 // Its media type is MediaType when set; A2A makes that field optional, so
 // otherwise it is taken from Filename's extension, then from a data URL's
-// header or the URL path's extension, or from sniffing Raw's bytes. A media
-// part whose type none of these name returns an error wrapping
-// ErrContentTypeNotSupported. A structured data part, or a part with none of
-// text, raw, a non-empty URL or data, returns an error.
+// header (text/plain when the header names none, as RFC 2397 says) or the URL
+// path's extension, or from sniffing Raw's bytes. Every media type is reported
+// under the name providers list: lowercase, without parameters, and with
+// aliases such as audio/x-wav and audio/wave given as audio/wav.
+//
+// A media part whose type none of these name, whose type is
+// application/octet-stream, or whose undeclared text is not UTF-8, returns an
+// error wrapping ErrContentTypeNotSupported. A data URL without a comma, a
+// structured data part, or a part with none of text, raw, a non-empty URL or
+// data, returns an error.
 func PartToContentPart(part *Part) (types.ContentPart, error) {
 	switch {
 	case part.Text != nil:
@@ -63,10 +63,9 @@ func PartToContentPart(part *Part) (types.ContentPart, error) {
 		}, nil
 
 	case len(part.Raw) > 0:
-		mediaType := rawMediaType(part)
-		if mediaType == "" {
-			return types.ContentPart{}, fmt.Errorf(
-				"%w: raw part has no mediaType and its content is not a recognized type", ErrContentTypeNotSupported)
+		mediaType, err := rawMediaType(part)
+		if err != nil {
+			return types.ContentPart{}, err
 		}
 		b64 := base64.StdEncoding.EncodeToString(part.Raw)
 		return types.ContentPart{
@@ -78,11 +77,9 @@ func PartToContentPart(part *Part) (types.ContentPart, error) {
 		}, nil
 
 	case part.URL != nil && *part.URL != "":
-		mediaType := urlMediaType(part)
-		if mediaType == "" {
-			return types.ContentPart{}, fmt.Errorf(
-				"%w: url part has no mediaType and neither its filename nor its URL names a type",
-				ErrContentTypeNotSupported)
+		mediaType, err := urlMediaType(part)
+		if err != nil {
+			return types.ContentPart{}, err
 		}
 		return types.ContentPart{
 			Type: InferContentType(mediaType),
@@ -98,56 +95,6 @@ func PartToContentPart(part *Part) (types.ContentPart, error) {
 	default:
 		return types.ContentPart{}, fmt.Errorf("a2a: empty part (no text, raw, url, or data)")
 	}
-}
-
-// rawMediaType names a raw part's media type: MediaType, else Filename's
-// extension, else the type its bytes sniff as. It is "" when none names one.
-func rawMediaType(part *Part) string {
-	if part.MediaType != "" {
-		return part.MediaType
-	}
-	if t := extensionMediaType(part.Filename); t != "" {
-		return t
-	}
-	if t := bareMediaType(http.DetectContentType(part.Raw)); t != octetStream {
-		return t
-	}
-	return ""
-}
-
-// urlMediaType names a URL part's media type: MediaType, else Filename's
-// extension, else a data URL's declared type or the URL path's extension. It
-// is "" when none names one.
-func urlMediaType(part *Part) string {
-	if part.MediaType != "" {
-		return part.MediaType
-	}
-	if t := extensionMediaType(part.Filename); t != "" {
-		return t
-	}
-	if rest, isData := strings.CutPrefix(*part.URL, "data:"); isData {
-		header, _, _ := strings.Cut(rest, ",")
-		declared, _, _ := strings.Cut(header, ";")
-		return declared
-	}
-	u, err := url.Parse(*part.URL)
-	if err != nil {
-		return ""
-	}
-	return extensionMediaType(u.Path)
-}
-
-// extensionMediaType is the media type name's extension stands for, without
-// parameters, or "" for an unknown or missing extension. The lookup ignores
-// case.
-func extensionMediaType(name string) string {
-	return bareMediaType(mime.TypeByExtension(path.Ext(name)))
-}
-
-// bareMediaType drops a media type's parameters ("; charset=utf-8").
-func bareMediaType(mediaType string) string {
-	bare, _, _ := strings.Cut(mediaType, ";")
-	return strings.TrimSpace(bare)
 }
 
 // dataPartToContentPart renders a data part as a text content part holding
