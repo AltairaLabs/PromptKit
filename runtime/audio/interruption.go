@@ -126,24 +126,30 @@ func (h *InterruptionHandler) Interrupt() {
 }
 
 // BargeIn fires the interruption for a caller turn whose end already began
-// the reply it is owed (BeginResponse), once that turn is known to be speech:
-// as Interrupt, and the turn's reply survives the Reset that closes the
-// interrupted one, as a reply begun after the interruption does. Idempotent
-// within a turn; cleared by Reset.
-func (h *InterruptionHandler) BargeIn() {
+// the reply it is owed (BeginResponse), once that turn is known to be speech,
+// and reports whether it fired. It fires only while an earlier reply is still
+// under way (owed besides the turn's own, being synthesized, or playing): one
+// that ended while the turn was transcribed has nothing left to interrupt.
+// When it fires, the turn's reply survives the Reset that closes the
+// interrupted one, as a reply begun after the interruption does. It fires
+// once within a turn; Reset clears it.
+func (h *InterruptionHandler) BargeIn() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.responding > 0 {
-		h.respondAfterReset = true
+	if h.interrupted || h.strategy != InterruptionImmediate {
+		return false
 	}
-	if h.interrupted {
-		return
+	earlier := h.responding > 1 || h.botSpeaking || h.clockLocked().Before(h.speakingUntil)
+	if !earlier {
+		return false
 	}
+	h.respondAfterReset = h.responding > 0
 	h.interrupted = true
 	h.fireLocked()
 	if h.onInterrupt != nil {
 		go h.onInterrupt()
 	}
+	return true
 }
 
 // SetBotSpeaking sets whether the bot is outputting audio (e.g. while TTS is

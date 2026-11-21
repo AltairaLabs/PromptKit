@@ -69,7 +69,7 @@ for chunk := range audioStream {
 - [type InterruptionCallback](<#InterruptionCallback>)
 - [type InterruptionHandler](<#InterruptionHandler>)
   - [func NewInterruptionHandler\(strategy InterruptionStrategy, vad VADAnalyzer\) \*InterruptionHandler](<#NewInterruptionHandler>)
-  - [func \(h \*InterruptionHandler\) BargeIn\(\)](<#InterruptionHandler.BargeIn>)
+  - [func \(h \*InterruptionHandler\) BargeIn\(\) bool](<#InterruptionHandler.BargeIn>)
   - [func \(h \*InterruptionHandler\) BeginResponse\(\)](<#InterruptionHandler.BeginResponse>)
   - [func \(h \*InterruptionHandler\) EndResponse\(\)](<#InterruptionHandler.EndResponse>)
   - [func \(h \*InterruptionHandler\) ExtendPlayback\(d time.Duration\)](<#InterruptionHandler.ExtendPlayback>)
@@ -402,16 +402,16 @@ func NewInterruptionHandler(strategy InterruptionStrategy, vad VADAnalyzer) *Int
 NewInterruptionHandler creates an InterruptionHandler with the given strategy and VAD.
 
 <a name="InterruptionHandler.BargeIn"></a>
-### func \(\*InterruptionHandler\) [BargeIn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L133>)
+### func \(\*InterruptionHandler\) [BargeIn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L136>)
 
 ```go
-func (h *InterruptionHandler) BargeIn()
+func (h *InterruptionHandler) BargeIn() bool
 ```
 
-BargeIn fires the interruption for a caller turn whose end already began the reply it is owed \(BeginResponse\), once that turn is known to be speech: as Interrupt, and the turn's reply survives the Reset that closes the interrupted one, as a reply begun after the interruption does. Idempotent within a turn; cleared by Reset.
+BargeIn fires the interruption for a caller turn whose end already began the reply it is owed \(BeginResponse\), once that turn is known to be speech, and reports whether it fired. It fires only while an earlier reply is still under way \(owed besides the turn's own, being synthesized, or playing\): one that ended while the turn was transcribed has nothing left to interrupt. When it fires, the turn's reply survives the Reset that closes the interrupted one, as a reply begun after the interruption does. It fires once within a turn; Reset clears it.
 
 <a name="InterruptionHandler.BeginResponse"></a>
-### func \(\*InterruptionHandler\) [BeginResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L182>)
+### func \(\*InterruptionHandler\) [BeginResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L188>)
 
 ```go
 func (h *InterruptionHandler) BeginResponse()
@@ -422,7 +422,7 @@ BeginResponse marks that the bot owes a reply: call it when the user's turn ends
 A reply begun while an interruption is still being handled \(its Reset has not happened yet\) survives that Reset: it is the reply to the interrupting turn.
 
 <a name="InterruptionHandler.EndResponse"></a>
-### func \(\*InterruptionHandler\) [EndResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L195>)
+### func \(\*InterruptionHandler\) [EndResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L201>)
 
 ```go
 func (h *InterruptionHandler) EndResponse()
@@ -431,7 +431,7 @@ func (h *InterruptionHandler) EndResponse()
 EndResponse marks the end of the reply begun by BeginResponse: its turn is over, or no reply will follow. Audio still playing \(see ExtendPlayback\) keeps the bot speaking until it would have finished. A deferred interruption pending on this reply fires now.
 
 <a name="InterruptionHandler.ExtendPlayback"></a>
-### func \(\*InterruptionHandler\) [ExtendPlayback](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L210>)
+### func \(\*InterruptionHandler\) [ExtendPlayback](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L216>)
 
 ```go
 func (h *InterruptionHandler) ExtendPlayback(d time.Duration)
@@ -458,7 +458,7 @@ func (h *InterruptionHandler) Interrupted() <-chan struct{}
 Interrupted returns a channel closed when an interruption fires for the current turn. Reset re\-arms it, so callers should re\-fetch after a Reset.
 
 <a name="InterruptionHandler.IsBotSpeaking"></a>
-### func \(\*InterruptionHandler\) [IsBotSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L252>)
+### func \(\*InterruptionHandler\) [IsBotSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L258>)
 
 ```go
 func (h *InterruptionHandler) IsBotSpeaking() bool
@@ -467,7 +467,7 @@ func (h *InterruptionHandler) IsBotSpeaking() bool
 IsBotSpeaking reports whether the bot is engaged in a reply, so that user speech would interrupt it: SetBotSpeaking\(true\), a reply begun and not ended, or delivered audio still playing.
 
 <a name="InterruptionHandler.NotifySentenceBoundary"></a>
-### func \(\*InterruptionHandler\) [NotifySentenceBoundary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L380>)
+### func \(\*InterruptionHandler\) [NotifySentenceBoundary](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L386>)
 
 ```go
 func (h *InterruptionHandler) NotifySentenceBoundary()
@@ -476,7 +476,7 @@ func (h *InterruptionHandler) NotifySentenceBoundary()
 NotifySentenceBoundary notifies the handler of a sentence boundary. For deferred interruption strategy, this may trigger the pending interruption.
 
 <a name="InterruptionHandler.OnInterrupt"></a>
-### func \(\*InterruptionHandler\) [OnInterrupt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L259>)
+### func \(\*InterruptionHandler\) [OnInterrupt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L265>)
 
 ```go
 func (h *InterruptionHandler) OnInterrupt(callback InterruptionCallback)
@@ -485,7 +485,7 @@ func (h *InterruptionHandler) OnInterrupt(callback InterruptionCallback)
 OnInterrupt registers a callback for when interruption occurs.
 
 <a name="InterruptionHandler.ProcessAudio"></a>
-### func \(\*InterruptionHandler\) [ProcessAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L267>)
+### func \(\*InterruptionHandler\) [ProcessAudio](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L273>)
 
 ```go
 func (h *InterruptionHandler) ProcessAudio(ctx context.Context, audio []byte) (bool, error)
@@ -494,7 +494,7 @@ func (h *InterruptionHandler) ProcessAudio(ctx context.Context, audio []byte) (b
 ProcessAudio processes audio and detects user interruption. Returns true if an interruption was detected and should be acted upon.
 
 <a name="InterruptionHandler.ProcessVADState"></a>
-### func \(\*InterruptionHandler\) [ProcessVADState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L299>)
+### func \(\*InterruptionHandler\) [ProcessVADState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L305>)
 
 ```go
 func (h *InterruptionHandler) ProcessVADState(ctx context.Context, state VADState) (bool, error)
@@ -503,7 +503,7 @@ func (h *InterruptionHandler) ProcessVADState(ctx context.Context, state VADStat
 ProcessVADState processes a VAD state update for interruption detection. Returns true if an interruption was detected and should be acted upon.
 
 <a name="InterruptionHandler.Reset"></a>
-### func \(\*InterruptionHandler\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L358>)
+### func \(\*InterruptionHandler\) [Reset](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L364>)
 
 ```go
 func (h *InterruptionHandler) Reset()
@@ -512,7 +512,7 @@ func (h *InterruptionHandler) Reset()
 Reset clears interruption state for a new turn: the interrupted reply's speaking, responding and playback state is dropped with it.
 
 <a name="InterruptionHandler.SetBotSpeaking"></a>
-### func \(\*InterruptionHandler\) [SetBotSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L152>)
+### func \(\*InterruptionHandler\) [SetBotSpeaking](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L158>)
 
 ```go
 func (h *InterruptionHandler) SetBotSpeaking(speaking bool)
@@ -521,7 +521,7 @@ func (h *InterruptionHandler) SetBotSpeaking(speaking bool)
 SetBotSpeaking sets whether the bot is outputting audio \(e.g. while TTS is synthesizing\). See BeginResponse and ExtendPlayback for the rest of the window in which user speech interrupts the bot.
 
 <a name="InterruptionHandler.WasInterrupted"></a>
-### func \(\*InterruptionHandler\) [WasInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L350>)
+### func \(\*InterruptionHandler\) [WasInterrupted](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L356>)
 
 ```go
 func (h *InterruptionHandler) WasInterrupted() bool
@@ -530,7 +530,7 @@ func (h *InterruptionHandler) WasInterrupted() bool
 WasInterrupted returns true if an interruption occurred.
 
 <a name="InterruptionHandler.WouldInterrupt"></a>
-### func \(\*InterruptionHandler\) [WouldInterrupt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L243>)
+### func \(\*InterruptionHandler\) [WouldInterrupt](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/audio/interruption.go#L249>)
 
 ```go
 func (h *InterruptionHandler) WouldInterrupt() bool

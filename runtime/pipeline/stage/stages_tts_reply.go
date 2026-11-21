@@ -28,6 +28,16 @@ func (s *TTSStageWithInterruption) speakDelta(
 	if elem.Text == nil || *elem.Text == "" {
 		return nil
 	}
+	// A delta of the next round ends the last one's text: what is left of it
+	// is spoken now, as that round's.
+	if rest := reply.peekRoundEnd(elem.Meta.MessageID); len(rest) > 0 {
+		if err := s.speakSegments(forwardCtx, synthCtx, reply, rest, output); err != nil {
+			return err
+		}
+	}
+	if elem.Meta.MessageID != "" {
+		reply.round = elem.Meta.MessageID
+	}
 	// A delta that ends a released segment (stream_hold), or the reply, ends
 	// a segment to speak now: no later text can extend it.
 	final := elem.Meta.FinishReason != nil || elem.Meta.SegmentEnd
@@ -51,24 +61,33 @@ func (s *TTSStageWithInterruption) speakStreamedMessage(
 		return s.forwardElement(forwardCtx, *elem, output)
 	}
 	interrupted := elem.Message.FinishReason == types.FinishReasonInterrupted
+	if id := elem.Message.ID(); id != "" {
+		reply.round = id // what of it is still to speak is its own
+	}
 	if !interrupted {
 		if err := s.speakSegments(forwardCtx, synthCtx, reply, reply.complete(text), output); err != nil {
 			return err
 		}
 		// Handed on before its audio has played, the Message would be stored
 		// whole though a barge-in may yet cut it.
-		s.waitUntil(synthCtx, reply.ended, reply.playout.until)
+		s.awaitPlayout(synthCtx, reply, reply.playout.endOf(elem.Message.ID()))
 	}
 	out := *elem
 	now := s.clock.now()
+	cutAt := reply.interruptedAt(now)
+	end := reply.playout.endOf(elem.Message.ID())
+	if s.config.NoPlaybackPacing {
+		// No playback to estimate: all audio handed on counts as heard.
+		now, cutAt = end, end
+	}
 	switch {
 	case interrupted || reply.stopped || (synthCtx.Err() != nil && forwardCtx.Err() == nil):
 		// A barge-in cut the reply: the model's next turn goes on from what
 		// was heard.
-		out.Message = reply.cutMessage(elem.Message, reply.interruptedAt(now), types.PlayoutCutBargeIn)
+		out.Message = reply.cutMessage(elem.Message, cutAt, types.PlayoutCutBargeIn)
 		s.config.HeardReplies.record(elem.Message.Content, out.Message)
 		reply.stop()
-	case now.Before(reply.playout.until):
+	case now.Before(end):
 		// The session is closing (its input ended) while the reply plays.
 		out.Message = reply.cutMessage(elem.Message, now, types.PlayoutCutSessionClosed)
 	default:
@@ -79,7 +98,7 @@ func (s *TTSStageWithInterruption) speakStreamedMessage(
 		out.Error = reply.err
 		reply.err = nil
 	}
-	reply.messageDone(text)
+	reply.messageDone(text, elem.Message.ID())
 	return s.forwardElement(forwardCtx, out, output)
 }
 
@@ -116,7 +135,7 @@ func (s *TTSStageWithInterruption) speakSegments(
 		if s.shouldSkipText(seg) {
 			continue
 		}
-		if !s.waitUntil(synthCtx, reply.ended, reply.playout.lastStart()) {
+		if !s.awaitPlayout(synthCtx, reply, reply.playout.lastStart()) {
 			return nil
 		}
 		next := ""
@@ -128,6 +147,16 @@ func (s *TTSStageWithInterruption) speakSegments(
 		}
 	}
 	return nil
+}
+
+// awaitPlayout waits until t of the reply's playback (waitUntil), unless the
+// caller does not play the audio in real time (NoPlaybackPacing); it reports
+// whether the reply goes on.
+func (s *TTSStageWithInterruption) awaitPlayout(ctx context.Context, reply *replySpeech, t time.Time) bool {
+	if s.config.NoPlaybackPacing {
+		return ctx.Err() == nil
+	}
+	return s.waitUntil(ctx, reply.ended, t)
 }
 
 // waitUntil waits for the stage's clock to reach t, and reports whether it
@@ -255,7 +284,7 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 	// The caller plays this after it is handed over, so the bot is still
 	// speaking, and interruptible, until it would have finished.
 	d := audio.PCM16Duration(len(samples), sampleRate, 1)
-	reply.playout.add(text, first, s.clock.now(), d)
+	reply.playout.add(text, reply.round, first, s.clock.now(), d)
 	if s.interruption != nil {
 		s.interruption.ExtendPlayback(d)
 	}

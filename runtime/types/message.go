@@ -106,6 +106,11 @@ const (
 	// MetaPlayoutCut says why the reply's playback was cut: PlayoutCutBargeIn,
 	// PlayoutCutGuardrail or PlayoutCutSessionClosed.
 	MetaPlayoutCut = "playout_cut"
+	// MetaHeardPrefix, set to true, marks a reply whose text was truncated to
+	// what the caller heard of it (a cascaded voice session's speech-out
+	// stage does this; a realtime session, whose audio transcripts carry no
+	// timing, keeps the whole text). See IsHeardPrefix.
+	MetaHeardPrefix = "_heard_prefix"
 )
 
 // MetaCallerTurn is the Message.Meta key under which a duplex (realtime or
@@ -476,15 +481,16 @@ func ExcludeInterrupted(msgs []Message) []Message {
 }
 
 // IsHeardPrefix reports whether m is what a caller heard of a spoken reply
-// they cut off: an interrupted reply whose playback was cut (Meta
-// MetaPlayoutCut), its text what had played, with no tool calls (a call cut
-// off may have no result, which providers reject).
+// they cut off: an interrupted reply whose text was truncated to what had
+// played (Meta MetaHeardPrefix), with no tool calls. A reply whose playback
+// was cut but whose text was not (a realtime reply: playout_cut alone) is
+// not: much of its text was never heard.
 func (m *Message) IsHeardPrefix() bool {
 	if !m.IsInterrupted() || len(m.ToolCalls) > 0 {
 		return false
 	}
-	_, cut := m.Meta[MetaPlayoutCut]
-	return cut
+	heard, _ := m.Meta[MetaHeardPrefix].(bool)
+	return heard
 }
 
 // LeavesModelContext reports whether m is left out of history sent back to a

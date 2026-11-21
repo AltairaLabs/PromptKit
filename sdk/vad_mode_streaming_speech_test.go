@@ -415,9 +415,10 @@ func TestVADMode_CallerSpeechCancelsTheStreamingReply(t *testing.T) {
 		"caller speech must cancel the synthesis in flight")
 	require.True(t, provider.waitForTurns(2, streamingSpeechBound), "the caller's speech must be the next turn")
 	assert.Contains(t, userTextsIn(provider.turnAt(1)), "what is the capital")
-	require.True(t, waitFor(func() bool { return len(ttsSvc.texts()) >= 2 }, streamingSpeechBound),
-		"the next turn's reply is spoken")
-	time.Sleep(20 * time.Millisecond) // nothing of the canceled reply may follow
+	// Once the next turn's reply has ended, everything the stage had of the
+	// canceled reply has gone through it: nothing of it can follow.
+	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, streamingSpeechBound),
+		"the next turn's reply never ended")
 	assert.Equal(t, []string{"The fox woke early.", "Paris."}, ttsSvc.texts(),
 		"nothing of the canceled reply is synthesized after the caller spoke")
 	assert.True(t, rec.sawInterrupt(), "the caller is told to flush playback")
@@ -570,7 +571,6 @@ func TestVADMode_SegmentHeldReplyIsSpokenOnlyAsItIsReleased(t *testing.T) {
 	speak(t, conv)
 	model.next(t)
 	assert.Equal(t, "The weather is mild today.", recvWithin(t, judge.started))
-	time.Sleep(20 * time.Millisecond) // a held segment must not be spoken in the meantime
 	assert.Empty(t, ttsSvc.texts(), "nothing is spoken while the judge holds it")
 
 	letThrough(t, judge.gate)
@@ -707,18 +707,24 @@ func TestVADMode_BargeInStoresWhatTheCallerHeard(t *testing.T) {
 				canceled:  make(chan struct{}),
 			}
 			store := statestore.NewMemoryStore()
-			opts := []Option{WithStateStore(store)}
+			sttSvc := newScriptedSTT("tell me a story", "what is the capital")
+			// Without playback pacing, all audio handed on counts as heard, so
+			// what was heard is exact without waiting on a clock: the first
+			// sentence was handed on, the second never was (its synthesis is
+			// held until the barge-in cancels it). Heard-by-playout is the
+			// TTS stage's own tests' to pin, on a manual clock.
+			unpaced := vadTestConfig()
+			unpaced.NoPlaybackPacing = true
+			opts := []Option{WithStateStore(store), WithVADMode(sttSvc, ttsSvc, unpaced)}
 			if tc.messageLog {
 				opts = append(opts, WithMessageLog(store))
 			}
-			conv, rec := openStreamingSpeechConv(t, provider,
-				newScriptedSTT("tell me a story", "what is the capital"), ttsSvc, opts...)
+			conv, rec := openStreamingSpeechConv(t, provider, sttSvc, ttsSvc, opts...)
 			convID := conv.ID()
 
 			speak(t, conv)
 			awaitClosed(t, ttsSvc.second, "the second sentence was never synthesized")
 			require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound))
-			time.Sleep(40 * time.Millisecond) // the first sentence's 20ms of audio has played
 
 			speak(t, conv) // talks over the reply
 			awaitClosed(t, provider.canceled, "caller speech must cancel the model call")
@@ -765,16 +771,15 @@ func TestVADMode_CloseMidReplyStoresWhatWasHeard(t *testing.T) {
 	speak(t, conv)
 	require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 || rec.turnCompletes() > 0 },
 		streamingSpeechBound))
-	time.Sleep(300 * time.Millisecond) // some of the 2s plays
-	require.NoError(t, closeWithin(t, conv))
+	require.NoError(t, closeWithin(t, conv)) // well inside the reply's 2s
 
 	stored := storedAssistant(t, store, convID)
 	require.Len(t, stored, 1, "the reply is stored though the session closed while it played")
 	cut := stored[0]
 	assert.Equal(t, types.PlayoutCutSessionClosed, cut.Meta[types.MetaPlayoutCut])
 	heard, _ := cut.Meta[types.MetaHeardMs].(int64)
-	assert.GreaterOrEqual(t, heard, int64(250))
 	assert.Less(t, heard, int64(2000), "the caller had not heard it all")
+	assert.EqualValues(t, 2000, cut.Meta[types.MetaAudioMs])
 	assert.True(t, strings.HasPrefix(sentence, cut.Content), "at most what was heard: %q", cut.Content)
 	assert.Less(t, len(cut.Content), len(sentence))
 }

@@ -27,14 +27,14 @@ func blipTurnWith(t *testing.T, h *audio.InterruptionHandler, turnBased bool) []
 	config.EmitEndOfTurn = turnBased
 	config.MinSpeechDuration = 50 * time.Millisecond
 	config.SilenceDuration = 100 * time.Millisecond
-	config.VAD = &mockVADAnalyzer{states: []audio.VADState{
-		audio.VADStateStarting, audio.VADStateQuiet, audio.VADStateQuiet, audio.VADStateQuiet,
-	}}
+	config.VAD = &mockVADAnalyzer{states: []audio.VADState{audio.VADStateStarting, audio.VADStateQuiet}}
 	config.InterruptionHandler = h
 	s, err := stage.NewAudioTurnStage(config)
 	require.NoError(t, err)
+	// 100ms loud, then 100ms quiet: one turn (the mock VAD restarts its
+	// script when the turn resets it, so more audio would be a second blip).
 	var inputs []stage.StreamElement
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 2; i++ {
 		inputs = append(inputs, makeAudioElement(generateTestPCMAudio(3200), 16000))
 	}
 	return runStage(t, s, inputs, 2*time.Second)
@@ -124,4 +124,26 @@ func TestSTTStage_TranscribedBargeInInterruptsAheadOfTheTranscript(t *testing.T)
 	assert.True(t, h.WasInterrupted())
 	h.Reset() // the TTS stage handles the Interrupt
 	assert.True(t, h.IsBotSpeaking(), "the reply to the interrupting turn is still owed")
+}
+
+// A turn carrying the barge-in whose earlier reply finished while it was being
+// transcribed interrupts nothing: no Interrupt reaches the provider stage or
+// the caller.
+func TestSTTStage_BargeInOnAReplyThatFinishedFiresNothing(t *testing.T) {
+	h := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	h.BeginResponse() // the reply in progress
+	got := blipTurn(t, h)
+	require.NotEmpty(t, got)
+	require.True(t, got[0].Meta.BargeInIfTranscribed)
+	h.EndResponse() // the reply ended and played out before STT answered
+
+	out := runStage(t, sttOf(h, "thanks"), got, 2*time.Second)
+
+	require.NotEmpty(t, out)
+	for _, e := range out {
+		assert.False(t, e.Interrupt, "there was nothing left to interrupt")
+	}
+	require.NotNil(t, out[0].Text)
+	assert.Equal(t, "thanks", *out[0].Text)
+	assert.False(t, h.WasInterrupted())
 }

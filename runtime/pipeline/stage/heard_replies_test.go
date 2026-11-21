@@ -101,7 +101,7 @@ func TestProviderStage_NextTurnSeesWhatTheCallerHeard(t *testing.T) {
 	recvWithin(t, output)
 
 	cut := types.Message{Role: roleAssistant, Content: "rep", FinishReason: types.FinishReasonInterrupted,
-		Meta: map[string]interface{}{types.MetaPlayoutCut: types.PlayoutCutBargeIn}}
+		Meta: map[string]interface{}{types.MetaPlayoutCut: types.PlayoutCutBargeIn, types.MetaHeardPrefix: true}}
 	go func() {
 		time.Sleep(20 * time.Millisecond) // the speech-out stage handles the Interrupt
 		heard.record("reply-1", &cut)

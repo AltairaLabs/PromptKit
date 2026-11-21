@@ -36,23 +36,27 @@ func TestExcludeInterrupted_ReturnsInputWhenNoneInterrupted(t *testing.T) {
 	}
 }
 
-// What a caller heard of a spoken reply they cut off (an interrupted reply
-// carrying playout_cut, with no tool calls) is what was said, so it stays in
-// model context; the model's own unfinished fragment does not.
+// What a caller heard of a spoken reply they cut off, its text truncated to
+// what had played (MetaHeardPrefix, with no tool calls), is what was said, so
+// it stays in model context. The model's own unfinished fragment does not, and
+// neither does a realtime reply whose playback was cut (playout_cut) but whose
+// text is the whole reply, much of it never heard.
 func TestExcludeInterrupted_KeepsWhatTheCallerHeard(t *testing.T) {
 	heard := Message{Role: "assistant", Content: "The fox woke early.", FinishReason: FinishReasonInterrupted,
-		Meta: map[string]interface{}{MetaPlayoutCut: PlayoutCutBargeIn}}
+		Meta: map[string]interface{}{MetaPlayoutCut: PlayoutCutBargeIn, MetaHeardPrefix: true}}
 	fragment := Message{Role: "assistant", Content: "The fox woke early. It ran to", FinishReason: FinishReasonInterrupted}
+	realtime := Message{Role: "assistant", Content: "The fox woke early. It ran to the river.",
+		FinishReason: FinishReasonInterrupted, Meta: map[string]interface{}{MetaPlayoutCut: PlayoutCutBargeIn}}
 	withCalls := heard
 	withCalls.ToolCalls = []MessageToolCall{{ID: "c1", Name: "weather"}}
-	msgs := []Message{{Role: "user", Content: "story"}, heard, fragment, withCalls}
+	msgs := []Message{{Role: "user", Content: "story"}, heard, fragment, realtime, withCalls}
 
 	got := ExcludeInterrupted(msgs)
 
 	if len(got) != 2 || got[1].Content != "The fox woke early." {
 		t.Fatalf("want the user turn and the heard reply, got %+v", got)
 	}
-	if !heard.IsHeardPrefix() || fragment.IsHeardPrefix() || withCalls.IsHeardPrefix() {
-		t.Fatal("only a heard reply without tool calls is a heard prefix")
+	if !heard.IsHeardPrefix() || fragment.IsHeardPrefix() || realtime.IsHeardPrefix() || withCalls.IsHeardPrefix() {
+		t.Fatal("only a reply truncated to what was heard, without tool calls, is a heard prefix")
 	}
 }

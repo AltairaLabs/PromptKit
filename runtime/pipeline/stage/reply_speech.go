@@ -60,10 +60,26 @@ type replySpeech struct {
 	heardBeforeCut string
 	// playout is when each spoken segment's audio plays.
 	playout replyPlayout
+	// round is the message id (types.MetaMessageID) of the round now being
+	// spoken: the provider stage's deltas name the round's reply. Segments
+	// are attributed to it, and a delta of another round ends the segment in
+	// progress.
+	round string
 	// cutAt reports when a barge-in canceled the turn (zero when none has).
 	cutAt func() time.Time
 	// ended is closed once the stage's input has ended.
 	ended <-chan struct{}
+}
+
+// peekRoundEnd returns, when round (a message id) is not the round being
+// spoken, what is left of that round's text: its last segment, which no later
+// text of the round can extend. The round being spoken is unchanged; the
+// caller speaks what it returns, then moves on (r.round = round).
+func (r *replySpeech) peekRoundEnd(round string) []string {
+	if round == "" || r.round == "" || round == r.round || r.stopped {
+		return nil
+	}
+	return r.sending(appendNonEmpty(nil, r.seg.flush()))
 }
 
 // release takes text the provider stage released and returns the segments it
@@ -198,12 +214,19 @@ func (r *replySpeech) stop() {
 // cutMessage returns msg as the caller heard it when its playback was cut at
 // t (cause, types.PlayoutCut*): the text its audio had played (playout), with
 // heard_ms, audio_ms, played_fraction and playout_cut as the realtime playout
-// hold records them. A barge-in marks it interrupted; a session that closed
-// leaves the reply its own finish reason, as the realtime hold does.
+// hold records them. Text truncated to what was heard is marked
+// types.MetaHeardPrefix.
+//
+// A barge-in marks a text reply interrupted (a heard prefix, which model
+// context keeps). A round that also called tools keeps its calls and its own
+// finish reason: their results are already in the conversation, and a call
+// dropped from model context would leave its result answering nothing, which
+// providers reject. A session that closed leaves the reply its own finish
+// reason, as the realtime hold does.
 func (r *replySpeech) cutMessage(msg *types.Message, t time.Time, cause string) *types.Message {
 	// The playout holds every segment spoken for this Message, those before
 	// a guardrail's cut among them.
-	text, heard, total := r.playout.heardAt(t)
+	text, heard, total := r.playout.heardAt(t, msg.ID())
 	r.heardBeforeCut = ""
 	cut := heardReply(msg, heard, total, cause)
 	if rest, ok := cutPrefix(msg.Content, text); !ok || strings.TrimSpace(rest) != "" {
@@ -211,8 +234,13 @@ func (r *replySpeech) cutMessage(msg *types.Message, t time.Time, cause string) 
 		// the reply keeps its own spacing.)
 		cut.Content = text
 		cut.Parts = nil
+		if strings.TrimSpace(text) != "" {
+			// Something was heard: it goes back to the model. A reply the
+			// caller heard none of says nothing to go on from.
+			cut.Meta[types.MetaHeardPrefix] = true
+		}
 	}
-	if cause == types.PlayoutCutBargeIn {
+	if cause == types.PlayoutCutBargeIn && len(msg.ToolCalls) == 0 {
 		cut.FinishReason = types.FinishReasonInterrupted
 	}
 	return cut
@@ -220,13 +248,13 @@ func (r *replySpeech) cutMessage(msg *types.Message, t time.Time, cause string) 
 
 // messageDone forgets what the Message just handed on accounted for: the
 // text it sent, and the segments whose audio carried it.
-func (r *replySpeech) messageDone(text string) {
+func (r *replySpeech) messageDone(text, round string) {
 	if rest, ok := cutPrefix(r.sent, text); ok {
 		r.sent = strings.TrimSpace(rest)
 	} else {
 		r.sent = ""
 	}
-	r.playout.forget(text)
+	r.playout.forget(text, round)
 	r.heard = nil
 }
 
@@ -271,6 +299,7 @@ func (r *replySpeech) reset() {
 	r.heard = nil
 	r.heardBeforeCut = ""
 	r.playout = replyPlayout{until: r.playout.until}
+	r.round = ""
 }
 
 // interrupted forgets the reply a barge-in cut: the caller stopped playing
@@ -346,10 +375,12 @@ type replyPlayout struct {
 	segs  []playedSegment
 }
 
-// playedSegment is a spoken segment's text and the stretches its audio plays
-// in (more than one when its audio stalled).
+// playedSegment is a spoken segment's text, the round it belongs to (a
+// message id, "" when unknown), and the stretches its audio plays in (more
+// than one when its audio stalled).
 type playedSegment struct {
 	text      string
+	round     string
 	stretches []playStretch
 }
 
@@ -360,9 +391,9 @@ type playStretch struct {
 
 // add records d of a segment's audio handed on at now; first starts the
 // segment.
-func (p *replyPlayout) add(text string, first bool, now time.Time, d time.Duration) {
+func (p *replyPlayout) add(text, round string, first bool, now time.Time, d time.Duration) {
 	if first || len(p.segs) == 0 {
-		p.segs = append(p.segs, playedSegment{text: text})
+		p.segs = append(p.segs, playedSegment{text: text, round: round})
 	}
 	start := p.until
 	if now.After(start) {
@@ -377,6 +408,29 @@ func (p *replyPlayout) add(text string, first bool, now time.Time, d time.Durati
 	p.until = start.Add(d)
 }
 
+// endOf is when the audio of round's segments finishes playing: the end of
+// all audio handed on when round is "" or has none attributed.
+func (p *replyPlayout) endOf(round string) time.Time {
+	if round == "" {
+		return p.until
+	}
+	var end time.Time
+	for _, seg := range p.segs {
+		if seg.round != round {
+			continue
+		}
+		for _, st := range seg.stretches {
+			if e := st.start.Add(st.dur); e.After(end) {
+				end = e
+			}
+		}
+	}
+	if end.IsZero() {
+		return p.until
+	}
+	return end
+}
+
 // lastStart is when the last spoken segment starts to play: the zero time
 // when none was spoken.
 func (p *replyPlayout) lastStart() time.Time {
@@ -389,9 +443,16 @@ func (p *replyPlayout) lastStart() time.Time {
 // heardAt returns what the caller had heard by t: the text of the segments
 // that had played, then, of the one playing, its share of words its audio
 // had played (rounded down), with the audio heard and the audio handed on.
-func (p *replyPlayout) heardAt(t time.Time) (text string, heard, total time.Duration) {
+//
+// Only round's segments count when round is set and the segments are
+// attributed: a turn's rounds are spoken one after another, each with its own
+// message.
+func (p *replyPlayout) heardAt(t time.Time, round string) (text string, heard, total time.Duration) {
 	cut := false
 	for _, seg := range p.segs {
+		if round != "" && seg.round != "" && seg.round != round {
+			continue
+		}
 		var played, dur time.Duration
 		for _, st := range seg.stretches {
 			dur += st.dur
@@ -413,9 +474,20 @@ func (p *replyPlayout) heardAt(t time.Time) (text string, heard, total time.Dura
 	return text, heard, total
 }
 
-// forget drops the segments whose text the handed-on Message's text holds,
-// from the first: their audio belongs to that Message, not the next.
-func (p *replyPlayout) forget(text string) {
+// forget drops the segments of the handed-on Message: those attributed to
+// its round, or, unattributed, those its text holds, from the first. Their
+// audio belongs to that Message, not the next.
+func (p *replyPlayout) forget(text, round string) {
+	if round != "" {
+		kept := p.segs[:0]
+		for _, seg := range p.segs {
+			if seg.round != round {
+				kept = append(kept, seg)
+			}
+		}
+		p.segs = kept
+		return
+	}
 	i := 0
 	for i < len(p.segs) {
 		rest, ok := cutPrefix(text, p.segs[i].text)

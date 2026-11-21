@@ -597,6 +597,7 @@ func TestTTSStageWithInterruption_InterruptStopsTheStreamedReply(t *testing.T) {
 	assert.Equal(t, types.FinishReasonInterrupted, msg.FinishReason)
 	assert.Equal(t, types.PlayoutCutBargeIn, msg.Meta[types.MetaPlayoutCut])
 	assert.Equal(t, int64(0), msg.Meta[types.MetaHeardMs])
+	assert.False(t, msg.IsHeardPrefix(), "none of it was heard: nothing goes back to the model")
 }
 
 // blockAfterReader yields first, then blocks until ctx ends.

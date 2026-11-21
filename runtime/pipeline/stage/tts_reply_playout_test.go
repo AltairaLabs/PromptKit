@@ -32,6 +32,11 @@ type pacedReply struct {
 
 func startPacedReply(t *testing.T) *pacedReply {
 	t.Helper()
+	return startReplyWith(t, func(*TTSStageWithInterruptionConfig) {})
+}
+
+func startReplyWith(t *testing.T, configure func(*TTSStageWithInterruptionConfig)) *pacedReply {
+	t.Helper()
 	p := &pacedReply{
 		svc:    newFakeTTS(pcm24kFor(200 * time.Millisecond)),
 		clock:  &fakeHoldClock{t: holdT0},
@@ -43,6 +48,7 @@ func startPacedReply(t *testing.T) *pacedReply {
 	cfg := DefaultTTSStageWithInterruptionConfig()
 	cfg.Retry = tts.RetryConfig{MaxAttempts: 1}
 	cfg.HeardReplies = p.heard
+	configure(&cfg)
 	s := NewTTSStageWithInterruption(p.svc, cfg)
 	s.clock = holdClock{now: p.clock.now, until: p.clock.until}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -237,6 +243,128 @@ func TestTTSStageWithInterruption_BargeInAfterAReplacementStoresEachSentenceOnce
 	p.send(t, NewInterruptElement())
 	msg := p.messageNext(t)
 	assert.Equal(t, "Fine. Not", msg.Content)
+}
+
+// A barge-in on a round that spoke and called a tool keeps the round's tool
+// calls (their results are already in the conversation) and its own finish
+// reason, and truncates only its text to what was heard: the call and its
+// result stay a pair in the history the model is sent, and in the transcript.
+func TestTTSStageWithInterruption_BargeInOnAToolRoundKeepsItsCalls(t *testing.T) {
+	p := startPacedReply(t)
+	round := &types.Message{Role: roleAssistant, Content: "Let me look that up for you.",
+		FinishReason: "tool_calls", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "get_weather"}}}
+	p.send(t, textDelta("Let me look that up for you. "), NewMessageElement(round))
+	p.audioUntil(t, 2)
+	p.clock.advance(100 * time.Millisecond) // half the sentence has played
+
+	p.send(t, NewInterruptElement())
+	msg := p.messageNext(t)
+
+	assert.Equal(t, "Let me look", msg.Content, "only the heard text")
+	assert.Equal(t, round.ToolCalls, msg.ToolCalls, "the round's calls are kept")
+	assert.Equal(t, "tool_calls", msg.FinishReason, "not interrupted: it stays in model context with its calls")
+	assert.Equal(t, types.PlayoutCutBargeIn, msg.Meta[types.MetaPlayoutCut])
+	assert.False(t, msg.LeavesModelContext())
+
+	p.heard.expect()
+	within(t, "await", func() bool { p.heard.await(context.Background()); return true })
+	history := []types.Message{{Role: roleUser, Content: "weather?"}, *round,
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "c1", Name: "get_weather"}}}
+	got := ExcludeFromModelContext(p.heard.apply(history))
+	require.Len(t, got, 3, "the call and its result go back to the model together")
+	assert.Equal(t, round.ToolCalls, got[1].ToolCalls)
+	assert.Equal(t, "Let me look", got[1].Content)
+}
+
+// The rounds of a tool-calling turn are spoken apart: a round's text ends a
+// segment when the next round's begins (a delta of another message), though no
+// space follows its last sentence. A barge-in during the first round records
+// what was heard on that round's message, and none of the second on its own.
+func TestTTSStageWithInterruption_RoundsAreSpokenAndCutApart(t *testing.T) {
+	p := startPacedReply(t)
+	round1 := textDelta("Let me look that up.")
+	round1.Meta.MessageID = "m1"
+	round2 := textDelta("It is sunny in Paris.")
+	round2.Meta.MessageID = "m2"
+	call := &types.Message{Role: roleAssistant, Content: "Let me look that up.", FinishReason: "tool_calls",
+		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "get_weather"}},
+		Meta:      map[string]interface{}{types.MetaMessageID: "m1"}}
+	answer := &types.Message{Role: roleAssistant, Content: "It is sunny in Paris.", FinishReason: "stop",
+		Meta: map[string]interface{}{types.MetaMessageID: "m2"}}
+	p.send(t, round1, round2)
+	p.audioUntil(t, 2)
+	assert.Equal(t, []string{"Let me look that up."}, p.texts(), "the first round is a segment of its own")
+	p.clock.advance(100 * time.Millisecond) // half the first round's sentence has played
+	p.send(t, NewMessageElement(call), NewMessageElement(&types.Message{Role: "tool",
+		ToolResult: &types.MessageToolResult{ID: "c1", Name: "get_weather"}}), NewMessageElement(answer),
+		NewEndOfTurnElement(), NewInterruptElement())
+
+	first := p.messageNext(t)
+	assert.Equal(t, "Let me", first.Content, "the first round as heard: half its five words")
+	assert.Equal(t, call.ToolCalls, first.ToolCalls)
+	p.messageNext(t) // the tool result
+	second := p.messageNext(t)
+	assert.Equal(t, "", second.Content, "none of the second round was heard")
+	assert.Equal(t, types.FinishReasonInterrupted, second.FinishReason)
+	assert.False(t, second.IsHeardPrefix())
+}
+
+// A barge-in during the second round keeps the first round whole (it was
+// heard in full) and records the share heard of the second on its own message.
+func TestTTSStageWithInterruption_BargeInOnTheSecondRound(t *testing.T) {
+	p := startPacedReply(t)
+	round1 := textDelta("Let me look that up.")
+	round1.Meta.MessageID = "m1"
+	round2 := textDelta("It is sunny in Paris.")
+	round2.Meta.MessageID = "m2"
+	stop := "stop"
+	round2.Meta.FinishReason = &stop // the turn's last chunk
+	call := &types.Message{Role: roleAssistant, Content: "Let me look that up.", FinishReason: "tool_calls",
+		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "get_weather"}},
+		Meta:      map[string]interface{}{types.MetaMessageID: "m1"}}
+	answer := &types.Message{Role: roleAssistant, Content: "It is sunny in Paris.", FinishReason: "stop",
+		Meta: map[string]interface{}{types.MetaMessageID: "m2"}}
+	p.send(t, round1, round2, NewMessageElement(call), NewMessageElement(answer), NewEndOfTurnElement())
+	p.audioUntil(t, 4)
+	p.clock.advance(200 * time.Millisecond) // the first round has played
+	first := p.messageNext(t)
+	assert.Equal(t, "Let me look that up.", first.Content, "heard in full")
+	assert.NotContains(t, first.Meta, types.MetaPlayoutCut, "it goes on once its own audio has played")
+	p.clock.advance(100 * time.Millisecond) // half the second
+	p.send(t, NewInterruptElement())
+
+	second := p.messageNext(t)
+	assert.Equal(t, "It is", second.Content, "half the second round's five words")
+	assert.Equal(t, int64(100), second.Meta[types.MetaHeardMs], "only its own audio counts")
+	assert.Equal(t, int64(200), second.Meta[types.MetaAudioMs])
+}
+
+// A reply cut to what was heard, with no tool calls, is marked a heard
+// prefix: it stays in model context though it is interrupted.
+func TestTTSStageWithInterruption_BargeInMarksAHeardPrefix(t *testing.T) {
+	p := startPacedReply(t)
+	p.send(t, textDelta("One two three four. "), assistantMessage("One two three four."))
+	p.audioUntil(t, 2)
+	p.clock.advance(100 * time.Millisecond)
+	p.send(t, NewInterruptElement())
+	msg := p.messageNext(t)
+
+	assert.Equal(t, "One two", msg.Content)
+	assert.True(t, msg.IsHeardPrefix())
+}
+
+// With NoPlaybackPacing (a client that does not play the audio in real time
+// as it arrives) nothing waits on the playout: every segment is synthesized
+// at once and the Message goes on at once, whole.
+func TestTTSStageWithInterruption_NoPlaybackPacing(t *testing.T) {
+	p := startReplyWith(t, func(c *TTSStageWithInterruptionConfig) { c.NoPlaybackPacing = true })
+	p.send(t, textDelta("One sentence here. "), textDelta("Two sentence here. "), textDelta("Three sentence here. "),
+		assistantMessage("One sentence here. Two sentence here. Three sentence here."))
+	msg := p.messageNext(t) // the clock never moves
+	assert.Equal(t, []string{"One sentence here.", "Two sentence here.", "Three sentence here."}, p.texts())
+	assert.Equal(t, "One sentence here. Two sentence here. Three sentence here.", msg.Content)
+	assert.NotContains(t, msg.Meta, types.MetaPlayoutCut)
+
 }
 
 // A barge-in stores the reply as the caller heard it: the segments that had

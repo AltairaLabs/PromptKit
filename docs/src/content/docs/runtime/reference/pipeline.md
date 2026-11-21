@@ -836,13 +836,13 @@ func IsTranscriptMessage(elem *StreamElement) bool
 IsTranscriptMessage reports whether the save stage stores elem's Message in the transcript: a message this pipeline produced \(not history loaded from the store, a summary or a retrieved message\) that is not held for playout. A held Message is stored from its PlayoutRelease element instead. A stage after the save stage counts these to know how far the transcript reaches.
 
 <a name="ModelContextMask"></a>
-## func [ModelContextMask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L186>)
+## func [ModelContextMask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L187>)
 
 ```go
 func ModelContextMask(msgs []types.Message) []bool
 ```
 
-ModelContextMask reports, for each message of msgs, whether ExcludeFromModelContext leaves it out: an interrupted reply, a message of a blocked input turn, or one marked Meta\[types.MetaExcludedFromModel\]. It returns nil when it leaves none out. A host that rebuilds a history from another copy of it uses the mask to keep what the transcript holds out of model context out of it still.
+ModelContextMask reports, for each message of msgs, whether ExcludeFromModelContext leaves it out: an interrupted reply \(but not what a caller heard of one, types.Message.IsHeardPrefix\), a message of a blocked input turn, or one marked Meta\[types.MetaExcludedFromModel\]. It returns nil when it leaves none out. A host that rebuilds a history from another copy of it uses the mask to keep what the transcript holds out of model context out of it still.
 
 <a name="NewCompositionStepExecutor"></a>
 ## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L143>)
@@ -5357,7 +5357,7 @@ type Response struct {
 ```
 
 <a name="ResponseVADConfig"></a>
-## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1455-L1473>)
+## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1468-L1486>)
 
 ResponseVADConfig configures the ResponseVADStage.
 
@@ -5384,7 +5384,7 @@ type ResponseVADConfig struct {
 ```
 
 <a name="DefaultResponseVADConfig"></a>
-### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1485>)
+### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1498>)
 
 ```go
 func DefaultResponseVADConfig() ResponseVADConfig
@@ -5393,7 +5393,7 @@ func DefaultResponseVADConfig() ResponseVADConfig
 DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
 
 <a name="ResponseVADStage"></a>
-## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1505-L1512>)
+## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1518-L1525>)
 
 ResponseVADStage monitors response audio for silence and delays EndOfStream until actual silence is detected. This decouples turn completion from provider signaling \(e.g., Gemini's turnComplete\) which may arrive before all audio chunks have been received.
 
@@ -5409,7 +5409,7 @@ type ResponseVADStage struct {
 ```
 
 <a name="NewResponseVADStage"></a>
-### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1515>)
+### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1528>)
 
 ```go
 func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
@@ -5418,7 +5418,7 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
 NewResponseVADStage creates a new response VAD stage.
 
 <a name="ResponseVADStage.Process"></a>
-### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1570-L1574>)
+### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1583-L1587>)
 
 ```go
 func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6608,7 +6608,7 @@ func (s *TTSStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Synthesizes audio for each text element and adds it to the element.
 
 <a name="TTSStageWithInterruption"></a>
-## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1020-L1031>)
+## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1033-L1044>)
 
 TTSStageWithInterruption synthesizes text to audio with interruption support. When the user starts speaking \(detected via shared InterruptionHandler\), synthesis is stopped and pending output is discarded.
 
@@ -6622,7 +6622,7 @@ type TTSStageWithInterruption struct {
 ```
 
 <a name="NewTTSStageWithInterruption"></a>
-### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1034-L1037>)
+### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1047-L1050>)
 
 ```go
 func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterruptionConfig) *TTSStageWithInterruption
@@ -6631,7 +6631,7 @@ func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterru
 NewTTSStageWithInterruption creates a new TTS stage with interruption support.
 
 <a name="TTSStageWithInterruption.Process"></a>
-### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1069-L1073>)
+### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1082-L1086>)
 
 ```go
 func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6640,7 +6640,7 @@ func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan Str
 Process implements the Stage interface. Synthesizes audio for text elements with interruption support. A reply that streams \(the provider stage's text deltas\) is spoken a segment at a time as it arrives \(replySpeech\); a complete text or Message that did not stream is spoken whole. A concurrent reader cancels in\-flight synthesis the instant a barge\-in Interrupt arrives, so a long synthesis call cannot swallow the interrupt; queued text behind the interrupt is dropped too, and synthesis resumes on the next turn.
 
 <a name="TTSStageWithInterruptionConfig"></a>
-## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L968-L998>)
+## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L971-L1011>)
 
 TTSStageWithInterruptionConfig configures TTSStageWithInterruption.
 
@@ -6675,11 +6675,21 @@ type TTSStageWithInterruptionConfig struct {
     // reply the caller cut off as what they heard of it, for the model's next
     // turn. Optional.
     HeardReplies *HeardReplies
+
+    // NoPlaybackPacing is for a caller that does not play the audio in real
+    // time as it arrives (a text UI, a selfplay or test client). By default
+    // the stage assumes it does: it synthesizes a streamed reply one segment
+    // ahead of the one playing, hands the reply's Message on once its audio
+    // would have played, and records a reply cut short as what had played by
+    // then. With NoPlaybackPacing it synthesizes as fast as the service
+    // allows, hands the Message on at once, and counts all audio handed on as
+    // heard.
+    NoPlaybackPacing bool
 }
 ```
 
 <a name="DefaultTTSStageWithInterruptionConfig"></a>
-### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1001>)
+### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1014>)
 
 ```go
 func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig

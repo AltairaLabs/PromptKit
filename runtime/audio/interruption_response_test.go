@@ -250,7 +250,9 @@ func TestInterruptionHandler_BargeInKeepsTheInterruptingTurnsReply(t *testing.T)
 	h := NewInterruptionHandler(InterruptionImmediate, nil)
 	h.BeginResponse() // the reply in progress
 	h.BeginResponse() // the interrupting turn's end
-	h.BargeIn()
+	if !h.BargeIn() {
+		t.Fatal("a reply under way is interrupted")
+	}
 	select {
 	case <-h.Interrupted():
 	default:
@@ -262,7 +264,9 @@ func TestInterruptionHandler_BargeInKeepsTheInterruptingTurnsReply(t *testing.T)
 	}
 
 	idle := NewInterruptionHandler(InterruptionImmediate, nil)
-	idle.BargeIn()
+	if idle.BargeIn() {
+		t.Fatal("with no reply under way there is nothing to barge in on")
+	}
 	idle.Reset()
 	if idle.IsBotSpeaking() {
 		t.Fatal("with no reply owed, none survives the Reset")
@@ -279,5 +283,46 @@ func TestInterruptionHandler_ReplyEndedBeforeTheResetIsNotKept(t *testing.T) {
 	h.Reset()
 	if h.IsBotSpeaking() {
 		t.Fatal("no reply is owed after the Reset")
+	}
+}
+
+// BargeIn interrupts only a reply still under way: once the earlier reply has
+// ended and played out, the turn being transcribed is the only reply owed,
+// and there is nothing to interrupt.
+func TestInterruptionHandler_BargeInAfterTheReplyEndedFiresNothing(t *testing.T) {
+	h := NewInterruptionHandler(InterruptionImmediate, nil)
+	h.BeginResponse() // the earlier reply
+	h.BeginResponse() // the turn now being transcribed
+	h.EndResponse()   // the earlier reply's turn ended meanwhile
+	if h.BargeIn() {
+		t.Fatal("no reply is under way to interrupt")
+	}
+	if h.WasInterrupted() {
+		t.Fatal("nothing fired")
+	}
+	if !h.IsBotSpeaking() {
+		t.Fatal("the transcribed turn's reply is still owed")
+	}
+}
+
+// BargeIn interrupts a reply that is only playing (its turn over, no reply
+// owed), and then nothing is owed after the Reset; it never fires with the
+// deferred strategy, which waits for a sentence boundary.
+func TestInterruptionHandler_BargeInOnPlaybackAlone(t *testing.T) {
+	h := NewInterruptionHandler(InterruptionImmediate, nil)
+	h.ExtendPlayback(time.Minute) // the reply is playing; nothing is owed
+	if !h.BargeIn() {
+		t.Fatal("a reply still playing is interrupted")
+	}
+	h.Reset()
+	if h.IsBotSpeaking() {
+		t.Fatal("no reply is owed after the Reset")
+	}
+
+	deferred := NewInterruptionHandler(InterruptionDeferred, nil)
+	deferred.BeginResponse()
+	deferred.BeginResponse()
+	if deferred.BargeIn() {
+		t.Fatal("the deferred strategy does not barge in at once")
 	}
 }

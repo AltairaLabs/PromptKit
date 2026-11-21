@@ -888,9 +888,12 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 // the interruption on the shared handler (keeping the reply this turn is
 // owed) and sends the Interrupt the provider and TTS stages cancel the reply
 // on.
+//
+// The reply may have ended while the turn was transcribed: then there is
+// nothing to interrupt, and no Interrupt goes on.
 func (s *STTStage) bargeIn(ctx context.Context, output chan<- StreamElement) error {
-	if h := s.config.InterruptionHandler; h != nil {
-		h.BargeIn()
+	if h := s.config.InterruptionHandler; h != nil && !h.BargeIn() {
+		return nil
 	}
 	return sendStreamElement(ctx, NewInterruptElement(), output)
 }
@@ -995,6 +998,16 @@ type TTSStageWithInterruptionConfig struct {
 	// reply the caller cut off as what they heard of it, for the model's next
 	// turn. Optional.
 	HeardReplies *HeardReplies
+
+	// NoPlaybackPacing is for a caller that does not play the audio in real
+	// time as it arrives (a text UI, a selfplay or test client). By default
+	// the stage assumes it does: it synthesizes a streamed reply one segment
+	// ahead of the one playing, hands the reply's Message on once its audio
+	// would have played, and records a reply cut short as what had played by
+	// then. With NoPlaybackPacing it synthesizes as fast as the service
+	// allows, hands the Message on at once, and counts all audio handed on as
+	// heard.
+	NoPlaybackPacing bool
 }
 
 // DefaultTTSStageWithInterruptionConfig returns sensible defaults.
