@@ -59,9 +59,10 @@ func TestToolLoop_SecondRejectionPublishesToolExcluded(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no tool.excluded event")
 	}
+	bus.Close() // delivers every event published so far
 	select {
 	case d := <-got:
 		t.Fatalf("tool.excluded published again: %+v", d)
-	case <-time.After(100 * time.Millisecond):
+	default:
 	}
 }

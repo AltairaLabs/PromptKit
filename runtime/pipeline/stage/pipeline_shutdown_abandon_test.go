@@ -36,6 +36,7 @@ func TestShutdown_ReleasesExecutionWhoseReaderIsGone(t *testing.T) {
 	p, err := NewPipelineBuilderWithConfig(config).
 		Chain(emitAndReturnStage("fails", "partial", errStageBoom)).Build()
 	require.NoError(t, err)
+	p.readerStallFloor = config.GracefulShutdownTimeout // not the 100ms production floor
 
 	in := make(chan StreamElement)
 	close(in)
@@ -127,6 +128,8 @@ func TestShutdown_GoneReaderIsWaitedOnOnce(t *testing.T) {
 	config.GracefulShutdownTimeout = 20 * time.Millisecond
 	p, err := NewPipelineBuilderWithConfig(config).Chain(many).Build()
 	require.NoError(t, err)
+	const stall = 20 * time.Millisecond // not the 100ms production floor
+	p.readerStallFloor = stall
 
 	in := make(chan StreamElement)
 	close(in)
@@ -134,10 +137,10 @@ func TestShutdown_GoneReaderIsWaitedOnOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ErrorIs(t, p.Shutdown(context.Background()), ErrShutdownTimeout)
-	// The stall is max(grace, 100ms). Dropping takes one stall, and the last
-	// attempt to deliver the truncation error one more; waiting once per
-	// element would take n stalls.
-	assert.True(t, waitExecutionsDone(p, time.Second),
+	// The stall is max(grace, readerStallFloor). Dropping takes one stall, and
+	// the last attempt to deliver the truncation error one more; waiting once
+	// per element would take n stalls.
+	assert.True(t, waitExecutionsDone(p, 10*stall),
 		"after one send to a gone reader times out, the rest must be dropped without waiting")
 }
 

@@ -99,9 +99,8 @@ func TestAudioTurnStage_AccumulatesAudio(t *testing.T) {
 		_ = s.Process(ctx, input, output)
 	}()
 
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 6; i++ { // the stage times turns in audio, not wall time
 		input <- makeAudioElement(generateTestPCMAudio(160), 16000)
-		time.Sleep(20 * time.Millisecond)
 	}
 	close(input)
 
@@ -191,10 +190,9 @@ func TestAudioTurnStage_MaxTurnDuration(t *testing.T) {
 		_ = s.Process(ctx, input, output)
 	}()
 
-	// Send 8 chunks with 20ms delay each (160ms > 100ms max)
+	// Send 8 chunks; the stage times turns in audio, not wall time
 	for i := 0; i < 8; i++ {
 		input <- makeAudioElement(generateTestPCMAudio(160), 16000)
-		time.Sleep(20 * time.Millisecond)
 	}
 	close(input)
 

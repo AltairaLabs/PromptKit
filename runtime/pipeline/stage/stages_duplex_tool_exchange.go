@@ -31,7 +31,8 @@ import (
 // each call left with no result (a round cut short or never run, a call still
 // held for approval) is answered with a refusal, so the stored conversation
 // never keeps a call without its result. Once the context is canceled, what is
-// left is given partialResponseSendTimeout in all to be taken.
+// left is given partialResponseSendTimeout (toolExchangeOrder.sendTimeout) in
+// all to be taken.
 
 // errSessionClosedBeforeRun is the cause recorded for a call the session's end
 // left unanswered.
@@ -48,6 +49,10 @@ type toolExchangeOrder struct {
 	held []heldElement
 	// history is the hooks' history, kept in emission order; nil keeps none.
 	history *duplexHistory
+	// sendTimeout is how long a recorded element is given to be taken once
+	// the context is canceled: partialResponseSendTimeout when zero; tests
+	// shorten it.
+	sendTimeout time.Duration
 }
 
 // heldElement is a held element, and whether its message's entry was taken out
@@ -63,25 +68,39 @@ type heldElement struct {
 type sendMode struct {
 	recorded bool
 	deadline *closeDeadline
+	// timeout is the deadline of its own a recorded element is given when
+	// deadline is nil: partialResponseSendTimeout when zero.
+	timeout time.Duration
 }
 
-// closeDeadline is one partialResponseSendTimeout shared by everything sent
-// with it after the context is canceled; it starts on its first use, and
-// once passed every send with it gives up at once.
+// closeDeadline is one timeout (partialResponseSendTimeout unless set)
+// shared by everything sent with it after the context is canceled; it starts
+// on its first use, and once passed every send with it gives up at once.
 type closeDeadline struct {
-	once sync.Once
-	c    chan struct{}
+	timeout time.Duration
+	once    sync.Once
+	c       chan struct{}
 }
 
-func newCloseDeadline() *closeDeadline { return &closeDeadline{} }
+// newCloseDeadline returns a deadline of timeout, or of
+// partialResponseSendTimeout when timeout is zero.
+func newCloseDeadline(timeout time.Duration) *closeDeadline {
+	if timeout == 0 {
+		timeout = partialResponseSendTimeout
+	}
+	return &closeDeadline{timeout: timeout}
+}
 
 func (d *closeDeadline) done() <-chan struct{} {
 	d.once.Do(func() {
 		d.c = make(chan struct{})
-		time.AfterFunc(partialResponseSendTimeout, func() { close(d.c) })
+		time.AfterFunc(d.timeout, func() { close(d.c) })
 	})
 	return d.c
 }
+
+// newDeadline returns a close deadline of the order's send timeout.
+func (o *toolExchangeOrder) newDeadline() *closeDeadline { return newCloseDeadline(o.sendTimeout) }
 
 // emit sends elem downstream, or holds it (see toolExchangeOrder). It returns
 // ctx.Err() when canceled first.
@@ -110,6 +129,9 @@ func holdable(elem *StreamElement) bool {
 func (o *toolExchangeOrder) send(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement, mode sendMode,
 ) error {
+	if mode.timeout == 0 {
+		mode.timeout = o.sendTimeout
+	}
 	if !holdable(&elem) {
 		return sendElement(ctx, elem, output, mode)
 	}
@@ -199,7 +221,7 @@ func (o *toolExchangeOrder) releaseLocked(ctx context.Context, output chan<- Str
 func (o *toolExchangeOrder) closeOut(ctx context.Context, output chan<- StreamElement, deadline *closeDeadline) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	mode := sendMode{recorded: true, deadline: deadline}
+	mode := sendMode{recorded: true, deadline: deadline, timeout: o.sendTimeout}
 	for len(o.awaiting)+len(o.held) > 0 {
 		for _, tc := range o.awaiting {
 			errMsg := fmt.Sprintf("Tool %s not executed: %s", tc.Name, errSessionClosedBeforeRun)
@@ -239,7 +261,7 @@ func sendElement(ctx context.Context, elem StreamElement, output chan<- StreamEl
 	}
 	deadline := mode.deadline
 	if deadline == nil {
-		deadline = newCloseDeadline()
+		deadline = newCloseDeadline(mode.timeout)
 	}
 	select {
 	case output <- elem:

@@ -239,7 +239,8 @@ func TestTTSStageWithInterruption_ExtractText_EmptyMessageContent(t *testing.T) 
 	input <- inputs[0]
 	close(input)
 
-	time.Sleep(100 * time.Millisecond)
+	for range output { //nolint:revive // drain: the stage closes output once it has handled the input
+	}
 	assert.False(t, synthesized, "should not have called synthesize for empty text")
 }
 

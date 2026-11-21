@@ -138,7 +138,7 @@ func assistantElement(text string) stage.StreamElement {
 // emitted.
 func TestTTSStageWithInterruption_PlaybackKeepsBotSpeaking(t *testing.T) {
 	t.Parallel()
-	const playback = 400 * time.Millisecond
+	const playback = 100 * time.Millisecond
 	h := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
 	h.BeginResponse()
 	s := ttsWithHandler(pcmTTS(int(playback.Seconds()*16000)*2), h) // mock rate is 16kHz

@@ -1375,7 +1375,9 @@ const (
 	defaultResponseVADSilence    = 500 * time.Millisecond
 	defaultResponseVADMaxWait    = 3 * time.Second
 	defaultResponseVADSampleRate = 24000
-	responseVADCheckIntervalMs   = 50
+	// responseVADCheckInterval is how long the stage sleeps between checks of
+	// a held EndOfStream while no input arrives.
+	responseVADCheckInterval = 50 * time.Millisecond
 )
 
 // DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
@@ -1403,6 +1405,9 @@ type ResponseVADStage struct {
 	BaseStage
 	config ResponseVADConfig
 	vad    audio.VADAnalyzer
+	// checkInterval is how long the stage sleeps between checks:
+	// responseVADCheckInterval; tests shorten it.
+	checkInterval time.Duration
 }
 
 // NewResponseVADStage creates a new response VAD stage.
@@ -1436,9 +1441,10 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error) {
 	}
 
 	return &ResponseVADStage{
-		BaseStage: NewBaseStage("response_vad", StageTypeTransform),
-		config:    config,
-		vad:       vad,
+		BaseStage:     NewBaseStage("response_vad", StageTypeTransform),
+		config:        config,
+		vad:           vad,
+		checkInterval: responseVADCheckInterval,
 	}, nil
 }
 
@@ -1553,7 +1559,7 @@ func (s *ResponseVADStage) Process(
 			}
 
 			// Small sleep to prevent busy-waiting
-			time.Sleep(responseVADCheckIntervalMs * time.Millisecond)
+			time.Sleep(s.checkInterval)
 		}
 	}
 }
