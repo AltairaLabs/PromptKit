@@ -58,6 +58,9 @@ type StreamPipeline struct {
 	// execTimeoutFunc applies the ExecutionTimeout. Nil means
 	// context.WithTimeoutCause; tests set one whose deadline they end.
 	execTimeoutFunc func(context.Context, time.Duration, error) (context.Context, context.CancelFunc)
+	// readerStallFloor is the least an abandoned execution's send waits for
+	// the reader; minReaderStall when zero. Tests shorten it.
+	readerStallFloor time.Duration
 	// stallTimerFunc starts the timer an abandoned execution's send waits on
 	// before the reader counts as gone (see callerOutput). Nil means
 	// time.NewTimer; tests set one they fire.
@@ -370,12 +373,20 @@ type callerOutput struct {
 // previous element for an instant would otherwise count as gone.
 const minReaderStall = 100 * time.Millisecond
 
+// minStall is readerStallFloor, or minReaderStall when it is unset.
+func (p *StreamPipeline) minStall() time.Duration {
+	if p.readerStallFloor == 0 {
+		return minReaderStall
+	}
+	return p.readerStallFloor
+}
+
 func (p *StreamPipeline) newCallerOutput(ch chan StreamElement) *callerOutput {
 	return &callerOutput{
 		ch:        ch,
 		closed:    make(chan struct{}),
 		abandoned: p.abandoned,
-		stall:     max(p.config.GracefulShutdownTimeout, minReaderStall),
+		stall:     max(p.config.GracefulShutdownTimeout, p.minStall()),
 		newTimer:  p.stallTimerFunc,
 	}
 }

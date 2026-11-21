@@ -940,7 +940,7 @@ func (s *DuplexProviderStage) finishToolWorker(ctx context.Context, output chan<
 			logger.Warn("DuplexProviderStage: a tool call did not return when canceled; the session ends without it")
 		}
 	}
-	deadline := newCloseDeadline()
+	deadline := s.exchange.newDeadline()
 	for _, res := range dt.takeUndelivered() {
 		// A result not taken in time is not recorded; its calls are answered
 		// below.

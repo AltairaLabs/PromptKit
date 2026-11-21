@@ -212,8 +212,11 @@ func (s *realtimeToolSession) sendsAfterClose() int {
 type realtimeToolExec struct {
 	result json.RawMessage
 	gate   chan struct{} // when set, each call waits for it to close
-	// overlap, when set, holds each call until another is running too (or it
-	// expires), so calls allowed to run in parallel are seen to.
+	// overlap, when set, holds each call until two have run at once (or it
+	// expires), so calls allowed to run in parallel are seen to. It checks the
+	// most that ran at once, not how many run now: the first call released
+	// can return before the second checks, which would leave the second to
+	// wait out the window.
 	overlap time.Duration
 	// delay, when set, is how long each call takes.
 	delay time.Duration
@@ -254,7 +257,7 @@ func (e *realtimeToolExec) Execute(
 		deadline := time.Now().Add(e.overlap)
 		for time.Now().Before(deadline) {
 			e.mu.Lock()
-			both := e.inflight >= 2
+			both := e.maxInflight >= 2
 			e.mu.Unlock()
 			if both {
 				break
@@ -661,7 +664,7 @@ func TestDuplexTools_ParallelLimit(t *testing.T) {
 		{name: "default runs calls in parallel", window: time.Second, want: 2},
 		{
 			name: "MaxParallelToolCalls 1 serializes", policy: &pipeline.ToolPolicy{MaxParallelToolCalls: 1},
-			window: 100 * time.Millisecond, want: 1,
+			window: 50 * time.Millisecond, want: 1,
 		},
 	}
 	for _, tc := range cases {
