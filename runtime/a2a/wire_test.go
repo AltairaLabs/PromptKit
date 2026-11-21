@@ -161,7 +161,10 @@ func TestWireSendParams(t *testing.T) {
 		Message:       Message{MessageID: "m", Role: RoleUser, Parts: []Part{{Text: strPtr("q")}}},
 		Configuration: &SendMessageConfiguration{Blocking: true, ReturnImmediately: true},
 	}
-	assert.Same(t, req, ProtocolVersion10.WireSendParams(req))
+	v1 := asMap(t, ProtocolVersion10.WireSendParams(req))
+	assert.Equal(t, map[string]any{"returnImmediately": true}, v1["configuration"])
+	plain := &SendMessageRequest{Message: req.Message}
+	assert.Same(t, plain, ProtocolVersion10.WireSendParams(plain), "params without blocking go as they are")
 
 	m := asMap(t, ProtocolVersion03.WireSendParams(req))
 	msg := m["message"].(map[string]any)

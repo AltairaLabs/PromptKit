@@ -1,0 +1,25 @@
+{
+  "message": {
+    "kind": "message",
+    "messageId": "msg-user-1",
+    "contextId": "ctx-91ab",
+    "role": "user",
+    "parts": [
+      {"kind": "text", "text": "Summarize the attached report"},
+      {"kind": "file", "file": {"bytes": "SGVsbG8=", "name": "report.txt", "mimeType": "text/plain"}}
+    ],
+    "metadata": {"source": "web"}
+  },
+  "configuration": {
+    "acceptedOutputModes": ["text/plain"],
+    "historyLength": 2,
+    "blocking": true,
+    "pushNotificationConfig": {
+      "id": "push-1",
+      "url": "https://hooks.example.com/a2a",
+      "token": "tok-123",
+      "authentication": {"schemes": ["Bearer"], "credentials": "secret"}
+    }
+  },
+  "metadata": {"trace": "abc"}
+}

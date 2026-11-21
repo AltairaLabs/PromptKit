@@ -1,0 +1,54 @@
+{
+  "name": "Secure Agent",
+  "description": "Declares every security scheme kind.",
+  "supportedInterfaces": [
+    {"url": "https://secure.example.com/a2a", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"},
+    {"url": "https://secure.example.com/grpc", "protocolBinding": "GRPC", "protocolVersion": "1.0"}
+  ],
+  "version": "2.0.0",
+  "capabilities": {},
+  "securitySchemes": {
+    "key": {"apiKeySecurityScheme": {"description": "API key", "location": "header", "name": "X-API-Key"}},
+    "bearer": {"httpAuthSecurityScheme": {"scheme": "Bearer", "bearerFormat": "JWT"}},
+    "oauth": {
+      "oauth2SecurityScheme": {
+        "description": "OAuth",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://id.example.com/authorize",
+            "tokenUrl": "https://id.example.com/token",
+            "refreshUrl": "https://id.example.com/refresh",
+            "scopes": {"read": "Read access"},
+            "pkceRequired": true
+          }
+        },
+        "oauth2MetadataUrl": "https://id.example.com/.well-known/oauth-authorization-server"
+      }
+    },
+    "device": {
+      "oauth2SecurityScheme": {
+        "flows": {
+          "deviceCode": {
+            "deviceAuthorizationUrl": "https://id.example.com/device",
+            "tokenUrl": "https://id.example.com/token",
+            "scopes": {}
+          }
+        }
+      }
+    },
+    "machines": {
+      "oauth2SecurityScheme": {
+        "flows": {"clientCredentials": {"tokenUrl": "https://id.example.com/token", "scopes": {"svc": "Service"}}}
+      }
+    },
+    "oidc": {"openIdConnectSecurityScheme": {"openIdConnectUrl": "https://id.example.com/.well-known/openid-configuration"}},
+    "mtls": {"mtlsSecurityScheme": {"description": "Client certificate"}}
+  },
+  "securityRequirements": [
+    {"schemes": {"bearer": {"list": []}}},
+    {"schemes": {"oauth": {"list": ["read"]}, "mtls": {"list": []}}}
+  ],
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [{"id": "s1", "name": "Skill", "description": "Does a thing.", "tags": []}]
+}

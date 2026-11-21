@@ -1,0 +1,10 @@
+{
+  "kind": "message",
+  "messageId": "msg-agent-1",
+  "contextId": "ctx-91ab",
+  "role": "agent",
+  "parts": [
+    {"kind": "text", "text": "Done.", "metadata": {"lang": "en"}},
+    {"kind": "data", "data": {"value": true}, "metadata": {"data_part_compat": true}}
+  ]
+}

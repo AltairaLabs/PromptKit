@@ -1,0 +1,51 @@
+name: A2A Conformance
+
+# Keeps runtime/a2a's wire types and the A2A spec documents they are graded
+# against in step:
+#
+#   - spec-parity: the wire types against the mirrored a2a.proto (1.0) and
+#     a2a.json (0.3) (TestA2ASpec*), and realistic fixtures of both versions
+#     round-tripped and checked against the same documents (TestA2AWire*).
+#     ci.yml runs these too; this job names the check.
+#
+# The mirrors themselves are checked against the published documents by
+# a2a-spec-mirror.yml, which fetches from GitHub and so runs only when they
+# change, and weekly.
+#
+# Why: the audit in #2101 found wire shapes that had drifted from the spec,
+# and nothing compared the types to it (#2135).
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'runtime/a2a/**'
+      - 'scripts/fetch-a2a-spec.sh'
+      - '.github/workflows/a2a-conformance.yml'
+      - 'Makefile'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'runtime/a2a/**'
+      - 'scripts/fetch-a2a-spec.sh'
+      - '.github/workflows/a2a-conformance.yml'
+      - 'Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  spec-parity:
+    name: Wire types match the mirrored spec
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+
+    - name: Check wire types and fixtures
+      run: go -C runtime test ./a2a/ -run 'TestA2ASpec|TestA2AWire|TestParseProto|TestIsV03Envelope' -count=1 -v

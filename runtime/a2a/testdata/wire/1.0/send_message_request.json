@@ -1,0 +1,26 @@
+{
+  "tenant": "acme",
+  "message": {
+    "messageId": "msg-user-1",
+    "contextId": "ctx-91ab",
+    "role": "ROLE_USER",
+    "parts": [
+      {"text": "Summarize the attached report"},
+      {"raw": "SGVsbG8=", "filename": "report.txt", "mediaType": "text/plain"},
+      {"data": 42}
+    ],
+    "metadata": {"source": "web"}
+  },
+  "configuration": {
+    "acceptedOutputModes": ["text/plain", "application/json"],
+    "taskPushNotificationConfig": {
+      "id": "push-1",
+      "url": "https://hooks.example.com/a2a",
+      "token": "tok-123",
+      "authentication": {"scheme": "Bearer", "credentials": "secret"}
+    },
+    "historyLength": 0,
+    "returnImmediately": true
+  },
+  "metadata": {"trace": "abc"}
+}

@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": "req-9",
+  "error": {
+    "code": -32001,
+    "message": "Task not found",
+    "data": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "TASK_NOT_FOUND",
+        "domain": "a2a-protocol.org",
+        "metadata": {"taskId": "task-404"}
+      }
+    ]
+  }
+}

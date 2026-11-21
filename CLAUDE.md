@@ -168,6 +168,7 @@ regeneration and fails that check.
 | `runtime/packspec/*.go` | the embedded schema above | `make packspec` |
 | `runtime/mcp/testdata/spec/<rev>/schema.json` | the official MCP schemas for `mcp.ProtocolVersion` and `mcp.LegacyProtocolVersion` — **verbatim mirrors**; a field the client doesn't carry is a `specOmission` in `runtime/mcp/spec_parity_test.go` | `make mcp-schema` |
 | the "Spec support" section of `docs/.../how-to/tools/integrate-mcp.md` | the pins in `runtime/mcp/spec_parity_test.go` | `make mcp-spec-docs` |
+| `runtime/a2a/testdata/spec/1.0/a2a.proto`, `runtime/a2a/testdata/spec/0.3/a2a.json` | the A2A spec at the release tags pinned in `scripts/fetch-a2a-spec.sh` (1.0: `v1.0.1`, 0.3: `v0.3.0`) — **verbatim mirrors**; a field the wire types don't carry is a `specOmission` in `runtime/a2a/spec_parity_test.go` | `make a2a-spec` (check: `make a2a-spec-check`) |
 
 A generated schema can be **stricter than the spec it came from** — `schema-gen` closes
 every `$def` it emits, so where the spec says `additionalProperties: true` the generated

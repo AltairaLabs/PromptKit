@@ -1,0 +1,44 @@
+{
+  "id": "task-7f3c",
+  "contextId": "ctx-91ab",
+  "status": {
+    "state": "TASK_STATE_INPUT_REQUIRED",
+    "message": {
+      "messageId": "msg-agent-2",
+      "contextId": "ctx-91ab",
+      "taskId": "task-7f3c",
+      "role": "ROLE_AGENT",
+      "parts": [{"text": "Which date should I book?", "mediaType": "text/plain"}]
+    },
+    "timestamp": "2026-11-20T10:15:30.125Z"
+  },
+  "artifacts": [
+    {
+      "artifactId": "art-1",
+      "name": "itinerary",
+      "description": "Draft itinerary",
+      "parts": [
+        {"text": "Day 1: Lisbon"},
+        {"raw": "JVBERi0xLjQK", "filename": "itinerary.pdf", "mediaType": "application/pdf"},
+        {"url": "https://files.example.com/map.png", "filename": "map.png", "mediaType": "image/png"},
+        {"data": {"days": 3, "cities": ["Lisbon", "Porto"]}, "mediaType": "application/json"},
+        {"data": ["Lisbon", "Porto"], "metadata": {"schema": "cities"}}
+      ],
+      "extensions": ["https://example.com/ext/itinerary/v1"],
+      "metadata": {"draft": true}
+    }
+  ],
+  "history": [
+    {
+      "messageId": "msg-user-1",
+      "contextId": "ctx-91ab",
+      "taskId": "task-7f3c",
+      "role": "ROLE_USER",
+      "parts": [{"text": "Plan three days in Portugal"}],
+      "referenceTaskIds": ["task-0001"],
+      "extensions": ["https://example.com/ext/itinerary/v1"],
+      "metadata": {"locale": "en-GB"}
+    }
+  ],
+  "metadata": {"priority": "high"}
+}

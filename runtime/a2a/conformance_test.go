@@ -59,10 +59,118 @@ func TestPart_EmptyDataObjectIsKept(t *testing.T) {
 	assert.JSONEq(t, `{"data":{}}`, string(out), "an empty object is still a data part")
 }
 
+// 0.3 types data as an object, so a value that is not one is wrapped the way
+// the official SDK's 0.3 compatibility layer wraps it, and unwrapped on the
+// way back in.
 func TestPart_V03DataValue(t *testing.T) {
-	v := toV03Part(&Part{DataValue: []any{1}})
+	v := toV03Part(&Part{DataValue: []any{1}, Metadata: map[string]any{"src": "tool"}})
 	assert.Equal(t, kindData, v.Kind)
-	assert.Equal(t, []any{1}, v.Data)
+	assert.Equal(t, map[string]any{"value": []any{1}}, v.Data)
+	assert.Equal(t, map[string]any{"src": "tool", "data_part_compat": true}, v.Metadata)
+
+	out, err := json.Marshal(v)
+	require.NoError(t, err)
+	var back Part
+	require.NoError(t, json.Unmarshal(out, &back))
+	assert.Equal(t, []any{1.0}, back.DataValue)
+	assert.Nil(t, back.Data)
+	assert.Equal(t, map[string]any{"src": "tool"}, back.Metadata)
+}
+
+func TestPart_V03DataCompatFlagWithoutWrapperIsKept(t *testing.T) {
+	var p Part
+	require.NoError(t, json.Unmarshal(
+		[]byte(`{"kind":"data","data":{"k":"v"},"metadata":{"data_part_compat":true}}`), &p))
+	assert.Equal(t, map[string]any{"k": "v"}, p.Data)
+	assert.Equal(t, map[string]any{"data_part_compat": true}, p.Metadata)
+}
+
+func TestPart_V03EmptyFileKeepsItsBytes(t *testing.T) {
+	out, err := json.Marshal(toV03Part(&Part{Raw: []byte{}, MediaType: "application/octet-stream"}))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"kind":"file","file":{"bytes":"","mimeType":"application/octet-stream"}}`, string(out))
+
+	var back Part
+	require.NoError(t, json.Unmarshal(out, &back))
+	assert.Equal(t, []byte{}, back.Raw)
+	assert.Nil(t, back.URL)
+}
+
+// A 0.3 data object that happens to have a "value" key is the peer's data,
+// not a wrapped value: only the data_part_compat marker means wrapped.
+func TestPart_V03DataObjectWithValueKeyIsNotUnwrapped(t *testing.T) {
+	var p Part
+	require.NoError(t, json.Unmarshal([]byte(`{"kind":"data","data":{"value":1}}`), &p))
+	assert.Equal(t, map[string]any{"value": 1.0}, p.Data)
+	assert.Nil(t, p.DataValue)
+	assert.Nil(t, p.Metadata)
+
+	out, err := json.Marshal(toV03Part(&p))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"kind":"data","data":{"value":1}}`, string(out))
+}
+
+// A DataValue that encodes as a JSON object is already valid 0.3 data and is
+// sent as it is, unwrapped and unmarked.
+func TestPart_V03ObjectDataValueIsSentAsIs(t *testing.T) {
+	type point struct {
+		X int `json:"x"`
+	}
+	for _, value := range []any{map[string]int{"x": 1}, point{X: 1}, &point{X: 1}} {
+		out, err := json.Marshal(toV03Part(&Part{DataValue: value, Metadata: map[string]any{"src": "tool"}}))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"kind":"data","data":{"x":1},"metadata":{"src":"tool"}}`, string(out), "%T", value)
+	}
+}
+
+// JSON null is a data value too (1.0 types data as google.protobuf.Value). It
+// is held as DataValue = json.RawMessage("null") so the part stays a data
+// part, in both versions' shapes.
+func TestPart_NullDataValueStaysADataPart(t *testing.T) {
+	for _, wire := range []string{
+		`{"kind":"data","data":{"value":null},"metadata":{"data_part_compat":true}}`,
+		`{"data":null}`,
+	} {
+		var p Part
+		require.NoError(t, json.Unmarshal([]byte(wire), &p), wire)
+		assert.Equal(t, json.RawMessage("null"), p.DataValue, wire)
+		assert.Nil(t, p.Data, wire)
+		assert.Nil(t, p.Text, wire)
+		assert.Nil(t, p.Metadata, wire)
+
+		v1, err := json.Marshal(p)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"data":null}`, string(v1), wire)
+		v03, err := json.Marshal(toV03Part(&p))
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"kind":"data","data":{"value":null},"metadata":{"data_part_compat":true}}`,
+			string(v03), wire)
+	}
+
+	// A null "data" beside other content is an absent field, not a data part.
+	var text Part
+	require.NoError(t, json.Unmarshal([]byte(`{"text":"hi","data":null}`), &text))
+	assert.Nil(t, text.DataValue)
+	assert.Equal(t, "hi", *text.Text)
+}
+
+// A Go value round-trips through encoding/json whole, Blocking included; the
+// 1.0 wire encoder is what leaves Blocking out, since 1.0 has no such field.
+func TestSendMessageConfiguration_BlockingRoundTripsAndStaysOffTheV1Wire(t *testing.T) {
+	cfg := SendMessageConfiguration{Blocking: true, ReturnImmediately: true}
+	out, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	var back SendMessageConfiguration
+	require.NoError(t, json.Unmarshal(out, &back))
+	assert.Equal(t, cfg, back)
+
+	req := &SendMessageRequest{Message: Message{MessageID: "m", Role: RoleUser}, Configuration: &cfg}
+	wire := asMap(t, ProtocolVersion10.WireSendParams(req))
+	assert.Equal(t, map[string]any{"returnImmediately": true}, wire["configuration"])
+	assert.True(t, req.Configuration.Blocking, "the caller's request is not changed")
+
+	v03 := asMap(t, ProtocolVersion03.WireSendParams(req))
+	assert.Equal(t, map[string]any{"blocking": true}, v03["configuration"])
 }
 
 func TestClient_GetTaskWithNonObjectDataPart(t *testing.T) {

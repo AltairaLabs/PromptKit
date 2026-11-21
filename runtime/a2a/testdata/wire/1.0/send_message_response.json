@@ -1,0 +1,8 @@
+{
+  "message": {
+    "messageId": "msg-agent-1",
+    "contextId": "ctx-91ab",
+    "role": "ROLE_AGENT",
+    "parts": [{"text": "Done."}, {"data": true}]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "statusUpdate": {
+    "taskId": "task-7f3c",
+    "contextId": "ctx-91ab",
+    "status": {"state": "TASK_STATE_WORKING", "timestamp": "2026-11-20T10:15:30Z"},
+    "metadata": {"step": 2}
+  }
+}

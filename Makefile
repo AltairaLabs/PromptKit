@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: mcp-schema mcp-schema-check mcp-spec-docs mcp-conformance mcp-interop
+.PHONY: a2a-spec a2a-spec-check mcp-schema mcp-schema-check mcp-spec-docs mcp-conformance mcp-interop
 .PHONY: help build test test-race lint clean coverage install test-e2e test-e2e-mock test-e2e-coverage test-e2e-ci schemas-host bench-audio-memory
 
 # Route unknown targets to help
@@ -319,6 +319,29 @@ mcp-conformance: ## Run the official MCP conformance suite against the client, f
 
 mcp-interop: ## Run the MCP client against real SDK-built servers over every transport (needs Python 3, Node)
 	@./tools/mcp-interop/run.sh
+
+# A2A conformance. runtime/a2a speaks 1.0 and 0.3; scripts/fetch-a2a-spec.sh
+# pins the a2aproject/A2A release each mirror is taken from, and
+# runtime/a2a/spec_parity_test.go grades the wire types against the mirrors.
+a2a-spec: ## Refresh the mirrored A2A 1.0 a2a.proto and 0.3 a2a.json from their pinned releases
+	@./scripts/fetch-a2a-spec.sh
+
+a2a-spec-check: ## Check the mirrored A2A spec documents ARE the published ones (for CI)
+	@tmp=$$(mktemp -d); \
+	if ! ./scripts/fetch-a2a-spec.sh "$$tmp" >/dev/null; then \
+		echo "::error::Could not fetch the published A2A spec (network or upstream error); the mirrors were not compared."; \
+		rm -rf "$$tmp"; exit 1; \
+	fi; \
+	if diff -r "$$tmp" runtime/a2a/testdata/spec >/dev/null 2>&1; then \
+		echo "✓ Mirrored A2A 1.0 and 0.3 spec documents are the published ones"; \
+		rm -rf "$$tmp"; \
+	else \
+		echo "::error::runtime/a2a/testdata/spec is not the published A2A spec at the pinned releases."; \
+		echo "::error::They are verbatim mirrors and must never be hand-edited. Run 'make a2a-spec';"; \
+		echo "::error::if that breaks TestA2ASpecParity, change the Go type or record a specOmission."; \
+		diff -r "$$tmp" runtime/a2a/testdata/spec | head -40 || true; \
+		rm -rf "$$tmp"; exit 1; \
+	fi
 
 promptpack-schema-check: ## Check the embedded PromptPack schema IS the published release (for CI)
 	@echo "Checking embedded PromptPack schema matches the published release..."
