@@ -63,9 +63,9 @@ func describeState(t *testing.T, evts []aguievents.Event) []string {
 	return out
 }
 
-// A tool that changes the state while the turn runs is reported as a
-// STATE_DELTA patching the run's snapshot, right after the tool's result. A
-// state that does not change sends nothing more.
+// With WithStateAfterEachTool, a tool that changes the state while the turn
+// runs is reported as a STATE_DELTA patching the run's snapshot, right after
+// the tool's result. A state that does not change sends nothing more.
 func TestRunSend_StateChangeIsSentAsADelta(t *testing.T) {
 	state := &orderState{state: map[string]any{"status": "new", "items": []any{"tea"}}}
 	conv := openConv(t, streamingProvider(
@@ -78,7 +78,7 @@ func TestRunSend_StateChangeIsSentAsADelta(t *testing.T) {
 		return "shipped", nil
 	})
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithStateProvider(state)), "ship 42")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithStateProvider(state), WithStateAfterEachTool(true)), "ship 42")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -88,6 +88,52 @@ func TestRunSend_StateChangeIsSentAsADelta(t *testing.T) {
 		`STATE_DELTA [{"op":"replace","path":"/status","value":"shipped"},{"op":"add","path":"/tracking","value":"TRK-1"}]`,
 		"TEXT_MESSAGE_START",
 	}, describeState(t, evts))
+}
+
+// By default the state is read only at the run's start and end, never while
+// the turn's tools run: the change a tool made arrives as one STATE_DELTA once
+// the turn has run, and the provider's Snapshot is called twice.
+func TestRunSend_StateChangeIsSentWhenTheTurnEnds(t *testing.T) {
+	state := &countingState{orderState: orderState{state: map[string]any{"status": "new"}}}
+	conv := openConv(t, streamingProvider(
+		streamedCall("lookup", map[string]any{"id": "42"}, "Checking."),
+		streamedText("Shipped."),
+	))
+	conv.OnTool("lookup", func(map[string]any) (any, error) {
+		state.set("status", "shipped")
+		return "shipped", nil
+	})
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithStateProvider(state)), "ship 42")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		`STATE_SNAPSHOT {"status":"new"}`,
+		"TEXT_MESSAGE_START",
+		"TOOL_CALL_RESULT call_0_lookup",
+		"TEXT_MESSAGE_START",
+		`STATE_DELTA [{"op":"replace","path":"/status","value":"shipped"}]`,
+	}, describeState(t, evts))
+	assert.Equal(t, 2, state.calls())
+}
+
+// countingState is orderState counting its Snapshot calls.
+type countingState struct {
+	orderState
+	n int
+}
+
+func (c *countingState) Snapshot(s Sender) (any, error) {
+	c.mu.Lock()
+	c.n++
+	c.mu.Unlock()
+	return c.orderState.Snapshot(s)
+}
+
+func (c *countingState) calls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n
 }
 
 // historyState is state derived from the conversation: the number of
@@ -135,7 +181,7 @@ func TestRunSend_StateWithoutABaselineIsSentAsASnapshot(t *testing.T) {
 		return "shipped", nil
 	})
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithStateProvider(state)), "ship 42")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithStateProvider(state), WithStateAfterEachTool(true)), "ship 42")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{

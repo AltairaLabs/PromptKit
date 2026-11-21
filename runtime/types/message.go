@@ -297,6 +297,7 @@ type CostInfo struct {
 	Quantities     map[string]float64 `json:"quantities,omitempty"`      // Raw billable quantities by unit name
 	DimensionMatch map[string]string  `json:"dimension_match,omitempty"` // Dimension key-value pairs (e.g. size, quality)
 	ProviderName   string             `json:"provider_name,omitempty"`   // Provider that produced this cost entry
+	Model          string             `json:"model,omitempty"`           // Model that served the call, when known
 	Capability     string             `json:"capability,omitempty"`      // ProviderType as string for JSON portability
 	Latency        time.Duration      `json:"latency_ns,omitempty"`      // Time taken by the provider call
 

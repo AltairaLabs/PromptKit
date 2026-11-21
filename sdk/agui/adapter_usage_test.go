@@ -19,8 +19,14 @@ import (
 
 // tokens builds a TokenUsage entry the way the adapter reports one.
 func tokens(provider string, in, out int64) aguievents.TokenUsage {
+	return modelTokens(provider, "", in, out)
+}
+
+// modelTokens is tokens for a call whose model is known.
+func modelTokens(provider, model string, in, out int64) aguievents.TokenUsage {
 	return aguievents.TokenUsage{
 		Provider:     provider,
+		Model:        model,
 		InputTokens:  aguievents.TokenCount(in),
 		OutputTokens: aguievents.TokenCount(out),
 		TotalTokens:  aguievents.TokenCount(in + out),
@@ -43,7 +49,7 @@ func TestRunSend_ReportsTheTurnsUsage(t *testing.T) {
 	evts, err := sendAndCollect(t, NewEventAdapter(conv), "hi")
 	require.NoError(t, err)
 
-	assert.Equal(t, []aguievents.TokenUsage{tokens("mock", 10, 3)}, finishedEvent(t, evts).Usage)
+	assert.Equal(t, []aguievents.TokenUsage{modelTokens("mock", "mock-model", 10, 3)}, finishedEvent(t, evts).Usage)
 }
 
 // A turn of several model calls to one provider reports them as one entry:
@@ -60,7 +66,7 @@ func TestRunSend_UsageSumsTheTurnsModelCalls(t *testing.T) {
 	evts, err := sendAndCollect(t, NewEventAdapter(conv), "where is 42?")
 	require.NoError(t, err)
 
-	assert.Equal(t, []aguievents.TokenUsage{tokens("mock", 9, 4)}, finishedEvent(t, evts).Usage)
+	assert.Equal(t, []aguievents.TokenUsage{modelTokens("mock", "mock-model", 9, 4)}, finishedEvent(t, evts).Usage)
 }
 
 // Usage follows AG-UI's accounting: input counts every prompt token, cache
@@ -148,7 +154,7 @@ func TestRunResume_ReportsOnlyItsOwnUsage(t *testing.T) {
 	assert.Equal(t, &aguievents.RunFinishedOutcome{
 		Type: aguievents.RunFinishedOutcomeTypeSuccess, PendingToolCallIDs: []string{"call_0_get_location"},
 	}, finished.Outcome)
-	assert.Equal(t, []aguievents.TokenUsage{tokens("mock", 2, 3)}, finished.Usage)
+	assert.Equal(t, []aguievents.TokenUsage{modelTokens("mock", "mock-model", 2, 3)}, finished.Usage)
 
 	input := []aguitypes.Message{{ID: "t1", Role: aguitypes.RoleTool, ToolCallID: "call_0_get_location", Content: "Paris"}}
 	b := NewEventAdapter(conv)
@@ -158,7 +164,7 @@ func TestRunResume_ReportsOnlyItsOwnUsage(t *testing.T) {
 	require.NoError(t, err)
 	finished = finishedEvent(t, second)
 	assert.Nil(t, finished.Outcome)
-	assert.Equal(t, []aguievents.TokenUsage{tokens("mock", 6, 4)}, finished.Usage)
+	assert.Equal(t, []aguievents.TokenUsage{modelTokens("mock", "mock-model", 6, 4)}, finished.Usage)
 }
 
 // A ToolResultProvider that answers some calls leaves the rest pending, and
@@ -200,4 +206,31 @@ func TestRunSend_RunErrorReportsUsageSoFar(t *testing.T) {
 	require.True(t, ok, describeRun(evts))
 	assert.Equal(t, "tool backend down", runErr.Message)
 	assert.Equal(t, []aguievents.TokenUsage{tokens("p", 12, 5)}, runErr.Usage)
+}
+
+// Usage is reported per provider and model: one provider's calls to two
+// models are two entries, and a call whose cost names no provider is
+// labelled "unknown" rather than sent without one.
+func TestRunSend_UsagePerProviderAndModel(t *testing.T) {
+	cost := func(provider, model string, in, out int) *types.CostInfo {
+		return &types.CostInfo{ProviderName: provider, Model: model, InputTokens: in, OutputTokens: out}
+	}
+	msgs := []types.Message{assistantMsg("a"), assistantMsg("b"), assistantMsg("c"), assistantMsg("d"), assistantMsg("e")}
+	msgs[0].CostInfo = cost("openai", "big", 10, 1)
+	msgs[1].CostInfo = cost("openai", "small", 20, 2)
+	msgs[2].CostInfo = cost("", "", 30, 3)
+	msgs[3].CostInfo = cost("openai", "big", 5, 1)
+	msgs[4].CostInfo = cost("embed", "e1", 7, 0) // input alone is still usage
+	resp := sdk.NewResponseForTest("d", nil, sdk.WithTurnMessagesForTest(msgs))
+	a := newTestAdapter(&mockSender{resp: resp}, &mockEventBusProvider{})
+
+	evts, err := sendAndCollect(t, a, "go")
+	require.NoError(t, err)
+
+	assert.Equal(t, []aguievents.TokenUsage{
+		modelTokens("openai", "big", 15, 2),
+		modelTokens("openai", "small", 20, 2),
+		tokens("unknown", 30, 3),
+		modelTokens("embed", "e1", 7, 0),
+	}, finishedEvent(t, evts).Usage)
 }

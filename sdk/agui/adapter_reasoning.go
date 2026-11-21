@@ -18,7 +18,7 @@ import (
 // round's reasoning when none is open. Reasoning after the round's calls is
 // the next round's.
 func (st *runState) liveReasoning(delta string) {
-	if delta == "" || st.a.cfg.hideReasoning {
+	if delta == "" || !st.a.cfg.showReasoning {
 		return
 	}
 	r := st.lastRound()
@@ -32,7 +32,7 @@ func (st *runState) liveReasoning(delta string) {
 // settleReasoning sends a round's reasoning whole, from its message, when
 // none of it streamed.
 func (st *runState) settleReasoning(r *liveRound, trace *types.ReasoningTrace) {
-	if r.reasoned || st.a.cfg.hideReasoning || trace == nil || trace.Text == "" {
+	if r.reasoned || !st.a.cfg.showReasoning || trace == nil || trace.Text == "" {
 		return
 	}
 	st.openReasoning(r)

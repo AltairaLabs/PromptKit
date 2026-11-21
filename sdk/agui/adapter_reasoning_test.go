@@ -46,7 +46,7 @@ func TestRunSend_StreamsReasoningBeforeTheText(t *testing.T) {
 	conv := openConv(t, streamingProvider(thinking(streamedText("Hi", " there."), "Think", "ing.")),
 		sdk.WithStreamReasoning())
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv), "hi")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithReasoning(true)), "hi")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -74,7 +74,7 @@ func TestRunSend_StreamsEachRoundsReasoning(t *testing.T) {
 	), sdk.WithStreamReasoning())
 	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv), "where is 42?")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithReasoning(true)), "where is 42?")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -105,7 +105,7 @@ func TestRunSend_StreamsEachRoundsReasoning(t *testing.T) {
 func TestRunSend_ReasoningNotStreamedArrivesWithTheRound(t *testing.T) {
 	conv := openConv(t, streamingProvider(thinking(streamedText("Hi."), "Think", "ing.")))
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv), "hi")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithReasoning(true)), "hi")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -131,7 +131,7 @@ func TestRunSend_SendReportsReasoningBeforeEachRound(t *testing.T) {
 	))
 	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
 
-	evts, err := sendAndCollect(t, newAdapter(sendOnlySender{conv}, sendOnlySender{conv}), "where is 42?")
+	evts, err := sendAndCollect(t, newAdapter(sendOnlySender{conv}, sendOnlySender{conv}, WithReasoning(true)), "where is 42?")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -160,9 +160,9 @@ func TestRunSend_SendReportsReasoningBeforeEachRound(t *testing.T) {
 	}, describeRun(evts))
 }
 
-// WithReasoning(false) keeps the model's reasoning from the client, streamed
-// or not.
-func TestRunSend_WithReasoningFalseSendsNoReasoning(t *testing.T) {
+// By default, and with WithReasoning(false), the model's reasoning is kept
+// from the client, streamed or not.
+func TestRunSend_ReasoningIsNotSentByDefault(t *testing.T) {
 	want := []string{
 		"RUN_STARTED",
 		"TEXT_MESSAGE_START m1",
@@ -170,16 +170,19 @@ func TestRunSend_WithReasoningFalseSendsNoReasoning(t *testing.T) {
 		"TEXT_MESSAGE_END m1",
 		"RUN_FINISHED",
 	}
+	for name, opts := range map[string][]AdapterOption{"default": nil, "false": {WithReasoning(false)}} {
+		t.Run(name, func(t *testing.T) {
+			streamed := openConv(t, streamingProvider(thinking(streamedText("Hi."), "Secret.")), sdk.WithStreamReasoning())
+			evts, err := sendAndCollect(t, NewEventAdapter(streamed, opts...), "hi")
+			require.NoError(t, err)
+			assert.Equal(t, want, describeRun(evts))
 
-	streamed := openConv(t, streamingProvider(thinking(streamedText("Hi."), "Secret.")), sdk.WithStreamReasoning())
-	evts, err := sendAndCollect(t, NewEventAdapter(streamed, WithReasoning(false)), "hi")
-	require.NoError(t, err)
-	assert.Equal(t, want, describeRun(evts))
-
-	settled := openConv(t, streamingProvider(thinking(streamedText("Hi."), "Secret.")))
-	evts, err = sendAndCollect(t, NewEventAdapter(settled, WithReasoning(false)), "hi")
-	require.NoError(t, err)
-	assert.Equal(t, want, describeRun(evts))
+			settled := openConv(t, streamingProvider(thinking(streamedText("Hi."), "Secret.")))
+			evts, err = sendAndCollect(t, NewEventAdapter(settled, opts...), "hi")
+			require.NoError(t, err)
+			assert.Equal(t, want, describeRun(evts))
+		})
+	}
 }
 
 // Reasoning the provider returned only as opaque tokens (signatures,
@@ -191,7 +194,7 @@ func TestRunSend_OpaqueReasoningIsNotSent(t *testing.T) {
 		Redacted: true,
 	}
 	resp := sdk.NewResponseForTest("Hi.", nil, sdk.WithTurnMessagesForTest([]types.Message{msg}))
-	a := newTestAdapter(&mockSender{resp: resp}, &mockEventBusProvider{})
+	a := newTestAdapter(&mockSender{resp: resp}, &mockEventBusProvider{}, WithReasoning(true))
 
 	evts, err := sendAndCollect(t, a, "hi")
 	require.NoError(t, err)
@@ -215,7 +218,7 @@ func TestRunSend_ReasoningNotStreamedFollowsTheTurnsText(t *testing.T) {
 	))
 	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv), "where is 42?")
+	evts, err := sendAndCollect(t, NewEventAdapter(conv, WithReasoning(true)), "where is 42?")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -249,7 +252,7 @@ func TestRunSend_ReasoningNotStreamedFollowsTheTurnsText(t *testing.T) {
 func TestRunSend_ReasoningOfAReplyWithoutTurnMessages(t *testing.T) {
 	resp := sdk.NewResponseForTest("Hi.", nil)
 	resp.Message().Reasoning = &types.ReasoningTrace{Text: "Greet them."}
-	a := newTestAdapter(&mockSender{resp: resp}, &mockEventBusProvider{})
+	a := newTestAdapter(&mockSender{resp: resp}, &mockEventBusProvider{}, WithReasoning(true))
 
 	evts, err := sendAndCollect(t, a, "hi")
 	require.NoError(t, err)

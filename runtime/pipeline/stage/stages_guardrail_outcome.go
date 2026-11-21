@@ -100,11 +100,13 @@ func (v *outputVerdict) replaces() bool { return v.kind == verdictReplace || v.k
 // enforce makes msg the reply the verdict leaves, as a blocked reply is on
 // every path: its text, tool calls dropped (an assistant message carrying
 // calls with no results is a protocol error on the next call, and a blocked
-// reply's calls must not run), finish reason safety, and the firing's metadata.
-// The validations are the caller's to fold.
+// reply's calls must not run), its reasoning dropped (the model's thinking
+// toward what was blocked can hold it), finish reason safety, and the
+// firing's metadata. The validations are the caller's to fold.
 func (v *outputVerdict) enforce(msg *types.Message) {
 	msg.Content = v.text
 	msg.ToolCalls = nil
+	msg.Reasoning = nil
 	msg.FinishReason = types.FinishReasonSafety
 	if meta := decisionMessageMeta(v.decision); meta != nil {
 		msg.Meta = meta

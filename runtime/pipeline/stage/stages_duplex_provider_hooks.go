@@ -1018,13 +1018,14 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 }
 
 // markEnforcedTurn marks a duplex turn's Message enforced, as
-// outputVerdict.enforce marks a text one: tool calls dropped, finish reason
-// safety. The duplex Message also carries its text as a part and its finish
+// outputVerdict.enforce marks a text one: tool calls and reasoning dropped,
+// finish reason safety. The duplex Message also carries its text as a part and its finish
 // reason in Meta and on the element, which are brought in line here: the text
 // part follows Content so no reader of Parts sees the original text, while
 // audio parts, which are what the session played, are kept.
 func markEnforcedTurn(msg *types.Message, elem *StreamElement) {
 	msg.ToolCalls = nil
+	msg.Reasoning = nil
 	msg.FinishReason = types.FinishReasonSafety
 	msg.Parts = replaceTextParts(msg.Parts, msg.Content)
 	if msg.Meta == nil {

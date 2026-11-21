@@ -130,8 +130,11 @@ type adapterConfig struct {
 	// limits it to those types (all types when empty).
 	runtimeEvents bool
 	eventTypes    []events.EventType
-	// hideReasoning keeps the model's reasoning out of the run (WithReasoning).
-	hideReasoning bool
+	// showReasoning sends the model's reasoning (WithReasoning).
+	showReasoning bool
+	// stateAfterEachTool reads the state after each tool result
+	// (WithStateAfterEachTool), not only at the run's start and end.
+	stateAfterEachTool bool
 	// messagesSnapshot ends each run with a MESSAGES_SNAPSHOT of the
 	// conversation (WithMessagesSnapshot).
 	messagesSnapshot bool
@@ -158,15 +161,28 @@ func WithRunID(id string) AdapterOption {
 
 // WithStateProvider sets a provider of the state the run keeps in sync with
 // the client. The run sends the state as a STATE_SNAPSHOT at its start, and
-// reads it again after each TOOL_CALL_RESULT and before it finishes, sending
-// each change as a STATE_DELTA: an RFC 6902 JSON Patch against the state the
+// reads it again once the turn has run, before RUN_FINISHED, sending the
+// change as a STATE_DELTA: an RFC 6902 JSON Patch against the state the
 // client holds. A change a patch cannot carry (one replacing the whole state,
 // or setting a value to null, which the AG-UI Go SDK cannot encode) is sent
-// as a new STATE_SNAPSHOT. Snapshot is called while the turn's tools may be
-// running, so it must be safe for concurrent use.
+// as a new STATE_SNAPSHOT. Snapshot is never called while the turn runs; see
+// [WithStateAfterEachTool] to send changes as each tool's result arrives.
 func WithStateProvider(sp StateProvider) AdapterOption {
 	return func(c *adapterConfig) {
 		c.stateProvider = sp
+	}
+}
+
+// WithStateAfterEachTool sets whether the run also reads the StateProvider
+// after each TOOL_CALL_RESULT, sending the change a tool made as it lands
+// rather than when the turn ends. Off by default.
+//
+// The turn is still running then: its next tool calls can be executing, so
+// Snapshot is called concurrently with the tools that change the state, and
+// must be safe for that (guard the state with a lock the tools take too).
+func WithStateAfterEachTool(enabled bool) AdapterOption {
+	return func(c *adapterConfig) {
+		c.stateAfterEachTool = enabled
 	}
 }
 
@@ -220,13 +236,23 @@ func WithRuntimeEvents(eventTypes ...events.EventType) AdapterOption {
 }
 
 // WithReasoning sets whether the run sends the model's reasoning as AG-UI
-// REASONING_* events. It does by default, for a provider configured to return
-// its reasoning (a Claude thinking budget, Gemini's include_thoughts, OpenAI's
-// reasoning_summary); pass false to keep the reasoning from the client
-// whatever the provider returns.
+// REASONING_* events, for a provider configured to return its reasoning (a
+// Claude thinking budget, Gemini's include_thoughts, OpenAI's
+// reasoning_summary). Off by default: reasoning routinely holds what the
+// model chose not to say, so the client gets it only when asked for. With it
+// off, reasoning is also left out of the RAW events WithRuntimeEvents
+// forwards; with it on, those carry the reasoning's text but never its opaque
+// tokens.
+//
+// Only the reasoning's text is sent. A reply an output guardrail blocks keeps
+// no reasoning, so a settled reply never sends the reasoning behind it. But
+// reasoning that streams (sdk.WithStreamReasoning) goes out as the model
+// produces it, before the output guardrails judge the reply it leads to:
+// enable streamed reasoning only for a client that may see what a guardrail
+// would block.
 func WithReasoning(enabled bool) AdapterOption {
 	return func(c *adapterConfig) {
-		c.hideReasoning = !enabled
+		c.showReasoning = enabled
 	}
 }
 
@@ -239,11 +265,16 @@ func WithReasoning(enabled bool) AdapterOption {
 // carry no id, so each is keyed by the thread id and its position in the
 // history ("<thread>-0", "<thread>-1", ...), which a later run's snapshot
 // gives it again; the messages the run streamed under ids of their own are
-// replaced too. The history keeps no reasoning: the snapshot restates the
-// reasoning of the run's own turns, as reasoning messages before the
-// assistant messages they led to, which AG-UI reads as the complete set of
-// reasoning messages. It needs a conversation that exposes its history
-// (*sdk.Conversation does); for any other the option does nothing.
+// replaced too. The ids are stable across runs only when the thread id is: set
+// it with [WithThreadID] from the input's threadId, or each run's adapter
+// generates a new one. The history keeps no reasoning: with [WithReasoning]
+// on, the snapshot restates the reasoning of the run's own turns, as reasoning
+// messages before the assistant messages they led to, which AG-UI reads as
+// the complete set of reasoning messages. A run whose history reads back
+// empty, or shorter than the run's own turn (a store that failed or does not
+// keep it), sends no snapshot rather than one that would clear the client. It
+// needs a conversation that exposes its history (*sdk.Conversation does); for
+// any other the option does nothing.
 func WithMessagesSnapshot(enabled bool) AdapterOption {
 	return func(c *adapterConfig) {
 		c.messagesSnapshot = enabled
@@ -335,15 +366,17 @@ func (a *EventAdapter) RunID() string {
 //  2. STATE_SNAPSHOT (if a StateProvider is configured)
 //  3. STEP_STARTED for the current workflow state (workflow conversations)
 //  4. For each round of the turn (an assistant message and the tool results
-//     after it), in order: the round's reasoning (REASONING_START,
-//     REASONING_MESSAGE_START, a REASONING_MESSAGE_CONTENT for each chunk,
-//     REASONING_MESSAGE_END, REASONING_END) as the model streams it;
-//     TEXT_MESSAGE_START, a TEXT_MESSAGE_CONTENT for each chunk of text as
-//     the model streams it, TEXT_MESSAGE_END; then TOOL_CALL_START /
+//     after it), in order: with WithReasoning(true), the round's reasoning
+//     (REASONING_START, REASONING_MESSAGE_START, a REASONING_MESSAGE_CONTENT
+//     for each chunk, REASONING_MESSAGE_END, REASONING_END) as the model
+//     streams it; TEXT_MESSAGE_START, a TEXT_MESSAGE_CONTENT for each chunk of
+//     text as the model streams it, TEXT_MESSAGE_END; then TOOL_CALL_START /
 //     TOOL_CALL_ARGS / TOOL_CALL_END for each call it made; then a
 //     TOOL_CALL_RESULT for each result the round fed back to the model, each
-//     followed by a STATE_DELTA when the state changed
-//  5. The reasoning of the streamed rounds that did not stream it, whole
+//     followed by a STATE_DELTA when the state changed and
+//     WithStateAfterEachTool is set
+//  5. With WithReasoning(true), the reasoning of the streamed rounds that did
+//     not stream it, whole
 //  6. STEP_FINISHED / STEP_STARTED when the turn moved the workflow on
 //  7. If a ToolResultProvider answers the pending client tools: a
 //     TOOL_CALL_RESULT for each, then the resumed turn from step 4
@@ -352,10 +385,10 @@ func (a *EventAdapter) RunID() string {
 //  10. MESSAGES_SNAPSHOT (with WithMessagesSnapshot)
 //  11. RUN_FINISHED, with the run's token usage
 //
-// The reasoning streams for a conversation opened with
-// sdk.WithStreamReasoning; otherwise each round's reasoning is sent whole
-// (step 5). WithReasoning(false) leaves it out. A turn that does not stream
-// sends each round's reasoning before its text.
+// Reasoning is sent only with WithReasoning(true). It streams for a
+// conversation opened with sdk.WithStreamReasoning; otherwise each round's
+// reasoning is sent whole (step 5). A turn that does not stream sends each
+// round's reasoning before its text.
 //
 // A client tool call left pending ends the run with the call unanswered, and
 // RUN_FINISHED's success outcome names it in pendingToolCallIds; the
@@ -579,15 +612,62 @@ func (a *EventAdapter) forwardRuntimeEvents(st *runState) *runtimeForwarder {
 }
 
 // forward emits one bus event as a RAW event, while the run is open. The
-// event is copied, since the bus hands the same one to every listener.
+// event is copied, since the bus hands the same one to every listener; its
+// reasoning is left out unless the run shows reasoning (rawPayload).
 func (f *runtimeForwarder) forward(e *events.Event) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.open || e == nil {
 		return
 	}
-	payload := *e
+	payload, ok := rawPayload(e, f.st.a.cfg.showReasoning)
+	if !ok {
+		return
+	}
 	f.st.emit(aguievents.NewRawEvent(payload, aguievents.WithSource(rawEventSource)))
+}
+
+// rawPayload is the copy of e a RAW event carries, or false for an event that
+// is not sent. Reasoning follows WithReasoning: with it off, the reasoning
+// events are not sent and a created message carries no reasoning; with it on,
+// they carry the reasoning's text alone. Opaque reasoning (signatures,
+// encrypted or redacted blocks) is never sent.
+func rawPayload(e *events.Event, showReasoning bool) (events.Event, bool) {
+	payload := *e
+	switch data := e.Data.(type) {
+	case *events.ReasoningDeltaData:
+		return payload, showReasoning
+	case *events.ReasoningCompletedData:
+		if !showReasoning {
+			return payload, false
+		}
+		d := *data
+		d.Trace = textOnly(data.Trace)
+		if d.Trace == nil {
+			return payload, false // opaque reasoning alone: nothing to show
+		}
+		payload.Data = &d
+	case *events.MessageCreatedData:
+		if data.Reasoning == nil {
+			return payload, true
+		}
+		d := *data
+		d.Reasoning = nil
+		if showReasoning {
+			d.Reasoning = textOnly(data.Reasoning)
+		}
+		payload.Data = &d
+	}
+	return payload, true
+}
+
+// textOnly is a reasoning trace's text, without its opaque tokens; nil when
+// it has no text.
+func textOnly(r *types.ReasoningTrace) *types.ReasoningTrace {
+	if r == nil || r.Text == "" {
+		return nil
+	}
+	return &types.ReasoningTrace{Text: r.Text}
 }
 
 // stop ends forwarding: it unsubscribes, and waits for a forward in progress,
@@ -772,9 +852,11 @@ func (st *runState) emitResult(callID, content string) {
 	}
 	st.answered[callID] = true
 	st.emit(aguievents.NewToolCallResultEvent(aguievents.GenerateMessageID(), callID, content))
-	// A tool is what usually changes the state: the client sees the change
-	// with the result.
-	st.syncState()
+	// A tool is what usually changes the state: with WithStateAfterEachTool
+	// the client sees the change with the result.
+	if st.a.cfg.stateAfterEachTool {
+		st.syncState()
+	}
 }
 
 // TOOL_CALL_RESULT content is never empty: the AG-UI Go SDK rejects an event

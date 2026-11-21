@@ -31,9 +31,13 @@ const reasoningIDSuffix = "-reasoning"
 // place. The messages streamed during the run had ids of their own, and the
 // snapshot replaces them too.
 //
-// The history keeps no reasoning, so the snapshot restates the reasoning of
-// this run's turns, unless WithReasoning(false) hides it. AG-UI reads a
-// snapshot that carries reasoning messages as the complete set of them.
+// A history that reads back empty or shorter than the run's own turn is not
+// the conversation (a store failed, or does not keep it), and a snapshot of
+// it would clear the client: none is sent.
+//
+// The history keeps no reasoning, so with WithReasoning the snapshot restates
+// the reasoning of this run's turns. AG-UI reads a snapshot that carries
+// reasoning messages as the complete set of them.
 func (st *runState) emitMessagesSnapshot() {
 	if !st.a.cfg.messagesSnapshot {
 		return
@@ -43,6 +47,9 @@ func (st *runState) emitMessagesSnapshot() {
 		return
 	}
 	history := hr.Messages(st.ctx)
+	if len(history) == 0 || len(history) < len(st.turn) {
+		return
+	}
 	reasoning := st.turnReasoning(history)
 	msgs := make([]aguitypes.Message, 0, len(history))
 	for i := range history {
@@ -57,22 +64,55 @@ func (st *runState) emitMessagesSnapshot() {
 	st.emit(aguievents.NewMessagesSnapshotEvent(msgs))
 }
 
-// turnReasoning maps the history positions of this run's assistant messages
-// to their reasoning text. The run's turns are the tail of the history.
+// turnReasoning maps history positions to the reasoning of this run's
+// assistant messages that led to them. Each of the run's messages, last
+// first, is matched to the latest history message it is (same role, text and
+// tool calls), searching back from the previous match, so a store that trims,
+// summarizes or appends to the history does not move the reasoning onto
+// another message. A message with no match is left out.
 func (st *runState) turnReasoning(history []types.Message) map[int]string {
 	out := map[int]string{}
-	offset := len(history) - len(st.turn)
-	if st.a.cfg.hideReasoning || offset < 0 {
+	if !st.a.cfg.showReasoning {
 		return out
 	}
-	for i := range st.turn {
-		r := st.turn[i].Reasoning
-		if r == nil || r.Text == "" || history[offset+i].Role != st.turn[i].Role {
+	next := len(history) - 1
+	for i := len(st.turn) - 1; i >= 0; i-- {
+		m := &st.turn[i]
+		j := lastMatch(history, next, m)
+		if j < 0 {
 			continue
 		}
-		out[offset+i] = r.Text
+		next = j - 1
+		if m.Reasoning != nil && m.Reasoning.Text != "" {
+			out[j] = m.Reasoning.Text
+		}
 	}
 	return out
+}
+
+// lastMatch is the position of the last message at or before from that is
+// msg as the history holds it (its role, text and tool calls), or -1.
+func lastMatch(history []types.Message, from int, msg *types.Message) int {
+	for j := from; j >= 0; j-- {
+		h := &history[j]
+		if h.Role == msg.Role && h.GetContent() == msg.GetContent() && sameCalls(h.ToolCalls, msg.ToolCalls) {
+			return j
+		}
+	}
+	return -1
+}
+
+// sameCalls reports whether two messages made the same tool calls.
+func sameCalls(a, b []types.MessageToolCall) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Name != b[i].Name {
+			return false
+		}
+	}
+	return true
 }
 
 // snapshotMessage is msg as a snapshot message with id, or false for a

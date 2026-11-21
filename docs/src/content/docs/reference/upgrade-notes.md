@@ -300,18 +300,22 @@ With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that tak
 | Render AG-UI text an output guardrail cut | the streamed message ends, and the guardrail's message follows as a new text message | nothing |
 | Read `stage.ElementMetadata` or `providers.StreamChunk` from a pipeline yourself | elements and chunks carrying only `RoundMessages` during a tool loop with a streaming provider, on the `ExecuteSync` / `Send` path as well as the streamed one (`StreamPipeline.ExecuteSync` ignores them) | skip them, or use them to report the rounds |
 
-#### AG-UI runs carry reasoning, state deltas, usage and pending calls
+#### AG-UI runs carry state deltas, usage and pending calls, and reasoning on request
 
-The AG-UI adapter now sends the model's reasoning as `REASONING_*` events, state changes as `STATE_DELTA`, the run's token usage on `RUN_FINISHED` and `RUN_ERROR`, and the frontend tool calls a run left unanswered as `pendingToolCallIds` on a `success` outcome. `WithMessagesSnapshot(true)` adds a `MESSAGES_SNAPSHOT` before `RUN_FINISHED`. `sdk.WithStreamReasoning()` makes `Stream` and `ResumeStream` send the model's reasoning as new `ChunkReasoning` chunks, and the AG-UI adapter streams it from them. The AG-UI Go SDK is bumped to a newer `main` pseudo-version that carries `pendingToolCallIds` and `cacheWriteInputTokens`.
+The AG-UI adapter now sends state changes as `STATE_DELTA`, the run's token usage on `RUN_FINISHED` and `RUN_ERROR`, and the frontend tool calls a run left unanswered as `pendingToolCallIds` on a `success` outcome. With `agui.WithReasoning(true)` it sends the model's reasoning as `REASONING_*` events; `agui.WithMessagesSnapshot(true)` adds a `MESSAGES_SNAPSHOT` before `RUN_FINISHED`. `sdk.WithStreamReasoning()` makes `Stream` and `ResumeStream` send the model's reasoning as new `ChunkReasoning` chunks, which the adapter streams from. A reply an output guardrail blocks now keeps no reasoning, on every path. The AG-UI Go SDK is bumped to a newer `main` pseudo-version that carries `pendingToolCallIds` and `cacheWriteInputTokens`.
 
 | If you | You will see | Change |
 |---|---|---|
-| Serve AG-UI from a conversation whose provider returns reasoning (a Claude `thinking_budget`, Gemini `include_thoughts`, OpenAI `reasoning_summary`) | `REASONING_START`, `REASONING_MESSAGE_*` and `REASONING_END` events carrying the reasoning's text | render or ignore them; pass `agui.WithReasoning(false)` to keep the reasoning from the client |
-| Want the reasoning to reach an AG-UI client as it streams | each round's reasoning sent whole once the turn's text is complete | open the conversation with `sdk.WithStreamReasoning()` |
-| Configure a `StateProvider` | `Snapshot` called after each `TOOL_CALL_RESULT` and before the run finishes, and a `STATE_DELTA` for each change; a provider that returns nil sends no `STATE_SNAPSHOT`, where it sent an invalid one | make `Snapshot` safe to call while the turn's tools run, and cheap enough to call per tool result |
+| Read the `Response` or history of a reply an output guardrail blocked, on a provider that returns reasoning | no `Reasoning` on the blocked reply, on text and realtime turns alike, where the model's reasoning toward the blocked answer was kept | nothing; read the reasoning before the guardrail if you need it, from a provider hook |
+| Want an AG-UI client to see the model's reasoning | no reasoning events by default | pass `agui.WithReasoning(true)`; open the conversation with `sdk.WithStreamReasoning()` for it to stream, knowing streamed reasoning goes out before the output guardrails judge the reply |
+| Forward runtime events with `agui.WithRuntimeEvents` | no `reasoning.delta` or `reasoning.completed` RAW events, and no reasoning on `message.created`, unless `WithReasoning(true)`; never the opaque reasoning tokens | nothing, or pass `WithReasoning(true)` |
+| Configure a `StateProvider` | `Snapshot` called again once the turn has run, and a `STATE_DELTA` for the change; a provider that returns nil sends no `STATE_SNAPSHOT`, where it sent an invalid one | nothing; pass `agui.WithStateAfterEachTool(true)` for a delta after each tool result, with a `Snapshot` safe to call while tools run |
 | Read `RUN_FINISHED` for a run that stopped on a frontend tool call | a `success` outcome with `pendingToolCallIds`, where the outcome was absent | nothing; both mean the run completed |
-| Read `RUN_FINISHED` or `RUN_ERROR` | `usage`, one entry per provider id, input including cache reads and writes, output including reasoning | sum `totalTokens` for a total |
+| Read `RUN_FINISHED` or `RUN_ERROR` | `usage`, one entry per provider and model, input including cache reads and writes, output including reasoning | sum `totalTokens` for a total |
+| Use `agui.WithMessagesSnapshot(true)` | snapshot message ids keyed by the thread id | set `agui.WithThreadID` from the input's `threadId`, so the ids stay stable across runs |
+| Read `types.CostInfo` | a new `Model` field naming the model a call was served with, set on text turns | nothing |
 | Switch on `StreamChunk.Type` for a conversation opened with `sdk.WithStreamReasoning()` | `ChunkReasoning` chunks, with the delta in `Reasoning` and no `Text` | handle or skip them; `StreamRaw` and the A2A server drop them |
+| Stream from a `session.UnarySession` yourself | reasoning-only `providers.StreamChunk`s only with the new `UnarySessionConfig.StreamReasoning` | nothing |
 | Script `mock.Turn` values in tests | a new `ReasoningChunks` field the mock providers stream as reasoning | nothing |
 
 ### Caller identity

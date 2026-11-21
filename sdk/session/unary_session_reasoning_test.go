@@ -24,9 +24,10 @@ func (reasoningSessionRepo) GetResponse(context.Context, mock.ResponseParams) (s
 	return "Hi.", nil
 }
 
-// A streamed turn's reasoning reaches the caller as chunks carrying only
-// Reasoning, ahead of the reply's text, never mixed into its Delta.
-func TestUnarySession_StreamsReasoningApartFromTheText(t *testing.T) {
+// streamReasoningTurn streams one reasoning turn through a session opened
+// with streamReasoning, returning the chunks that carry reasoning or text.
+func streamReasoningTurn(t *testing.T, streamReasoning bool) []reasoningChunkSeen {
+	t.Helper()
 	repo := memory.NewPromptRepository()
 	repo.RegisterPrompt("chat", &prompt.Config{
 		APIVersion: "promptkit.io/v1alpha1",
@@ -39,19 +40,33 @@ func TestUnarySession_StreamsReasoningApartFromTheText(t *testing.T) {
 		Provider:       mock.NewProviderWithRepository("test", "test-model", false, reasoningSessionRepo{}),
 	})
 	require.NoError(t, err)
-	session, err := NewUnarySession(UnarySessionConfig{Pipeline: pipe})
+	session, err := NewUnarySession(UnarySessionConfig{Pipeline: pipe, StreamReasoning: streamReasoning})
 	require.NoError(t, err)
 
 	stream, err := session.ExecuteStream(context.Background(), "user", "Hello")
 	require.NoError(t, err)
 
-	type got struct{ Reasoning, Delta string }
-	var chunks []got
+	var chunks []reasoningChunkSeen
 	for c := range stream {
 		require.NoError(t, c.Error)
 		if c.Reasoning != "" || c.Delta != "" {
-			chunks = append(chunks, got{Reasoning: c.Reasoning, Delta: c.Delta})
+			chunks = append(chunks, reasoningChunkSeen{Reasoning: c.Reasoning, Delta: c.Delta})
 		}
 	}
-	assert.Equal(t, []got{{Reasoning: "Think"}, {Reasoning: "ing."}, {Delta: "Hi."}}, chunks)
+	return chunks
+}
+
+type reasoningChunkSeen struct{ Reasoning, Delta string }
+
+// With StreamReasoning, a streamed turn's reasoning reaches the caller as
+// chunks carrying only Reasoning, ahead of the reply's text, never mixed into
+// its Delta.
+func TestUnarySession_StreamsReasoningApartFromTheText(t *testing.T) {
+	assert.Equal(t, []reasoningChunkSeen{{Reasoning: "Think"}, {Reasoning: "ing."}, {Delta: "Hi."}},
+		streamReasoningTurn(t, true))
+}
+
+// By default the stream carries the reply's text alone.
+func TestUnarySession_DoesNotStreamReasoningByDefault(t *testing.T) {
+	assert.Equal(t, []reasoningChunkSeen{{Delta: "Hi."}}, streamReasoningTurn(t, false))
 }

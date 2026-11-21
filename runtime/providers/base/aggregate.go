@@ -62,6 +62,7 @@ func AggregateCost(parts ...*types.CostInfo) types.CostInfo {
 		if out.ProviderName == "" {
 			out.ProviderName = p.ProviderName
 			out.Capability = p.Capability
+			out.Model = p.Model
 		}
 		for unit, qty := range p.Quantities {
 			out.Quantities[unit] += qty

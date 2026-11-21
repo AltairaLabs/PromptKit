@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	streamPkg "github.com/AltairaLabs/PromptKit/sdk/v2/stream"
@@ -130,4 +131,26 @@ func TestStream_ReasoningStaysOutOfRawAndA2AStreams(t *testing.T) {
 		{Kind: a2aserver.EventText, Text: "Hi."},
 		{Kind: a2aserver.EventDone},
 	}, events)
+}
+
+// A reply an output guardrail blocks keeps none of the model's reasoning, on
+// Send and on Stream: the blocked reply's thinking can hold what the
+// guardrail blocked.
+func TestGuardrailBlockedReplyDropsItsReasoning(t *testing.T) {
+	const message = "I can't help with that."
+	guard := WithGuardrail(guardrails.Output("content_excludes",
+		map[string]any{"patterns": []any{"Hi."}}, guardrails.WithMessage(message)))
+
+	resp, err := openReasoningConv(t, guard).Send(context.Background(), "hi")
+	require.NoError(t, err)
+	assert.Equal(t, message, resp.Text())
+	assert.Nil(t, resp.Message().Reasoning)
+
+	_, done := collectStreamed(t, openReasoningConv(t, guard).Stream(context.Background(), "hi"))
+	require.NotNil(t, done)
+	assert.Equal(t, message, done.Text())
+	assert.Nil(t, done.Message().Reasoning)
+	for _, m := range done.TurnMessages() {
+		assert.Nil(t, m.Reasoning, "turn message %s", m.Role)
+	}
 }

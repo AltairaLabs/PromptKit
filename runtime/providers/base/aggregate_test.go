@@ -150,3 +150,14 @@ func TestAggregateCost_MixedBreakdownAndHeadlineOnly(t *testing.T) {
 	assert.Equal(t, 150.0, got.Quantities[base.UnitOutputToken])
 	assert.InDelta(t, got.TotalCost, got.InputCostUSD+got.OutputCostUSD+got.CachedCostUSD, 1e-9)
 }
+
+// The roll-up names the model of its first part, as it names its provider.
+func TestAggregateCost_NamesTheFirstPartsModel(t *testing.T) {
+	got := base.AggregateCost(
+		nil,
+		&types.CostInfo{ProviderName: "p", Model: "m1", InputTokens: 1},
+		&types.CostInfo{ProviderName: "q", Model: "m2", InputTokens: 2},
+	)
+	assert.Equal(t, "p", got.ProviderName)
+	assert.Equal(t, "m1", got.Model)
+}

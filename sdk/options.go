@@ -1726,6 +1726,12 @@ func WithGuardrailTimeout(d time.Duration) Option {
 // By default a stream carries no reasoning: it is on the turn's Response,
 // as Message().Reasoning, either way.
 //
+// Streamed reasoning is sent as the model produces it, before the output
+// guardrails judge the reply it leads to: a reply a guardrail blocks keeps no
+// reasoning on its Response or in the history, but the chunks already sent
+// cannot be taken back. Stream reasoning only to a consumer that may see what
+// a guardrail would block.
+//
 //	conv, _ := sdk.Open("./chat.pack.json", "assistant", sdk.WithStreamReasoning())
 func WithStreamReasoning() Option {
 	return func(c *config) error {

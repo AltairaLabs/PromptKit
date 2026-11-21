@@ -24,7 +24,10 @@ type unarySession struct {
 	store     statestore.Store
 	pipeline  *stage.StreamPipeline
 	variables map[string]string
-	mu        sync.RWMutex
+	// streamReasoning forwards reasoning deltas on the streaming methods
+	// (UnarySessionConfig.StreamReasoning).
+	streamReasoning bool
+	mu              sync.RWMutex
 }
 
 // NewUnarySession creates a new unary session.
@@ -57,10 +60,11 @@ func NewUnarySession(cfg UnarySessionConfig) (UnarySession, error) {
 	}
 
 	return &unarySession{
-		id:        cfg.ConversationID,
-		store:     cfg.StateStore,
-		pipeline:  cfg.Pipeline,
-		variables: cfg.Variables,
+		id:              cfg.ConversationID,
+		store:           cfg.StateStore,
+		pipeline:        cfg.Pipeline,
+		variables:       cfg.Variables,
+		streamReasoning: cfg.StreamReasoning,
 	}, nil
 }
 
@@ -175,7 +179,7 @@ func (s *unarySession) ExecuteStream(ctx context.Context, role, content string) 
 	}
 
 	// Convert stage output to StreamChunk output
-	return convertStreamOutput(ctx, outputChan), nil
+	return s.convertStream(ctx, outputChan), nil
 }
 
 // ExecuteStreamWithMessage implements TextSession.
@@ -200,7 +204,7 @@ func (s *unarySession) ExecuteStreamWithMessage(
 	}
 
 	// Convert stage output to StreamChunk output
-	return convertStreamOutput(ctx, outputChan), nil
+	return s.convertStream(ctx, outputChan), nil
 }
 
 // ResumeStreamWithToolResults injects tool result messages and returns a streaming channel.
@@ -229,7 +233,7 @@ func (s *unarySession) ResumeStreamWithToolResults(
 		return nil, err
 	}
 
-	return convertStreamOutput(ctx, outputChan), nil
+	return s.convertStream(ctx, outputChan), nil
 }
 
 // SetVar sets a template variable that will be available for substitution.
@@ -325,15 +329,25 @@ func convertExecutionResult(result *stage.ExecutionResult) *pipeline.ExecutionRe
 
 const streamChunkBufferSize = 100
 
-// convertStreamOutput converts stage StreamElement channel to StreamChunk channel.
-// It accepts a context for cancellation propagation — if the context is canceled,
-// the goroutine exits promptly instead of blocking on chunkChan sends.
-func convertStreamOutput(ctx context.Context, stageChan <-chan stage.StreamElement) <-chan providers.StreamChunk {
+// convertStream converts the stage's StreamElement channel to a StreamChunk
+// channel, forwarding reasoning when the session streams it. It accepts a
+// context for cancellation propagation: if the context is canceled, the
+// goroutine exits promptly instead of blocking on chunkChan sends.
+func (s *unarySession) convertStream(
+	ctx context.Context, stageChan <-chan stage.StreamElement,
+) <-chan providers.StreamChunk {
+	return convertStreamWith(ctx, stageChan, s.streamReasoning)
+}
+
+func convertStreamWith(
+	ctx context.Context, stageChan <-chan stage.StreamElement, streamReasoning bool,
+) <-chan providers.StreamChunk {
 	chunkChan := make(chan providers.StreamChunk, streamChunkBufferSize)
 
 	go func() {
 		defer close(chunkChan)
-		processStreamElements(ctx, stageChan, chunkChan)
+		p := &streamProcessor{ctx: ctx, chunkChan: chunkChan, streamReasoning: streamReasoning}
+		p.run(stageChan)
 	}()
 
 	return chunkChan
@@ -348,6 +362,8 @@ type streamProcessor struct {
 	pendingToolsEmitted bool
 	// consumerGone is set once a send times out after cancellation.
 	consumerGone bool
+	// streamReasoning forwards reasoning deltas as reasoning-only chunks.
+	streamReasoning bool
 }
 
 // canceledChunkSendTimeout bounds each send once the caller's context is done.
@@ -402,7 +418,7 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 
 	// Reasoning text streams as its own chunk, never as part of the text; its
 	// opaque round-trip tokens stay in the turn's messages.
-	if elem.Reasoning != nil && elem.Reasoning.Text != "" {
+	if p.streamReasoning && elem.Reasoning != nil && elem.Reasoning.Text != "" {
 		p.sendChunk(&providers.StreamChunk{Reasoning: elem.Reasoning.Text})
 	}
 
@@ -461,13 +477,10 @@ func (p *streamProcessor) emitPendingTools(pending []tools.PendingToolExecution)
 	p.pendingToolsEmitted = true
 }
 
-// processStreamElements processes stream elements and sends chunks.
-// It respects context cancellation to avoid goroutine leaks when the consumer abandons the channel.
-func processStreamElements(
-	ctx context.Context, stageChan <-chan stage.StreamElement, chunkChan chan<- providers.StreamChunk,
-) {
-	p := &streamProcessor{ctx: ctx, chunkChan: chunkChan}
-
+// run processes stream elements to the end of stageChan and sends chunks. It
+// respects context cancellation to avoid goroutine leaks when the consumer
+// abandons the channel.
+func (p *streamProcessor) run(stageChan <-chan stage.StreamElement) {
 	// Read to the end even after cancellation: the pipeline emits a canceled
 	// turn's partial reply and error last, and must not block sending them.
 	for elem := range stageChan {

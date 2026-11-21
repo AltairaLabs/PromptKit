@@ -14,12 +14,19 @@ const (
 	unitReasoningToken  = "reasoning_token"
 )
 
+// unknownProvider labels the usage of a model call whose cost names no
+// provider, so no entry goes out without one.
+const unknownProvider = "unknown"
+
 // runUsage totals the token usage of the model calls a run made, one entry
-// per provider, in the order the run first used each.
+// per provider and model, in the order the run first used each.
 type runUsage struct {
-	order   []string
-	entries map[string]*tokenTotals
+	order   []usageKey
+	entries map[usageKey]*tokenTotals
 }
+
+// usageKey is what a usage entry is reported per: a provider and a model.
+type usageKey struct{ provider, model string }
 
 // tokenTotals is one provider's usage under AG-UI's accounting: input and
 // output are totals, the cache and reasoning counts parts of them.
@@ -60,13 +67,17 @@ func (u *runUsage) add(c *types.CostInfo) {
 		return // nothing reported: no zero counts AG-UI would read as data
 	}
 	if u.entries == nil {
-		u.entries = map[string]*tokenTotals{}
+		u.entries = map[usageKey]*tokenTotals{}
 	}
-	e, ok := u.entries[c.ProviderName]
+	key := usageKey{provider: c.ProviderName, model: c.Model}
+	if key.provider == "" {
+		key.provider = unknownProvider
+	}
+	e, ok := u.entries[key]
 	if !ok {
 		e = &tokenTotals{}
-		u.entries[c.ProviderName] = e
-		u.order = append(u.order, c.ProviderName)
+		u.entries[key] = e
+		u.order = append(u.order, key)
 	}
 	e.input += input
 	e.output += output
@@ -84,10 +95,11 @@ func (u *runUsage) tokenUsage() []aguievents.TokenUsage {
 		return nil
 	}
 	out := make([]aguievents.TokenUsage, 0, len(u.order))
-	for _, provider := range u.order {
-		e := u.entries[provider]
+	for _, key := range u.order {
+		e := u.entries[key]
 		tu := aguievents.TokenUsage{
-			Provider:     provider,
+			Provider:     key.provider,
+			Model:        key.model,
 			InputTokens:  aguievents.TokenCount(e.input),
 			OutputTokens: aguievents.TokenCount(e.output),
 			TotalTokens:  aguievents.TokenCount(e.input + e.output),

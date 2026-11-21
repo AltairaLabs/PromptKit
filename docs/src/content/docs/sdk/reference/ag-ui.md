@@ -29,6 +29,7 @@ Text streams as the model writes it for a conversation that streams \(\*sdk.Conv
   - [func WithReasoning\(enabled bool\) AdapterOption](<#WithReasoning>)
   - [func WithRunID\(id string\) AdapterOption](<#WithRunID>)
   - [func WithRuntimeEvents\(eventTypes ...events.EventType\) AdapterOption](<#WithRuntimeEvents>)
+  - [func WithStateAfterEachTool\(enabled bool\) AdapterOption](<#WithStateAfterEachTool>)
   - [func WithStateProvider\(sp StateProvider\) AdapterOption](<#WithStateProvider>)
   - [func WithThreadID\(id string\) AdapterOption](<#WithThreadID>)
   - [func WithToolResultProvider\(provider ToolResultProvider\) AdapterOption](<#WithToolResultProvider>)
@@ -199,7 +200,7 @@ type AdapterOption func(*adapterConfig)
 ```
 
 <a name="WithMessagesSnapshot"></a>
-### func [WithMessagesSnapshot](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L247>)
+### func [WithMessagesSnapshot](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L278>)
 
 ```go
 func WithMessagesSnapshot(enabled bool) AdapterOption
@@ -207,19 +208,21 @@ func WithMessagesSnapshot(enabled bool) AdapterOption
 
 WithMessagesSnapshot sets whether each run ends with a MESSAGES\_SNAPSHOT, just before RUN\_FINISHED, restating the conversation's history as the agent holds it: for a client reconnecting to the thread, or one whose copy has drifted from the agent's. Off by default.
 
-The client replaces its messages with the snapshot's. PromptKit's messages carry no id, so each is keyed by the thread id and its position in the history \("\<thread\>\-0", "\<thread\>\-1", ...\), which a later run's snapshot gives it again; the messages the run streamed under ids of their own are replaced too. The history keeps no reasoning: the snapshot restates the reasoning of the run's own turns, as reasoning messages before the assistant messages they led to, which AG\-UI reads as the complete set of reasoning messages. It needs a conversation that exposes its history \(\*sdk.Conversation does\); for any other the option does nothing.
+The client replaces its messages with the snapshot's. PromptKit's messages carry no id, so each is keyed by the thread id and its position in the history \("\<thread\>\-0", "\<thread\>\-1", ...\), which a later run's snapshot gives it again; the messages the run streamed under ids of their own are replaced too. The ids are stable across runs only when the thread id is: set it with [WithThreadID](<#WithThreadID>) from the input's threadId, or each run's adapter generates a new one. The history keeps no reasoning: with [WithReasoning](<#WithReasoning>) on, the snapshot restates the reasoning of the run's own turns, as reasoning messages before the assistant messages they led to, which AG\-UI reads as the complete set of reasoning messages. A run whose history reads back empty, or shorter than the run's own turn \(a store that failed or does not keep it\), sends no snapshot rather than one that would clear the client. It needs a conversation that exposes its history \(\*sdk.Conversation does\); for any other the option does nothing.
 
 <a name="WithReasoning"></a>
-### func [WithReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L227>)
+### func [WithReasoning](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L253>)
 
 ```go
 func WithReasoning(enabled bool) AdapterOption
 ```
 
-WithReasoning sets whether the run sends the model's reasoning as AG\-UI REASONING\_\* events. It does by default, for a provider configured to return its reasoning \(a Claude thinking budget, Gemini's include\_thoughts, OpenAI's reasoning\_summary\); pass false to keep the reasoning from the client whatever the provider returns.
+WithReasoning sets whether the run sends the model's reasoning as AG\-UI REASONING\_\* events, for a provider configured to return its reasoning \(a Claude thinking budget, Gemini's include\_thoughts, OpenAI's reasoning\_summary\). Off by default: reasoning routinely holds what the model chose not to say, so the client gets it only when asked for. With it off, reasoning is also left out of the RAW events WithRuntimeEvents forwards; with it on, those carry the reasoning's text but never its opaque tokens.
+
+Only the reasoning's text is sent. A reply an output guardrail blocks keeps no reasoning, so a settled reply never sends the reasoning behind it. But reasoning that streams \(sdk.WithStreamReasoning\) goes out as the model produces it, before the output guardrails judge the reply it leads to: enable streamed reasoning only for a client that may see what a guardrail would block.
 
 <a name="WithRunID"></a>
-### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L153>)
+### func [WithRunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L156>)
 
 ```go
 func WithRunID(id string) AdapterOption
@@ -228,7 +231,7 @@ func WithRunID(id string) AdapterOption
 WithRunID sets the AG\-UI run ID for emitted events. By default the adapter generates one.
 
 <a name="WithRuntimeEvents"></a>
-### func [WithRuntimeEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L215>)
+### func [WithRuntimeEvents](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L231>)
 
 ```go
 func WithRuntimeEvents(eventTypes ...events.EventType) AdapterOption
@@ -238,17 +241,28 @@ WithRuntimeEvents forwards the conversation's runtime events, read from its even
 
 The bus delivers asynchronously, so a RAW event is not ordered against the run's other events, and only events delivered while the run is open are forwarded: one the bus delivers after the run's RUN\_FINISHED or RUN\_ERROR is not sent. For a workflow conversation the bus is the active conversation's when the run starts. A bus shared by several conversations \(sdk.WithEventBus\) carries all of their events; filter on the payload's SessionID or ConversationID to keep one conversation's.
 
+<a name="WithStateAfterEachTool"></a>
+### func [WithStateAfterEachTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L183>)
+
+```go
+func WithStateAfterEachTool(enabled bool) AdapterOption
+```
+
+WithStateAfterEachTool sets whether the run also reads the StateProvider after each TOOL\_CALL\_RESULT, sending the change a tool made as it lands rather than when the turn ends. Off by default.
+
+The turn is still running then: its next tool calls can be executing, so Snapshot is called concurrently with the tools that change the state, and must be safe for that \(guard the state with a lock the tools take too\).
+
 <a name="WithStateProvider"></a>
-### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L167>)
+### func [WithStateProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L170>)
 
 ```go
 func WithStateProvider(sp StateProvider) AdapterOption
 ```
 
-WithStateProvider sets a provider of the state the run keeps in sync with the client. The run sends the state as a STATE\_SNAPSHOT at its start, and reads it again after each TOOL\_CALL\_RESULT and before it finishes, sending each change as a STATE\_DELTA: an RFC 6902 JSON Patch against the state the client holds. A change a patch cannot carry \(one replacing the whole state, or setting a value to null, which the AG\-UI Go SDK cannot encode\) is sent as a new STATE\_SNAPSHOT. Snapshot is called while the turn's tools may be running, so it must be safe for concurrent use.
+WithStateProvider sets a provider of the state the run keeps in sync with the client. The run sends the state as a STATE\_SNAPSHOT at its start, and reads it again once the turn has run, before RUN\_FINISHED, sending the change as a STATE\_DELTA: an RFC 6902 JSON Patch against the state the client holds. A change a patch cannot carry \(one replacing the whole state, or setting a value to null, which the AG\-UI Go SDK cannot encode\) is sent as a new STATE\_SNAPSHOT. Snapshot is never called while the turn runs; see [WithStateAfterEachTool](<#WithStateAfterEachTool>) to send changes as each tool's result arrives.
 
 <a name="WithThreadID"></a>
-### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L145>)
+### func [WithThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L148>)
 
 ```go
 func WithThreadID(id string) AdapterOption
@@ -257,7 +271,7 @@ func WithThreadID(id string) AdapterOption
 WithThreadID sets the AG\-UI thread ID for emitted events. By default the adapter generates one.
 
 <a name="WithToolResultProvider"></a>
-### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L196>)
+### func [WithToolResultProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L212>)
 
 ```go
 func WithToolResultProvider(provider ToolResultProvider) AdapterOption
@@ -268,7 +282,7 @@ WithToolResultProvider sets a callback that answers pending client tools on the 
 Use it only for tools the server itself can answer. A frontend tool, one the application advertised in RunAgentInput.tools, must not be answered by the producer.
 
 <a name="WithWorkflowSteps"></a>
-### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L177>)
+### func [WithWorkflowSteps](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L193>)
 
 ```go
 func WithWorkflowSteps(enabled bool) AdapterOption
@@ -277,7 +291,7 @@ func WithWorkflowSteps(enabled bool) AdapterOption
 WithWorkflowSteps enables STEP\_STARTED / STEP\_FINISHED events naming the workflow state a run executes in. It has an effect only when the conversation runs a workflow, as one passed to [NewWorkflowEventAdapter](<#NewWorkflowEventAdapter>) does; [NewWorkflowEventAdapter](<#NewWorkflowEventAdapter>) enables it by default.
 
 <a name="EventAdapter"></a>
-## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L257-L265>)
+## type [EventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L288-L296>)
 
 EventAdapter bridges a PromptKit conversation to an AG\-UI event channel. It runs one conversation turn and translates the turn's messages into AG\-UI protocol events. An adapter carries one run: its channel closes when the run ends.
 
@@ -288,7 +302,7 @@ type EventAdapter struct {
 ```
 
 <a name="NewEventAdapter"></a>
-### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L270-L274>)
+### func [NewEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L301-L305>)
 
 ```go
 func NewEventAdapter(conv interface {
@@ -300,7 +314,7 @@ func NewEventAdapter(conv interface {
 NewEventAdapter creates a new EventAdapter for the given conversation. The conversation must implement both Sender and EventBusProvider. \*sdk.Conversation satisfies both interfaces.
 
 <a name="NewWorkflowEventAdapter"></a>
-### func [NewWorkflowEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L285>)
+### func [NewWorkflowEventAdapter](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L316>)
 
 ```go
 func NewWorkflowEventAdapter(wc *sdk.WorkflowConversation, opts ...AdapterOption) *EventAdapter
@@ -311,7 +325,7 @@ NewWorkflowEventAdapter creates an EventAdapter for a workflow conversation. Eac
 Client\-tool results and approval resolutions go to the workflow's active conversation, the one serving the current state.
 
 <a name="EventAdapter.Events"></a>
-### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L316>)
+### func \(\*EventAdapter\) [Events](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L347>)
 
 ```go
 func (a *EventAdapter) Events() <-chan aguievents.Event
@@ -322,7 +336,7 @@ Events returns the read\-only channel of AG\-UI events. The channel is closed wh
 Drain it concurrently with RunSend, RunResume or RunContinue, for example from another goroutine. The adapter never drops an event. When the channel's buffer is full it waits for the reader, so a reader that stops reading holds the run until the run's context is canceled; cancel it \(an HTTP handler's request context is canceled when the client disconnects\) to release the run.
 
 <a name="EventAdapter.RunContinue"></a>
-### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L435>)
+### func \(\*EventAdapter\) [RunContinue](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L468>)
 
 ```go
 func (a *EventAdapter) RunContinue(ctx context.Context) error
@@ -337,7 +351,7 @@ The held calls' results are emitted as TOOL\_CALL\_RESULT events, since only the
 It returns [ErrContinueUnsupported](<#ErrContinueUnsupported>) \(after a RUN\_ERROR\) when the conversation has no Continue method.
 
 <a name="EventAdapter.RunID"></a>
-### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L326>)
+### func \(\*EventAdapter\) [RunID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L357>)
 
 ```go
 func (a *EventAdapter) RunID() string
@@ -346,7 +360,7 @@ func (a *EventAdapter) RunID() string
 RunID returns the run ID used by this adapter.
 
 <a name="EventAdapter.RunResume"></a>
-### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L411>)
+### func \(\*EventAdapter\) [RunResume](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L444>)
 
 ```go
 func (a *EventAdapter) RunResume(ctx context.Context, results []ToolResult) error
@@ -361,7 +375,7 @@ In AG\-UI the application answers a frontend tool call in the next run's input, 
 A conversation that streams a resumed turn \(sdk.Conversation.ResumeStream\) sends it as RunSend sends a streamed turn.
 
 <a name="EventAdapter.RunSend"></a>
-### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L386>)
+### func \(\*EventAdapter\) [RunSend](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L419>)
 
 ```go
 func (a *EventAdapter) RunSend(ctx context.Context, msg *types.Message) error
@@ -374,8 +388,8 @@ Event sequence on success:
 1. RUN\_STARTED
 2. STATE\_SNAPSHOT \(if a StateProvider is configured\)
 3. STEP\_STARTED for the current workflow state \(workflow conversations\)
-4. For each round of the turn \(an assistant message and the tool results after it\), in order: the round's reasoning \(REASONING\_START, REASONING\_MESSAGE\_START, a REASONING\_MESSAGE\_CONTENT for each chunk, REASONING\_MESSAGE\_END, REASONING\_END\) as the model streams it; TEXT\_MESSAGE\_START, a TEXT\_MESSAGE\_CONTENT for each chunk of text as the model streams it, TEXT\_MESSAGE\_END; then TOOL\_CALL\_START / TOOL\_CALL\_ARGS / TOOL\_CALL\_END for each call it made; then a TOOL\_CALL\_RESULT for each result the round fed back to the model, each followed by a STATE\_DELTA when the state changed
-5. The reasoning of the streamed rounds that did not stream it, whole
+4. For each round of the turn \(an assistant message and the tool results after it\), in order: with WithReasoning\(true\), the round's reasoning \(REASONING\_START, REASONING\_MESSAGE\_START, a REASONING\_MESSAGE\_CONTENT for each chunk, REASONING\_MESSAGE\_END, REASONING\_END\) as the model streams it; TEXT\_MESSAGE\_START, a TEXT\_MESSAGE\_CONTENT for each chunk of text as the model streams it, TEXT\_MESSAGE\_END; then TOOL\_CALL\_START / TOOL\_CALL\_ARGS / TOOL\_CALL\_END for each call it made; then a TOOL\_CALL\_RESULT for each result the round fed back to the model, each followed by a STATE\_DELTA when the state changed and WithStateAfterEachTool is set
+5. With WithReasoning\(true\), the reasoning of the streamed rounds that did not stream it, whole
 6. STEP\_FINISHED / STEP\_STARTED when the turn moved the workflow on
 7. If a ToolResultProvider answers the pending client tools: a TOOL\_CALL\_RESULT for each, then the resumed turn from step 4
 8. STATE\_DELTA when the state changed
@@ -383,7 +397,7 @@ Event sequence on success:
 10. MESSAGES\_SNAPSHOT \(with WithMessagesSnapshot\)
 11. RUN\_FINISHED, with the run's token usage
 
-The reasoning streams for a conversation opened with sdk.WithStreamReasoning; otherwise each round's reasoning is sent whole \(step 5\). WithReasoning\(false\) leaves it out. A turn that does not stream sends each round's reasoning before its text.
+Reasoning is sent only with WithReasoning\(true\). It streams for a conversation opened with sdk.WithStreamReasoning; otherwise each round's reasoning is sent whole \(step 5\). A turn that does not stream sends each round's reasoning before its text.
 
 A client tool call left pending ends the run with the call unanswered, and RUN\_FINISHED's success outcome names it in pendingToolCallIds; the application answers it in the next run with [EventAdapter.RunResume](<#EventAdapter.RunResume>). An approval\-held call \(sdk.Conversation.OnToolAsync\) ends the run with RUN\_FINISHED carrying an interrupt outcome that names the held calls; the next run continues with [EventAdapter.RunContinue](<#EventAdapter.RunContinue>).
 
@@ -396,7 +410,7 @@ On error, a RUN\_ERROR ends the run, with the token usage of the model calls mad
 Read Events\(\) concurrently with the run, or cancel ctx: the run waits for the reader once the channel's buffer of 64 events is full, so a caller that lets the run finish before reading blocks there.
 
 <a name="EventAdapter.ThreadID"></a>
-### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L321>)
+### func \(\*EventAdapter\) [ThreadID](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/agui/adapter.go#L352>)
 
 ```go
 func (a *EventAdapter) ThreadID() string
