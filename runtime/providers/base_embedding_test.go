@@ -398,3 +398,32 @@ func fixtureVector(n int, lead ...float32) []float32 {
 	copy(v, lead)
 	return v
 }
+
+// A declared batch size replaces the default, a size above the API limit is
+// clamped to it with a warning, and no limit (0) leaves the declared size.
+func TestApplyDeclaredBatchSize(t *testing.T) {
+	cases := []struct {
+		name                  string
+		declared, limit, want int
+	}{
+		{"undeclared keeps the default", 0, 96, 10},
+		{"below the limit", 50, 96, 50},
+		{"at the limit", 96, 96, 96},
+		{"no limit", 500, 0, 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := NewBaseEmbeddingProvider("x-embedding", "m", "", 8, 10, time.Second)
+			b.ApplyDeclaredBatchSize(tc.declared, tc.limit)
+			assert.Equal(t, tc.want, b.MaxBatchSize())
+		})
+	}
+
+	b := NewBaseEmbeddingProvider("x-embedding", "m", "", 8, 10, time.Second)
+	rec := captureDebugLog(t, func() { b.ApplyDeclaredBatchSize(200, 96) })
+	assert.Equal(t, 96, b.MaxBatchSize())
+	assert.Equal(t, "x-embedding: batch_size is above the model's limit; using the limit", rec["msg"])
+	assert.Equal(t, "m", rec["model"])
+	assert.EqualValues(t, 200, rec["batch_size"])
+	assert.EqualValues(t, 96, rec["limit"])
+}

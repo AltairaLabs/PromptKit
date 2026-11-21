@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -131,26 +130,17 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	family := modelID(p.ProviderModel)
 	dims, batch := familyDefaults(family)
 	p.BatchSize = batch
-	if p.batchSize > 0 {
-		p.BatchSize = p.batchSize
-		if limit, known := familyBatchLimit(family); known && p.batchSize > limit {
-			logger.Warn("vertex embedding: batch_size is above the model's limit; using the limit",
-				"model", p.ProviderModel, "batch_size", p.batchSize, "limit", limit)
-			p.BatchSize = limit
-		}
+	// An unknown family's batch of one is a default, not an API limit, so a
+	// declared size is not clamped to it.
+	limit := 0
+	if dims > 0 {
+		limit = batch
 	}
+	p.ApplyDeclaredBatchSize(p.batchSize, limit)
 	if !p.dimsExplicit {
 		p.Dimensions = dims
 	}
 	return p, nil
-}
-
-// familyBatchLimit returns the most instances one :predict request for the
-// model's family takes, and whether the family is known. It is the family's
-// default batch size: a declared batch_size above it is clamped to it.
-func familyBatchLimit(model string) (int, bool) {
-	dims, batch := familyDefaults(model)
-	return batch, dims > 0 // only an unknown family has no known size
 }
 
 // familyDefaults returns the dimension and batch defaults for a model id. A

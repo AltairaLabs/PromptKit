@@ -113,6 +113,22 @@ func (b *BaseEmbeddingProvider) CheckDimensions(embeddings [][]float32) error {
 	return nil
 }
 
+// ApplyDeclaredBatchSize sets BatchSize to a batch size the config declared.
+// A declared size below 1 leaves BatchSize as it is. When limit is above 0 it
+// is the API's most texts per request: a declared size above it is clamped to
+// it, with a warning.
+func (b *BaseEmbeddingProvider) ApplyDeclaredBatchSize(declared, limit int) {
+	if declared < 1 {
+		return
+	}
+	b.BatchSize = declared
+	if limit > 0 && declared > limit {
+		logger.Warn(b.ProviderID+": batch_size is above the model's limit; using the limit",
+			"model", b.ProviderModel, "batch_size", declared, "limit", limit)
+		b.BatchSize = limit
+	}
+}
+
 // MaxBatchSize returns the maximum texts per single API request.
 func (b *BaseEmbeddingProvider) MaxBatchSize() int {
 	return b.BatchSize

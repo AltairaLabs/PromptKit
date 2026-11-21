@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -146,13 +145,7 @@ func NewEmbeddingProvider(opts ...EmbeddingOption) (*EmbeddingProvider, error) {
 	// The family's batch size is the API's limit (Titan's body holds one text,
 	// Cohere's at most 96), so a declared size may lower it, never raise it.
 	p.BatchSize = batch
-	if p.batchSize > 0 {
-		p.BatchSize = min(p.batchSize, batch)
-		if p.batchSize > batch {
-			logger.Warn("bedrock embedding: batch_size is above the model's limit; using the limit",
-				"model", p.ProviderModel, "batch_size", p.batchSize, "limit", batch)
-		}
-	}
+	p.ApplyDeclaredBatchSize(p.batchSize, batch)
 	if !p.dimsExplicit {
 		p.Dimensions = dims
 	}
