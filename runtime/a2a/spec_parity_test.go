@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,7 +106,12 @@ func a2aSpecPins() []specPin {
 		{value: AgentInterface{}, version: v1, refs: []string{"AgentInterface"}},
 		{value: AgentExtension{}, version: v1, refs: []string{"AgentExtension"}},
 		{value: SendMessageRequest{}, version: v1, refs: []string{"SendMessageRequest"}},
-		{value: SendMessageConfiguration{}, version: v1, refs: []string{"SendMessageConfiguration"}},
+		{
+			value: SendMessageConfiguration{}, version: v1, refs: []string{"SendMessageConfiguration"},
+			nonSpec: []nonSpecField{{"blocking", "0.3's switch, kept so a Go value round-trips through " +
+				"encoding/json and a 0.3 request's is read; WireSendParams leaves it out of 1.0 params " +
+				"(checked by TestA2AWire_V1EncodersWriteValidDocuments)"}},
+		},
 		{value: TaskPushNotificationConfig{}, version: v1, refs: []string{"TaskPushNotificationConfig"}},
 		{value: AuthenticationInfo{}, version: v1, refs: []string{"AuthenticationInfo"}},
 		{value: GetTaskRequest{}, version: v1, refs: []string{"GetTaskRequest"}},
@@ -323,11 +330,19 @@ func protoJSONName(name string) string {
 	return b.String()
 }
 
+// v1MessageCount is the number of top-level messages in the mirrored
+// a2a.proto (v1.0.1). A parser gap that drops a message fails on it rather
+// than shrinking what the parity test grades. Moving the pin in
+// scripts/fetch-a2a-spec.sh updates it.
+const v1MessageCount = 44
+
+// protoTopLevelRE matches the statements a2a.proto has outside any block.
+var protoTopLevelRE = regexp.MustCompile(`^(syntax|package|import|option)\b[^{}]*;$`)
+
 // parseProto reads the messages and enums of a2a.proto. It handles what the
 // file uses (top-level messages and enums, oneofs, maps, field options) and
-// fails on anything else rather than misread it.
-func parseProto(t *testing.T, src string) *protoSpec {
-	t.Helper()
+// returns an error on anything else rather than misread it.
+func parseProto(src string) (*protoSpec, error) {
 	spec := &protoSpec{messages: map[string][]protoField{}, enums: map[string][]string{}}
 	type frame struct{ kind, name string }
 	var stack []frame
@@ -340,20 +355,31 @@ func parseProto(t *testing.T, src string) *protoSpec {
 		if i := strings.Index(line, "//"); i >= 0 {
 			line = strings.TrimSpace(line[:i])
 		}
+		top := frame{kind: "file"}
+		if len(stack) > 0 {
+			top = stack[len(stack)-1]
+		}
 		if m := protoBlockRE.FindStringSubmatch(line); m != nil {
-			if m[1] == "message" || m[1] == "enum" {
-				require.Emptyf(t, stack, "a2a.proto:%d: nested %s %s is not supported by this parser", n+1, m[1], m[2])
-			}
-			if m[1] == "message" {
+			switch {
+			case (m[1] == "message" || m[1] == "enum" || m[1] == "service") && top.kind != "file":
+				return nil, fmt.Errorf("a2a.proto:%d: nested %s %s is not supported by this parser", n+1, m[1], m[2])
+			case m[1] == "oneof" && top.kind != "message":
+				return nil, fmt.Errorf("a2a.proto:%d: oneof %s outside a message", n+1, m[2])
+			case m[1] == "message":
 				spec.messages[m[2]] = nil
-			}
-			if m[1] == "enum" {
+			case m[1] == "enum":
 				spec.enums[m[2]] = nil
 			}
 			stack = append(stack, frame{m[1], m[2]})
 			line = line[strings.Index(line, "{")+1:]
-		} else if len(stack) > 0 {
-			switch top := stack[len(stack)-1]; top.kind {
+		} else {
+			switch top.kind {
+			case "file":
+				if line != "" && !protoTopLevelRE.MatchString(line) {
+					return nil, fmt.Errorf("a2a.proto:%d: unrecognized top-level line (a declaration with "+
+						"its { on another line?): %q", n+1, line)
+				}
+				continue
 			case "message", "oneof":
 				if m := protoFieldRE.FindStringSubmatch(line); m != nil {
 					msg, oneof := top.name, ""
@@ -373,13 +399,18 @@ func parseProto(t *testing.T, src string) *protoSpec {
 					spec.messages[msg] = append(spec.messages[msg], f)
 					continue
 				}
-				if top.kind == "message" && line != "" && line != "}" && !strings.HasPrefix(line, "reserved") {
-					t.Fatalf("a2a.proto:%d: unrecognized line in message %s: %q", n+1, top.name, line)
+				if line != "" && line != "}" && !strings.HasPrefix(line, "reserved ") &&
+					!(top.kind == "message" && strings.HasPrefix(line, "option ")) {
+					return nil, fmt.Errorf("a2a.proto:%d: unrecognized line in %s %s: %q", n+1, top.kind, top.name, line)
 				}
 			case "enum":
 				if m := protoEnumRE.FindStringSubmatch(line); m != nil {
 					spec.enums[top.name] = append(spec.enums[top.name], m[1])
 					continue
+				}
+				if line != "" && line != "}" && !strings.HasPrefix(line, "reserved ") &&
+					!strings.HasPrefix(line, "option ") {
+					return nil, fmt.Errorf("a2a.proto:%d: unrecognized line in enum %s: %q", n+1, top.name, line)
 				}
 			}
 		}
@@ -388,21 +419,27 @@ func parseProto(t *testing.T, src string) *protoSpec {
 			case '{':
 				stack = append(stack, frame{"other", ""})
 			case '}':
-				require.NotEmptyf(t, stack, "a2a.proto:%d: unbalanced }", n+1)
+				if len(stack) == 0 {
+					return nil, fmt.Errorf("a2a.proto:%d: unbalanced }", n+1)
+				}
 				stack = stack[:len(stack)-1]
 			}
 		}
 	}
-	require.Empty(t, stack, "a2a.proto: unbalanced braces")
-	return spec
+	if len(stack) > 0 {
+		return nil, fmt.Errorf("a2a.proto: unbalanced braces, %d block(s) left open", len(stack))
+	}
+	return spec, nil
 }
 
 func loadV1Spec(t *testing.T) *protoSpec {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "spec", string(ProtocolVersion10), "a2a.proto"))
 	require.NoError(t, err, "no mirrored a2a.proto; run `make a2a-spec`")
-	spec := parseProto(t, string(raw))
-	require.NotEmpty(t, spec.messages["AgentCard"], "parsed a2a.proto has no AgentCard fields")
+	spec, err := parseProto(string(raw))
+	require.NoError(t, err)
+	require.Len(t, spec.messages, v1MessageCount,
+		"parsed a2a.proto has a different number of messages than v1MessageCount: a parser gap, or a new pin")
 	return spec
 }
 
@@ -667,7 +704,7 @@ func TestA2ASpecCoverage(t *testing.T) {
 	defs := v03Definitions(t, v03)
 	for _, name := range sortedKeys(defs) {
 		def, _ := defs[name].(map[string]any)
-		if _, isObject := def["properties"]; !isObject || isV03Envelope(name, def) {
+		if _, isObject := def["properties"]; !isObject || isV03Envelope(def) {
 			continue
 		}
 		if !pinnedSpec[ProtocolVersion03][name] && v03NotModeled[name] == "" {
@@ -681,15 +718,44 @@ func TestA2ASpecCoverage(t *testing.T) {
 	}
 }
 
-// isV03Envelope reports whether an a2a.json definition is a JSON-RPC request
-// or response wrapper (method, params and result are pinned on their own) or
-// one of the error variants (JSONRPCError with a fixed code).
-func isV03Envelope(name string, def map[string]any) bool {
+// isV03Envelope reports whether an a2a.json definition is one of the
+// per-method JSON-RPC wrappers or error variants, whose contents are pinned on
+// their own (the params, the result, JSONRPCError). It checks the shape, not
+// the name, so nothing else is skipped:
+//   - a method request: jsonrpc, a method fixed by "const", and at most id
+//     and params;
+//   - a success response: exactly id, jsonrpc and result;
+//   - an error variant: exactly code, data and message, with code fixed by
+//     "const".
+func isV03Envelope(def map[string]any) bool {
 	props, _ := def["properties"].(map[string]any)
-	_, hasRPC := props["jsonrpc"]
-	_, hasCode := props["code"]
-	return (hasRPC && name != "JSONRPCRequest" && name != "JSONRPCSuccessResponse" &&
-		name != "JSONRPCErrorResponse") || (hasCode && name != "JSONRPCError")
+	switch {
+	case hasConst(props, "method") && hasOnly(props, "id", "jsonrpc", "method", "params") &&
+		props["jsonrpc"] != nil:
+		return true
+	case len(props) == 3 && hasOnly(props, "id", "jsonrpc", "result"):
+		return true
+	case len(props) == 3 && hasOnly(props, "code", "data", "message") && hasConst(props, "code"):
+		return true
+	}
+	return false
+}
+
+// hasConst reports whether property name is fixed to one value.
+func hasConst(props map[string]any, name string) bool {
+	p, _ := props[name].(map[string]any)
+	_, ok := p["const"]
+	return ok
+}
+
+// hasOnly reports whether every property is one of names.
+func hasOnly(props map[string]any, names ...string) bool {
+	for k := range props {
+		if !slices.Contains(names, k) {
+			return false
+		}
+	}
+	return true
 }
 
 func declaredStructs(t *testing.T) []string {
@@ -763,4 +829,56 @@ func v03Enum(t *testing.T, node any) []string {
 		out[i] = v.(string)
 	}
 	return out
+}
+
+// The proto parser refuses what it cannot read, so a gap fails loudly
+// instead of dropping fields from the grading.
+func TestParseProto_RefusesWhatItCannotRead(t *testing.T) {
+	for name, src := range map[string]string{
+		"brace on the next line":      "message A\n{\n  string id = 1;\n}\n",
+		"enum brace on the next line": "enum E\n{\n  E_X = 0;\n}\n",
+		"unknown line in a oneof":     "message A {\n  oneof c {\n    weird thing;\n  }\n}\n",
+		"unknown line in a message":   "message A {\n  extensions 100 to 200;\n}\n",
+		"unknown line in an enum":     "enum E {\n  e_x: 0;\n}\n",
+		"nested message":              "message A {\n  message B {}\n}\n",
+		"unknown top-level line":      "edition = \"2023\"\n",
+		"unbalanced":                  "message A {\n  string id = 1;\n",
+	} {
+		_, err := parseProto(src)
+		assert.Error(t, err, name)
+	}
+
+	spec, err := parseProto("syntax = \"proto3\";\nmessage A {\n  oneof c {\n    string t = 1;\n  }\n" +
+		"  repeated B b_list = 2 [(google.api.field_behavior) = REQUIRED];\n  map<string, B> by_id = 3;\n}\n" +
+		"enum E {\n  E_X = 0;\n}\n")
+	require.NoError(t, err)
+	assert.Equal(t, []protoField{
+		{jsonName: "t", typ: "string", oneof: "c"},
+		{jsonName: "bList", typ: "B", repeated: true, required: true},
+		{jsonName: "byId", typ: "B", isMap: true},
+	}, spec.messages["A"])
+	assert.Equal(t, []string{"E_X"}, spec.enums["E"])
+}
+
+func TestIsV03Envelope_ChecksTheShape(t *testing.T) {
+	str := map[string]any{"type": "string"}
+	fixed := map[string]any{"const": "x"}
+	for name, tc := range map[string]struct {
+		props map[string]any
+		want  bool
+	}{
+		"method request":          {map[string]any{"id": str, "jsonrpc": str, "method": fixed, "params": str}, true},
+		"request, method not set": {map[string]any{"id": str, "jsonrpc": str, "method": str}, false},
+		"request with extra field": {
+			map[string]any{"jsonrpc": str, "method": fixed, "tenant": str}, false,
+		},
+		"method without jsonrpc": {map[string]any{"method": fixed}, false},
+		"success response":       {map[string]any{"id": str, "jsonrpc": str, "result": str}, true},
+		"response with error":    {map[string]any{"id": str, "jsonrpc": str, "error": str}, false},
+		"error variant":          {map[string]any{"code": fixed, "data": str, "message": str}, true},
+		"error, code not fixed":  {map[string]any{"code": str, "data": str, "message": str}, false},
+		"object":                 {map[string]any{"code": fixed, "data": str, "name": str}, false},
+	} {
+		assert.Equal(t, tc.want, isV03Envelope(map[string]any{"properties": tc.props}), name)
+	}
 }

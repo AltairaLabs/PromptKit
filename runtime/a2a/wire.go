@@ -1,6 +1,7 @@
 package a2a
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -67,10 +68,18 @@ func (v ProtocolVersion) WireStreamEvent(event any) (any, error) {
 }
 
 // WireSendParams returns SendMessage params in version v's shape (0.3 parts
-// are kind-tagged).
+// are kind-tagged). The 1.0 shape leaves out Configuration.Blocking, 0.3's
+// switch, which 1.0 does not define: ProtoJSON parsers refuse fields they do
+// not know unless told to discard them. req is not changed.
 func (v ProtocolVersion) WireSendParams(req *SendMessageRequest) any {
 	if v != ProtocolVersion03 {
-		return req
+		if req.Configuration == nil || !req.Configuration.Blocking {
+			return req
+		}
+		out, cfg := *req, *req.Configuration
+		cfg.Blocking = false
+		out.Configuration = &cfg
+		return &out
 	}
 	out := v03SendParams{Message: toV03Message(&req.Message), Metadata: req.Metadata}
 	if c := req.Configuration; c != nil {
@@ -151,8 +160,9 @@ type v03Part struct {
 }
 
 // A 0.3 data part's data is a JSON object, where 1.0's is any JSON value. A
-// value that is not an object goes to a 0.3 peer as {"value": v}, with
-// metadata data_part_compat set to true, and comes back unwrapped: the
+// DataValue that encodes as an object is sent as it is; any other value (JSON
+// null included) goes to a 0.3 peer as {"value": v}, with metadata
+// data_part_compat set to true, and comes back unwrapped: the
 // convention of the official SDK's 0.3 compatibility layer (a2a-python
 // a2a/compat/v0_3/conversions.py), so either side reads the other's.
 const (
@@ -175,6 +185,10 @@ func toV03Part(p *Part) v03Part {
 		out.Data = p.Data
 	case p.DataValue != nil:
 		out.Kind = kindData
+		if obj, ok := jsonObject(p.DataValue); ok {
+			out.Data = obj
+			break
+		}
 		out.Data = map[string]any{v03DataValueKey: p.DataValue}
 		out.Metadata = map[string]any{}
 		for k, v := range p.Metadata {
@@ -380,6 +394,16 @@ func (c *v03PushConfig) v1() *TaskPushNotificationConfig {
 	return out
 }
 
+// jsonObject returns v's JSON encoding when it is a JSON object, which 0.3
+// data can carry as it is.
+func jsonObject(v any) (json.RawMessage, bool) {
+	raw, err := json.Marshal(v)
+	if err != nil || !bytes.HasPrefix(raw, []byte("{")) {
+		return nil, false
+	}
+	return raw, true
+}
+
 // unwrapV03Data undoes toV03Part's wrapping of a data value that is not an
 // object: given a 0.3 data part's metadata and data, it returns the wrapped
 // value and the metadata without the compatibility flag. ok is false when the
@@ -407,20 +431,6 @@ func unwrapV03Data(metadata map[string]any, data json.RawMessage) (
 		rest[k] = v
 	}
 	return value, rest, true
-}
-
-// MarshalJSON implements json.Marshaler in the A2A 1.0 shape. Blocking is
-// 0.3's switch and A2A 1.0 has no such field, so it is not written:
-// ProtoJSON parsers refuse fields they do not know unless told to discard
-// them. [ProtocolVersion.WireSendParams] carries it to a 0.3 peer, and
-// UnmarshalJSON still reads it from a 0.3 request.
-func (c SendMessageConfiguration) MarshalJSON() ([]byte, error) {
-	type plain SendMessageConfiguration
-	return json.Marshal(struct {
-		plain
-		// Blocking shadows plain.Blocking and is never set.
-		Blocking *bool `json:"blocking,omitempty"`
-	}{plain: plain(c)})
 }
 
 // UnmarshalJSON implements json.Unmarshaler. Besides 1.0's

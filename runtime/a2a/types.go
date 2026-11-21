@@ -262,8 +262,8 @@ type Part struct {
 	Data map[string]any `json:"data,omitempty"`
 	// DataValue holds a data part whose value is not a JSON object: A2A 1.0
 	// types data as any JSON value (an array, string, number or boolean as
-	// well). An object is decoded into Data; anything else into DataValue.
-	// When both are set, Data is sent.
+	// well). An object is decoded into Data; anything else into DataValue,
+	// JSON null as json.RawMessage("null"). When both are set, Data is sent.
 	DataValue any `json:"-"`
 
 	Metadata  map[string]any `json:"metadata,omitempty"`
@@ -294,19 +294,22 @@ func (p *Part) UnmarshalJSON(data []byte) error {
 			wire.Data, p.Metadata = value, rest
 		}
 	}
-	if err := p.setData(wire.Data); err != nil {
-		return err
-	}
 	if wire.File != nil {
 		if err := wire.File.into(p); err != nil {
 			return err
 		}
 	}
-	return nil
+	return p.setData(wire.Data)
 }
 
+// jsonNullData is how a data part whose value is JSON null holds it.
+var jsonNullData = json.RawMessage("null")
+
 // setData decodes a data part's value: an object into Data, any other
-// value into DataValue. JSON null leaves both unset.
+// value into DataValue. JSON null is a value too (1.0 types data as
+// google.protobuf.Value) and is held as DataValue json.RawMessage("null"),
+// unless the part already has other content, beside which a null "data" is
+// an absent field.
 func (p *Part) setData(raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return nil
@@ -315,11 +318,16 @@ func (p *Part) setData(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return fmt.Errorf("a2a: part data: %w", err)
 	}
-	if obj, ok := v.(map[string]any); ok {
+	switch obj := v.(type) {
+	case nil:
+		if p.Text == nil && p.Raw == nil && p.URL == nil {
+			p.DataValue = jsonNullData
+		}
+	case map[string]any:
 		p.Data = obj
-		return nil
+	default:
+		p.DataValue = v
 	}
-	p.DataValue = v
 	return nil
 }
 
@@ -546,8 +554,9 @@ type SendMessageRequest struct {
 // Blocking and ReturnImmediately are the same switch in two versions: A2A 0.3
 // sends blocking (default false), 1.0 sends returnImmediately (default false,
 // so 1.0 blocks by default). A server reads the one its caller's version
-// defines; see [SendMessageConfiguration.WaitsForCompletion]. Marshaled, the
-// configuration is in the 1.0 shape and leaves Blocking out.
+// defines; see [SendMessageConfiguration.WaitsForCompletion]. Both fields
+// survive a json.Marshal round trip; [ProtocolVersion.WireSendParams] sends
+// each version only its own.
 type SendMessageConfiguration struct {
 	AcceptedOutputModes []string `json:"acceptedOutputModes,omitempty"`
 	HistoryLength       *int     `json:"historyLength,omitempty"`

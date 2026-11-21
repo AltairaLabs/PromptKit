@@ -358,9 +358,11 @@ func TestA2AWire_V1EncodersWriteValidDocuments(t *testing.T) {
 		{"Task", &Task{Status: working}},
 		{"SendMessageResponse", ProtocolVersion10.WireSendResult(&Task{Status: working})},
 		{"Message", &Message{Role: RoleAgent, Parts: []Part{{}}}},
-		{"SendMessageRequest", &SendMessageRequest{Configuration: &SendMessageConfiguration{
-			Blocking: true, TaskPushNotificationConfig: &TaskPushNotificationConfig{Authentication: &AuthenticationInfo{}},
-		}}},
+		{"SendMessageRequest", ProtocolVersion10.WireSendParams(&SendMessageRequest{
+			Configuration: &SendMessageConfiguration{
+				Blocking: true, TaskPushNotificationConfig: &TaskPushNotificationConfig{Authentication: &AuthenticationInfo{}},
+			},
+		})},
 		{"ListTasksResponse", &ListTasksResponse{Tasks: []Task{{Status: working}}}},
 	}
 	for _, tc := range cases {

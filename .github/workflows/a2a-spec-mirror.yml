@@ -1,0 +1,39 @@
+name: A2A Spec Mirror
+
+# Checks that runtime/a2a/testdata/spec holds the published A2A documents at
+# the release tags pinned in scripts/fetch-a2a-spec.sh, so TestA2ASpecParity
+# cannot be passed by editing the document it grades against.
+#
+# It fetches from GitHub, so it runs only when the mirrors, the script or this
+# workflow change, and weekly to notice a pinned upstream file that moved. It
+# is not a required check.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'runtime/a2a/testdata/spec/**'
+      - 'scripts/fetch-a2a-spec.sh'
+      - '.github/workflows/a2a-spec-mirror.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'runtime/a2a/testdata/spec/**'
+      - 'scripts/fetch-a2a-spec.sh'
+      - '.github/workflows/a2a-spec-mirror.yml'
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirrored spec is the published one
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Check the mirror
+      run: make a2a-spec-check
