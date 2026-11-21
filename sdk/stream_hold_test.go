@@ -178,7 +178,7 @@ func (m *pacedModel) pace(ctx context.Context, in <-chan providers.StreamChunk) 
 // stage has taken it.
 func (m *pacedModel) next(t *testing.T) {
 	t.Helper()
-	m.step <- struct{}{}
+	letThrough(t, m.step)
 	recvWithin(t, m.forwarded)
 }
 
@@ -193,6 +193,30 @@ func recvWithin[T any](t *testing.T, ch <-chan T) T {
 		t.Fatal("nothing arrived")
 		var zero T
 		return zero
+	}
+}
+
+// letThrough sends one step on gate, failing the test rather than hanging
+// when nothing is waiting on it.
+func letThrough(t *testing.T, gate chan<- struct{}) {
+	t.Helper()
+	select {
+	case gate <- struct{}{}:
+	case <-time.After(10 * time.Second):
+		t.Fatal("nothing waited on the gate")
+	}
+}
+
+// recvChunk is the turn's next chunk, ok false once the turn's stream closed,
+// failing the test rather than hanging when the turn neither sends nor ends.
+func recvChunk(t *testing.T, ch <-chan StreamChunk) (c StreamChunk, ok bool) {
+	t.Helper()
+	select {
+	case c, ok = <-ch:
+		return c, ok
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn neither sent a chunk nor ended")
+		return StreamChunk{}, false
 	}
 }
 
@@ -286,7 +310,7 @@ func (s *holdSession) stream(t *testing.T) *holdStream {
 func (h *holdStream) delta(t *testing.T) string {
 	t.Helper()
 	for {
-		c, ok := <-h.ch
+		c, ok := recvChunk(t, h.ch)
 		require.True(t, ok, "the stream ended before another delta")
 		require.NoError(t, c.Error)
 		switch c.Type {
@@ -304,7 +328,7 @@ func (h *holdStream) delta(t *testing.T) string {
 // finish reads the rest of the turn.
 func (h *holdStream) finish(t *testing.T) {
 	t.Helper()
-	for c := range h.ch {
+	for c, ok := recvChunk(t, h.ch); ok; c, ok = recvChunk(t, h.ch) {
 		require.NoError(t, c.Error)
 		switch c.Type {
 		case ChunkText:
@@ -349,17 +373,17 @@ func TestStreamHold_SegmentReleasesEachSegmentAfterItsVerdict(t *testing.T) {
 
 	model.next(t)
 	assert.Equal(t, "The weather is mild today.", recvWithin(t, judge.started))
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.delta(t)
 
 	model.next(t)
 	assert.Equal(t, "The weather is mild today. Expect light rain later.", recvWithin(t, judge.started))
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.delta(t)
 
 	model.next(t)
 	assert.Equal(t, strings.Join(weatherChunks, ""), recvWithin(t, judge.started))
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.finish(t)
 
 	assert.Equal(t, []string{
@@ -414,12 +438,12 @@ func TestStreamHold_TailAndSegmentReleaseWhatBothCleared(t *testing.T) {
 
 	model.next(t)
 	assert.Equal(t, "Sunny skies.", recvWithin(t, judge.started))
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	assert.Equal(t, "Sunny skies.", turn.delta(t))
 
 	model.next(t)
 	assert.Equal(t, "Sunny skies. Pine cones fall.", recvWithin(t, judge.started))
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.finish(t)
 
 	assert.Equal(t, []string{"Sunny skies.", " Pine cones fall."}, turn.deltas)
@@ -442,17 +466,17 @@ func TestStreamHold_SegmentCoalescesSegmentsReadyWhileTheJudgeRuns(t *testing.T)
 	assert.Equal(t, "Sun at first.", recvWithin(t, judge.started))
 	model.next(t) // "Then clouds." and "Then wind." arrive while judge 1 runs
 	model.next(t)
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	assert.Equal(t, "Sun at first.", turn.delta(t))
 
 	assert.Equal(t, "Sun at first. Then clouds. Then wind.", recvWithin(t, judge.started),
 		"the next call covers both segments that became ready")
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	assert.Equal(t, " Then clouds. Then wind.", turn.delta(t))
 
 	model.next(t)
 	recvWithin(t, judge.started)
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.finish(t)
 
 	assert.Equal(t, []string{"Sun at first.", " Then clouds. Then wind.", " Rain by night."}, turn.deltas)
@@ -474,13 +498,13 @@ func TestStreamHold_LaterFailingSegmentEndsWithTheMessage(t *testing.T) {
 
 	model.next(t)
 	recvWithin(t, judge.started)
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.delta(t)
 
 	model.next(t)
 	assert.Equal(t, "The weather is mild today. Buy CompetitorCo shares now.", recvWithin(t, judge.started))
 	model.next(t) // the reply ends while the segment is judged
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.finish(t)
 
 	assert.Equal(t, []string{"The weather is mild today.", holdMessage}, turn.deltas)
@@ -608,12 +632,12 @@ func TestStreamHold_MaxSegmentJudgesHandsTheRestToTheFinalCheck(t *testing.T) {
 
 	model.next(t)
 	recvWithin(t, judge.started)
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.delta(t)
 	model.next(t)
 	model.next(t)
 	assert.Equal(t, strings.Join(weatherChunks, ""), recvWithin(t, judge.started))
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	turn.finish(t)
 
 	assert.Equal(t, []string{"The weather is mild today.", " Expect light rain later. Bring a coat."}, turn.deltas)

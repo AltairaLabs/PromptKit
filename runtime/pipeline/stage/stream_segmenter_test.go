@@ -7,6 +7,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// segmentEnd is what nextSegmentEnd returned.
+type segmentEnd struct {
+	end int
+	ok  bool
+}
+
+// feedWithin is seg.feed(delta), failing the test when it does not return:
+// a scan that makes no progress loops forever.
+func feedWithin(t *testing.T, seg *segmenter, delta string) []int {
+	t.Helper()
+	return within(t, "segmenter.feed", func() []int { return seg.feed(delta) })
+}
+
 // The segmenter splits a reply still being written into the segments a
 // stream_hold: segment guardrail judges. A boundary is only declared once the
 // text after it shows it is one, so every case gives the text so far.
@@ -122,9 +135,12 @@ func TestNextSegmentEnd(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			end, ok := nextSegmentEnd(tc.text, tc.from, tc.first, tc.cfg)
-			assert.Equal(t, tc.wantOK, ok)
-			assert.Equal(t, tc.want, end)
+			got := within(t, "nextSegmentEnd", func() segmentEnd {
+				end, ok := nextSegmentEnd(tc.text, tc.from, tc.first, tc.cfg)
+				return segmentEnd{end: end, ok: ok}
+			})
+			assert.Equal(t, tc.wantOK, got.ok)
+			assert.Equal(t, tc.want, got.end)
 		})
 	}
 }
@@ -133,10 +149,10 @@ func TestNextSegmentEnd(t *testing.T) {
 // that completes it arrives.
 func TestSegmenter_Feed(t *testing.T) {
 	seg := newSegmenter(segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600})
-	assert.Empty(t, seg.feed("Hello there."))
-	assert.Equal(t, []int{12, 25}, seg.feed(" How are you? I am"))
+	assert.Empty(t, feedWithin(t, seg, "Hello there."))
+	assert.Equal(t, []int{12, 25}, feedWithin(t, seg, " How are you? I am"))
 	assert.Equal(t, []int{12, 25}, seg.segments())
-	assert.Empty(t, seg.feed(" fine"))
+	assert.Empty(t, feedWithin(t, seg, " fine"))
 	assert.Equal(t, "Hello there. How are you? I am fine", seg.text())
 	assert.Equal(t, 25, seg.last())
 

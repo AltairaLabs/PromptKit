@@ -155,19 +155,27 @@ func TestStreamHold_JudgePartialReply(t *testing.T) {
 // A partial-reply judgment is bounded by the guardrail's stream_hold_timeout
 // when it sets one, else by the host's, and fails closed past it.
 func TestStreamHold_JudgePartialReplyTimeout(t *testing.T) {
+	// The bound that must not apply is short too, so a judgment bounded by
+	// the wrong one fails here in a second rather than hanging the test; it
+	// is told apart from the right one by how long the judgment took.
+	const right, wrong = 5 * time.Millisecond, time.Second
 	judge := &scriptedJudge{block: true}
 	own, err := Output("llm_judge", map[string]any{"criteria": "c", "stream_hold_timeout": "5ms"},
-		WithJudge(judge)).Hook()
+		WithJudge(judge), WithEvalTimeout(wrong)).Hook()
 	require.NoError(t, err)
+	start := time.Now()
 	d := own.(hooks.StreamHolder).JudgePartialReply(context.Background(),
-		&hooks.ProviderRequest{}, hooks.PartialReply{Text: "Sunny.", SegmentIndex: 1, Timeout: time.Hour})
+		&hooks.ProviderRequest{}, hooks.PartialReply{Text: "Sunny.", SegmentIndex: 1, Timeout: wrong})
+	require.Less(t, time.Since(start), wrong/2, "the guardrail's stream_hold_timeout (%v) bounds it", right)
 	assert.False(t, d.Allow)
 	assert.Equal(t, "timeout", d.Metadata["reason"])
 
-	hosts, err := Output("llm_judge", map[string]any{"criteria": "c"}, WithJudge(judge)).Hook()
+	hosts, err := Output("llm_judge", map[string]any{"criteria": "c"}, WithJudge(judge), WithEvalTimeout(wrong)).Hook()
 	require.NoError(t, err)
+	start = time.Now()
 	d = hosts.(hooks.StreamHolder).JudgePartialReply(context.Background(),
-		&hooks.ProviderRequest{}, hooks.PartialReply{Text: "Sunny.", SegmentIndex: 1, Timeout: 5 * time.Millisecond})
+		&hooks.ProviderRequest{}, hooks.PartialReply{Text: "Sunny.", SegmentIndex: 1, Timeout: right})
+	require.Less(t, time.Since(start), wrong/2, "the host's bound (%v) bounds it, not the eval timeout", right)
 	assert.False(t, d.Allow)
 	assert.Equal(t, "timeout", d.Metadata["reason"])
 }
