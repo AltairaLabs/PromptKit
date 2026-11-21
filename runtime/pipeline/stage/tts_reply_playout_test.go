@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -339,6 +340,91 @@ func TestTTSStageWithInterruption_BargeInOnTheSecondRound(t *testing.T) {
 	assert.Equal(t, int64(200), second.Meta[types.MetaAudioMs])
 }
 
+// A reply the caller heard all of before a barge-in cut its turn (the provider
+// stage kept it as interrupted) is a heard prefix too: what was heard is the
+// whole of it, so it goes back to the model.
+func TestTTSStageWithInterruption_FullyHeardCutReplyIsAHeardPrefix(t *testing.T) {
+	p := startPacedReply(t)
+	p.send(t, textDelta("One two three four. "))
+	p.audioUntil(t, 2)
+	p.clock.advance(300 * time.Millisecond) // it has played in full
+	kept := assistantMessage("One two three four. ")
+	kept.Message.FinishReason = types.FinishReasonInterrupted
+	p.send(t, kept)
+	msg := p.messageNext(t)
+
+	assert.Equal(t, "One two three four. ", msg.Content, "heard in full: its own text")
+	assert.True(t, msg.IsHeardPrefix(), "what was heard goes back to the model")
+}
+
+// roundDelta is a streaming delta of round id's reply.
+func roundDelta(id, text string, replaces bool) StreamElement {
+	e := textDelta(text)
+	e.Meta.MessageID = id
+	e.Meta.ReplacesText = replaces
+	return e
+}
+
+// roundMessage is round id's completed reply.
+func roundMessage(id, text string, calls ...string) StreamElement {
+	m := &types.Message{Role: roleAssistant, Content: text, Meta: map[string]interface{}{types.MetaMessageID: id}}
+	for _, c := range calls {
+		m.ToolCalls = append(m.ToolCalls, types.MessageToolCall{ID: c, Name: "get_weather"})
+	}
+	return NewMessageElement(m)
+}
+
+// A guardrail's replacement in the second round of a tool turn is compared
+// with that round's spoken text, not the first round's: a rewrite that keeps
+// what was spoken speaks only the rest, and the first round is neither spoken
+// again nor stored twice.
+func TestTTSStageWithInterruption_ASecondRoundReplacementIsThatRounds(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		replacement string
+		spoken      []string
+		stored      string
+	}{
+		{"overlapping", "It is sunny. Call [REDACTED].",
+			[]string{"Let me look that up.", "It is sunny.", "Call [REDACTED]."}, "It is sunny. Call [REDACTED]."},
+		{"not overlapping", "Blocked.",
+			[]string{"Let me look that up.", "It is sunny.", "Blocked."}, "It is sunny. Blocked."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := startPacedReply(t)
+			p.send(t, roundDelta("m1", "Let me look that up. ", false), roundDelta("m2", "It is sunny. Call 555", false))
+			p.audioUntil(t, 4)
+			p.clock.advance(400 * time.Millisecond) // both sentences have played
+			p.send(t, roundDelta("m2", tc.replacement, true))
+			p.audioUntil(t, 6)
+			p.clock.advance(time.Second)
+			p.send(t, roundMessage("m1", "Let me look that up.", "c1"), roundMessage("m2", tc.replacement))
+			first := p.messageNext(t)
+			second := p.messageNext(t)
+
+			assert.Equal(t, tc.spoken, p.texts(), "nothing spoken twice")
+			assert.Equal(t, "Let me look that up.", first.Content, "the first round is stored once")
+			assert.Equal(t, tc.stored, second.Content)
+		})
+	}
+}
+
+// Without playback pacing there is no playback to wait out: once the reply's
+// turn ends the bot is no longer speaking, so caller speech after it is a new
+// turn, not a barge-in on audio the caller is not playing.
+func TestTTSStageWithInterruption_NoPlaybackPacingLeavesNoPlaybackWindow(t *testing.T) {
+	h := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	h.BeginResponse()
+	p := startReplyWith(t, func(c *TTSStageWithInterruptionConfig) {
+		c.NoPlaybackPacing = true
+		c.InterruptionHandler = h
+	})
+	p.send(t, textDelta("One sentence here. "), assistantMessage("One sentence here."), NewEndOfTurnElement())
+	for !p.next(t).EndOfTurn {
+	}
+	assert.False(t, h.IsBotSpeaking(), "the turn is over and no audio is counted as playing")
+}
+
 // A reply cut to what was heard, with no tool calls, is marked a heard
 // prefix: it stays in model context though it is interrupted.
 func TestTTSStageWithInterruption_BargeInMarksAHeardPrefix(t *testing.T) {
@@ -426,4 +512,32 @@ func TestTTSStageWithInterruption_SegmentsCarryTheirNeighboursText(t *testing.T)
 	assert.Equal(t, "Two sentence here.", configs[0].NextText)
 	assert.Equal(t, "One sentence here.", configs[1].PreviousText)
 	assert.Equal(t, "", configs[1].NextText, "the next segment is not complete yet")
+}
+
+// A reply that did not stream, spoken whole, opens no playback window either
+// without playback pacing.
+func TestTTSStageWithInterruption_NoPlaybackPacingWholeTextOpensNoWindow(t *testing.T) {
+	h := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	p := startReplyWith(t, func(c *TTSStageWithInterruptionConfig) {
+		c.NoPlaybackPacing = true
+		c.InterruptionHandler = h
+	})
+	p.send(t, NewTextElement("A whole reply."))
+	for p.next(t).Audio == nil {
+	}
+	assert.False(t, h.IsBotSpeaking(), "no audio is counted as playing")
+}
+
+// A round's Message does not speak the next round's unfinished text: what the
+// second round has streamed so far waits for its own end.
+func TestTTSStageWithInterruption_ARoundsMessageLeavesTheNextRoundsText(t *testing.T) {
+	p := startPacedReply(t)
+	p.send(t, roundDelta("m1", "Let me look that up. ", false), roundDelta("m2", "It is sun", false))
+	p.audioUntil(t, 2)
+	p.clock.advance(200 * time.Millisecond)
+	p.send(t, roundMessage("m1", "Let me look that up.", "c1"))
+	first := p.messageNext(t)
+
+	assert.Equal(t, "Let me look that up.", first.Content)
+	assert.Equal(t, []string{"Let me look that up."}, p.texts(), "the second round's fragment is not spoken as the first's")
 }

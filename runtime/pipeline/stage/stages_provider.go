@@ -1012,7 +1012,17 @@ func (s *ProviderStage) endFailedStreamingTurn(
 	forwardCtx context.Context, err error, full []types.Message,
 	history *[]types.Message, pending []types.Message, output chan<- StreamElement,
 ) error {
-	if keepErr := s.keepInterruptedTurn(forwardCtx, full, len(*history)+len(pending), history, output); keepErr != nil {
+	newStart := len(*history) + len(pending)
+	if !endsInterrupted(full) && errors.Is(err, context.Canceled) && forwardCtx.Err() == nil {
+		// A barge-in after one or more rounds completed (a tool ran, its
+		// result came back) and before the next said anything: the rounds
+		// that completed are kept, so the tool's call and result stay in the
+		// conversation, and the speech-out stage records what was heard.
+		if kept := completedRounds(full[min(newStart, len(full)):]); len(kept) > 0 {
+			return s.keepTurn(forwardCtx, append(full[:newStart:newStart], kept...), newStart, history, output)
+		}
+	}
+	if keepErr := s.keepInterruptedTurn(forwardCtx, full, newStart, history, output); keepErr != nil {
 		return keepErr
 	}
 	if forwardCtx.Err() != nil {
@@ -1068,6 +1078,15 @@ func (s *ProviderStage) keepInterruptedTurn(
 	if !endsInterrupted(full) {
 		return nil
 	}
+	return s.keepTurn(ctx, full, newStart, history, output)
+}
+
+// keepTurn emits a cut-short turn's new messages (from newStart) for the
+// stages after this one, makes full the history, and closes the turn with
+// an EndOfTurn.
+func (s *ProviderStage) keepTurn(
+	ctx context.Context, full []types.Message, newStart int, history *[]types.Message, output chan<- StreamElement,
+) error {
 	if newStart <= len(full) {
 		if err := s.emitResponseMessages(ctx, full[newStart:], output); err != nil {
 			return err
@@ -1075,6 +1094,57 @@ func (s *ProviderStage) keepInterruptedTurn(
 	}
 	*history = full
 	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):], s.turnIndex()), output)
+}
+
+// completedRounds returns the rounds of msgs (a turn's new messages) that
+// completed: each assistant message with every tool call it made answered by
+// the tool results after it. It stops at the first round that did not (its
+// calls ran no further, or were never answered), so the calls it returns are
+// all paired, as providers require. Nil when no round completed.
+func completedRounds(msgs []types.Message) []types.Message {
+	end := 0
+	for i := 0; i < len(msgs); {
+		if msgs[i].Role != roleAssistant {
+			i++
+			continue
+		}
+		next, complete := roundEnd(msgs, i)
+		if !complete {
+			break
+		}
+		end, i = next, next
+	}
+	if end == 0 {
+		return nil
+	}
+	return msgs[:end:end]
+}
+
+// roundEnd returns where the round the assistant message at i opens ends
+// (after its tool results), and whether it completed: a reply that finished,
+// with every tool call it made answered.
+func roundEnd(msgs []types.Message, i int) (int, bool) {
+	answered := map[string]bool{}
+	j := i + 1
+	for ; j < len(msgs) && msgs[j].Role == roleTool; j++ {
+		if r := msgs[j].ToolResult; r != nil {
+			answered[r.ID] = true
+		}
+	}
+	if len(msgs[i].ToolCalls) == 0 {
+		return j, !msgs[i].IsInterrupted()
+	}
+	return j, allAnswered(msgs[i].ToolCalls, answered)
+}
+
+// allAnswered reports whether every call has a result in answered.
+func allAnswered(calls []types.MessageToolCall, answered map[string]bool) bool {
+	for _, call := range calls {
+		if !answered[call.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.

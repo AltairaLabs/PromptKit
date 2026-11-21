@@ -32,14 +32,14 @@ import (
 // caller spoke (playout).
 type replySpeech struct {
 	seg speechSegmenter
+	// segRound is the round the segmenter's pending text belongs to.
+	segRound string
 	// active is set once the turn has released text: its Messages are then
 	// matched against it rather than spoken whole.
 	active bool
-	// unmatched is the released text no completed Message has accounted for.
-	unmatched string
-	// sent is the text of the segments handed to synthesis that no completed
-	// Message has accounted for: what a replacement is compared with.
-	sent string
+	// rounds is each round's text (roundText), by the round's message id; ""
+	// when the provider stage names no rounds.
+	rounds map[string]*roundText
 	// last is the text of the last segment handed to synthesis, the text
 	// before the next one (tts.SynthesisConfig.PreviousText).
 	last string
@@ -53,11 +53,6 @@ type replySpeech struct {
 	// err is the first synthesis failure; the reply speaks nothing after it,
 	// and its next Message carries it.
 	err error
-	// heard is the text of the segments whose audio reached the caller.
-	heard []string
-	// heardBeforeCut is what the caller had heard when a guardrail replaced
-	// the reply, for the replaced Message to record.
-	heardBeforeCut string
 	// playout is when each spoken segment's audio plays.
 	playout replyPlayout
 	// round is the message id (types.MetaMessageID) of the round now being
@@ -69,6 +64,54 @@ type replySpeech struct {
 	cutAt func() time.Time
 	// ended is closed once the stage's input has ended.
 	ended <-chan struct{}
+}
+
+// roundText is what one round of a reply released and spoke, for its own
+// Message: a guardrail's replacement in a round is compared with that
+// round's text, never another's.
+type roundText struct {
+	// unmatched is the round's released text its Message has not accounted
+	// for.
+	unmatched string
+	// sent is the text of the round's segments handed to synthesis that its
+	// Message has not accounted for: what a replacement is compared with.
+	sent string
+	// heard is the text of the round's segments whose audio reached the
+	// caller.
+	heard []string
+	// heardBeforeCut is what the caller had heard of the round when a
+	// guardrail replaced it, for the replaced Message to record.
+	heardBeforeCut string
+}
+
+// rt is the text of the round being spoken.
+func (r *replySpeech) rt() *roundText {
+	if r.rounds == nil {
+		r.rounds = map[string]*roundText{}
+	}
+	t := r.rounds[r.round]
+	if t == nil {
+		t = &roundText{}
+		r.rounds[r.round] = t
+	}
+	return t
+}
+
+// ownsSegmenter reports whether the segmenter's pending text is the round
+// being spoken's (or there is none).
+func (r *replySpeech) ownsSegmenter() bool {
+	return r.segRound == r.round || strings.TrimSpace(r.seg.pending) == ""
+}
+
+// segmenterFor is the segmenter for the round being spoken: the shared one
+// when it holds that round's text, else a fresh one, so one round's text never
+// joins another's.
+func (r *replySpeech) segmenterFor() *speechSegmenter {
+	if r.ownsSegmenter() {
+		r.segRound = r.round
+		return &r.seg
+	}
+	return &speechSegmenter{maxRunes: r.seg.maxRunes}
 }
 
 // peekRoundEnd returns, when round (a message id) is not the round being
@@ -98,75 +141,86 @@ func (r *replySpeech) release(text string, replaces, final bool) []string {
 		}
 		r.cut()
 	}
-	r.unmatched += text
-	segs := r.seg.add(text)
+	r.rt().unmatched += text
+	seg := r.segmenterFor()
+	segs := seg.add(text)
 	if replaces || final {
-		segs = appendNonEmpty(segs, r.seg.flush())
+		segs = appendNonEmpty(segs, seg.flush())
 	}
 	return r.sending(segs)
 }
 
-// overlap handles text that replaces the reply (a replacement delta, or a
-// completed Message that is not what streamed) when it overlaps what was
-// already spoken: text that begins with it speaks only what follows, and text
-// that ends inside it speaks nothing more. Either way text is now the reply.
-// ok is false when text does not overlap what was spoken.
+// overlap handles text that replaces the round being spoken (a replacement
+// delta, or a completed Message that is not what streamed) when it overlaps
+// what was already spoken of it: text that begins with it speaks only what
+// follows, and text that ends inside it speaks nothing more. Either way text
+// is now the round's reply. ok is false when text does not overlap what was
+// spoken.
 func (r *replySpeech) overlap(text string, released bool) ([]string, bool) {
-	if strings.TrimSpace(r.sent) == "" {
+	t := r.rt()
+	if strings.TrimSpace(t.sent) == "" {
 		return nil, false
 	}
-	if rest, ok := cutPrefix(text, r.sent); ok {
-		r.seg.reset()
-		r.unmatched = ""
-		if released {
-			r.unmatched = text
-		}
-		r.sent = ""
-		return r.sending(appendNonEmpty(r.seg.add(rest), r.seg.flush())), true
+	rest, ahead := cutPrefix(text, t.sent)
+	_, inside := cutPrefix(t.sent, text)
+	if !ahead && !inside {
+		return nil, false
 	}
-	if _, ok := cutPrefix(r.sent, text); ok {
-		r.seg.reset()
-		r.unmatched = ""
-		if released {
-			r.unmatched = text
-		}
-		r.sent = ""
-		return nil, true
+	r.dropPending()
+	t.unmatched = ""
+	if released {
+		t.unmatched = text
 	}
-	return nil, false
+	t.sent = ""
+	if !ahead {
+		return nil, true // a truncation inside what was spoken: nothing more
+	}
+	seg := r.segmenterFor()
+	return r.sending(appendNonEmpty(seg.add(rest), seg.flush())), true
 }
 
-// sending records segs as handed to synthesis and returns them.
+// dropPending drops the round's text the segmenter holds, not yet spoken.
+func (r *replySpeech) dropPending() {
+	if r.ownsSegmenter() {
+		r.seg.reset()
+	}
+}
+
+// sending records segs as handed to synthesis for the round being spoken and
+// returns them.
 func (r *replySpeech) sending(segs []string) []string {
+	t := r.rt()
 	for _, s := range segs {
-		r.sent = joinText(r.sent, s)
+		t.sent = joinText(t.sent, s)
 	}
 	return segs
 }
 
-// complete accounts for a completed assistant Message whose text is text and
-// returns the segments still to speak for it.
+// complete accounts for a completed assistant Message of the round being
+// spoken, whose text is text, and returns the segments still to speak for it.
 func (r *replySpeech) complete(text string) []string {
 	if r.stopped {
 		return nil
 	}
-	released := strings.TrimLeftFunc(r.unmatched, unicode.IsSpace)
+	t := r.rt()
+	released := strings.TrimLeftFunc(t.unmatched, unicode.IsSpace)
 	text = strings.TrimLeftFunc(text, unicode.IsSpace)
 	switch {
 	case strings.HasPrefix(released, text):
 		// Already released. Text after it belongs to a later Message (a
-		// later round of the tool loop), so the segmenter keeps any partial
-		// segment for it.
-		r.unmatched = released[len(text):]
-		if strings.TrimSpace(r.unmatched) != "" {
+		// later round of the tool loop, when the rounds are not named), so
+		// the segmenter keeps any partial segment for it.
+		t.unmatched = released[len(text):]
+		if strings.TrimSpace(t.unmatched) != "" || !r.ownsSegmenter() {
 			return nil
 		}
-		r.unmatched = ""
+		t.unmatched = ""
 		return r.sending(appendNonEmpty(nil, r.seg.flush()))
 	case strings.HasPrefix(text, released):
 		// The Message goes on past what was released: speak the rest.
-		r.unmatched = ""
-		return r.sending(appendNonEmpty(r.seg.add(text[len(released):]), r.seg.flush()))
+		t.unmatched = ""
+		seg := r.segmenterFor()
+		return r.sending(appendNonEmpty(seg.add(text[len(released):]), seg.flush()))
 	default:
 		// The completed reply is not the text released: a guardrail replaced
 		// it after it streamed.
@@ -175,32 +229,35 @@ func (r *replySpeech) complete(text string) []string {
 		}
 		// What was not yet spoken is dropped, and the Message is spoken.
 		r.cut()
-		return r.sending(appendNonEmpty(r.seg.add(text), r.seg.flush()))
+		seg := r.segmenterFor()
+		return r.sending(appendNonEmpty(seg.add(text), seg.flush()))
 	}
 }
 
-// cut drops what was released and not yet spoken, as a guardrail replaced
-// the reply, and records what the caller had heard of it.
+// cut drops what the round being spoken released and did not yet speak, as a
+// guardrail replaced it, and records what the caller had heard of it.
 func (r *replySpeech) cut() {
-	r.seg.reset()
-	r.unmatched = ""
-	r.sent = ""
-	if len(r.heard) > 0 {
-		r.heardBeforeCut = strings.Join(r.heard, " ")
+	t := r.rt()
+	r.dropPending()
+	t.unmatched = ""
+	t.sent = ""
+	if len(t.heard) > 0 {
+		t.heardBeforeCut = strings.Join(t.heard, " ")
 	}
 }
 
-// heardWith returns msg as the caller heard it: after a guardrail cut, the
-// segments spoken before it and then msg's text, on a copy; else msg
-// unchanged.
+// heardWith returns msg, the round being spoken's Message, as the caller
+// heard it: after a guardrail cut, the segments spoken before it and then
+// msg's text, on a copy; else msg unchanged.
 func (r *replySpeech) heardWith(msg *types.Message) *types.Message {
-	if r.heardBeforeCut == "" || msg == nil {
+	t := r.rt()
+	if t.heardBeforeCut == "" || msg == nil {
 		return msg
 	}
 	heard := *msg
-	heard.Content = r.heardBeforeCut + " " + strings.TrimLeftFunc(msg.Content, unicode.IsSpace)
+	heard.Content = t.heardBeforeCut + " " + strings.TrimLeftFunc(msg.Content, unicode.IsSpace)
 	heard.Parts = nil
-	r.heardBeforeCut = ""
+	t.heardBeforeCut = ""
 	return &heard
 }
 
@@ -208,13 +265,15 @@ func (r *replySpeech) heardWith(msg *types.Message) *types.Message {
 func (r *replySpeech) stop() {
 	r.stopped = true
 	r.seg.reset()
-	r.unmatched = ""
+	for _, t := range r.rounds {
+		t.unmatched = ""
+	}
 }
 
 // cutMessage returns msg as the caller heard it when its playback was cut at
 // t (cause, types.PlayoutCut*): the text its audio had played (playout), with
 // heard_ms, audio_ms, played_fraction and playout_cut as the realtime playout
-// hold records them. Text truncated to what was heard is marked
+// hold records them. A reply of which something was heard is marked
 // types.MetaHeardPrefix.
 //
 // A barge-in marks a text reply interrupted (a heard prefix, which model
@@ -227,18 +286,18 @@ func (r *replySpeech) cutMessage(msg *types.Message, t time.Time, cause string) 
 	// The playout holds every segment spoken for this Message, those before
 	// a guardrail's cut among them.
 	text, heard, total := r.playout.heardAt(t, msg.ID())
-	r.heardBeforeCut = ""
+	r.rt().heardBeforeCut = ""
 	cut := heardReply(msg, heard, total, cause)
 	if rest, ok := cutPrefix(msg.Content, text); !ok || strings.TrimSpace(rest) != "" {
 		// Not all of it was heard: the text is what was. (All of it heard,
 		// the reply keeps its own spacing.)
 		cut.Content = text
 		cut.Parts = nil
-		if strings.TrimSpace(text) != "" {
-			// Something was heard: it goes back to the model. A reply the
-			// caller heard none of says nothing to go on from.
-			cut.Meta[types.MetaHeardPrefix] = true
-		}
+	}
+	if strings.TrimSpace(text) != "" {
+		// Something was heard, maybe all of it: that goes back to the model.
+		// A reply the caller heard none of says nothing to go on from.
+		cut.Meta[types.MetaHeardPrefix] = true
 	}
 	if cause == types.PlayoutCutBargeIn && len(msg.ToolCalls) == 0 {
 		cut.FinishReason = types.FinishReasonInterrupted
@@ -246,22 +305,27 @@ func (r *replySpeech) cutMessage(msg *types.Message, t time.Time, cause string) 
 	return cut
 }
 
-// messageDone forgets what the Message just handed on accounted for: the
-// text it sent, and the segments whose audio carried it.
+// messageDone forgets what the Message just handed on, the round being
+// spoken's, accounted for: the text it sent, and the segments whose audio
+// carried it.
 func (r *replySpeech) messageDone(text, round string) {
-	if rest, ok := cutPrefix(r.sent, text); ok {
-		r.sent = strings.TrimSpace(rest)
+	t := r.rt()
+	if rest, ok := cutPrefix(t.sent, text); ok {
+		t.sent = strings.TrimSpace(rest)
 	} else {
-		r.sent = ""
+		t.sent = ""
 	}
 	r.playout.forget(text, round)
-	r.heard = nil
+	t.heard = nil
 }
 
 // end returns what is left to speak when the turn ends.
 func (r *replySpeech) end() []string {
 	if r.stopped {
 		return nil
+	}
+	if !r.ownsSegmenter() {
+		r.round = r.segRound // the text left is that round's
 	}
 	return r.sending(appendNonEmpty(nil, r.seg.flush()))
 }
@@ -288,16 +352,14 @@ func (r *replySpeech) takeCost(service tts.Service) *types.CostInfo {
 // reset forgets the reply: the turn ended, or a barge-in cut it.
 func (r *replySpeech) reset() {
 	r.seg.reset()
+	r.segRound = ""
 	r.active = false
-	r.unmatched = ""
-	r.sent = ""
+	r.rounds = nil
 	r.last = ""
 	r.stopped = false
 	r.billed.Reset()
 	r.latency = 0
 	r.err = nil
-	r.heard = nil
-	r.heardBeforeCut = ""
 	r.playout = replyPlayout{until: r.playout.until}
 	r.round = ""
 }

@@ -1367,8 +1367,10 @@ func (s *TTSStageWithInterruption) emitAudioElement(
 
 	// The caller plays this audio after it is handed over, so the bot is still
 	// speaking — and interruptible — until it would have finished. Extended
-	// before the synthesis flag drops, so there is no gap between the two.
-	if s.interruption != nil {
+	// before the synthesis flag drops, so there is no gap between the two. A
+	// caller that does not play audio in real time (NoPlaybackPacing) opens
+	// no such window.
+	if s.interruption != nil && !s.config.NoPlaybackPacing {
 		s.interruption.ExtendPlayback(audio.PCM16Duration(len(samples), sampleRate, 1))
 	}
 	s.setBotSpeaking(false)

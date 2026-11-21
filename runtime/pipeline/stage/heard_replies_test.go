@@ -121,3 +121,36 @@ func TestProviderStage_NextTurnSeesWhatTheCallerHeard(t *testing.T) {
 	}
 	assert.Equal(t, []string{"rep"}, assistant, "the next turn sees what was heard, not what was written")
 }
+
+// A barge-in keeps the rounds of a turn that completed: each assistant
+// message whose every tool call was answered, with its results, up to the
+// first round that did not complete.
+func TestCompletedRounds(t *testing.T) {
+	call := func(ids ...string) types.Message {
+		m := types.Message{Role: roleAssistant, Content: "Let me check."}
+		for _, id := range ids {
+			m.ToolCalls = append(m.ToolCalls, types.MessageToolCall{ID: id, Name: "t"})
+		}
+		return m
+	}
+	result := func(id string) types.Message {
+		return types.Message{Role: roleTool, ToolResult: &types.MessageToolResult{ID: id}}
+	}
+	// A scan that makes no progress loops forever: every call is bounded.
+	kept := func(msgs []types.Message) []types.Message {
+		return within(t, "completedRounds", func() []types.Message { return completedRounds(msgs) })
+	}
+	fragment := types.Message{Role: roleAssistant, Content: "It is", FinishReason: types.FinishReasonInterrupted}
+	text := types.Message{Role: roleAssistant, Content: "Sure."}
+
+	assert.Nil(t, kept(nil))
+	assert.Nil(t, kept([]types.Message{call("c1")}), "a call with no result is not a completed round")
+	assert.Nil(t, kept([]types.Message{call("c1", "c2"), result("c1")}), "every call must be answered")
+	assert.Nil(t, kept([]types.Message{fragment}), "an unfinished fragment is not a round")
+	assert.Equal(t, []types.Message{call("c1"), result("c1")},
+		kept([]types.Message{call("c1"), result("c1"), call("c2")}), "up to the round that did not complete")
+	assert.Equal(t, []types.Message{call("c1", "c2"), result("c2"), result("c1")},
+		kept([]types.Message{call("c1", "c2"), result("c2"), result("c1"), fragment}))
+	assert.Equal(t, []types.Message{call("c1"), result("c1"), text},
+		kept([]types.Message{call("c1"), result("c1"), text}))
+}

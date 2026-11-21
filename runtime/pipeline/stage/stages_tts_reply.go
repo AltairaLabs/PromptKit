@@ -208,7 +208,7 @@ func (s *TTSStageWithInterruption) speakSegment(
 
 	heard, complete, err := s.streamSegmentAudio(forwardCtx, synthCtx, reply, text, reader, output)
 	if heard {
-		reply.heard = append(reply.heard, text)
+		reply.rt().heard = append(reply.rt().heard, text)
 	}
 	if complete {
 		reply.bill(text, time.Since(start))
@@ -285,7 +285,9 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 	// speaking, and interruptible, until it would have finished.
 	d := audio.PCM16Duration(len(samples), sampleRate, 1)
 	reply.playout.add(text, reply.round, first, s.clock.now(), d)
-	if s.interruption != nil {
+	// Without playback pacing the caller does not play the audio in real
+	// time, so it opens no window in which caller speech interrupts it.
+	if s.interruption != nil && !s.config.NoPlaybackPacing {
 		s.interruption.ExtendPlayback(d)
 	}
 	return s.forwardElement(ctx, out, output)

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,10 +24,14 @@ import (
 // away; later calls answer at once.
 type toolRoundWire struct {
 	*httptest.Server
-	mu       sync.Mutex
-	calls    int
-	rejected []string
-	bodies   []map[string]any
+	// silentSecondRound makes the second call hold the stream open without
+	// sending anything: the model has not begun its answer when the caller
+	// speaks.
+	silentSecondRound bool
+	mu                sync.Mutex
+	calls             int
+	rejected          []string
+	bodies            []map[string]any
 }
 
 func newToolRoundWire(t *testing.T) *toolRoundWire {
@@ -68,7 +73,9 @@ func (w *toolRoundWire) serve(rw http.ResponseWriter, r *http.Request) {
 			`data: {"id":"1","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n" +
 			"data: [DONE]\n\n")
 	case 2:
-		flush(`data: {"id":"2","choices":[{"index":0,"delta":{"role":"assistant","content":"It is "}}]}` + "\n\n")
+		if !w.silentSecondRound {
+			flush(`data: {"id":"2","choices":[{"index":0,"delta":{"role":"assistant","content":"It is "}}]}` + "\n\n")
+		}
 		select { // a long answer, still being written when the caller speaks
 		case <-r.Context().Done():
 		case <-time.After(streamingSpeechBound):
@@ -192,4 +199,129 @@ func TestVADMode_BargeInOnAToolRoundKeepsTheCallAndItsResult(t *testing.T) {
 			assert.NotEqual(t, types.FinishReasonInterrupted, m.FinishReason, "the round stays in model context")
 		}
 	}
+}
+
+// toolTurnTranscript summarizes the stored messages: role, and for an
+// assistant that called a tool its call's id and text, for a tool result the
+// call it answers.
+func toolTurnTranscript(t *testing.T, store statestore.Store, convID string) []string {
+	t.Helper()
+	state, err := store.Load(t.Context(), convID)
+	require.NoError(t, err)
+	var out []string
+	for _, m := range state.Messages {
+		entry := m.Role
+		if len(m.ToolCalls) > 0 {
+			entry += "+call:" + m.ToolCalls[0].ID + ":" + m.Content
+		}
+		if m.ToolResult != nil {
+			entry += ":" + m.ToolResult.ID
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// requestRoles lists a Chat Completions request's message roles, an
+// assistant message that calls tools as "assistant+call".
+func requestRoles(body map[string]any) []string {
+	var roles []string
+	for _, m := range body["messages"].([]any) {
+		msg := m.(map[string]any)
+		role, _ := msg["role"].(string)
+		if calls, ok := msg["tool_calls"].([]any); ok && len(calls) > 0 {
+			role += "+call"
+		}
+		roles = append(roles, role)
+	}
+	return roles
+}
+
+// A caller who barges in while the tool runs, or once its result is back
+// but before the model has said anything more, does not lose the round: the
+// tool ran, so its call and result stay in the conversation, as a pair, with
+// the round's text as heard, and the model's next request carries them.
+func TestVADMode_BargeInDuringOrAfterTheToolKeepsTheRound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives real VAD turns")
+	}
+	for _, tc := range []struct {
+		name       string
+		duringTool bool
+	}{{"while the tool runs", true}, {"before the model answers", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OPENAI_API_KEY", "test-key")
+			wire := newToolRoundWire(t)
+			wire.silentSecondRound = true
+			ttsSvc := newSegmentTTS()
+			store := statestore.NewMemoryStore()
+			unpaced := vadTestConfig()
+			unpaced.NoPlaybackPacing = true // the round's sentence counts as heard once handed on
+			sttSvc := newScriptedSTT("weather in paris", "stop")
+			conv, err := OpenDuplex(createTestPackFile(t, toolRoundPack), "main",
+				WithLLMProvider(ProviderSpec{ID: "agent", Type: "openai", Model: "gpt-4o-mini", BaseURL: wire.URL}),
+				WithSkipSchemaValidation(), WithStateStore(store), WithVADMode(sttSvc, ttsSvc, unpaced))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = closeWithin(t, conv) })
+			toolStarted, toolRelease := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			conv.OnTool("get_weather", func(map[string]any) (any, error) {
+				once.Do(func() { close(toolStarted) })
+				if tc.duringTool {
+					select { // a slow tool the caller talks over
+					case <-toolRelease:
+					case <-time.After(streamingSpeechBound):
+					}
+				}
+				return map[string]any{"sky": "sunny"}, nil
+			})
+			responses, err := conv.Response()
+			require.NoError(t, err)
+			rec := &speechRecorder{}
+			go rec.consume(responses)
+			convID := conv.ID()
+
+			speak(t, conv)
+			awaitClosed(t, toolStarted, "the tool never ran")
+			require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound),
+				"the round's sentence was never spoken")
+			if !tc.duringTool {
+				require.True(t, waitFor(func() bool { calls, _, _ := wire.snapshot(); return calls >= 2 },
+					streamingSpeechBound), "the tool's result never went back to the model")
+			}
+
+			speak(t, conv) // talks over the tool, or the model about to answer
+			if tc.duringTool {
+				close(toolRelease) // the tool finishes after all
+			}
+			require.True(t, waitFor(func() bool { _, _, last := wire.snapshot(); return asksAbout(last, "stop") },
+				streamingSpeechBound), "the caller's words never reached the model")
+
+			_, rejected, next := wire.snapshot()
+			assert.Empty(t, rejected, "the model's next request is one OpenAI accepts")
+			assert.Equal(t, []string{"system", "user", "assistant+call", "tool", "user"}, requestRoles(next),
+				"the round the tool ran in goes back to the model with its result")
+
+			require.NoError(t, closeWithin(t, conv))
+			stored := toolTurnTranscript(t, store, convID)
+			require.GreaterOrEqual(t, len(stored), 4)
+			assert.Equal(t, []string{"user", "assistant+call:call_1:Let me look that up. ", "tool:call_1"}, stored[:3],
+				"the transcript keeps the round, its sentence as heard, and the tool's result")
+		})
+	}
+}
+
+// asksAbout reports whether a Chat Completions request's last message is the
+// user saying text.
+func asksAbout(body map[string]any, text string) bool {
+	msgs, _ := body["messages"].([]any)
+	if len(msgs) == 0 {
+		return false
+	}
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	if last["role"] != "user" {
+		return false
+	}
+	raw, _ := json.Marshal(last["content"])
+	return strings.Contains(string(raw), text)
 }
