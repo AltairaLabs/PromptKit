@@ -47,7 +47,8 @@ fetch() {
   local url="$1" dest="$2"
   shift 2
   echo "Fetching ${url}"
-  curl -fsSL --max-time 30 "$url" -o "$tmp"
+  # GitHub's raw host answers 5xx under load; retry before calling it a failure.
+  curl -fsSL --max-time 30 --retry 4 --retry-all-errors --retry-delay 5 "$url" -o "$tmp"
   for want in "$@"; do
     if ! grep -qF -- "$want" "$tmp"; then
       echo "::error::${url} has no '${want}' — refusing to install it" >&2

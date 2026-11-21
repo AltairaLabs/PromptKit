@@ -328,7 +328,10 @@ a2a-spec: ## Refresh the mirrored A2A 1.0 a2a.proto and 0.3 a2a.json from their 
 
 a2a-spec-check: ## Check the mirrored A2A spec documents ARE the published ones (for CI)
 	@tmp=$$(mktemp -d); \
-	./scripts/fetch-a2a-spec.sh "$$tmp" >/dev/null; \
+	if ! ./scripts/fetch-a2a-spec.sh "$$tmp" >/dev/null; then \
+		echo "::error::Could not fetch the published A2A spec (network or upstream error); the mirrors were not compared."; \
+		rm -rf "$$tmp"; exit 1; \
+	fi; \
 	if diff -r "$$tmp" runtime/a2a/testdata/spec >/dev/null 2>&1; then \
 		echo "✓ Mirrored A2A 1.0 and 0.3 spec documents are the published ones"; \
 		rm -rf "$$tmp"; \
