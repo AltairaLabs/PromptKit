@@ -23,6 +23,8 @@ verified:
     - runtime/providers/openai/openai_multimodal.go
     - sdk/a2a_exports.go
     - sdk/options.go
+    - server/a2a/handler.go
+    - server/a2a/ownership.go
     - server/a2a/protocol.go
     - server/a2a/server.go
     - server/a2a/server_stream.go
@@ -59,6 +61,7 @@ PromptKit speaks two versions of the protocol on the same endpoint: **A2A 1.0** 
 | Cancel a running task | `CancelTask` | `tasks/cancel` |
 | List tasks in a context | `ListTasks` | (1.0 only) |
 | Subscribe to a task's updates (SSE) | `SubscribeToTask` | `tasks/resubscribe` |
+| Get the extended agent card | `GetExtendedAgentCard` | `agent/getAuthenticatedExtendedCard` |
 
 Agent discovery is `GET /.well-known/agent-card.json`; `/.well-known/agent.json` serves the same card.
 
@@ -146,10 +149,10 @@ The server completes the card before serving it:
 
 - A JSON-RPC interface is declared for both 1.0 and 0.3.
 - A card that declares no interface gets one pointing at the server's own `/a2a` endpoint, taken from the request's `Host` header. `X-Forwarded-*` headers are ignored: any caller can set them, and a cached card that trusted them could point other callers somewhere else. Behind a proxy, declare the public URL in the card's `supportedInterfaces`.
-- `streaming` is declared whatever the configured card says. The server answers `SendStreamingMessage` and `SubscribeToTask` in every mode, and a conversation that does not implement `StreamingConversation` is streamed from its `Send` result: the task, then its result, then the final status.
-- `pushNotifications` is never declared, and every push method fails with `-32003`.
+- `streaming` is declared whatever the configured card says. The server answers `SendStreamingMessage` and `SubscribeToTask` in every mode, and a conversation that does not implement `StreamingConversation` is streamed from its `Send` result: the task, then its result, then the final status. `a2aserver.WithoutStreaming()` turns streaming off: the card declares `streaming: false`, and both streaming methods fail with `UnsupportedOperationError` (`-32004`), as A2A 1.0 §3.3.4 requires. Use it when something in front of the server cannot carry Server-Sent Events.
+- `pushNotifications` is never declared. Every push method fails with `PushNotificationNotSupportedError` (`-32003`), and so does a `SendMessage` or `SendStreamingMessage` that asks for push notifications inline (`configuration.taskPushNotificationConfig`, 0.3: `pushNotificationConfig`). The message is refused rather than run without them, so the caller is not left waiting for notifications that never come.
 
-`GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
+`a2aserver.WithExtendedCardProvider` sets an extended card: the card `GetExtendedAgentCard` returns to an authenticated caller (A2A 1.0 §3.1.11). The public card then declares `extendedAgentCard`, and the server completes the extended card as it does the public one. The provider is given the request, so it can tailor the card to the caller. A2A 1.0 §3.1.11 requires the call to be authenticated, so the server serves the card only when it can tell callers apart: with `WithAuthenticator`, `WithTaskOwner` or `NewServerFor`. Without one of them, `GetExtendedAgentCard` fails with `ExtendedAgentCardNotConfiguredError` (`-32007`). Without a provider, `GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
 
 A 1.0 card always carries the fields A2A 1.0 marks required: `name`, `description`, `supportedInterfaces`, `version`, `capabilities`, `defaultInputModes`, `defaultOutputModes` and `skills`, and each skill's `description` and `tags`. Unset ones are sent empty (`""`, `{}`, `[]`), so a server without `WithCard` still serves a complete card, with an empty name. Set the name, description, version and modes on the card yourself.
 
@@ -161,7 +164,9 @@ The card response is cacheable. It carries `Cache-Control: max-age=300`, a weak 
 
 After `Client.Discover`, the runtime client considers only the card's interfaces on the scheme, host and port given to `a2a.NewClient` (default ports filled in). Of those it calls the first JSON-RPC interface that serves the version it speaks, otherwise the first JSON-RPC one, taking its path (an agent serving JSON-RPC at `/`, for example), its version and its `tenant`. An interface at the default `/a2a` keeps the base URL as given.
 
-A card that names a different host or port is not followed, and its tenant and version are not used. Calls go to `{base}/a2a`, and the client logs a warning once. An `http` interface on the `https` base host, as a TLS-terminating proxy reports, is not warned about. To call the other host, create a client with that host. Without a card, or with a card that declares no interfaces, calls go to `{base}/a2a`. The A2A tool executors discover the card themselves on first use.
+A card that names a different host or port is not followed, and its tenant and version are not used. Calls go to `{base}/a2a`, and the client logs a warning once. A card's URL is what the agent believes about itself, and following it would send the client's credentials wherever a card points, so some deployments need explicit configuration. An agent whose card names a public hostname, a separate RPC host or another port is called by creating the client with that address. An `http` interface on the `https` base host, as a TLS-terminating proxy reports, is not warned about. Without a card, or with a card that declares no interfaces, calls go to `{base}/a2a`. The A2A tool executors discover the card themselves on first use.
+
+`Client.GetExtendedAgentCard` fetches the extended card with the client's credentials. The card it returns replaces the one `Discover` cached, as A2A 1.0 §3.1.11 recommends, so later calls are routed by it. A discovery still in flight when it returns does not put the public card back.
 
 ---
 
@@ -203,6 +208,31 @@ A streaming caller that disconnects closes only its own stream. The task runs on
 These are PromptKit's Go names (`a2a.TaskStateInputRequired`). On the wire each state takes its version's spelling: `TASK_STATE_INPUT_REQUIRED` in 1.0, `input-required` in 0.3.
 
 Canceling a task that has already finished fails with `TaskNotCancelableError` (`-32002`). Subscribing to one fails with `UnsupportedOperationError` (`-32004`).
+
+A state the client does not know, such as one a later protocol version adds, is decoded as `a2a.TaskStateUnknown` rather than failing the task or dropping a stream event, as A2A 1.0 §5.7 asks of implementations. Nothing says a task will ever leave such a state, so `Client.WaitForTask` stops at it and returns an error matching `a2a.ErrUnknownTaskState`. The A2A tool executor then cancels the task and fails the call, and the `a2a_eval` check fails. The server still validates the states a caller sends: a `ListTasks` `status` filter that names no state fails with `-32602`.
+
+### Eviction
+
+Finished tasks are kept for an hour after their last status change, then evicted (`a2aserver.WithTaskTTL`). A task waiting for the caller (`input-required` or `auth-required`) is kept for 24 hours, then evicted (`a2aserver.WithInterruptedTaskTTL`). A caller that never comes back would otherwise leave it in the store for good. So would a client that resumes without the task's `taskId`, which starts a new task instead. An evicted task is reported as `TaskNotFoundError`. A TTL of zero turns that eviction off. The in-memory store supports both. A custom `TaskStore` takes part in interrupted-task eviction by implementing `a2aserver.InterruptedTaskEvictor`; a store that does not must bound its waiting tasks itself. Eviction runs on a background goroutine once a minute, which the default interrupted-task TTL starts even when the other TTLs are zero. `Shutdown` stops it.
+
+### History
+
+Each task records the messages its turns exchange in `history`, oldest first: the caller's message when a turn begins, and the agent's status message when a turn ends with one, such as a request for a client tool or the reason a turn failed. The agent's answer is in the task's artifacts, not its history. `historyLength` on `GetTask`, `ListTasks`, `SendMessage` and the task a `SendStreamingMessage` opens with trims it (A2A 1.0 §3.2.4): unset returns it all, `0` omits the field, and `n` returns the last `n` messages. A negative `historyLength` fails with `-32602`. A message the server refuses is not recorded. A task keeps its last 100 messages; `a2aserver.WithMaxTaskHistory` changes the cap, and zero or less keeps them all. Messages are kept as sent, file parts and their bytes included, so a conversation that exchanges files holds up to that many of them per task. The in-memory store keeps history; a custom store does by implementing `a2aserver.TaskHistoryStore`, and without it tasks are served with none.
+
+### Tenants
+
+An A2A 1.0 request may name a `tenant`, which the client takes from the agent interface it calls. A 0.3 request has none. With the in-memory store, the server records the tenant each task is created in:
+
+- A task is visible only to requests in its tenant. `GetTask`, `CancelTask`, `SubscribeToTask`, `ListTasks` and a message continuing the task from another tenant, or from none, get `TaskNotFoundError`, as for a task that does not exist (A2A 1.0 §3.3.2).
+- In conversation mode, a context belongs to the tenant that first used it. A message from another tenant naming it fails with `-32602`, while its conversation is open and after it is evicted. That tells the other tenant only that the context ID is in use, as the same refusal tells another caller under `WithTaskOwner`; a message that names no context gets a new random one. A conversation opener is given only the context ID, so contexts cannot be namespaced per tenant for it.
+- In stateless mode the handler owns contexts, as it does for callers under `WithTaskOwner`. Two tenants may send the same `contextId`, and the server does not refuse either. The handler receives the tenant in `MessageRequest.Tenant` and `ToolResultRequest.Tenant`, and must key its sessions by tenant and context ID together.
+- A task the store records no tenant for is in none, so it is visible only to requests that name none.
+
+Tenants partition tasks; they do not authenticate anyone, since any caller can name any tenant. Use `WithTaskOwner` or `NewServerFor` to scope tasks by authenticated caller; the two combine, so in the same tenant another caller's task is still not found.
+
+A custom store partitions by tenant by implementing `a2aserver.TenantTaskStore`. A request that names a tenant to a server whose store does not implement it fails with `UnsupportedOperationError` (`-32004`), rather than being served across tenants. A store that implements `TaskQuerier` should honor `TaskQuery.Tenant`; the server also drops any task of another tenant a query returns, but the page's `totalSize` is then the store's own count.
+
+A store that embeds `*InMemoryTaskStore` gets its optional methods by promotion: `CreateInTenant`, `Tenant`, `AppendHistory` and `EvictInterrupted` act on the embedded store's own tasks. A wrapper that keeps tasks elsewhere, or overrides `Create`, must override those too, or hide them by embedding the `TaskStore` interface instead of the struct.
 
 ---
 
@@ -295,7 +325,7 @@ data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"abc123","conte
 
 In 0.3 each result is sent bare, tagged with `"kind"` (`task`, `artifact-update`, `status-update`), and the closing status update carries `"final": true`.
 
-`SubscribeToTask` (0.3: `tasks/resubscribe`) streams the same updates for a task already running. That includes a task started with a non-streaming `SendMessage`. The subscription opens with the task as it stands.
+`SubscribeToTask` (0.3: `tasks/resubscribe`) streams the same updates for a task already running. That includes a task started with a non-streaming `SendMessage`. The subscription opens with the task as it stands. On the client, `Client.SubscribeToTask` returns the subscription as a channel of `StreamEvent` values, as `SendMessageStream` does; a subscription the agent refuses (an unknown or finished task, or an agent that does not stream) is an `*RPCError` from the call.
 
 The client parses every version's events and delivers them as a channel of `StreamEvent` values. Each holds exactly one of `Task`, `Message`, `StatusUpdate` or `ArtifactUpdate`, except the last event of a stream that ends in an error. That event holds an `Error`: a JSON-RPC error the agent sent, or `ErrSSEIdleTimeout` when the stream received nothing within the idle timeout (5 minutes by default, `a2a.WithSSEIdleTimeout`), so a caller can tell a stall from a finished stream.
 

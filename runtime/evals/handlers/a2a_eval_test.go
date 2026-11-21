@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
@@ -527,5 +529,39 @@ func TestA2AEvalHandler_WaitsForAWorkingTask(t *testing.T) {
 	}
 	if result.Score == nil || *result.Score != 0.8 {
 		t.Errorf("expected score 0.8 from the finished task, got %v (%s)", result.Score, result.Explanation)
+	}
+}
+
+// An eval agent that leaves its task in a state the client does not know
+// fails the eval at once, instead of hanging on the wait.
+func TestA2AEvalHandler_UnknownTaskStateFails(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rpcReq struct {
+			ID int64 `json:"id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&rpcReq)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + strconv.FormatInt(rpcReq.ID, 10) +
+			`,"result":{"id":"t","contextId":"c","status":{"state":"TASK_STATE_PAUSED"}}}`))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := (&A2AEvalHandler{}).Eval(ctx, &evals.EvalContext{CurrentOutput: "x"},
+		map[string]any{"agent_url": server.URL, "criteria": "c"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("the eval waited out its context")
+	}
+	want := "a2a agent error: a2a: task t is in a state the client does not know"
+	if result.Explanation != want {
+		t.Errorf("explanation = %q, want %q", result.Explanation, want)
+	}
+	if result.Score == nil || *result.Score != 0 {
+		t.Errorf("score = %v, want 0", result.Score)
 	}
 }
