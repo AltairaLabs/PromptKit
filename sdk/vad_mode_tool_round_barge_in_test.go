@@ -159,12 +159,12 @@ func TestVADMode_BargeInOnAToolRoundKeepsTheCallAndItsResult(t *testing.T) {
 	go rec.consume(responses)
 	convID := conv.ID()
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	awaitClosed(t, ttsSvc.first, "the round's sentence was never synthesized")
 	require.True(t, waitFor(func() bool { calls, _, _ := wire.snapshot(); return calls >= 2 }, streamingSpeechBound),
 		"the tool's result never went back to the model")
 
-	speak(t, conv) // talks over "Let me look that up."
+	streamingSpeak(t, conv) // talks over "Let me look that up."
 	require.True(t, waitFor(func() bool { calls, _, _ := wire.snapshot(); return calls >= 3 }, streamingSpeechBound),
 		"the caller's words never reached the model")
 	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, streamingSpeechBound),
@@ -288,7 +288,7 @@ func TestVADMode_BargeInDuringOrAfterTheToolKeepsTheRound(t *testing.T) {
 			go rec.consume(responses)
 			convID := conv.ID()
 
-			speak(t, conv)
+			streamingSpeak(t, conv)
 			awaitClosed(t, toolStarted, "the tool never ran")
 			require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound),
 				"the round's sentence was never spoken")
@@ -297,7 +297,7 @@ func TestVADMode_BargeInDuringOrAfterTheToolKeepsTheRound(t *testing.T) {
 					streamingSpeechBound), "the tool's result never went back to the model")
 			}
 
-			speak(t, conv) // talks over the tool, or the model about to answer
+			streamingSpeak(t, conv) // talks over the tool, or the model about to answer
 			if tc.duringTool {
 				close(toolRelease) // the tool finishes after all
 			}
@@ -361,7 +361,7 @@ func TestVADMode_ThePreambleIsSpokenWhileTheToolRuns(t *testing.T) {
 	require.NoError(t, err)
 	go (&speechRecorder{}).consume(responses)
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	var spoken bool
 	select {
 	case spoken = <-spokenDuringTool:

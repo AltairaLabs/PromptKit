@@ -262,7 +262,7 @@ const streamingSpeechBound = 8 * time.Second
 
 // speak sends one utterance (speakOneUtterance), failing the test if the
 // session stops taking the caller's audio.
-func speak(t *testing.T, conv *Conversation) {
+func streamingSpeak(t *testing.T, conv *Conversation) {
 	t.Helper()
 	done := make(chan struct{})
 	go func() {
@@ -365,7 +365,7 @@ func TestVADMode_SpeaksEachSentenceAsTheReplyStreams(t *testing.T) {
 		WithStateStore(store))
 	convID := conv.ID()
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, streamingSpeechBound),
 		"the reply never completed")
 
@@ -404,10 +404,10 @@ func TestVADMode_CallerSpeechCancelsTheStreamingReply(t *testing.T) {
 	}
 	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me a story", "what is the capital"), ttsSvc)
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	awaitClosed(t, ttsSvc.first, "the first sentence was never synthesized while the reply streamed")
 
-	speak(t, conv) // talks over the reply
+	streamingSpeak(t, conv) // talks over the reply
 
 	awaitClosed(t, provider.canceled, "caller speech must cancel the model call still generating the reply")
 	first := ttsSvc.snapshot()[0]
@@ -476,10 +476,10 @@ func TestVADMode_ShortUtteranceDuringAPendingReplyBargesIn(t *testing.T) {
 	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me a story", "that's that"),
 		newSegmentTTS(), WithVAD(&startingOnlyVAD{}))
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	require.True(t, provider.waitForTurns(1, streamingSpeechBound), "the first turn never reached the model")
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 
 	awaitClosed(t, provider.canceled, "a turn spoken while the reply is pending must cancel it")
 	require.True(t, provider.waitForTurns(2, streamingSpeechBound), "the short utterance must be the next turn")
@@ -529,7 +529,7 @@ func TestVADMode_GuardrailReplacementMidReplyIsSpokenInstead(t *testing.T) {
 		WithStateStore(store), WithProviderHook(dragonGuard{}))
 	convID := conv.ID()
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, streamingSpeechBound),
 		"the reply never completed")
 
@@ -568,7 +568,7 @@ func TestVADMode_SegmentHeldReplyIsSpokenOnlyAsItIsReleased(t *testing.T) {
 	})
 	convID := conv.ID()
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	model.next(t)
 	assert.Equal(t, "The weather is mild today.", recvWithin(t, judge.started))
 	assert.Empty(t, ttsSvc.texts(), "nothing is spoken while the judge holds it")
@@ -658,7 +658,7 @@ func TestVADMode_NoiseDuringAReplyLeavesIt(t *testing.T) {
 				WithStateStore(store), WithVAD(&startingOnlyVAD{}))
 			convID := conv.ID()
 
-			speak(t, conv)
+			streamingSpeak(t, conv)
 			require.True(t, provider.waitForTurns(1, streamingSpeechBound), "the request never reached the model")
 			if tc.noiseAfter > 0 {
 				awaitClosed(t, ttsSvc.first, "the first sentence was never synthesized")
@@ -722,11 +722,11 @@ func TestVADMode_BargeInStoresWhatTheCallerHeard(t *testing.T) {
 			conv, rec := openStreamingSpeechConv(t, provider, sttSvc, ttsSvc, opts...)
 			convID := conv.ID()
 
-			speak(t, conv)
+			streamingSpeak(t, conv)
 			awaitClosed(t, ttsSvc.second, "the second sentence was never synthesized")
 			require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound))
 
-			speak(t, conv) // talks over the reply
+			streamingSpeak(t, conv) // talks over the reply
 			awaitClosed(t, provider.canceled, "caller speech must cancel the model call")
 			require.True(t, provider.waitForTurns(2, streamingSpeechBound))
 			require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, streamingSpeechBound),
@@ -768,7 +768,7 @@ func TestVADMode_CloseMidReplyStoresWhatWasHeard(t *testing.T) {
 		WithStateStore(store))
 	convID := conv.ID()
 
-	speak(t, conv)
+	streamingSpeak(t, conv)
 	require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 || rec.turnCompletes() > 0 },
 		streamingSpeechBound))
 	require.NoError(t, closeWithin(t, conv)) // well inside the reply's 2s
