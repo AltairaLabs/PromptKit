@@ -23,18 +23,69 @@ import (
 // segment judgments that chunk started having answered.
 
 // gatedHoldHook is a segment guardrail whose partial-reply judgments wait
-// for the test (open), and that fails a completed reply containing failOn.
+// for the test to let them through (allow, open), and that fails a completed
+// reply containing failOn. It counts the judgments parked at its gate, so a
+// test waits for every judgment that can answer and for none that cannot.
 type gatedHoldHook struct {
 	replyHoldHook
-	gate chan struct{}
+	gmu sync.Mutex
+	// permits is how many judgments may still pass the gate, -1 once open.
+	permits int
+	// waiting is the judgments at the gate.
+	waiting int
+	// wake is closed, and replaced, each time the gate lets more through.
+	wake chan struct{}
+}
+
+func newGatedHoldHook() *gatedHoldHook {
+	return &gatedHoldHook{replyHoldHook: replyHoldHook{mode: hooks.StreamHoldSegment}, wake: make(chan struct{})}
+}
+
+// allow lets n more judgments through the gate.
+func (h *gatedHoldHook) allow(n int) { h.letThrough(func() { h.permits += n }) }
+
+// open lets every judgment through the gate, now and after.
+func (h *gatedHoldHook) open() { h.letThrough(func() { h.permits = -1 }) }
+
+func (h *gatedHoldHook) letThrough(change func()) {
+	h.gmu.Lock()
+	defer h.gmu.Unlock()
+	change()
+	close(h.wake)
+	h.wake = make(chan struct{})
+}
+
+// parked is how many judgments wait at the gate with no permit to pass it.
+func (h *gatedHoldHook) parked() int {
+	h.gmu.Lock()
+	defer h.gmu.Unlock()
+	if h.permits < 0 {
+		return 0
+	}
+	return max(0, h.waiting-h.permits)
 }
 
 func (h *gatedHoldHook) JudgePartialReply(ctx context.Context, req *hooks.ProviderRequest, r hooks.PartialReply) hooks.Decision {
-	select {
-	case <-h.gate:
-	case <-ctx.Done():
-		return hooks.Allow
+	h.gmu.Lock()
+	h.waiting++
+	for h.permits == 0 {
+		wake := h.wake
+		h.gmu.Unlock()
+		select {
+		case <-wake:
+		case <-ctx.Done():
+			h.gmu.Lock()
+			h.waiting--
+			h.gmu.Unlock()
+			return hooks.Allow
+		}
+		h.gmu.Lock()
 	}
+	if h.permits > 0 {
+		h.permits--
+	}
+	h.waiting--
+	h.gmu.Unlock()
 	return h.replyHoldHook.JudgePartialReply(ctx, req, r)
 }
 
@@ -48,6 +99,8 @@ type released struct {
 	cuts []*events.StreamHoldCutData
 	// completed is the provider.call.completed events.
 	completed []*events.ProviderCallCompletedData
+	// gated is the guardrails whose judgments wait at a gate for the test.
+	gated []*gatedHoldHook
 }
 
 // newReleased is a duplex stage holding replies by segment for hooks, on a
@@ -71,6 +124,9 @@ func newReleased(t *testing.T, cfg StreamHoldConfig, lag time.Duration, hs ...ho
 	var opts []hooks.Option
 	for _, h := range hs {
 		opts = append(opts, hooks.WithProviderHook(h))
+		if g, ok := h.(*gatedHoldHook); ok {
+			r.gated = append(r.gated, g)
+		}
 	}
 	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(opts...))
 	s.emitter = emitter
@@ -86,8 +142,8 @@ func newReleased(t *testing.T, cfg StreamHoldConfig, lag time.Duration, hs ...ho
 	return r, sess
 }
 
-// feed handles chunk, answers the segment judgments it started that have
-// answered within a short while, and returns what the caller got.
+// feed handles chunk, applies the segment judgments it started, and returns
+// what the caller got.
 func (r *released) feed(chunk providers.StreamChunk) []string {
 	r.t.Helper()
 	return trace(r.feedElems(chunk))
@@ -101,13 +157,25 @@ func (r *released) feedElems(chunk providers.StreamChunk) []StreamElement {
 	return r.drainElems()
 }
 
-// settle applies the segment verdicts that arrive within a short while.
+// settle applies the segment verdicts of every judgment that can answer, and
+// the settling of a reply whose generation completed once its transcript's
+// lag has passed. It returns once neither is left: no judgment runs but those
+// parked at a test's gate. It waits on what the stage is doing, never on a
+// quiet period, and fails the test at the deadline rather than hang.
 func (r *released) settle() {
 	r.t.Helper()
 	ctx := context.Background()
+	deadline := time.After(holdTestDeadline)
 	for {
 		ch, settled := r.s.replyHoldVerdicts(), r.s.replyHoldSettle()
-		if ch == nil && settled == nil {
+		if settled == nil && r.answerable() == 0 {
+			// A judgment canceled with its hold may still have answered.
+			select {
+			case v := <-ch:
+				require.NoError(r.t, r.s.onReplyVerdict(ctx, v, r.out))
+				continue
+			default:
+			}
 			return
 		}
 		select {
@@ -115,10 +183,31 @@ func (r *released) settle() {
 			require.NoError(r.t, r.s.onReplyVerdict(ctx, v, r.out))
 		case <-settled:
 			require.NoError(r.t, r.s.onReplyHoldSettled(ctx, r.out))
-		case <-time.After(100 * time.Millisecond):
-			return
+		case <-time.After(time.Millisecond):
+			// A judgment may have reached a gate meanwhile: look again.
+		case <-deadline:
+			r.t.Fatalf("the held reply's judgments did not settle within %v", holdTestDeadline)
 		}
 	}
+}
+
+// answerable is how many of the held reply's segment judgments are running
+// and not parked at a test's gate: those whose verdicts settle waits for. A
+// canceled judging has none.
+func (r *released) answerable() int {
+	if r.s.replyHoldVerdicts() == nil || r.s.replyHold.judge.ctx.Err() != nil {
+		return 0
+	}
+	running := 0
+	for _, g := range r.s.replyHold.judge.holders {
+		if g.busy {
+			running++
+		}
+	}
+	for _, g := range r.gated {
+		running -= g.parked()
+	}
+	return running
 }
 
 // handle handles chunk, failing the test rather than hanging when the stage
@@ -219,13 +308,13 @@ func TestReplyRelease_HoldbackKeepsRecentAudio(t *testing.T) {
 // Two segment guardrails release only what both passed.
 func TestReplyRelease_WhatEveryGuardrailPassed(t *testing.T) {
 	fast := &replyHoldHook{mode: hooks.StreamHoldSegment}
-	slow := &gatedHoldHook{replyHoldHook: replyHoldHook{mode: hooks.StreamHoldSegment}, gate: make(chan struct{})}
+	slow := newGatedHoldHook()
 	r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldSegment}, 0, fast, slow)
 
 	r.feed(spokenChunk(10))
 	r.feed(saidChunk("Sunny skies."))
 	assert.Empty(t, r.feed(saidChunk(" Rain later.")), "one guardrail has not passed it")
-	close(slow.gate)
+	slow.open()
 	r.settle()
 	assert.Equal(t, []string{"audio:10", "text:Sunny skies."}, r.drain())
 }
@@ -233,13 +322,12 @@ func TestReplyRelease_WhatEveryGuardrailPassed(t *testing.T) {
 // Segments completed while a judgment ran are judged together as soon as it
 // returns.
 func TestReplyRelease_JudgesWhatBecameReadyMeanwhile(t *testing.T) {
-	hook := &gatedHoldHook{replyHoldHook: replyHoldHook{mode: hooks.StreamHoldSegment}, gate: make(chan struct{}, 4)}
+	hook := newGatedHoldHook()
 	r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldSegment}, 0, hook)
 
 	r.feed(saidChunk("Sunny skies. Rain"))
 	r.feed(saidChunk(" later. Snow"))
-	hook.gate <- struct{}{}
-	hook.gate <- struct{}{}
+	hook.allow(2)
 	r.settle()
 	assert.Equal(t, []string{"Sunny skies.", "Sunny skies. Rain later."}, hook.calls())
 	assert.Equal(t, []string{"text:Sunny skies. Rain"}, r.drain(), "the next delta runs past the second segment")
