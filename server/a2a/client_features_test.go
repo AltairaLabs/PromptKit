@@ -109,6 +109,7 @@ func TestClient_GetExtendedAgentCard(t *testing.T) {
 	for _, v := range []a2a.ProtocolVersion{a2a.ProtocolVersion10, a2a.ProtocolVersion03} {
 		t.Run(string(v), func(t *testing.T) {
 			_, ts := newTestServer(nopOpener,
+				WithAuthenticator(&mockAuthenticator{}),
 				WithCard(&a2a.AgentCard{Name: "public", Description: "d", Version: "1"}),
 				WithExtendedCardProvider(&StaticCard{Card: a2a.AgentCard{
 					Name: "extended", Description: "d", Version: "1",

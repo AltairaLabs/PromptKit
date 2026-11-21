@@ -457,14 +457,18 @@ The server records task history, evicts tasks left waiting for the caller, and k
 
 | If you | You will see | Change |
 |---|---|---|
-| Read a task from `GetTask`, `ListTasks` or `SendMessage` | `history` holds the caller's messages and the agent's status messages, oldest first, where it was always empty. The responses are larger | send `historyLength: 0` to leave it out |
+| Read a task from `GetTask`, `ListTasks` or `SendMessage` | `history` holds the caller's messages and the agent's status messages, oldest first, up to the last 100 per task, where it was always empty. The responses are larger | send `historyLength: 0` to leave it out; set `a2aserver.WithMaxTaskHistory` to change the cap |
+| Send a negative `historyLength` | `-32602`, where it was treated as `0` | send `0` or more |
 | Leave a task `input-required` or `auth-required` for more than 24 hours | the task is evicted, and `GetTask` reports `-32001`, where it was kept for good | set `a2aserver.WithInterruptedTaskTTL`, or `0` to keep waiting tasks |
-| Keep tasks in a custom `TaskStore` | no change: history, interrupted-task eviction and tenants apply to a store that implements `TaskHistoryStore`, `InterruptedTaskEvictor` and `TenantTaskStore` | implement them to take part |
-| Wrap `InMemoryTaskStore` and override `Create` | a task created by a request that names a `tenant` is created with `CreateInTenant`, which your override does not see | override `CreateInTenant` too |
+| Keep tasks in a custom `TaskStore` that implements none of `TaskHistoryStore`, `InterruptedTaskEvictor` and `TenantTaskStore` | tasks have no history, waiting tasks are not evicted, and a request that names a `tenant` fails with `-32004` | implement them to take part |
+| Embed `*InMemoryTaskStore` in your own store | its `CreateInTenant`, `Tenant`, `AppendHistory` and `EvictInterrupted` are promoted and act on the embedded store's tasks: a task created by a request that names a tenant bypasses an overridden `Create`, and eviction removes tasks from the embedded store only | override those methods too, or embed the `TaskStore` interface instead of the struct |
 | Send A2A 1.0 requests that name a `tenant` | a task is visible only to requests in its tenant, and a context only to the tenant that first used it; others get `-32001` or `-32602`, where `tenant` was ignored | send the same tenant on every request for a task |
 | Send a message with `configuration.taskPushNotificationConfig` (0.3: `pushNotificationConfig`) | `-32003` PushNotificationNotSupportedError, and no task starts, where the config was dropped and the message ran | drop the config and poll `GetTask` or subscribe |
 | Decode a task state the runtime does not know, in `a2a.TaskState` or a client response | `a2a.TaskStateUnknown`, where decoding failed and a stream event carrying it was dropped | use `a2a.ParseTaskState` to refuse an unknown state |
 | Run behind something that cannot carry Server-Sent Events | `a2aserver.WithoutStreaming()` declares `streaming: false` and refuses both streaming methods with `-32004` | opt in if you need it |
+| Wait on a task with `Client.WaitForTask` (the A2A tool executor and `a2a_eval` do) that is in a state the client does not know | the wait stops with an error matching `a2a.ErrUnknownTaskState`; the executor cancels the task and fails the call | nothing |
+| Serve a stateless handler to several tenants | tasks are partitioned by tenant, but contexts are the handler's: two tenants may send the same `contextId` | key sessions by `MessageRequest.Tenant` and `ContextID` together |
+| Construct a server with every TTL but the new one set to `0` | a background eviction goroutine runs for waiting tasks | call `Shutdown`, or set `WithInterruptedTaskTTL(0)` |
 
 ## v2.21.0
 

@@ -66,6 +66,9 @@ const (
 	// (input-required, auth-required) is kept before eviction.
 	defaultInterruptedTaskTTL = 24 * time.Hour
 
+	// defaultMaxTaskHistory is how many messages a task's history keeps.
+	defaultMaxTaskHistory = 100
+
 	// defaultConversationTTL is how long idle conversations are kept
 	// before eviction.
 	defaultConversationTTL = 1 * time.Hour
@@ -130,8 +133,10 @@ func WithCardProvider(p AgentCardProvider) Option {
 // public card then declares capabilities.extendedAgentCard, and the server
 // completes the extended card as WithCard describes. The provider is given
 // the request, so it can tailor the card to the caller; use WithAuthenticator
-// so that only authenticated callers reach it. A *StaticCard serves the same
-// card to everyone.
+// so that only authenticated callers reach it: A2A 1.0 §3.1.11 requires the
+// call to be authenticated, so a server with no authenticator, WithTaskOwner
+// or NewServerFor answers it with ExtendedAgentCardNotConfiguredError instead
+// of serving the card. A *StaticCard serves the same card to every caller.
 func WithExtendedCardProvider(p AgentCardProvider) Option {
 	return func(s *Server) { s.extendedCard = p }
 }
@@ -247,6 +252,14 @@ func WithCompleteOnEviction() Option {
 	return func(s *Server) { s.completeOnEviction = true }
 }
 
+// WithMaxTaskHistory caps how many messages a task's history keeps: past the
+// cap the oldest are dropped. Default: 100. Zero or less keeps them all. A
+// message is kept as it was sent, file parts and their bytes included, so a
+// conversation exchanging files holds up to that many of them per task.
+func WithMaxTaskHistory(n int) Option {
+	return func(s *Server) { s.maxHistory = n }
+}
+
 // WithoutStreaming turns streaming off. The served card declares
 // capabilities.streaming false, and SendStreamingMessage and SubscribeToTask
 // (0.3: message/stream, tasks/resubscribe) fail with UnsupportedOperationError
@@ -315,6 +328,10 @@ type Server struct {
 
 	// noStreaming turns streaming off (WithoutStreaming).
 	noStreaming bool
+	// maxHistory caps each task's history (WithMaxTaskHistory).
+	maxHistory int
+	// evictionDone is closed when the eviction loop ends; nil when none runs.
+	evictionDone chan struct{}
 
 	// Readiness flag: set to true after NewServer completes, false on Shutdown.
 	isReady atomic.Bool
@@ -422,6 +439,7 @@ func newServer(opts ...Option) *Server {
 		maxBodySize:    defaultMaxBodySize,
 		taskTTL:        defaultTaskTTL,
 		interruptedTTL: defaultInterruptedTaskTTL,
+		maxHistory:     defaultMaxTaskHistory,
 		convTTL:        defaultConversationTTL,
 		stopCh:         make(chan struct{}),
 	}
@@ -443,6 +461,7 @@ func newServer(opts ...Option) *Server {
 
 	// Start background eviction if at least one TTL is enabled.
 	if s.taskTTL > 0 || s.interruptedTTL > 0 || s.convTTL > 0 {
+		s.evictionDone = make(chan struct{})
 		go s.evictionLoop()
 	}
 
@@ -689,6 +708,12 @@ func (s *Server) serve(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
 	return served
 }
 
+// authenticates reports whether the server knows who its callers are: it has
+// an authenticator, or refuses requests its OwnerFunc gives no identity.
+func (s *Server) authenticates() bool {
+	return s.authenticator != nil || s.owner != nil || s.convCaller != nil
+}
+
 // handleGetExtendedAgentCard processes GetExtendedAgentCard (0.3:
 // agent/getAuthenticatedExtendedCard): the WithExtendedCardProvider card, in
 // the caller's version. Without one, the answer depends only on whether the
@@ -696,6 +721,11 @@ func (s *Server) serve(card *a2a.AgentCard, r *http.Request) *a2a.AgentCard {
 // does not, ExtendedAgentCardNotConfigured when it does.
 func (s *Server) handleGetExtendedAgentCard(call *rpcCall) {
 	if s.extendedCard != nil {
+		if !s.authenticates() {
+			call.fail(a2a.ErrCodeExtendedAgentCardNotConfigured, "The extended agent card requires an "+
+				"authenticated caller; this agent has no authenticator configured")
+			return
+		}
 		extended, err := s.extendedCard.AgentCard(call.r)
 		if err != nil {
 			call.internalError("failed to get extended agent card", err)
@@ -738,6 +768,13 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 	call := &rpcCall{w: w, r: r, req: req, v: v, log: s.log}
 	if v != a2a.ProtocolVersion03 {
 		call.tenant = requestTenant(req.Params)
+	}
+	if call.tenant != "" && s.tenantStore() == nil && op != a2a.OpGetExtendedAgentCard {
+		// Fail closed: a store that cannot record tenants would serve every
+		// tenant's tasks to every other.
+		writeRPCErrorObject(w, http.StatusOK, req.ID,
+			a2a.ErrorFor(v, a2a.ErrCodeUnsupportedOperation, "This agent does not support tenants", nil))
+		return
 	}
 	if s.owner != nil {
 		if call.owner = s.owner(r); call.owner == "" {
@@ -892,7 +929,7 @@ func (s *Server) recordHistory(taskID string, msg *a2a.Message) {
 	if !ok || msg == nil {
 		return
 	}
-	if err := history.AppendHistory(taskID, *msg); err != nil {
+	if err := history.AppendHistory(taskID, s.maxHistory, *msg); err != nil {
 		s.log().Warn("a2a: failed to record task history", "task_id", taskID, "error", err)
 	}
 }
@@ -1187,10 +1224,24 @@ func (s *Server) setState(taskID, contextID string, state a2a.TaskState, msg *a2
 // returns. If the store cannot be read, or the task has moved on already (a
 // CancelTask got in between), the status is state and msg, stamped now.
 func (s *Server) recordedStatus(taskID string, state a2a.TaskState, msg *a2a.Message) a2a.TaskStatus {
-	if task, err := s.taskStore.Get(taskID); err == nil && task.Status.State == state {
-		return stamped(task.Status)
+	if status, err := s.storedStatus(taskID); err == nil && status.State == state {
+		return stamped(status)
 	}
 	return stamped(a2a.TaskStatus{State: state, Message: msg})
+}
+
+// storedStatus reads taskID's status. The in-memory store (itself, not a
+// wrapper, whose Get may say otherwise) is read without copying the task's
+// history and artifacts, which a status update happens on every turn.
+func (s *Server) storedStatus(taskID string) (a2a.TaskStatus, error) {
+	if mem, ok := s.taskStore.(*InMemoryTaskStore); ok {
+		return mem.status(taskID)
+	}
+	task, err := s.taskStore.Get(taskID)
+	if err != nil {
+		return a2a.TaskStatus{}, err
+	}
+	return task.Status, nil
 }
 
 // log returns the logger the server writes to: the WithLogger logger, or
@@ -1364,7 +1415,7 @@ func clientToolPart(t PendingClientToolInfo) a2a.Part {
 // handleGetTask processes GetTask (0.3: tasks/get).
 func (s *Server) handleGetTask(call *rpcCall) {
 	var params a2a.GetTaskRequest
-	if !call.decodeParams(&params) {
+	if !call.decodeParams(&params) || !call.checkHistoryLength(params.HistoryLength) {
 		return
 	}
 
@@ -1435,6 +1486,9 @@ func (s *Server) handleCancelTask(call *rpcCall) {
 func (s *Server) handleListTasks(call *rpcCall) {
 	var params a2a.ListTasksRequest
 	if len(call.req.Params) > 0 && !call.decodeParams(&params) {
+		return
+	}
+	if !call.checkHistoryLength(params.HistoryLength) {
 		return
 	}
 	if err := checkStatusFilter(call.req.Params); err != nil {
@@ -1674,6 +1728,7 @@ func writeRPCResponse(w http.ResponseWriter, status int, resp *a2a.JSONRPCRespon
 // evictionLoop periodically sweeps expired tasks, conversations, and
 // broadcasters. It runs until stopCh is closed (via Shutdown).
 func (s *Server) evictionLoop() {
+	defer close(s.evictionDone)
 	ticker := time.NewTicker(evictionInterval)
 	defer ticker.Stop()
 

@@ -87,7 +87,9 @@ type TaskStore interface {
 // InterruptedTaskEvictor is optionally implemented by a TaskStore that can
 // evict tasks left waiting for the caller (WithInterruptedTaskTTL).
 // InMemoryTaskStore is one. A store without it keeps such tasks until they
-// are canceled, so it must bound them itself.
+// are canceled, so it must bound them itself. A store embedding
+// *InMemoryTaskStore gets the embedded store's EvictInterrupted, which removes
+// only the tasks that store holds.
 type InterruptedTaskEvictor interface {
 	// EvictInterrupted removes tasks in the input-required or auth-required
 	// state whose last status timestamp is older than olderThan, and returns
@@ -101,11 +103,14 @@ type InterruptedTaskEvictor interface {
 // turn begins and the agent's status message when a turn ends with one, and
 // expects Get to return them, oldest first, in Task.History; GetTask,
 // ListTasks and SendMessage trim them to the caller's historyLength. A store
-// without it serves tasks with no history.
+// without it serves tasks with no history. A store embedding
+// *InMemoryTaskStore gets the embedded store's AppendHistory, which records
+// history only on the tasks that store holds.
 type TaskHistoryStore interface {
-	// AppendHistory adds msgs to the end of the task's history, or returns
-	// ErrTaskNotFound.
-	AppendHistory(taskID string, msgs ...a2a.Message) error
+	// AppendHistory adds msgs to the end of the task's history, keeping at
+	// most limit messages (the most recent; zero or less keeps all), or
+	// returns ErrTaskNotFound.
+	AppendHistory(taskID string, limit int, msgs ...a2a.Message) error
 }
 
 // TaskQuery selects a page of tasks for ListTasks.
@@ -146,7 +151,14 @@ type TaskQuerier interface {
 // queryTasks runs q against store, natively when the store supports it.
 func queryTasks(store TaskStore, q TaskQuery) (TaskPage, error) {
 	if querier, ok := store.(TaskQuerier); ok {
-		return querier.Query(q)
+		page, err := querier.Query(q)
+		if tenants, isTenant := store.(TenantTaskStore); isTenant && err == nil {
+			// Defense in depth: a querier that ignores TaskQuery.Tenant must
+			// still not hand one tenant another's tasks. Total is the
+			// querier's own.
+			page.Tasks = inTenant(tenants, page.Tasks, q.Tenant)
+		}
+		return page, err
 	}
 	all, err := listAll(store, q.ContextID)
 	if err != nil {
@@ -161,11 +173,16 @@ func queryTasks(store TaskStore, q TaskQuery) (TaskPage, error) {
 	return pageTasks(all, q), nil
 }
 
-// inTenant keeps the tasks created in tenant.
+// inTenant keeps the tasks created in tenant. A task the store records no
+// tenant for, or cannot say about, is in none.
 func inTenant(store TenantTaskStore, tasks []*a2a.Task, tenant string) []*a2a.Task {
 	kept := tasks[:0]
 	for _, t := range tasks {
-		if got, err := store.Tenant(t.ID); err == nil && got == tenant {
+		got, err := store.Tenant(t.ID)
+		if err != nil {
+			got = ""
+		}
+		if got == tenant {
 			kept = append(kept, t)
 		}
 	}
@@ -335,6 +352,17 @@ func (s *InMemoryTaskStore) Tenant(taskID string) (string, error) {
 	return s.tenants[taskID], nil
 }
 
+// status returns a copy of a task's status alone.
+func (s *InMemoryTaskStore) status(taskID string) (a2a.TaskStatus, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	task, ok := s.tasks[taskID]
+	if !ok {
+		return a2a.TaskStatus{}, ErrTaskNotFound
+	}
+	return cloneTask(&a2a.Task{Status: task.Status}).Status, nil
+}
+
 // Get retrieves a deep copy of a task by ID. The returned task is safe to
 // read/modify without holding the store lock.
 func (s *InMemoryTaskStore) Get(taskID string) (*a2a.Task, error) {
@@ -392,7 +420,7 @@ func (s *InMemoryTaskStore) AddArtifacts(taskID string, artifacts []a2a.Artifact
 }
 
 // AppendHistory implements TaskHistoryStore.
-func (s *InMemoryTaskStore) AppendHistory(taskID string, msgs ...a2a.Message) error {
+func (s *InMemoryTaskStore) AppendHistory(taskID string, limit int, msgs ...a2a.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -402,6 +430,10 @@ func (s *InMemoryTaskStore) AppendHistory(taskID string, msgs ...a2a.Message) er
 	}
 	for i := range msgs {
 		task.History = append(task.History, *cloneMessage(&msgs[i]))
+	}
+	if limit > 0 && len(task.History) > limit {
+		// Copy, so the dropped messages are not kept alive by the array.
+		task.History = append([]a2a.Message(nil), task.History[len(task.History)-limit:]...)
 	}
 	return nil
 }

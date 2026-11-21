@@ -387,6 +387,9 @@ func (s *Server) handleStreamMessage(call *rpcCall) {
 		call.internalError(fmt.Sprintf("failed to read task %s", taskID), err)
 		return
 	}
+	if params.Configuration != nil {
+		applyHistoryLength(task, params.Configuration.HistoryLength)
+	}
 	out.write(task)
 
 	// The turn is detached from the request: closing a stream must not affect

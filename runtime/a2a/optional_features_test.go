@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -213,4 +214,109 @@ func TestClient_GetExtendedAgentCardBadResult(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "a2a: GetExtendedAgentCard: decode result:")
 	assert.Nil(t, client.cachedCard())
+}
+
+// --- An unknown state ends a wait (it may never change) ---
+
+// unknownStateAgent answers SendMessage and GetTask with a task in a state the
+// client does not know, and records cancels.
+type unknownStateAgent struct {
+	mu        sync.Mutex
+	polls     int
+	cancelled []string
+}
+
+func (a *unknownStateAgent) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	req := decodeRPC(r)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	task := `{"id":"odd-1","contextId":"c","status":{"state":"TASK_STATE_PAUSED"}}`
+	switch op, _, _ := LookupMethod(req.Method); op {
+	case OpSendMessage:
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + string(mustJSON(req.ID)) + `,"result":{"task":` + task + `}}`))
+	case OpGetTask:
+		a.polls++
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":` + string(mustJSON(req.ID)) + `,"result":` + task + `}`))
+	case OpCancelTask:
+		var params CancelTaskRequest
+		_ = json.Unmarshal(req.Params, &params)
+		a.cancelled = append(a.cancelled, params.ID)
+		rpcResult(w, req.ID, &Task{ID: params.ID, Status: TaskStatus{State: TaskStateCanceled}})
+	}
+}
+
+// WaitForTask stops at a state it does not know, rather than polling until
+// the context ends: nothing says the task will ever leave it.
+func TestWaitForTask_StopsAtAnUnknownState(t *testing.T) {
+	agent := &unknownStateAgent{}
+	srv := httptest.NewServer(agent)
+	defer srv.Close()
+	c := NewClient(srv.URL, WithProtocolVersion(ProtocolVersion10))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	working := &Task{ID: "odd-1", Status: TaskStatus{State: TaskStateWorking}}
+	got, err := c.WaitForTask(ctx, working)
+	require.ErrorIs(t, err, ErrUnknownTaskState)
+	assert.Equal(t, `a2a: task odd-1 is in a state the client does not know`, err.Error())
+	assert.Equal(t, TaskStateUnknown, got.Status.State)
+	agent.mu.Lock()
+	assert.Equal(t, 1, agent.polls, "one poll, not a poll until the context ends")
+	agent.mu.Unlock()
+
+	same := &Task{ID: "odd-1", Status: TaskStatus{State: TaskStateUnknown}}
+	got, err = c.WaitForTask(ctx, same)
+	require.ErrorIs(t, err, ErrUnknownTaskState)
+	assert.Same(t, same, got, "a task already there is not polled")
+}
+
+// The A2A tool executor fails the call, and cancels the task nobody will
+// read, instead of hanging until its timeout (or forever, with none).
+func TestExecutor_UnknownStateFailsTheCall(t *testing.T) {
+	agent := &unknownStateAgent{}
+	srv := httptest.NewServer(agent)
+	defer srv.Close()
+
+	exec := NewExecutor(WithNoRetry())
+	defer exec.Close()
+	_, err := exec.Execute(context.Background(), slowTool(srv.URL, 3000), json.RawMessage(`{"query":"q"}`))
+	require.ErrorIs(t, err, ErrUnknownTaskState)
+	agent.mu.Lock()
+	defer agent.mu.Unlock()
+	assert.Equal(t, []string{"odd-1"}, agent.cancelled)
+}
+
+// --- The extended card survives a discovery that finishes after it ---
+
+// A Discover in flight when GetExtendedAgentCard adopts the extended card
+// must not put the public card back when it finishes.
+func TestClient_ExtendedCardIsNotOverwrittenByALateDiscover(t *testing.T) {
+	cardRequested := make(chan struct{})
+	releaseCard := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			close(cardRequested)
+			<-releaseCard
+			_ = json.NewEncoder(w).Encode(AgentCard{Name: "public"})
+			return
+		}
+		req := decodeRPC(r)
+		rpcResult(w, req.ID, AgentCard{Name: "extended"})
+	}))
+	defer srv.Close()
+	client := NewClient(srv.URL)
+
+	discovered := make(chan *AgentCard, 1)
+	go func() {
+		card, err := client.Discover(context.Background())
+		assert.NoError(t, err)
+		discovered <- card
+	}()
+	<-cardRequested
+	extended, err := client.GetExtendedAgentCard(context.Background())
+	require.NoError(t, err)
+	close(releaseCard)
+
+	assert.Equal(t, "extended", (<-discovered).Name, "Discover returns the card the client holds")
+	assert.Equal(t, extended, client.cachedCard())
 }

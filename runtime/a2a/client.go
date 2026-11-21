@@ -156,6 +156,27 @@ func WithSSEIdleTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.sseIdleTimeout = d }
 }
 
+// ErrUnknownTaskState is the error WaitForTask returns for a task in a state
+// the client does not know (TaskStateUnknown): one a later protocol version
+// defines, or 1.0's TASK_STATE_UNSPECIFIED. Nothing says such a task will
+// ever finish, so the wait stops. Test for it with errors.Is.
+var ErrUnknownTaskState = errors.New("a2a: task is in a state the client does not know")
+
+// unknownStateError names the task ErrUnknownTaskState is about.
+func unknownStateError(task *Task) error {
+	return &unknownState{taskID: task.ID}
+}
+
+type unknownState struct{ taskID string }
+
+// Error implements error, naming the task.
+func (e *unknownState) Error() string {
+	return fmt.Sprintf("a2a: task %s is in a state the client does not know", e.taskID)
+}
+
+// Is makes the error match ErrUnknownTaskState.
+func (e *unknownState) Is(target error) bool { return target == ErrUnknownTaskState }
+
 // ErrSSEIdleTimeout is the StreamEvent.Error of the last event on an SSE
 // stream that received nothing within the idle timeout. Test for it with
 // errors.Is.
@@ -179,6 +200,9 @@ type Client struct {
 
 	mu        sync.RWMutex
 	agentCard *AgentCard
+	// extended is set once agentCard is the extended card
+	// (GetExtendedAgentCard), which a later public discovery must not replace.
+	extended bool
 
 	// version is the protocol version spoken to the agent. Until it is
 	// pinned — by WithProtocolVersion, a discovered card, or a fallback — the
@@ -330,9 +354,13 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error) {
 	}
 
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.extended {
+		// GetExtendedAgentCard finished while this fetch was in flight: the
+		// extended card stays, as A2A 1.0 §3.1.11 recommends.
+		return c.agentCard, nil
+	}
 	c.adoptCardLocked(card)
-	c.mu.Unlock()
-
 	return card, nil
 }
 
@@ -892,6 +920,7 @@ func (c *Client) GetExtendedAgentCard(ctx context.Context) (*AgentCard, error) {
 	}
 	c.mu.Lock()
 	c.adoptCardLocked(&card)
+	c.extended = true
 	c.mu.Unlock()
 	return &card, nil
 }
@@ -1009,7 +1038,9 @@ const (
 // WaitForTask polls task until it finishes or needs the caller (a terminal or
 // interrupted state), and returns it as it then stands. A task that is
 // already there is returned as is. ctx bounds the wait; when it ends, the last
-// state seen is returned with ctx's error.
+// state seen is returned with ctx's error. A task in a state the client does
+// not know ends the wait too, returned with an error matching
+// ErrUnknownTaskState.
 //
 // A SendMessage can come back before its task is done: with
 // returnImmediately, from a 0.3 agent that does not block, or from a server
@@ -1018,6 +1049,9 @@ func (c *Client) WaitForTask(ctx context.Context, task *Task) (*Task, error) {
 	interval := waitInitialInterval
 	failures := 0
 	for !task.Status.State.IsTerminal() && !task.Status.State.IsInterrupted() {
+		if task.Status.State == TaskStateUnknown {
+			return task, unknownStateError(task)
+		}
 		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():

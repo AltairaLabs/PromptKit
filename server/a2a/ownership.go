@@ -40,10 +40,18 @@ type OwnedTaskStore interface {
 // task was created in: the tenant an A2A 1.0 request names, as the client
 // takes it from the AgentInterface it calls. With one, a task is visible only
 // to requests in its tenant (another tenant, or none, gets TaskNotFound), and
-// a context belongs to the tenant that first used it. InMemoryTaskStore is
-// one. With a store that is not, the server does not partition by tenant.
+// a context belongs to the tenant that first used it. A task the store
+// records no tenant for is in none. InMemoryTaskStore is one. With a store
+// that is not, a request that names a tenant is refused with
+// UnsupportedOperationError rather than served across tenants.
 //
-// A store that also implements TaskQuerier must honor TaskQuery.Tenant.
+// A store that also implements TaskQuerier should honor TaskQuery.Tenant; the
+// server drops another tenant's tasks from a query's page either way.
+//
+// A store embedding *InMemoryTaskStore gets CreateInTenant and Tenant by
+// promotion, acting on the embedded store's tasks: one that overrides Create,
+// or keeps tasks elsewhere, must override them too, or embed the TaskStore
+// interface instead.
 type TenantTaskStore interface {
 	OwnedTaskStore
 	// CreateInTenant creates a task, as CreateOwned does, recording tenant
@@ -118,7 +126,13 @@ func (s *Server) createTask(call *rpcCall, taskID, contextID string) error {
 // caller's own, when tasks are scoped by caller, and in the call's tenant.
 func (s *Server) callerOwns(call *rpcCall, taskID string) bool {
 	if tenants := s.tenantStore(); tenants != nil {
-		if tenant, err := tenants.Tenant(taskID); err != nil || tenant != call.tenant {
+		// A task the store records no tenant for (or cannot say about, as
+		// when a wrapper serves it from elsewhere) is in none.
+		tenant, err := tenants.Tenant(taskID)
+		if err != nil {
+			tenant = ""
+		}
+		if tenant != call.tenant {
 			return false
 		}
 	}

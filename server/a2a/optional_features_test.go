@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 
@@ -538,7 +539,8 @@ func (failingExtendedCard) AgentCard(*http.Request) (*a2a.AgentCard, error) {
 // An extended card provider that fails is an internal error, its cause kept
 // from the caller.
 func TestExtendedCard_ProviderFailureIsAnInternalError(t *testing.T) {
-	_, ts := newTestServer(nopOpener, WithExtendedCardProvider(failingExtendedCard{}))
+	_, ts := newTestServer(nopOpener, WithExtendedCardProvider(failingExtendedCard{}),
+		WithAuthenticator(&mockAuthenticator{}))
 	defer ts.Close()
 	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
 	assert.Equal(t, a2a.ErrCodeInternal, e.Code)
@@ -548,7 +550,7 @@ func TestExtendedCard_ProviderFailureIsAnInternalError(t *testing.T) {
 // historyFailingStore cannot record history.
 type historyFailingStore struct{ *InMemoryTaskStore }
 
-func (historyFailingStore) AppendHistory(string, ...a2a.Message) error {
+func (historyFailingStore) AppendHistory(string, int, ...a2a.Message) error {
 	return errors.New("history full")
 }
 
@@ -585,4 +587,244 @@ func TestContinuation_RestoreIsNotAWarning(t *testing.T) {
 	_, _, logged := records.find("a2a: failed to set task state")
 	assert.False(t, logged)
 	assert.Equal(t, 0, getTaskCode(t, ts, first.ID))
+}
+
+// --- Review follow-ups ---
+
+// The extended card is for authenticated callers only (§3.1.11, §13.3). A
+// server with no way to authenticate refuses it as not configured, rather
+// than hand it to anyone.
+func TestExtendedCard_RefusedWithoutAuthentication(t *testing.T) {
+	provider := &StaticCard{Card: a2a.AgentCard{Name: "extended"}}
+	_, open := newTestServer(nopOpener, WithExtendedCardProvider(provider))
+	defer open.Close()
+	e := rawError(t, rawRPC(t, open, "1.0", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
+	assert.Equal(t, a2a.ErrCodeExtendedAgentCardNotConfigured, e.Code)
+	assert.Equal(t, "The extended agent card requires an authenticated caller; "+
+		"this agent has no authenticator configured", e.Message)
+
+	for name, opt := range map[string]Option{
+		"WithAuthenticator": WithAuthenticator(&mockAuthenticator{}),
+		"WithTaskOwner":     WithTaskOwner(func(*http.Request) string { return "alice" }),
+	} {
+		_, ts := newTestServer(nopOpener, WithExtendedCardProvider(provider), opt)
+		result := rawResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
+		assert.Equal(t, "extended", result["name"], name)
+		ts.Close()
+	}
+}
+
+// seededStore serves one task, "outside", that its embedded in-memory store
+// does not hold, as a read-through wrapper over another store would.
+type seededStore struct{ *InMemoryTaskStore }
+
+func (s seededStore) Get(taskID string) (*a2a.Task, error) {
+	if taskID == "outside" {
+		return &a2a.Task{ID: "outside", ContextID: "c", Status: a2a.TaskStatus{State: a2a.TaskStateWorking}}, nil
+	}
+	return s.InMemoryTaskStore.Get(taskID)
+}
+
+// A task the store records no tenant for is visible to a request that names
+// none: a wrapper serving tasks its embedded store does not hold keeps
+// working. A request in a tenant still does not see it.
+func TestTenant_TaskWithNoRecordIsInNoTenant(t *testing.T) {
+	_, ts := newTestServer(nopOpener, WithTaskStore(seededStore{NewInMemoryTaskStore()}))
+	defer ts.Close()
+	assert.Equal(t, 0, getTaskCode(t, ts, "outside"))
+	assert.Equal(t, a2a.ErrCodeTaskNotFound, errorCode(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetTask,
+		a2a.GetTaskRequest{Tenant: "acme", ID: "outside"})))
+}
+
+// plainStore is a TaskStore with none of the optional interfaces.
+type plainStore struct{ TaskStore }
+
+// A store that cannot record tenants fails closed: a request that names a
+// tenant is refused, rather than served across tenants. One that names none
+// works as before.
+func TestTenant_StoreWithoutTenantsRefusesTenantRequests(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return completingMock(), nil },
+		WithTaskStore(plainStore{NewInMemoryTaskStore()}))
+	defer ts.Close()
+
+	for _, tc := range []struct {
+		method string
+		params any
+	}{
+		{a2a.MethodV1SendMessage, a2a.SendMessageRequest{Tenant: "acme", Message: userMessage("ctx-plain")}},
+		{a2a.MethodV1GetTask, a2a.GetTaskRequest{Tenant: "acme", ID: "x"}},
+		{a2a.MethodV1ListTasks, a2a.ListTasksRequest{Tenant: "acme", ContextID: "ctx-plain"}},
+	} {
+		e := rawError(t, rawRPC(t, ts, "1.0", tc.method, tc.params))
+		assert.Equal(t, a2a.ErrCodeUnsupportedOperation, e.Code, tc.method)
+		assert.Equal(t, "This agent does not support tenants", e.Message, tc.method)
+	}
+	assert.Equal(t, 0, errorCode(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+		a2a.SendMessageRequest{Message: userMessage("ctx-plain")})))
+}
+
+// Tenant and owner combine: in the same tenant, another caller's task is
+// still not found.
+func TestTenant_CombinesWithTaskOwner(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return completingMock(), nil },
+		WithTaskOwner(ownerFromHeader))
+	defer ts.Close()
+	send := as(t, ts, "alice", a2a.MethodV1SendMessage,
+		a2a.SendMessageRequest{Tenant: "acme", Message: userMessage("ctx-owned-tenant")})
+	require.Nil(t, send.Error)
+	task := decodeTaskResult(t, send.Result)
+
+	requireCode(t, as(t, ts, "bob", a2a.MethodV1GetTask, a2a.GetTaskRequest{Tenant: "acme", ID: task.ID}),
+		a2a.ErrCodeTaskNotFound, "another caller in the same tenant")
+	requireCode(t, as(t, ts, "alice", a2a.MethodV1GetTask, a2a.GetTaskRequest{Tenant: "globex", ID: task.ID}),
+		a2a.ErrCodeTaskNotFound, "the same caller in another tenant")
+	assert.Nil(t, as(t, ts, "alice", a2a.MethodV1GetTask, a2a.GetTaskRequest{Tenant: "acme", ID: task.ID}).Error)
+}
+
+// In stateless mode the handler owns contexts: two tenants may use the same
+// contextId, the handler is told which tenant each request is in (so it keys
+// its sessions by both), and each tenant sees only its own tasks.
+func TestTenant_StatelessContextsAreTheHandlers(t *testing.T) {
+	h := &recordingHandler{events: []StreamEvent{{Kind: EventText, Text: "ok"}}}
+	_, ts := statelessServer(t, h)
+	defer ts.Close()
+
+	ids := map[string]string{}
+	for _, tenant := range []string{"acme", "globex"} {
+		task := decodeTaskResult(t, rawRPCResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+			a2a.SendMessageRequest{Tenant: tenant, Message: userMessage("ctx-same")})))
+		ids[tenant] = task.ID
+	}
+	_, requests, _ := h.snapshot()
+	require.Len(t, requests, 2)
+	assert.Equal(t, []string{"acme", "globex"}, []string{requests[0].Tenant, requests[1].Tenant})
+	assert.Equal(t, requests[0].ContextID, requests[1].ContextID)
+	assert.Equal(t, []string{ids["acme"]}, listedIDs(t, ts, "acme", "ctx-same"))
+	assert.Equal(t, []string{ids["globex"]}, listedIDs(t, ts, "globex", "ctx-same"))
+}
+
+// tenantBlindQuerier answers queries ignoring TaskQuery.Tenant, as a custom
+// store might.
+type tenantBlindQuerier struct{ *InMemoryTaskStore }
+
+func (q tenantBlindQuerier) Query(tq TaskQuery) (TaskPage, error) {
+	all, err := q.List(tq.ContextID, 0, 0)
+	return TaskPage{Tasks: all, Total: len(all)}, err
+}
+
+// The server drops what a querier returns from another tenant, so a store that
+// ignores TaskQuery.Tenant still does not leak.
+func TestTenant_QuerierIgnoringTenantDoesNotLeak(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return completingMock(), nil },
+		WithTaskStore(tenantBlindQuerier{NewInMemoryTaskStore()}))
+	defer ts.Close()
+	task := decodeTaskResult(t, rawRPCResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+		a2a.SendMessageRequest{Tenant: "acme", Message: userMessage("ctx-blind")})))
+	assert.Equal(t, []string{task.ID}, listedIDs(t, ts, "acme", "ctx-blind"))
+	assert.Empty(t, listedIDs(t, ts, "globex", "ctx-blind"))
+	assert.Empty(t, listedIDs(t, ts, "", "ctx-blind"))
+}
+
+// The eviction loop runs by default, for waiting tasks, even with the other
+// TTLs off, and Shutdown stops it.
+func TestEvictionLoop_StopsOnShutdown(t *testing.T) {
+	srv := NewServer(nopOpener, WithTaskTTL(0), WithConversationTTL(0))
+	require.NotNil(t, srv.evictionDone, "the default interrupted-task TTL runs the loop")
+	select {
+	case <-srv.evictionDone:
+		t.Fatal("the loop ended before Shutdown")
+	default:
+	}
+	require.NoError(t, srv.Shutdown(context.Background()))
+	select {
+	case <-srv.evictionDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown did not stop the eviction loop")
+	}
+
+	off := NewServer(nopOpener, WithTaskTTL(0), WithConversationTTL(0), WithInterruptedTaskTTL(0))
+	defer func() { _ = off.Shutdown(context.Background()) }()
+	assert.Nil(t, off.evictionDone, "with every TTL off no loop runs")
+}
+
+// History is capped: WithMaxTaskHistory keeps the most recent messages.
+func TestHistory_IsCapped(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return clientToolConv(), nil },
+		WithMaxTaskHistory(2))
+	defer ts.Close()
+	first := decodeTaskResult(t, rawRPCResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+		a2a.SendMessageRequest{Message: userMessage("ctx-capped")})))
+	_ = rawRPCResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+		a2a.SendMessageRequest{Message: toolResultMessage("", first.ID)}))
+
+	task := getTaskWithHistory(t, ts, first.ID, nil)
+	require.Len(t, task.History, 2, "m1 is dropped, the agent's request and m2 kept")
+	assert.Equal(t, a2a.RoleAgent, task.History[0].Role)
+	assert.Equal(t, "m2", task.History[1].MessageID)
+}
+
+// Without the option a task keeps its last 100 messages.
+func TestInMemoryTaskStore_AppendHistoryLimit(t *testing.T) {
+	store := NewInMemoryTaskStore()
+	_, err := store.Create("t", "c")
+	require.NoError(t, err)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, store.AppendHistory("t", 3, a2a.Message{MessageID: strconv.Itoa(i)}))
+	}
+	task, err := store.Get("t")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"2", "3", "4"}, []string{task.History[0].MessageID, task.History[1].MessageID, task.History[2].MessageID})
+	assert.Len(t, task.History, 3)
+	assert.Equal(t, 100, NewServer(nopOpener).maxHistory, "the default cap")
+	assert.ErrorIs(t, store.AppendHistory("missing", 3, a2a.Message{}), ErrTaskNotFound)
+
+	// A limit of zero keeps everything.
+	require.NoError(t, store.AppendHistory("t", 0, a2a.Message{MessageID: "5"}))
+	task, err = store.Get("t")
+	require.NoError(t, err)
+	assert.Len(t, task.History, 4)
+}
+
+// A negative historyLength is invalid, wherever it is sent.
+func TestHistory_NegativeLengthIsInvalidParams(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return completingMock(), nil })
+	defer ts.Close()
+	cfg := &a2a.SendMessageConfiguration{HistoryLength: intPtr(-1)}
+	for _, tc := range []struct {
+		method string
+		params any
+	}{
+		{a2a.MethodV1GetTask, a2a.GetTaskRequest{ID: "x", HistoryLength: intPtr(-1)}},
+		{a2a.MethodV1ListTasks, a2a.ListTasksRequest{ContextID: "c", HistoryLength: intPtr(-1)}},
+		{a2a.MethodV1SendMessage, a2a.SendMessageRequest{Message: userMessage("ctx-neg"), Configuration: cfg}},
+		{a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{Message: userMessage("ctx-neg"), Configuration: cfg}},
+	} {
+		e := rawError(t, rawRPC(t, ts, "1.0", tc.method, tc.params))
+		assert.Equal(t, a2a.ErrCodeInvalidParams, e.Code, tc.method)
+		assert.Equal(t, "Invalid params: historyLength must not be negative", e.Message, tc.method)
+	}
+}
+
+// The task a stream opens with is trimmed to the configuration's
+// historyLength, as SendMessage's answer is.
+func TestHistory_StreamOpensWithTheTrimmedTask(t *testing.T) {
+	_, ts := newTestServer(func(string) (Conversation, error) { return clientToolConv(), nil })
+	defer ts.Close()
+	first := decodeTaskResult(t, rawRPCResult(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendMessage,
+		a2a.SendMessageRequest{Message: userMessage("ctx-stream-trim")})))
+
+	_, events := rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+		Message:       toolResultMessage("", first.ID),
+		Configuration: &a2a.SendMessageConfiguration{HistoryLength: intPtr(1)},
+	}))
+	opening := events[0]["task"].(map[string]any)
+	history := opening["history"].([]any)
+	require.Len(t, history, 1)
+	assert.Equal(t, "m2", history[0].(map[string]any)["messageId"])
+
+	_, events = rawStream(t, rawRPC(t, ts, "1.0", a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+		Message:       userMessage("ctx-stream-zero"),
+		Configuration: &a2a.SendMessageConfiguration{HistoryLength: intPtr(0)},
+	}))
+	assert.NotContains(t, events[0]["task"].(map[string]any), "history")
 }

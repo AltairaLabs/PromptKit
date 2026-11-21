@@ -111,6 +111,19 @@ func (c *rpcCall) decodeSendParams(params *a2a.SendMessageRequest) bool {
 		c.fail(a2a.ErrCodePushNotificationNotSupported, errPushNotSupported)
 		return false
 	}
+	if params.Configuration != nil {
+		return c.checkHistoryLength(params.Configuration.HistoryLength)
+	}
+	return true
+}
+
+// checkHistoryLength refuses a negative historyLength (A2A 1.0 §3.2.4 defines
+// unset, zero and positive), answering InvalidParams itself.
+func (c *rpcCall) checkHistoryLength(n *int) bool {
+	if n != nil && *n < 0 {
+		c.fail(a2a.ErrCodeInvalidParams, "Invalid params: historyLength must not be negative")
+		return false
+	}
 	return true
 }
 
