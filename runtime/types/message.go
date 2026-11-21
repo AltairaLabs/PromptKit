@@ -452,10 +452,14 @@ func (m *Message) IsInterrupted() bool {
 // model, and one cut off mid tool call leaves a call with no result, which
 // providers reject. The transcript keeps them; only model context drops them.
 // msgs is returned as-is when it holds none.
+//
+// What a caller heard of a spoken reply they cut off (IsHeardPrefix) is kept:
+// it was said, so the model goes on from it, as a realtime model goes on from
+// the reply its provider truncated to what was heard.
 func ExcludeInterrupted(msgs []Message) []Message {
 	n := 0
 	for i := range msgs {
-		if msgs[i].IsInterrupted() {
+		if msgs[i].LeavesModelContext() {
 			n++
 		}
 	}
@@ -464,11 +468,30 @@ func ExcludeInterrupted(msgs []Message) []Message {
 	}
 	out := make([]Message, 0, len(msgs)-n)
 	for i := range msgs {
-		if !msgs[i].IsInterrupted() {
+		if !msgs[i].LeavesModelContext() {
 			out = append(out, msgs[i])
 		}
 	}
 	return out
+}
+
+// IsHeardPrefix reports whether m is what a caller heard of a spoken reply
+// they cut off: an interrupted reply whose playback was cut (Meta
+// MetaPlayoutCut), its text what had played, with no tool calls (a call cut
+// off may have no result, which providers reject).
+func (m *Message) IsHeardPrefix() bool {
+	if !m.IsInterrupted() || len(m.ToolCalls) > 0 {
+		return false
+	}
+	_, cut := m.Meta[MetaPlayoutCut]
+	return cut
+}
+
+// LeavesModelContext reports whether m is left out of history sent back to a
+// model (ExcludeInterrupted): an interrupted reply that is not what a caller
+// heard of it.
+func (m *Message) LeavesModelContext() bool {
+	return m.IsInterrupted() && !m.IsHeardPrefix()
 }
 
 // IsMultimodal returns true if the message contains multimodal content (Parts)

@@ -687,41 +687,94 @@ func TestVADMode_NoiseDuringAReplyLeavesIt(t *testing.T) {
 
 // A barge-in stores the reply as the caller heard it: the sentence that had
 // played, not the sentence being synthesized or the rest the model wrote,
-// marked interrupted with how much of its audio was heard (#2846).
+// marked interrupted with how much of its audio was heard, and the model's
+// next turn sees that, not what it wrote (#2846). The store is written the
+// same way whether or not it also serves as the conversation's message log.
 func TestVADMode_BargeInStoresWhatTheCallerHeard(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives real VAD turns")
 	}
-	ttsSvc := newSegmentTTS()
-	ttsSvc.blockSecond = true
-	provider := &storyProvider{
-		turns:     [][]string{{"The fox woke early. ", "It ran to the river. ", "Then it"}, {"Paris."}},
-		holdAfter: 3,
-		canceled:  make(chan struct{}),
+	for _, tc := range []struct {
+		name       string
+		messageLog bool
+	}{{"state store", false}, {"message log", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			ttsSvc := newSegmentTTS()
+			ttsSvc.blockSecond = true
+			provider := &storyProvider{
+				turns:     [][]string{{"The fox woke early. ", "It ran to the river. ", "Then it"}, {"Paris."}},
+				holdAfter: 3,
+				canceled:  make(chan struct{}),
+			}
+			store := statestore.NewMemoryStore()
+			opts := []Option{WithStateStore(store)}
+			if tc.messageLog {
+				opts = append(opts, WithMessageLog(store))
+			}
+			conv, rec := openStreamingSpeechConv(t, provider,
+				newScriptedSTT("tell me a story", "what is the capital"), ttsSvc, opts...)
+			convID := conv.ID()
+
+			speak(t, conv)
+			awaitClosed(t, ttsSvc.second, "the second sentence was never synthesized")
+			require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound))
+			time.Sleep(40 * time.Millisecond) // the first sentence's 20ms of audio has played
+
+			speak(t, conv) // talks over the reply
+			awaitClosed(t, provider.canceled, "caller speech must cancel the model call")
+			require.True(t, provider.waitForTurns(2, streamingSpeechBound))
+			require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, streamingSpeechBound),
+				"the next turn's reply never completed")
+
+			var context []string
+			for _, m := range provider.turnAt(1) {
+				if m.Role == "assistant" {
+					context = append(context, m.Content)
+				}
+			}
+			assert.Equal(t, []string{"The fox woke early."}, context,
+				"the model's next turn sees what the caller heard of its reply")
+
+			require.NoError(t, closeWithin(t, conv))
+			stored := storedAssistant(t, store, convID)
+			require.Len(t, stored, 2)
+			cut := stored[0]
+			assert.Equal(t, "The fox woke early.", cut.Content, "what the caller heard, and nothing after it")
+			assert.Equal(t, types.FinishReasonInterrupted, cut.FinishReason)
+			assert.Equal(t, types.PlayoutCutBargeIn, cut.Meta[types.MetaPlayoutCut])
+			assert.EqualValues(t, 20, cut.Meta[types.MetaHeardMs], "the first sentence's 20ms")
+			assert.Equal(t, "Paris.", stored[1].Content)
+		})
 	}
+}
+
+// A session closed while a reply still plays stores the share of it the
+// caller had heard, marked as cut by the session closing, as a realtime
+// session with playout tracking does.
+func TestVADMode_CloseMidReplyStoresWhatWasHeard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives a real VAD turn")
+	}
+	const sentence = "One two three four five six seven eight nine ten."
+	provider := &storyProvider{turns: [][]string{{"One two three four five ", "six seven eight nine ten."}}}
 	store := statestore.NewMemoryStore()
-	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me a story", "what is the capital"),
-		ttsSvc, WithStateStore(store))
+	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me"), newSizedPCMTTS(2*time.Second),
+		WithStateStore(store))
 	convID := conv.ID()
 
 	speak(t, conv)
-	awaitClosed(t, ttsSvc.second, "the second sentence was never synthesized")
-	require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 }, streamingSpeechBound))
-	time.Sleep(40 * time.Millisecond) // the first sentence's 20ms of audio has played
-
-	speak(t, conv) // talks over the reply
-	awaitClosed(t, provider.canceled, "caller speech must cancel the model call")
-	require.True(t, provider.waitForTurns(2, streamingSpeechBound))
-	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 2 }, streamingSpeechBound),
-		"the next turn's reply never completed")
-
+	require.True(t, waitFor(func() bool { return len(rec.audioMarkers()) >= 1 || rec.turnCompletes() > 0 },
+		streamingSpeechBound))
+	time.Sleep(300 * time.Millisecond) // some of the 2s plays
 	require.NoError(t, closeWithin(t, conv))
+
 	stored := storedAssistant(t, store, convID)
-	require.Len(t, stored, 2)
+	require.Len(t, stored, 1, "the reply is stored though the session closed while it played")
 	cut := stored[0]
-	assert.Equal(t, "The fox woke early.", cut.Content, "what the caller heard, and nothing after it")
-	assert.Equal(t, types.FinishReasonInterrupted, cut.FinishReason)
-	assert.Equal(t, types.PlayoutCutBargeIn, cut.Meta[types.MetaPlayoutCut])
-	assert.EqualValues(t, 20, cut.Meta[types.MetaHeardMs], "the first sentence's 20ms")
-	assert.Equal(t, "Paris.", stored[1].Content)
+	assert.Equal(t, types.PlayoutCutSessionClosed, cut.Meta[types.MetaPlayoutCut])
+	heard, _ := cut.Meta[types.MetaHeardMs].(int64)
+	assert.GreaterOrEqual(t, heard, int64(250))
+	assert.Less(t, heard, int64(2000), "the caller had not heard it all")
+	assert.True(t, strings.HasPrefix(sentence, cut.Content), "at most what was heard: %q", cut.Content)
+	assert.Less(t, len(cut.Content), len(sentence))
 }

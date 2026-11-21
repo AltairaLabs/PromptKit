@@ -175,10 +175,46 @@ func (r *replyRun) next(t *testing.T) stage.StreamElement {
 	}
 }
 
-// finish closes the input, waits for Process to return without error, and
-// returns everything the stage emitted, in order.
+// settleQuiet is how long the stage's output stays quiet before settle takes
+// the reply as settled.
+const settleQuiet = 100 * time.Millisecond
+
+// settle reads the stage's output until it has been quiet for settleQuiet.
+// A reply's Message waits until its audio would have played, and an input
+// that closes first is a session closing, which cuts the reply short; so the
+// input closes only once what was sent has settled.
+func (r *replyRun) settle(t *testing.T) {
+	t.Helper()
+	deadline := time.After(replyTestBound)
+	for {
+		select {
+		case e, ok := <-r.output:
+			if !ok {
+				return
+			}
+			r.got = append(r.got, e)
+		case <-time.After(settleQuiet):
+			return
+		case <-deadline:
+			t.Fatal("the stage's output never settled")
+		}
+	}
+}
+
+// runReply runs a streamed-reply stage over inputs, as a live session does:
+// the input closes once the reply has settled. It returns what it emitted.
+func runReply(t *testing.T, s stage.Stage, inputs []stage.StreamElement) []stage.StreamElement {
+	t.Helper()
+	r := startReplyRun(t, s)
+	r.send(t, inputs...)
+	return r.finish(t)
+}
+
+// finish lets the reply settle, closes the input, waits for Process to return
+// without error, and returns everything the stage emitted, in order.
 func (r *replyRun) finish(t *testing.T) []stage.StreamElement {
 	t.Helper()
+	r.settle(t)
 	close(r.input)
 	select {
 	case err := <-r.done:
@@ -245,7 +281,7 @@ func TestTTSStageWithInterruption_StreamsASegmentsAudioInPieces(t *testing.T) {
 	}
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{delta("Hello."), assistant("Hello.")}, 2*time.Second)
+	results := runReply(t, s, []stage.StreamElement{delta("Hello."), assistant("Hello.")})
 
 	pieces := audioElements(results)
 	require.Len(t, pieces, 3, "100ms pieces of a 250ms segment")
@@ -348,9 +384,9 @@ func TestTTSStageWithInterruption_ReplacementDropsUnspokenText(t *testing.T) {
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{
+	results := runReply(t, s, []stage.StreamElement{
 		delta("Fine. Then a dra"), replacement("Blocked."), assistant("Blocked."), stage.NewEndOfTurnElement(),
-	}, 2*time.Second)
+	})
 
 	assert.Equal(t, []string{"Fine.", "Blocked."}, svc.spoken())
 	assert.Contains(t, kinds(results), "message:Fine. Blocked.")
@@ -362,7 +398,7 @@ func TestTTSStageWithInterruption_ReplacedMessageIsSpokenInstead(t *testing.T) {
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{delta("Hello there. Bad wor"), assistant("Sorry.")}, 2*time.Second)
+	results := runReply(t, s, []stage.StreamElement{delta("Hello there. Bad wor"), assistant("Sorry.")})
 
 	assert.Equal(t, []string{"Hello there.", "Sorry."}, svc.spoken())
 	assert.Contains(t, kinds(results), "message:Hello there. Sorry.")
@@ -374,9 +410,9 @@ func TestTTSStageWithInterruption_ReplacementBeforeAnythingHeardIsTheMessage(t *
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{
+	results := runReply(t, s, []stage.StreamElement{
 		delta("Then a dra"), replacement("Blocked."), assistant("Blocked."),
-	}, 2*time.Second)
+	})
 
 	assert.Equal(t, []string{"Blocked."}, svc.spoken())
 	assert.Contains(t, kinds(results), "message:Blocked.")
@@ -402,7 +438,7 @@ func TestTTSStageWithInterruption_MessageBeyondReleasedTextSpeaksTheRest(t *test
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
 
-	runStage(t, s, []stage.StreamElement{delta("Hi."), assistant("Hi. More.")}, 2*time.Second)
+	runReply(t, s, []stage.StreamElement{delta("Hi."), assistant("Hi. More.")})
 
 	assert.Equal(t, []string{"Hi.", "More."}, svc.spoken())
 }
@@ -416,13 +452,13 @@ func TestTTSStageWithInterruption_MatchesEachRoundsMessage(t *testing.T) {
 
 	first := &types.Message{Role: "assistant", Content: "Let me check.",
 		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "weather"}}}
-	results := runStage(t, s, []stage.StreamElement{
+	results := runReply(t, s, []stage.StreamElement{
 		delta("Let me check. "), delta("It is sunny."),
 		stage.NewMessageElement(first),
 		stage.NewMessageElement(&types.Message{Role: "tool", Content: "sunny"}),
 		assistant("It is sunny."),
 		stage.NewEndOfTurnElement(),
-	}, 2*time.Second)
+	})
 
 	assert.Equal(t, []string{"Let me check.", "It is sunny."}, svc.spoken())
 	var costs []float64
@@ -444,14 +480,14 @@ func TestTTSStageWithInterruption_CostGoesOnTheMessageWithTheText(t *testing.T) 
 	s := newStreamedReplyStage(svc)
 
 	toolCall := &types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "weather"}}}
-	results := runStage(t, s, []stage.StreamElement{
+	results := runReply(t, s, []stage.StreamElement{
 		delta("It is sunny. "),
 		{Reasoning: &stage.ReasoningDelta{Text: "thinking"}},
 		stage.NewMessageElement(toolCall),
 		stage.NewMessageElement(&types.Message{Role: "tool", Content: "sunny"}),
 		assistant("It is sunny."),
 		stage.NewEndOfTurnElement(),
-	}, 2*time.Second)
+	})
 
 	assert.Equal(t, []string{"It is sunny."}, svc.spoken())
 	var reasoning int
@@ -477,14 +513,14 @@ func TestTTSStageWithInterruption_CostGoesOnTheMessageWithTheText(t *testing.T) 
 func TestTTSStageWithInterruption_TurnEndSpeaksTheRestAndFailureDropsIt(t *testing.T) {
 	svc := newSegmentRecordingTTS()
 	s := newStreamedReplyStage(svc)
-	runStage(t, s, []stage.StreamElement{delta("Unfinished thought"), stage.NewEndOfTurnElement()}, 2*time.Second)
+	runReply(t, s, []stage.StreamElement{delta("Unfinished thought"), stage.NewEndOfTurnElement()})
 	assert.Equal(t, []string{"Unfinished thought"}, svc.spoken())
 
 	svc = newSegmentRecordingTTS()
 	s = newStreamedReplyStage(svc)
-	runStage(t, s, []stage.StreamElement{
+	runReply(t, s, []stage.StreamElement{
 		delta("Half a thought"), stage.NewErrorElement(errors.New("turn failed")), stage.NewEndOfTurnElement(),
-	}, 2*time.Second)
+	})
 	assert.Empty(t, svc.spoken(), "a failed turn's unfinished text is not spoken")
 }
 
@@ -501,9 +537,9 @@ func TestTTSStageWithInterruption_SegmentFailureStopsTheReply(t *testing.T) {
 	}
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{
+	results := runReply(t, s, []stage.StreamElement{
 		delta("One. Two. Three. "), assistant("One. Two. Three."), stage.NewEndOfTurnElement(),
-	}, 2*time.Second)
+	})
 
 	assert.Equal(t, []string{"One.", "Two."}, svc.spoken())
 	var msg *stage.StreamElement
@@ -525,7 +561,7 @@ func TestTTSStageWithInterruption_SegmentFailureWithoutMessageIsReported(t *test
 	}
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{delta("Lonely words"), stage.NewEndOfTurnElement()}, 2*time.Second)
+	results := runReply(t, s, []stage.StreamElement{delta("Lonely words"), stage.NewEndOfTurnElement()})
 
 	assert.Equal(t, []string{"error", "end"}, kinds(results)[1:])
 }
@@ -620,7 +656,7 @@ func TestTTSStageWithInterruption_ReadFailureEndsOnlyThatSegment(t *testing.T) {
 	}
 	s := newStreamedReplyStage(svc)
 
-	results := runStage(t, s, []stage.StreamElement{delta("One. Two."), assistant("One. Two.")}, 2*time.Second)
+	results := runReply(t, s, []stage.StreamElement{delta("One. Two."), assistant("One. Two.")})
 
 	assert.Equal(t, []string{"One.", "Two."}, svc.spoken())
 	msg := results[len(results)-1].Message

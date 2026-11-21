@@ -20,6 +20,8 @@ func pcm24kFor(d time.Duration) []byte {
 // pacedReply is a TTSStageWithInterruption on a manual clock, every 200ms of
 // a segment's audio synthesized at once, run on its own goroutine.
 type pacedReply struct {
+	cancel context.CancelFunc
+	heard  *HeardReplies
 	svc    *fakeTTS
 	clock  *fakeHoldClock
 	input  chan StreamElement
@@ -36,13 +38,16 @@ func startPacedReply(t *testing.T) *pacedReply {
 		input:  make(chan StreamElement),
 		output: make(chan StreamElement, 64),
 		done:   make(chan error, 1),
+		heard:  NewHeardReplies(),
 	}
 	cfg := DefaultTTSStageWithInterruptionConfig()
 	cfg.Retry = tts.RetryConfig{MaxAttempts: 1}
+	cfg.HeardReplies = p.heard
 	s := NewTTSStageWithInterruption(p.svc, cfg)
 	s.clock = holdClock{now: p.clock.now, until: p.clock.until}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	p.cancel = cancel
 	go func() { p.done <- s.Process(ctx, p.input, p.output) }()
 	return p
 }
@@ -175,18 +180,63 @@ func TestTTSStageWithInterruption_MessageWaitsForItsAudioToPlay(t *testing.T) {
 	assert.Equal(t, "stop", *got.Meta.FinishReason, "a reply heard in full ends as it ended")
 }
 
-// Once the input ends, a reply waiting for its audio to play stops waiting:
-// the session is ending, and its Message goes on whole.
-func TestTTSStageWithInterruption_InputEndStopsTheWait(t *testing.T) {
+// Once the input ends (the session is closing), a reply waiting for its
+// audio to play stops waiting and is stored as heard by then, marked as cut
+// by the session closing, with its own finish reason, as the realtime
+// playout hold records it.
+func TestTTSStageWithInterruption_InputEndStoresWhatWasHeard(t *testing.T) {
 	p := startPacedReply(t)
-	p.send(t, textDelta("One sentence here. "), assistantMessage("One sentence here."))
+	p.send(t, textDelta("One two three four. "), assistantMessage("One two three four."))
 	p.audioUntil(t, 2)
+	p.clock.advance(100 * time.Millisecond) // half the segment has played
 	close(p.input)
 
-	msg := p.messageNext(t) // the clock never moves
-	assert.Equal(t, "One sentence here.", msg.Content)
-	assert.NotContains(t, msg.Meta, types.MetaPlayoutCut)
+	msg := p.messageNext(t)
+	assert.Equal(t, "One two", msg.Content)
+	assert.Empty(t, msg.FinishReason, "the reply keeps its own finish reason")
+	assert.Equal(t, types.PlayoutCutSessionClosed, msg.Meta[types.MetaPlayoutCut])
+	assert.Equal(t, int64(100), msg.Meta[types.MetaHeardMs])
+	assert.Equal(t, int64(200), msg.Meta[types.MetaAudioMs])
 	assert.NoError(t, recvWithin(t, p.done))
+}
+
+// A session canceled while a reply plays (Close) still hands on the reply,
+// as heard by then, and every element queued behind it, before Process
+// returns: nothing in flight is lost, and nothing more is synthesized.
+func TestTTSStageWithInterruption_CancelHandsOnTheReplyAsHeard(t *testing.T) {
+	p := startPacedReply(t)
+	p.send(t, textDelta("One two three four. "), textDelta("Five six seven eight. "),
+		assistantMessage("One two three four. Five six seven eight."), NewEndOfTurnElement())
+	p.audioUntil(t, 4)
+	p.clock.advance(100 * time.Millisecond) // half the first segment has played
+	p.cancel()
+
+	msg := p.messageNext(t)
+	assert.Equal(t, "One two", msg.Content)
+	assert.Equal(t, types.PlayoutCutSessionClosed, msg.Meta[types.MetaPlayoutCut])
+	assert.True(t, p.next(t).EndOfTurn, "the turn end queued behind it is handed on too")
+	close(p.input)
+	assert.ErrorIs(t, recvWithin(t, p.done), context.Canceled)
+	assert.Equal(t, []string{"One two three four.", "Five six seven eight."}, p.texts(),
+		"nothing more is synthesized")
+}
+
+// A barge-in on a guardrail's message, spoken after the sentences it
+// replaced the rest of, stores those sentences once, then what was heard of
+// the message.
+func TestTTSStageWithInterruption_BargeInAfterAReplacementStoresEachSentenceOnce(t *testing.T) {
+	p := startPacedReply(t)
+	replace := textDelta("Not allowed here.")
+	replace.Meta.ReplacesText = true
+	p.send(t, textDelta("Fine. Then a dra"))
+	p.audioUntil(t, 2)
+	p.send(t, replace, assistantMessage("Not allowed here."), NewEndOfTurnElement())
+	p.audioUntil(t, 4)
+	p.clock.advance(300 * time.Millisecond) // all of "Fine.", half the message
+
+	p.send(t, NewInterruptElement())
+	msg := p.messageNext(t)
+	assert.Equal(t, "Fine. Not", msg.Content)
 }
 
 // A barge-in stores the reply as the caller heard it: the segments that had
@@ -218,6 +268,18 @@ func TestTTSStageWithInterruption_BargeInStoresWhatWasHeard(t *testing.T) {
 	require.NotNil(t, end.Meta.FinishReason)
 	assert.Equal(t, types.FinishReasonInterrupted, *end.Meta.FinishReason, "the cut reply's turn ends interrupted")
 	assert.True(t, p.next(t).Interrupt)
+
+	// The provider stage's history gets the reply as heard, once the stage
+	// has handled the Interrupt.
+	old := heardSettleTimeout
+	heardSettleTimeout = time.Minute // only the stage's settle ends the wait
+	t.Cleanup(func() { heardSettleTimeout = old })
+	p.heard.expect() // the provider stage passed the Interrupt on
+	within(t, "await", func() bool { p.heard.await(context.Background()); return true })
+	history := []types.Message{{Role: roleAssistant, Content: "The fox woke early. It ran to the river. Then it slept."}}
+	got := p.heard.apply(history)
+	assert.Equal(t, "The fox woke early. It ran", got[0].Content)
+	assert.Equal(t, types.FinishReasonInterrupted, got[0].FinishReason)
 }
 
 // Each segment is synthesized with the text spoken before it and, when it is

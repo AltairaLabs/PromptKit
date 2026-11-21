@@ -214,6 +214,11 @@ type ProviderConfig struct {
 	// MessageLogConvID is the conversation ID for message log operations.
 	MessageLogConvID string
 
+	// HeardReplies, shared with a cascaded voice pipeline's
+	// TTSStageWithInterruption, swaps each reply the caller cut off for what
+	// they heard of it in the history the next turn sends the model. Optional.
+	HeardReplies *HeardReplies
+
 	// Compactor folds stale tool results between rounds when token usage
 	// exceeds the configured threshold. Nil = disabled.
 	Compactor CompactionStrategy
@@ -864,8 +869,10 @@ func (s *ProviderStage) streamingStep(
 	case elem.Interrupt:
 		// Barge-in: in-flight generation was already canceled out of band by
 		// the reader. Drop the partial turn's input, roll a fresh context,
-		// and forward the Interrupt downstream.
+		// and forward the Interrupt downstream, where the speech-out stage
+		// reports what was heard of the reply it cut (heardReplies).
 		canceller.refresh()
+		s.heardReplies().expect()
 		return nil, false, sendStreamElement(ctx, elem, output)
 	case elem.EndOfTurn:
 		next, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
@@ -890,6 +897,14 @@ func (s *ProviderStage) streamingStep(
 		// Stray content passes through unchanged.
 		return pending, false, sendStreamElement(ctx, elem, output)
 	}
+}
+
+// heardReplies is the configured HeardReplies, nil when there is none.
+func (s *ProviderStage) heardReplies() *HeardReplies {
+	if s.config == nil {
+		return nil
+	}
+	return s.config.HeardReplies
 }
 
 // fireIfPending fires a streaming turn when there is buffered input, returning
@@ -934,6 +949,11 @@ func (s *ProviderStage) fireStreamingTurn(
 	// turn's messages have already passed through them by fire time, so the read
 	// is safely ordered after those writes (channel happens-before).
 	cfg := s.streamingTurnState()
+	// A reply the caller cut off goes on in the history as what they heard.
+	if heard := s.heardReplies(); heard != nil {
+		heard.await(forwardCtx)
+		*history = heard.apply(*history)
+	}
 	turn := s.beginStreamTurn(*history, pending)
 
 	// Emit this turn's user transcript(s) BEFORE generation, so the UI shows what

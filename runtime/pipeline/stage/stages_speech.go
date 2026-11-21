@@ -990,6 +990,11 @@ type TTSStageWithInterruptionConfig struct {
 	// differs from the rate the service synthesizes PCM at, the audio is
 	// resampled. Zero emits the service's own rate unchanged.
 	OutputSampleRate int
+
+	// HeardReplies, shared with the pipeline's provider stage, reports each
+	// reply the caller cut off as what they heard of it, for the model's next
+	// turn. Optional.
+	HeardReplies *HeardReplies
 }
 
 // DefaultTTSStageWithInterruptionConfig returns sensible defaults.
@@ -1021,6 +1026,8 @@ type TTSStageWithInterruption struct {
 	serviceRate int
 	// clock times a streamed reply's playout; tests replace it.
 	clock holdClock
+	// fwd hands elements on once the session is closing (forwardElement).
+	fwd cancelForwarder
 }
 
 // NewTTSStageWithInterruption creates a new TTS stage with interruption support.
@@ -1071,7 +1078,10 @@ func (s *TTSStageWithInterruption) Process(
 
 	work := make(chan StreamElement)
 	ended := make(chan struct{})
-	go queueCancelingOnInterrupt(ctx, input, work, canceller, s.clock.now, ended)
+	stopped := make(chan struct{})
+	defer close(stopped)
+	go queueCancelingOnInterrupt(ctx, input, work, canceller, s.clock.now, ended, stopped)
+	s.fwd = cancelForwarder{}
 
 	reply := &replySpeech{cutAt: canceller.interruptedAt, ended: ended}
 	for elem := range work {
@@ -1084,6 +1094,7 @@ func (s *TTSStageWithInterruption) Process(
 			// can flush too.
 			canceller.refresh()
 			reply.interrupted()
+			s.config.HeardReplies.settle()
 			if s.interruption != nil {
 				s.interruption.Reset()
 			}
@@ -1097,7 +1108,7 @@ func (s *TTSStageWithInterruption) Process(
 		}
 	}
 
-	return nil
+	return ctx.Err()
 }
 
 // processTurnElement handles one non-interrupt element and ends the reply at
@@ -1190,17 +1201,18 @@ func (s *TTSStageWithInterruption) shouldSkipText(text string) bool {
 }
 
 // forwardElement forwards an element to output.
+//
+// Once ctx has ended (the session is closing) the hand-off is bounded
+// (cancelForwarder): a consumer still collecting the turn, the save stage
+// among them, gets what was in flight, and one that has gone away does not
+// block the stage. It never fails then.
 func (s *TTSStageWithInterruption) forwardElement(
 	ctx context.Context,
 	elem StreamElement,
 	output chan<- StreamElement,
 ) error {
-	select {
-	case output <- elem:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	s.fwd.forward(ctx, output, elem)
+	return nil
 }
 
 // setBotSpeaking safely sets bot speaking state if handler exists.

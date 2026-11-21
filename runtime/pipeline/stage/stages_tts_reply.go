@@ -60,10 +60,18 @@ func (s *TTSStageWithInterruption) speakStreamedMessage(
 		s.waitUntil(synthCtx, reply.ended, reply.playout.until)
 	}
 	out := *elem
-	if interrupted || reply.stopped || synthCtx.Err() != nil {
-		out.Message = reply.cutMessage(elem.Message, reply.interruptedAt(s.clock.now()))
+	now := s.clock.now()
+	switch {
+	case interrupted || reply.stopped || (synthCtx.Err() != nil && forwardCtx.Err() == nil):
+		// A barge-in cut the reply: the model's next turn goes on from what
+		// was heard.
+		out.Message = reply.cutMessage(elem.Message, reply.interruptedAt(now), types.PlayoutCutBargeIn)
+		s.config.HeardReplies.record(elem.Message.Content, out.Message)
 		reply.stop()
-	} else {
+	case now.Before(reply.playout.until):
+		// The session is closing (its input ended) while the reply plays.
+		out.Message = reply.cutMessage(elem.Message, now, types.PlayoutCutSessionClosed)
+	default:
 		out.Message = reply.heardWith(elem.Message)
 	}
 	out.Message = withTTSCost(out.Message, reply.takeCost(s.service))
@@ -258,21 +266,30 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 // queue: input is always read, so a reply that streams faster than it is
 // spoken never holds up the provider stage, and an Interrupt behind it is seen
 // (and cancels the turn) at once. Order is preserved.
+//
+// When ctx ends (the session is closing) the queue goes on: what is already
+// in flight, a reply waiting for its audio to play among it, is still handed
+// on, as heard by then, and ended tells the stage the session is ending. It
+// stops when its input closes and everything is handed on, or when the stage
+// has stopped reading (stopped), reading the input to its end so upstream is
+// not blocked.
 func queueCancelingOnInterrupt(
 	ctx context.Context, input <-chan StreamElement, work chan<- StreamElement, c *turnCanceller,
-	now func() time.Time, ended chan<- struct{},
+	now func() time.Time, ended chan<- struct{}, stopped <-chan struct{},
 ) {
 	defer close(work)
 	q := elementQueue{in: input, now: now, ended: ended}
+	done := ctx.Done()
 	for q.open() {
 		select {
 		case elem, ok := <-q.in:
 			q.receive(elem, ok, c)
 		case q.out(work) <- q.next():
 			q.pop()
-		case <-ctx.Done():
-			// The stage has stopped; keep reading so upstream is not blocked.
+		case <-done:
 			q.endInput()
+			done = nil
+		case <-stopped:
 			q.drainInput()
 			return
 		}

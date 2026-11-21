@@ -195,20 +195,26 @@ func (r *replySpeech) stop() {
 	r.unmatched = ""
 }
 
-// cutMessage returns msg as the caller heard it when the reply was cut short
-// at t: the text its audio had played (playout), marked interrupted, with
+// cutMessage returns msg as the caller heard it when its playback was cut at
+// t (cause, types.PlayoutCut*): the text its audio had played (playout), with
 // heard_ms, audio_ms, played_fraction and playout_cut as the realtime playout
-// hold records them.
-func (r *replySpeech) cutMessage(msg *types.Message, t time.Time) *types.Message {
+// hold records them. A barge-in marks it interrupted; a session that closed
+// leaves the reply its own finish reason, as the realtime hold does.
+func (r *replySpeech) cutMessage(msg *types.Message, t time.Time, cause string) *types.Message {
+	// The playout holds every segment spoken for this Message, those before
+	// a guardrail's cut among them.
 	text, heard, total := r.playout.heardAt(t)
-	if r.heardBeforeCut != "" {
-		text = joinText(r.heardBeforeCut, text)
-		r.heardBeforeCut = ""
+	r.heardBeforeCut = ""
+	cut := heardReply(msg, heard, total, cause)
+	if rest, ok := cutPrefix(msg.Content, text); !ok || strings.TrimSpace(rest) != "" {
+		// Not all of it was heard: the text is what was. (All of it heard,
+		// the reply keeps its own spacing.)
+		cut.Content = text
+		cut.Parts = nil
 	}
-	cut := heardReply(msg, heard, total, types.PlayoutCutBargeIn)
-	cut.Content = text
-	cut.Parts = nil
-	cut.FinishReason = types.FinishReasonInterrupted
+	if cause == types.PlayoutCutBargeIn {
+		cut.FinishReason = types.FinishReasonInterrupted
+	}
 	return cut
 }
 

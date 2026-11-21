@@ -198,6 +198,8 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
   - [func NewHashRouter\(name string, outputNames \[\]string, keyFunc func\(StreamElement\) string\) \*HashRouter](<#NewHashRouter>)
   - [func \(r \*HashRouter\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#HashRouter.Process>)
   - [func \(r \*HashRouter\) RegisterOutput\(name string, output chan\<\- StreamElement\)](<#HashRouter.RegisterOutput>)
+- [type HeardReplies](<#HeardReplies>)
+  - [func NewHeardReplies\(\) \*HeardReplies](<#NewHeardReplies>)
 - [type ImageData](<#ImageData>)
   - [func \(d \*ImageData\) EnsureLoaded\(ctx context.Context, store storage.MediaStorageService\) \(\[\]byte, error\)](<#ImageData.EnsureLoaded>)
   - [func \(d \*ImageData\) Externalize\(ctx context.Context, store storage.MediaStorageService, metadata \*storage.MediaMetadata\) error](<#ImageData.Externalize>)
@@ -3078,6 +3080,28 @@ func (r *HashRouter) RegisterOutput(name string, output chan<- StreamElement)
 
 RegisterOutput registers an output channel with a name.
 
+<a name="HeardReplies"></a>
+## type [HeardReplies](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/heard_replies.go#L30-L38>)
+
+HeardReplies carries what the caller heard of a cut reply from a cascaded voice pipeline's speech\-out stage \(TTSStageWithInterruption\) back to its provider stage, so the model's next turn goes on from what was heard, as a realtime model goes on from the reply its provider truncated to it.
+
+The provider stage keeps the conversation's history itself and wrote the whole reply into it; the speech\-out stage, downstream, is the one that knows how much of it played. Share one HeardReplies between the two \(ProviderConfig.HeardReplies, TTSStageWithInterruptionConfig.HeardReplies\): the speech\-out stage records each reply it cut, and the provider stage swaps it into its history before the next turn. A nil \*HeardReplies does nothing.
+
+```go
+type HeardReplies struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewHeardReplies"></a>
+### func [NewHeardReplies](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/heard_replies.go#L48>)
+
+```go
+func NewHeardReplies() *HeardReplies
+```
+
+NewHeardReplies returns an empty HeardReplies.
+
 <a name="ImageData"></a>
 ## type [ImageData](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/element.go#L280-L294>)
 
@@ -4660,7 +4684,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L324>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L329>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4701,6 +4725,11 @@ type ProviderConfig struct {
 
     // MessageLogConvID is the conversation ID for message log operations.
     MessageLogConvID string
+
+    // HeardReplies, shared with a cascaded voice pipeline's
+    // TTSStageWithInterruption, swaps each reply the caller cut off for what
+    // they heard of it in the history the next turn sends the model. Optional.
+    HeardReplies *HeardReplies
 
     // Compactor folds stale tool results between rounds when token usage
     // exceeds the configured threshold. Nil = disabled.
@@ -4813,7 +4842,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L337>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L342>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4822,7 +4851,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L327>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L332>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4847,7 +4876,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L388-L393>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L393-L398>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4856,7 +4885,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L400-L406>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L405-L411>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4865,7 +4894,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L413-L420>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L418-L425>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4874,7 +4903,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L427-L435>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L432-L440>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4883,7 +4912,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L694-L698>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L699-L703>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4892,7 +4921,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L385>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L390>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -5328,7 +5357,7 @@ type Response struct {
 ```
 
 <a name="ResponseVADConfig"></a>
-## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1443-L1461>)
+## type [ResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1455-L1473>)
 
 ResponseVADConfig configures the ResponseVADStage.
 
@@ -5355,7 +5384,7 @@ type ResponseVADConfig struct {
 ```
 
 <a name="DefaultResponseVADConfig"></a>
-### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1473>)
+### func [DefaultResponseVADConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1485>)
 
 ```go
 func DefaultResponseVADConfig() ResponseVADConfig
@@ -5364,7 +5393,7 @@ func DefaultResponseVADConfig() ResponseVADConfig
 DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
 
 <a name="ResponseVADStage"></a>
-## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1493-L1500>)
+## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1505-L1512>)
 
 ResponseVADStage monitors response audio for silence and delays EndOfStream until actual silence is detected. This decouples turn completion from provider signaling \(e.g., Gemini's turnComplete\) which may arrive before all audio chunks have been received.
 
@@ -5380,7 +5409,7 @@ type ResponseVADStage struct {
 ```
 
 <a name="NewResponseVADStage"></a>
-### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1503>)
+### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1515>)
 
 ```go
 func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
@@ -5389,7 +5418,7 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
 NewResponseVADStage creates a new response VAD stage.
 
 <a name="ResponseVADStage.Process"></a>
-### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1558-L1562>)
+### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1570-L1574>)
 
 ```go
 func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6246,7 +6275,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3158>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3178>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6579,7 +6608,7 @@ func (s *TTSStage) Process(ctx context.Context, input <-chan StreamElement, outp
 Process implements the Stage interface. Synthesizes audio for each text element and adds it to the element.
 
 <a name="TTSStageWithInterruption"></a>
-## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1015-L1024>)
+## type [TTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1020-L1031>)
 
 TTSStageWithInterruption synthesizes text to audio with interruption support. When the user starts speaking \(detected via shared InterruptionHandler\), synthesis is stopped and pending output is discarded.
 
@@ -6593,7 +6622,7 @@ type TTSStageWithInterruption struct {
 ```
 
 <a name="NewTTSStageWithInterruption"></a>
-### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1027-L1030>)
+### func [NewTTSStageWithInterruption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1034-L1037>)
 
 ```go
 func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterruptionConfig) *TTSStageWithInterruption
@@ -6602,7 +6631,7 @@ func NewTTSStageWithInterruption(service tts.Service, config TTSStageWithInterru
 NewTTSStageWithInterruption creates a new TTS stage with interruption support.
 
 <a name="TTSStageWithInterruption.Process"></a>
-### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1062-L1066>)
+### func \(\*TTSStageWithInterruption\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1069-L1073>)
 
 ```go
 func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6611,7 +6640,7 @@ func (s *TTSStageWithInterruption) Process(ctx context.Context, input <-chan Str
 Process implements the Stage interface. Synthesizes audio for text elements with interruption support. A reply that streams \(the provider stage's text deltas\) is spoken a segment at a time as it arrives \(replySpeech\); a complete text or Message that did not stream is spoken whole. A concurrent reader cancels in\-flight synthesis the instant a barge\-in Interrupt arrives, so a long synthesis call cannot swallow the interrupt; queued text behind the interrupt is dropped too, and synthesis resumes on the next turn.
 
 <a name="TTSStageWithInterruptionConfig"></a>
-## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L968-L993>)
+## type [TTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L968-L998>)
 
 TTSStageWithInterruptionConfig configures TTSStageWithInterruption.
 
@@ -6641,11 +6670,16 @@ type TTSStageWithInterruptionConfig struct {
     // differs from the rate the service synthesizes PCM at, the audio is
     // resampled. Zero emits the service's own rate unchanged.
     OutputSampleRate int
+
+    // HeardReplies, shared with the pipeline's provider stage, reports each
+    // reply the caller cut off as what they heard of it, for the model's next
+    // turn. Optional.
+    HeardReplies *HeardReplies
 }
 ```
 
 <a name="DefaultTTSStageWithInterruptionConfig"></a>
-### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L996>)
+### func [DefaultTTSStageWithInterruptionConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_speech.go#L1001>)
 
 ```go
 func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig

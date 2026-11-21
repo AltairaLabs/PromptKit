@@ -102,7 +102,9 @@ The conversation records the interrupted reply as the user heard it: the
 sentences that had played, then the share of the words of the sentence playing
 that its audio had played. The stored message has `FinishReason` `interrupted`,
 and `Meta` keys `heard_ms`, `audio_ms`, `played_fraction` and `playout_cut`
-(`barge-in`).
+(`barge-in`). The model's next turn goes on from that heard text, as a realtime
+model goes on from the reply its provider truncated. A reply still playing when
+the session closes is stored the same way, with `playout_cut` `session-closed`.
 
 In ASM mode the same window applies. OpenAI Realtime and Gemini Live send a
 reply's audio faster than it plays, so most of a long reply is still playing

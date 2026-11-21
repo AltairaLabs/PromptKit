@@ -213,7 +213,7 @@ func withoutInterrupted(msgs []types.Message) ([]types.Message, []bool) {
 	}
 	keptBlocked := make([]bool, 0, len(kept))
 	for i := range msgs {
-		if !msgs[i].IsInterrupted() {
+		if !msgs[i].LeavesModelContext() {
 			keptBlocked = append(keptBlocked, blocked[i])
 		}
 	}
