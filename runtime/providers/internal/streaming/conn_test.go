@@ -390,24 +390,29 @@ func TestConnConfig_CustomValues(t *testing.T) {
 	assert.Equal(t, 7, cfg.MaxRetries)
 }
 
-func TestCalculateBackoff(t *testing.T) {
-	base := 100 * time.Millisecond
-	max := 500 * time.Millisecond
-
-	for i := 0; i < 100; i++ {
-		d := calculateBackoff(base, max)
-		// Should be within +-25% of base, and not exceed max
-		assert.LessOrEqual(t, d, max)
-		assert.GreaterOrEqual(t, d, time.Duration(0))
+// Each wait is the doubled base varied by up to a quarter either way.
+func TestConnectBackoff_JittersAroundTheDoubledBase(t *testing.T) {
+	b := connectBackoff(&ConnConfig{RetryBackoffBase: 100 * time.Millisecond, RetryBackoffMax: time.Second})
+	var shorter, longer bool
+	for i := 0; i < 200; i++ {
+		d := b.Delay(1) // 200ms base
+		require.GreaterOrEqual(t, d, 150*time.Millisecond)
+		require.LessOrEqual(t, d, 250*time.Millisecond)
+		shorter = shorter || d < 200*time.Millisecond
+		longer = longer || d > 200*time.Millisecond
 	}
+	assert.True(t, shorter, "no wait was shortened by jitter")
+	assert.True(t, longer, "no wait was lengthened by jitter")
 }
 
-func TestCalculateBackoff_CapAtMax(t *testing.T) {
-	base := 10 * time.Second
-	max := 1 * time.Second
-
-	d := calculateBackoff(base, max)
-	assert.LessOrEqual(t, d, max)
+// No wait exceeds RetryBackoffMax, jitter included.
+func TestConnectBackoff_NeverExceedsTheMax(t *testing.T) {
+	b := connectBackoff(&ConnConfig{RetryBackoffBase: 10 * time.Second, RetryBackoffMax: time.Second})
+	for i := 0; i < 100; i++ {
+		d := b.Delay(0)
+		assert.GreaterOrEqual(t, d, 750*time.Millisecond)
+		assert.LessOrEqual(t, d, time.Second)
+	}
 }
 
 func TestConn_WithLogger(t *testing.T) {

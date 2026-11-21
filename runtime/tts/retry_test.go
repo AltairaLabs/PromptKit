@@ -160,3 +160,76 @@ func TestSynthesizeWithRetry_MaxAttemptsZeroMeansOneCall(t *testing.T) {
 		t.Errorf("calls = %d, want 1", svc.calls.Load())
 	}
 }
+
+// When every attempt fails, the error returned is the last attempt's, not the first's.
+func TestSynthesizeWithRetry_ReturnsTheLastAttemptsError(t *testing.T) {
+	t.Parallel()
+	last := NewSynthesisError("mock", "503", "third", nil, true)
+	svc := &mockTTSService{results: []mockResult{
+		{err: NewSynthesisError("mock", "503", "first", nil, true)},
+		{err: NewSynthesisError("mock", "503", "second", nil, true)},
+		{err: last},
+	}}
+	_, err := SynthesizeWithRetry(context.Background(), svc, "hello", SynthesisConfig{}, RetryConfig{
+		MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond,
+	})
+	if err != last {
+		t.Fatalf("err = %v, want the last attempt's error %v", err, last)
+	}
+}
+
+// cancelingTTSService cancels the caller's context and fails retryably, so
+// any retry would have to wait out the backoff.
+type cancelingTTSService struct {
+	mockTTSService
+	cancel context.CancelFunc
+}
+
+func (c *cancelingTTSService) Synthesize(_ context.Context, _ string, _ SynthesisConfig) (io.ReadCloser, error) {
+	c.calls.Add(1)
+	c.cancel()
+	return nil, NewSynthesisError("mock", "503", "down", nil, true)
+}
+
+// A context canceled while waiting to retry ends the retries at once with the
+// context's error, without waiting out the backoff.
+func TestSynthesizeWithRetry_CancelDuringBackoffStopsRetrying(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := &cancelingTTSService{cancel: cancel}
+	start := time.Now()
+	_, err := SynthesizeWithRetry(ctx, svc, "hello", SynthesisConfig{}, RetryConfig{
+		MaxAttempts: 5, InitialDelay: time.Hour, MaxDelay: time.Hour,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if got := svc.calls.Load(); got != 1 {
+		t.Errorf("calls = %d, want 1", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Errorf("took %v: the backoff was waited out", elapsed)
+	}
+}
+
+// A provider's Retry-After replaces the computed backoff: with an hour-long
+// backoff, the retry still happens after the millisecond the server asked for.
+func TestSynthesizeWithRetry_HonorsRetryAfter(t *testing.T) {
+	t.Parallel()
+	limited := NewSynthesisError("mock", "429", "slow down", ErrRateLimited, true)
+	limited.RetryAfter = time.Millisecond
+	svc := &mockTTSService{results: []mockResult{{err: limited}, {}}}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := SynthesizeWithRetry(ctx, svc, "hello", SynthesisConfig{}, RetryConfig{
+		MaxAttempts: 2, InitialDelay: time.Hour, MaxDelay: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want the retry after Retry-After to succeed", err)
+	}
+	defer result.Close()
+	if got := svc.calls.Load(); got != 2 {
+		t.Errorf("calls = %d, want 2", got)
+	}
+}

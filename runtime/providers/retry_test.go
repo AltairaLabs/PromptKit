@@ -282,11 +282,10 @@ func TestCalculateBackoff_CapsAtMax(t *testing.T) {
 		Backoff:        "exponential",
 		InitialDelayMs: 10000, // 10s
 	}
-	// attempt 10 => 10s * 2^10 = 10240s, should be capped at 60s + jitter
+	// attempt 10 => 10s * 2^10 = 10240s; jitter included, no wait exceeds 60s.
 	got := calculateBackoff(policy, 10, 0)
-	// max = 60s + 50% jitter = 90s
-	if got > 91*time.Second {
-		t.Errorf("expected capped delay <= 91s, got %v", got)
+	if got != maxBackoffDuration {
+		t.Errorf("expected capped delay = %v, got %v", maxBackoffDuration, got)
 	}
 }
 
@@ -915,4 +914,18 @@ func TestDoWithRetry_RetriesResponseBodyClosed(t *testing.T) {
 	if string(body) != "ok" {
 		t.Errorf("expected 'ok', got %q", string(body))
 	}
+}
+
+// calculateBackoff draws the delay for a given retry attempt
+// using the configured backoff strategy with jitter. A positive retryAfter
+// replaces it.
+func calculateBackoff(
+	policy pipeline.RetryPolicy,
+	attempt int,
+	retryAfter time.Duration,
+) time.Duration {
+	if retryAfter > 0 {
+		return retryAfter
+	}
+	return httpBackoff(policy).Delay(attempt)
 }

@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 )
 
 // HostFromURL extracts only the host portion (without scheme or path)
@@ -140,23 +142,7 @@ func (p StreamRetryPolicy) RetryDelay(attempt int, retryAfter time.Duration) (de
 // when a single h2 connection reset kills ~100 streams, equal jitter still
 // synchronizes the retries into narrow buckets; full jitter smears them.
 func (p StreamRetryPolicy) BackoffFor(attempt int) time.Duration {
-	initial := p.InitialDelayOrDefault()
-	ceiling := p.MaxDelayOrDefault()
-	if attempt < 0 {
-		attempt = 0
-	}
-	// cap growth to avoid shift overflow on pathological inputs
-	const maxShift = 30
-	shift := attempt
-	if shift > maxShift {
-		shift = maxShift
-	}
-	delay := initial << shift
-	if delay <= 0 || delay > ceiling {
-		delay = ceiling
-	}
-	// full jitter: uniform in [0, delay]
-	return time.Duration(cryptoRandFloat64() * float64(delay))
+	return retry.FullJitter(p.InitialDelayOrDefault(), p.MaxDelayOrDefault()).Delay(attempt)
 }
 
 // IsRetryableStreamError returns true if the error looks like a transient

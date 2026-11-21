@@ -1,11 +1,12 @@
 package stt
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
@@ -14,7 +15,6 @@ const (
 	defaultRetryMaxAttempts  = 3
 	defaultRetryInitialDelay = 250 * time.Millisecond
 	defaultRetryMaxDelay     = 2 * time.Second
-	maxBackoffShift          = 30
 )
 
 // RetryConfig configures bounded retry for STT transcription calls.
@@ -45,77 +45,32 @@ func DefaultRetryConfig() RetryConfig {
 // transient errors. Only errors where TranscriptionError.Retryable is
 // true are retried; all others are returned immediately. Uses full
 // jitter backoff to avoid synchronized retries across concurrent
-// callers.
+// callers; a TranscriptionError's RetryAfter, capped at MaxDelay, replaces it.
 func TranscribeWithRetry(
 	ctx context.Context,
 	svc base.STTProvider,
 	req base.STTRequest,
-	retry RetryConfig,
+	cfg RetryConfig,
 ) (base.STTResponse, error) {
-	maxAttempts := retry.MaxAttempts
-	if maxAttempts < 1 {
-		maxAttempts = 1
+	policy := retry.FullJitterPolicy("stt", svc.Name(), cfg.MaxAttempts,
+		cmp.Or(max(cfg.InitialDelay, 0), defaultRetryInitialDelay),
+		cmp.Or(max(cfg.MaxDelay, 0), defaultRetryMaxDelay),
+		classifyTranscriptionError)
+	result, err := retry.Do(ctx, policy, func(ctx context.Context) (base.STTResponse, error) {
+		return svc.Transcribe(ctx, req)
+	})
+	if err != nil {
+		return base.STTResponse{}, err
 	}
-
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return base.STTResponse{}, err
-		}
-
-		result, err := svc.Transcribe(ctx, req)
-		if err == nil {
-			return result, nil
-		}
-
-		lastErr = err
-		if !isRetryable(err) || attempt >= maxAttempts-1 {
-			break
-		}
-
-		delay := backoff(attempt, retry.InitialDelay, retry.MaxDelay)
-		logger.Warn("STT transcription failed, retrying",
-			"provider", svc.Name(),
-			"attempt", attempt+1,
-			"max_attempts", maxAttempts,
-			"delay", delay.String(),
-			"error", err,
-		)
-
-		select {
-		case <-ctx.Done():
-			return base.STTResponse{}, ctx.Err()
-		case <-time.After(delay):
-		}
-	}
-	return base.STTResponse{}, lastErr
+	return result, nil
 }
 
-// isRetryable checks if err is a TranscriptionError with Retryable set.
-func isRetryable(err error) bool {
+// classifyTranscriptionError retries a TranscriptionError marked Retryable,
+// after the RetryAfter it carries.
+func classifyTranscriptionError(err error) (bool, time.Duration) {
 	var te *TranscriptionError
 	if errors.As(err, &te) {
-		return te.Retryable
+		return te.Retryable, te.RetryAfter
 	}
-	return false
-}
-
-// backoff computes full-jitter delay for the given attempt.
-func backoff(attempt int, initial, ceiling time.Duration) time.Duration {
-	if initial <= 0 {
-		initial = defaultRetryInitialDelay
-	}
-	if ceiling <= 0 {
-		ceiling = defaultRetryMaxDelay
-	}
-	shift := uint(min(attempt, maxBackoffShift)) // bounded by min
-	delay := initial << shift
-	if delay <= 0 || delay > ceiling {
-		delay = ceiling
-	}
-	jitter := time.Duration(time.Now().UnixNano()) % delay
-	if jitter < 0 {
-		jitter = -jitter
-	}
-	return jitter
+	return false, 0
 }

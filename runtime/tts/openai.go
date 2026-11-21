@@ -226,7 +226,7 @@ func (s *OpenAIService) Synthesize(
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		return nil, s.handleError(resp)
+		return nil, withRetryAfter(s.handleError(resp), resp)
 	}
 
 	// The speech API's PCM is always 24 kHz and raw PCM carries no header

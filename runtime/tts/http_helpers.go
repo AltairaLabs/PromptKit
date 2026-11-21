@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 )
 
 // httpServerErrorThreshold is the HTTP status code threshold for server errors.
@@ -33,6 +36,16 @@ func classifyHTTPStatus(statusCode int, notFoundErr, badRequestErr error) (retry
 		cause = notFoundErr
 	}
 	return retryable, cause
+}
+
+// withRetryAfter records the Retry-After of resp on err when err is a
+// *SynthesisError, so SynthesizeWithRetry waits what the provider asked for.
+func withRetryAfter(err error, resp *http.Response) error {
+	var se *SynthesisError
+	if errors.As(err, &se) {
+		se.RetryAfter = retry.ParseRetryAfter(resp.Header)
+	}
+	return err
 }
 
 // quotaCodes are the provider error codes (lowercased) that mean the account is
@@ -106,7 +119,7 @@ func postJSONForAudio(
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		return nil, errorHandler(resp)
+		return nil, withRetryAfter(errorHandler(resp), resp)
 	}
 	return resp.Body, nil
 }

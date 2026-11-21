@@ -1,14 +1,18 @@
 package providers
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 )
 
@@ -83,5 +87,40 @@ func TestDoWithRetry_FirstTrySuccessRecordsNothing(t *testing.T) {
 
 	if got := testutil.CollectAndCount(m.providerRetriesTotal); got != 0 {
 		t.Errorf("recorded %d series, want 0", got)
+	}
+}
+
+// Every site that retries through the shared loop (A2A, TTS, STT, MCP,
+// realtime connects) lands on the same metric, under its own name; after a
+// reset nothing more is recorded.
+func TestSharedRetryLoop_ReportsToTheProviderRetryMetric(t *testing.T) {
+	m := registerTestRetryMetrics(t)
+	failOnce := func() func(context.Context) (int, error) {
+		n := 0
+		return func(context.Context) (int, error) {
+			if n++; n == 1 {
+				return 0, errors.New("transient")
+			}
+			return 1, nil
+		}
+	}
+	policy := retry.Policy{Name: "a2a", MaxAttempts: 2, Backoff: retry.Backoff{Initial: time.Millisecond}}
+
+	if _, err := retry.Do(t.Context(), policy, failOnce()); err != nil {
+		t.Fatal(err)
+	}
+	if got := testutil.ToFloat64(m.providerRetriesTotal.WithLabelValues("a2a", "retry")); got != 1 {
+		t.Errorf("a2a retry count = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.providerRetriesTotal.WithLabelValues("a2a", "success")); got != 1 {
+		t.Errorf("a2a success-after-retry count = %v, want 1", got)
+	}
+
+	ResetDefaultStreamMetrics()
+	if _, err := retry.Do(t.Context(), policy, failOnce()); err != nil {
+		t.Fatal(err)
+	}
+	if got := testutil.ToFloat64(m.providerRetriesTotal.WithLabelValues("a2a", "retry")); got != 1 {
+		t.Errorf("after reset: a2a retry count = %v, want still 1", got)
 	}
 }

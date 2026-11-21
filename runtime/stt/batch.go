@@ -3,6 +3,7 @@ package stt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/internal/retry"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 )
 
@@ -97,9 +99,19 @@ func (u *batchUpload) send(
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, decodeError(resp.StatusCode, body)
+		return nil, withRetryAfter(decodeError(resp.StatusCode, body), resp)
 	}
 	return body, nil
+}
+
+// withRetryAfter records the Retry-After of resp on err when err is a
+// *TranscriptionError, so TranscribeWithRetry waits what the provider asked for.
+func withRetryAfter(err error, resp *http.Response) error {
+	var te *TranscriptionError
+	if errors.As(err, &te) {
+		te.RetryAfter = retry.ParseRetryAfter(resp.Header)
+	}
+	return err
 }
 
 // statusError builds the TranscriptionError for a non-200 response: 429 and

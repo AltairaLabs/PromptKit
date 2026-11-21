@@ -289,7 +289,7 @@ var ErrSSEIdleTimeout = fmt.Errorf("a2a: SSE idle timeout exceeded")
 ```
 
 <a name="ExtractResponseParts"></a>
-## func [ExtractResponseParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L767>)
+## func [ExtractResponseParts](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L736>)
 
 ```go
 func ExtractResponseParts(task *Task) []types.ContentPart
@@ -298,7 +298,7 @@ func ExtractResponseParts(task *Task) []types.ContentPart
 ExtractResponseParts converts all A2A Parts from a completed task into PromptKit ContentParts. It collects parts from the status message \(if present\) and then all artifacts. Parts that fail conversion, such as structured data, are skipped.
 
 <a name="ExtractResponseText"></a>
-## func [ExtractResponseText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L796>)
+## func [ExtractResponseText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L765>)
 
 ```go
 func ExtractResponseText(task *Task) string
@@ -392,7 +392,7 @@ func PartToContentPart(part *Part) (types.ContentPart, error)
 PartToContentPart converts an A2A Part to a PromptKit ContentPart. A text part becomes a text content part. A Raw or URL part becomes a media content part and requires MediaType. A structured data part, or a part with none of text, raw, URL or data, returns an error.
 
 <a name="ReadSSE"></a>
-## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1064>)
+## func [ReadSSE](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1070>)
 
 ```go
 func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent)
@@ -401,7 +401,7 @@ func ReadSSE(ctx context.Context, r io.Reader, ch chan<- StreamEvent)
 ReadSSE reads SSE events from r and sends parsed StreamEvents to ch. It returns when r ends, ctx is canceled, or an error event is sent, and does not close ch. It has no idle timeout; use [ReadSSEWithIdleTimeout](<#ReadSSEWithIdleTimeout>) for timeout support.
 
 <a name="ReadSSEWithIdleTimeout"></a>
-## func [ReadSSEWithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1151>)
+## func [ReadSSEWithIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1157>)
 
 ```go
 func ReadSSEWithIdleTimeout(ctx context.Context, r io.Reader, ch chan<- StreamEvent, idleTimeout time.Duration)
@@ -582,7 +582,7 @@ type CancelTaskRequest struct {
 ```
 
 <a name="Client"></a>
-## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L166-L204>)
+## type [Client](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L170-L208>)
 
 Client is an HTTP client for discovering and calling external A2A agents over JSON\-RPC. It speaks A2A 1.0 and falls back to 0.3 when the agent rejects a 1.0 method, unless the version is pinned with WithProtocolVersion or settled by a discovered agent card. Calls go to the JSON\-RPC interface the agent card declares on the configured host, or to \{base\}/a2a when no card is available. A Client is safe for concurrent use.
 
@@ -593,7 +593,7 @@ type Client struct {
 ```
 
 <a name="NewClient"></a>
-### func [NewClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L244>)
+### func [NewClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L248>)
 
 ```go
 func NewClient(baseURL string, opts ...ClientOption) *Client
@@ -602,7 +602,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client
 NewClient creates a Client targeting baseURL.
 
 <a name="Client.CancelTask"></a>
-### func \(\*Client\) [CancelTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1023>)
+### func \(\*Client\) [CancelTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1029>)
 
 ```go
 func (c *Client) CancelTask(ctx context.Context, taskID string) error
@@ -611,7 +611,7 @@ func (c *Client) CancelTask(ctx context.Context, taskID string) error
 CancelTask cancels a task by ID \(CancelTask; 0.3: tasks/cancel\).
 
 <a name="Client.Discover"></a>
-### func \(\*Client\) [Discover](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L311>)
+### func \(\*Client\) [Discover](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L315>)
 
 ```go
 func (c *Client) Discover(ctx context.Context) (*AgentCard, error)
@@ -620,7 +620,7 @@ func (c *Client) Discover(ctx context.Context) (*AgentCard, error)
 Discover fetches the agent card, trying [AgentCardPath](<#AgentCardPath>) first and falling back to [LegacyAgentCardPath](<#AgentCardPath>) when the agent does not serve it \(404/405\). The card is cached after the first successful call, and a card that declares a JSON\-RPC interface on the client's host also settles the protocol version.
 
 <a name="Client.GetTask"></a>
-### func \(\*Client\) [GetTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1010>)
+### func \(\*Client\) [GetTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1016>)
 
 ```go
 func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error)
@@ -629,7 +629,7 @@ func (c *Client) GetTask(ctx context.Context, taskID string) (*Task, error)
 GetTask retrieves a task by ID \(GetTask; 0.3: tasks/get\).
 
 <a name="Client.ListTasks"></a>
-### func \(\*Client\) [ListTasks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1033>)
+### func \(\*Client\) [ListTasks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1039>)
 
 ```go
 func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Task, error)
@@ -638,7 +638,7 @@ func (c *Client) ListTasks(ctx context.Context, params *ListTasksRequest) ([]*Ta
 ListTasks lists one page of tasks \(ListTasks, which A2A 1.0 added; to a 0.3 agent the client sends the legacy PromptKit tasks/list, which only PromptKit servers answer\). The server returns at most params.PageSize tasks, or its default page size when that is unset \(50 on a 1.0 server\); use ListTasksPage to read the next\-page token and page through the rest.
 
 <a name="Client.ListTasksPage"></a>
-### func \(\*Client\) [ListTasksPage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1049>)
+### func \(\*Client\) [ListTasksPage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L1055>)
 
 ```go
 func (c *Client) ListTasksPage(ctx context.Context, params *ListTasksRequest) (*ListTasksResponse, error)
@@ -647,7 +647,7 @@ func (c *Client) ListTasksPage(ctx context.Context, params *ListTasksRequest) (*
 ListTasksPage lists one page of tasks, like ListTasks, and returns the whole response: NextPageToken \(empty on the last page\), PageSize and TotalSize. To read the next page, send the same params with PageToken set to NextPageToken.
 
 <a name="Client.ProtocolVersion"></a>
-### func \(\*Client\) [ProtocolVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L455>)
+### func \(\*Client\) [ProtocolVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L459>)
 
 ```go
 func (c *Client) ProtocolVersion() ProtocolVersion
@@ -656,7 +656,7 @@ func (c *Client) ProtocolVersion() ProtocolVersion
 ProtocolVersion returns the protocol version the client speaks. It can change from 1.0 to 0.3 on the first call, if the agent rejects 1.0.
 
 <a name="Client.SendMessage"></a>
-### func \(\*Client\) [SendMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L801>)
+### func \(\*Client\) [SendMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L807>)
 
 ```go
 func (c *Client) SendMessage(ctx context.Context, params *SendMessageRequest) (*Task, error)
@@ -667,7 +667,7 @@ SendMessage sends a message \(SendMessage; 0.3: message/send\) and returns the r
 An agent that answers with a Message rather than a Task gets a completed task synthesized around it, the message as its status message, so callers have one shape to read.
 
 <a name="Client.SendMessageStream"></a>
-### func \(\*Client\) [SendMessageStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L855>)
+### func \(\*Client\) [SendMessageStream](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L861>)
 
 ```go
 func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageRequest) (<-chan StreamEvent, error)
@@ -676,7 +676,7 @@ func (c *Client) SendMessageStream(ctx context.Context, params *SendMessageReque
 SendMessageStream sends a streaming message \(SendStreamingMessage; 0.3: message/stream\) and returns a channel of streaming events. The channel is closed when the stream ends, the context is canceled, or the stream is idle for longer than the SSE idle timeout. An error the agent sends in the stream, and an idle timeout \([ErrSSEIdleTimeout](<#ErrSSEIdleTimeout>)\), arrive as the last event, with StreamEvent.Error set. An agent that refuses the request before streaming returns an \*RPCError from this call.
 
 <a name="Client.WaitForTask"></a>
-### func \(\*Client\) [WaitForTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L969>)
+### func \(\*Client\) [WaitForTask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L975>)
 
 ```go
 func (c *Client) WaitForTask(ctx context.Context, task *Task) (*Task, error)
@@ -687,7 +687,7 @@ WaitForTask polls task until it finishes or needs the caller \(a terminal or int
 A SendMessage can come back before its task is done: with returnImmediately, from a 0.3 agent that does not block, or from a server that caps how long it holds a request.
 
 <a name="ClientOption"></a>
-## type [ClientOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L98>)
+## type [ClientOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L102>)
 
 ClientOption configures a [Client](<#Client>).
 
@@ -696,7 +696,7 @@ type ClientOption func(*Client)
 ```
 
 <a name="WithAuth"></a>
-### func [WithAuth](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L107>)
+### func [WithAuth](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L111>)
 
 ```go
 func WithAuth(scheme, token string) ClientOption
@@ -705,7 +705,7 @@ func WithAuth(scheme, token string) ClientOption
 WithAuth sets the Authorization header on all requests to "scheme token". An empty token sets no header.
 
 <a name="WithHTTPClient"></a>
-### func [WithHTTPClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L101>)
+### func [WithHTTPClient](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L105>)
 
 ```go
 func WithHTTPClient(hc *http.Client) ClientOption
@@ -714,7 +714,7 @@ func WithHTTPClient(hc *http.Client) ClientOption
 WithHTTPClient sets the underlying HTTP client.
 
 <a name="WithHeaders"></a>
-### func [WithHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L115>)
+### func [WithHeaders](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L119>)
 
 ```go
 func WithHeaders(headers map[string]string) ClientOption
@@ -723,7 +723,7 @@ func WithHeaders(headers map[string]string) ClientOption
 WithHeaders sets custom headers that are sent on all requests.
 
 <a name="WithProtocolVersion"></a>
-### func [WithProtocolVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L123>)
+### func [WithProtocolVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L127>)
 
 ```go
 func WithProtocolVersion(v ProtocolVersion) ClientOption
@@ -732,7 +732,7 @@ func WithProtocolVersion(v ProtocolVersion) ClientOption
 WithProtocolVersion pins the A2A protocol version the client speaks, disabling negotiation. Without it the client speaks 1.0, or what a discovered agent card prefers, and falls back to 0.3 when the agent rejects a 1.0 method.
 
 <a name="WithRequestTimeout"></a>
-### func [WithRequestTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L134>)
+### func [WithRequestTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L138>)
 
 ```go
 func WithRequestTimeout(d time.Duration) ClientOption
@@ -741,7 +741,7 @@ func WithRequestTimeout(d time.Duration) ClientOption
 WithRequestTimeout sets the timeout for non\-streaming requests \(agent card discovery, SendMessage, GetTask and so on\). The default is 60s. It does not affect SSE streams, which use a separate client with a 30\-minute limit and the SSE idle timeout. A zero or negative value leaves the default in place.
 
 <a name="WithSSEIdleTimeout"></a>
-### func [WithSSEIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L151>)
+### func [WithSSEIdleTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L155>)
 
 ```go
 func WithSSEIdleTimeout(d time.Duration) ClientOption
@@ -750,7 +750,7 @@ func WithSSEIdleTimeout(d time.Duration) ClientOption
 WithSSEIdleTimeout sets the idle timeout for SSE streams; the default is [DefaultSSEIdleTimeout](<#DefaultSSEIdleTimeout>). If no line is received within this duration, the stream is considered stale: reading stops, the channel returned by SendMessageStream receives a last event whose Error is [ErrSSEIdleTimeout](<#ErrSSEIdleTimeout>), and the channel is closed, so callers can tell a stall from a finished stream and reconnect. A zero or negative value disables the idle timeout.
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L155-L171>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L152-L168>)
 
 Executor implements tools.Executor and tools.MultimodalExecutor for A2A agent tools. It dispatches tool calls to remote A2A agents via the A2A client.
 
@@ -765,7 +765,7 @@ type Executor struct {
 ```
 
 <a name="NewExecutor"></a>
-### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L176>)
+### func [NewExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L173>)
 
 ```go
 func NewExecutor(opts ...ExecutorOption) *Executor
@@ -774,7 +774,7 @@ func NewExecutor(opts ...ExecutorOption) *Executor
 NewExecutor creates a new A2A executor with optional configuration. The executor starts a background goroutine for cache cleanup. Call Close when you are done with the executor.
 
 <a name="Executor.Close"></a>
-### func \(\*Executor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L611>)
+### func \(\*Executor\) [Close](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L580>)
 
 ```go
 func (e *Executor) Close() error
@@ -783,7 +783,7 @@ func (e *Executor) Close() error
 Close stops the background cleanup goroutine and clears the client cache. Calling it more than once is safe.
 
 <a name="Executor.Execute"></a>
-### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L389-L391>)
+### func \(\*Executor\) [Execute](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L386-L388>)
 
 ```go
 func (e *Executor) Execute(ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, error)
@@ -792,7 +792,7 @@ func (e *Executor) Execute(ctx context.Context, descriptor *tools.ToolDescriptor
 Execute calls a remote A2A agent with the tool arguments and returns the response.
 
 <a name="Executor.ExecuteMultimodal"></a>
-### func \(\*Executor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L411-L413>)
+### func \(\*Executor\) [ExecuteMultimodal](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L408-L410>)
 
 ```go
 func (e *Executor) ExecuteMultimodal(ctx context.Context, descriptor *tools.ToolDescriptor, args json.RawMessage) (json.RawMessage, []types.ContentPart, error)
@@ -801,7 +801,7 @@ func (e *Executor) ExecuteMultimodal(ctx context.Context, descriptor *tools.Tool
 ExecuteMultimodal calls a remote A2A agent and returns both JSON result and multimodal content parts. It implements \[tools.MultimodalExecutor\].
 
 <a name="Executor.Name"></a>
-### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L193>)
+### func \(\*Executor\) [Name](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L190>)
 
 ```go
 func (e *Executor) Name() string
@@ -810,7 +810,7 @@ func (e *Executor) Name() string
 Name returns "a2a" to match the Mode on A2A tool descriptors.
 
 <a name="ExecutorOption"></a>
-## type [ExecutorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L111>)
+## type [ExecutorOption](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L108>)
 
 ExecutorOption configures an [Executor](<#Executor>).
 
@@ -819,7 +819,7 @@ type ExecutorOption func(*Executor)
 ```
 
 <a name="WithClientTTL"></a>
-### func [WithClientTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L125>)
+### func [WithClientTTL](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L122>)
 
 ```go
 func WithClientTTL(d time.Duration) ExecutorOption
@@ -828,7 +828,7 @@ func WithClientTTL(d time.Duration) ExecutorOption
 WithClientTTL sets the time\-to\-live for cached A2A clients. Clients not used within this duration are evicted from the cache.
 
 <a name="WithMaxClients"></a>
-### func [WithMaxClients](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L131>)
+### func [WithMaxClients](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L128>)
 
 ```go
 func WithMaxClients(n int) ExecutorOption
@@ -837,7 +837,7 @@ func WithMaxClients(n int) ExecutorOption
 WithMaxClients sets the maximum number of cached A2A clients. When exceeded, the least recently used client is evicted.
 
 <a name="WithNoRetry"></a>
-### func [WithNoRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L119>)
+### func [WithNoRetry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L116>)
 
 ```go
 func WithNoRetry() ExecutorOption
@@ -846,7 +846,7 @@ func WithNoRetry() ExecutorOption
 WithNoRetry disables retry for the A2A executor.
 
 <a name="WithRetryPolicy"></a>
-### func [WithRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L114>)
+### func [WithRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L111>)
 
 ```go
 func WithRetryPolicy(policy RetryPolicy) ExecutorOption
@@ -881,19 +881,20 @@ type HTTPAuthSecurityScheme struct {
 ```
 
 <a name="HTTPStatusError"></a>
-## type [HTTPStatusError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L74-L77>)
+## type [HTTPStatusError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L77-L81>)
 
-HTTPStatusError is returned when an A2A HTTP request receives a non\-200 status code. Method is the JSON\-RPC method of the failed call.
+HTTPStatusError is returned when an A2A HTTP request receives a non\-200 status code. Method is the JSON\-RPC method of the failed call. RetryAfter is how long the agent asked the caller to wait before trying again \(its Retry\-After header\), or zero when it did not say.
 
 ```go
 type HTTPStatusError struct {
     StatusCode int
     Method     string
+    RetryAfter time.Duration
 }
 ```
 
 <a name="HTTPStatusError.Error"></a>
-### func \(\*HTTPStatusError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L79>)
+### func \(\*HTTPStatusError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L83>)
 
 ```go
 func (e *HTTPStatusError) Error() string
@@ -1220,7 +1221,7 @@ func (v ProtocolVersion) WireTask(task *Task) any
 WireTask returns task in version v's shape \(the result of GetTask and CancelTask\).
 
 <a name="RPCError"></a>
-## type [RPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L55-L61>)
+## type [RPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L56-L62>)
 
 RPCError represents a JSON\-RPC error returned by an A2A agent.
 
@@ -1235,7 +1236,7 @@ type RPCError struct {
 ```
 
 <a name="RPCError.Error"></a>
-### func \(\*RPCError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L63>)
+### func \(\*RPCError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L64>)
 
 ```go
 func (e *RPCError) Error() string
@@ -1244,7 +1245,7 @@ func (e *RPCError) Error() string
 
 
 <a name="RetryPolicy"></a>
-## type [RetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L89-L99>)
+## type [RetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L86-L96>)
 
 RetryPolicy configures retry behavior for the A2A executor. The executor retries only the SendMessage call, on HTTP 429, 502, 503 and 504 and on transient network errors, and waits an exponentially growing delay between attempts, capped at MaxDelay, with random jitter that shortens each delay by up to 50%. No delay exceeds MaxDelay, and delays at the cap still vary.
 
@@ -1263,7 +1264,7 @@ type RetryPolicy struct {
 ```
 
 <a name="DefaultRetryPolicy"></a>
-### func [DefaultRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L102>)
+### func [DefaultRetryPolicy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/executor.go#L99>)
 
 ```go
 func DefaultRetryPolicy() RetryPolicy
@@ -1434,7 +1435,7 @@ type SendMessageResponse struct {
 ```
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L86-L95>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/client.go#L90-L99>)
 
 StreamEvent represents a single event received during message streaming. Exactly one field is set. A conforming agent opens a task stream with the Task itself, or answers with a single Message.
 

@@ -250,7 +250,10 @@ type A2AAuthConfig struct {
 	TokenEnv string `json:"token_env,omitempty" yaml:"token_env,omitempty"` // Env var containing the token
 }
 
-// A2ARetryConfig defines per-agent retry policy overrides.
+// A2ARetryConfig defines per-agent retry policy overrides. When set on an
+// A2AConfig, it replaces the A2A executor's own retry policy for that agent:
+// MaxRetries is the number of retries after the first attempt (zero: none),
+// and a zero InitialDelayMs or MaxDelayMs means the executor's default delay.
 type A2ARetryConfig struct {
 	MaxRetries     int `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
 	InitialDelayMs int `json:"initial_delay_ms,omitempty" yaml:"initial_delay_ms,omitempty"`

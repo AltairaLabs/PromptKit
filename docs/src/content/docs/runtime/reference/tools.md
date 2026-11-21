@@ -319,7 +319,7 @@ func ClassifyError(err error) types.ToolErrorType
 ClassifyError is the class of a tool call's error: a validation error when err wraps a \*ValidationError, an execution error otherwise.
 
 <a name="ConsentDeclinedMessage"></a>
-## func [ConsentDeclinedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L348>)
+## func [ConsentDeclinedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L351>)
 
 ```go
 func ConsentDeclinedMessage(toolName, strategy string) string
@@ -523,9 +523,9 @@ type A2AConfig struct {
 ```
 
 <a name="A2ARetryConfig"></a>
-## type [A2ARetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L254-L258>)
+## type [A2ARetryConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L257-L261>)
 
-A2ARetryConfig defines per\-agent retry policy overrides.
+A2ARetryConfig defines per\-agent retry policy overrides. When set on an A2AConfig, it replaces the A2A executor's own retry policy for that agent: MaxRetries is the number of retries after the first attempt \(zero: none\), and a zero InitialDelayMs or MaxDelayMs means the executor's default delay.
 
 ```go
 type A2ARetryConfig struct {
@@ -536,7 +536,7 @@ type A2ARetryConfig struct {
 ```
 
 <a name="A2ASkillFilter"></a>
-## type [A2ASkillFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L261-L264>)
+## type [A2ASkillFilter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L264-L267>)
 
 A2ASkillFilter controls which skills from an A2A agent are exposed to the LLM.
 
@@ -548,7 +548,7 @@ type A2ASkillFilter struct {
 ```
 
 <a name="A2ASkillFilter.IncludesSkill"></a>
-### func \(\*A2ASkillFilter\) [IncludesSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L267>)
+### func \(\*A2ASkillFilter\) [IncludesSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L270>)
 
 ```go
 func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
@@ -557,7 +557,7 @@ func (f *A2ASkillFilter) IncludesSkill(skillID string) bool
 IncludesSkill returns true if the given skill ID passes the filter.
 
 <a name="ApprovalChecker"></a>
-## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L411>)
+## type [ApprovalChecker](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L414>)
 
 ApprovalChecker decides whether a tool call must be held for external approval \(human\-in\-the\-loop\) before execution. It returns a non\-nil PendingToolInfo to hold the call pending, or nil to let it execute normally. It is consulted per tool call before execution; a nil checker is a no\-op. The context is the tool\-execution context, so a checker that persists the held call \(e.g. to a durable store\) honors cancellation and deadlines.
 
@@ -566,7 +566,7 @@ type ApprovalChecker func(ctx context.Context, callID, name string, args map[str
 ```
 
 <a name="ApprovalGate"></a>
-## type [ApprovalGate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L419>)
+## type [ApprovalGate](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L422>)
 
 ApprovalGate is an ApprovalChecker that can also refuse a call. It returns a non\-nil PendingToolInfo to hold the call pending, nil to let it execute, or an error to refuse it: a refused call does not execute, and the model is given the error as the call's result. A gate that cannot record a hold \(its store is unavailable, for example\) returns an error rather than nil, so the call fails closed instead of running unapproved.
 
@@ -575,7 +575,7 @@ type ApprovalGate func(ctx context.Context, callID, name string, args map[string
 ```
 
 <a name="AsyncCallExecutor"></a>
-## type [AsyncCallExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L491-L496>)
+## type [AsyncCallExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L494-L499>)
 
 AsyncCallExecutor is the call\-taking form of AsyncToolExecutor: it receives the whole call, caller included, and may return ToolStatusPending. On the registry's async paths it is preferred over AsyncToolExecutor. An executor that implements AsyncToolExecutor and CallExecutor but not this interface is given ExecuteAsync on the async paths \(so it can still suspend a call, but without the caller\) and ExecuteCall on the synchronous ones.
 
@@ -589,7 +589,7 @@ type AsyncCallExecutor interface {
 ```
 
 <a name="AsyncToolExecutor"></a>
-## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L500-L505>)
+## type [AsyncToolExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L503-L508>)
 
 AsyncToolExecutor is a tool that can return pending status instead of blocking. Tools that require human approval or external async operations should implement this.
 
@@ -603,7 +603,7 @@ type AsyncToolExecutor interface {
 ```
 
 <a name="CallExecutor"></a>
-## type [CallExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L476-L483>)
+## type [CallExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L479-L486>)
 
 CallExecutor extends Executor with an entry point that receives the whole call: its name, the provider's call ID, the arguments and the caller the conversation acts for. The registry prefers it over ExecuteMultimodal and Execute. call.Args are the arguments after the registry coerced them toward the input schema and validated them.
 
@@ -619,7 +619,7 @@ type CallExecutor interface {
 ```
 
 <a name="ClientConfig"></a>
-## type [ClientConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L303-L312>)
+## type [ClientConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L306-L315>)
 
 ClientConfig defines configuration for client\-side tool execution. Tools with mode "client" are fulfilled by the SDK caller's device \(e.g., GPS, camera, contacts, biometrics\).
 
@@ -650,7 +650,7 @@ type Coercion struct {
 ```
 
 <a name="ConsentConfig"></a>
-## type [ConsentConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L318-L334>)
+## type [ConsentConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L321-L337>)
 
 ConsentConfig defines consent requirements for client\-side tools. These are declarative tool settings: asking for consent and acting on the answer is the host's job. Message is surfaced to the host \(the SDK's ClientToolRequest.ConsentMsg and pending client tool\).
 
@@ -780,7 +780,7 @@ func (e *ErrToolsPending) Error() string
 
 
 <a name="ExecConfig"></a>
-## type [ExecConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L290-L298>)
+## type [ExecConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L293-L301>)
 
 ExecConfig defines configuration for exec subprocess tool execution. The runtime spawns the command per invocation, passing tool arguments as JSON on stdin and reading the result from stdout.
 
@@ -841,7 +841,7 @@ func (e *ExecExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="Executor"></a>
-## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L455-L458>)
+## type [Executor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L458-L461>)
 
 Executor interface defines how tools are executed
 
@@ -1295,7 +1295,7 @@ type MultimodalConfig struct {
 ```
 
 <a name="MultimodalExecutor"></a>
-## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L462-L469>)
+## type [MultimodalExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L465-L472>)
 
 MultimodalExecutor extends Executor with support for returning multimodal content parts. Executors that can return images, audio, or other non\-text content should implement this.
 
@@ -1329,7 +1329,7 @@ type PendingToolExecution struct {
 ```
 
 <a name="PendingToolInfo"></a>
-## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L422-L439>)
+## type [PendingToolInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L425-L442>)
 
 PendingToolInfo describes a tool call awaiting external input or approval.
 
@@ -1957,7 +1957,7 @@ func (e *ServerExecutor) Name() string
 Name returns the executor name used for mode\-based routing.
 
 <a name="ToolCall"></a>
-## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L360-L370>)
+## type [ToolCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L363-L373>)
 
 ToolCall represents a tool invocation request
 
@@ -2080,7 +2080,7 @@ type ToolErrorData struct {
 ```
 
 <a name="ToolExecutionResult"></a>
-## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L395-L403>)
+## type [ToolExecutionResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L398-L406>)
 
 ToolExecutionResult includes status and optional pending information
 
@@ -2097,7 +2097,7 @@ type ToolExecutionResult struct {
 ```
 
 <a name="ToolExecutionStatus"></a>
-## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L383>)
+## type [ToolExecutionStatus](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L386>)
 
 ToolExecutionStatus represents whether a tool completed or needs external input
 
@@ -2157,7 +2157,7 @@ type ToolResponseRepository interface {
 ```
 
 <a name="ToolResult"></a>
-## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L373-L380>)
+## type [ToolResult](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L376-L383>)
 
 ToolResult represents the result of a tool execution
 
@@ -2182,7 +2182,7 @@ func (r ToolResult) MarshalJSON() ([]byte, error)
 MarshalJSON normalizes the tool result payload \(empty \-\> \{\}\).
 
 <a name="ValidationError"></a>
-## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L442-L447>)
+## type [ValidationError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L445-L450>)
 
 ValidationError represents a tool validation failure
 
@@ -2196,7 +2196,7 @@ type ValidationError struct {
 ```
 
 <a name="ValidationError.Error"></a>
-### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L450>)
+### func \(\*ValidationError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tools/types.go#L453>)
 
 ```go
 func (e *ValidationError) Error() string
