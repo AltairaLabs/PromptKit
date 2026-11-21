@@ -39,6 +39,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [func DescribeCapabilities\(stage Stage\) string](<#DescribeCapabilities>)
 - [func ExcludeFromModelContext\(msgs \[\]types.Message\) \[\]types.Message](<#ExcludeFromModelContext>)
 - [func IsTranscriptMessage\(elem \*StreamElement\) bool](<#IsTranscriptMessage>)
+- [func ModelContextMask\(msgs \[\]types.Message\) \[\]bool](<#ModelContextMask>)
 - [func NewCompositionStepExecutor\(deps CompositionExecutorDeps\) engine.StepExecutor](<#NewCompositionStepExecutor>)
 - [func NewFileSchemaResolver\(configDir string\) func\(path string\) \(json.RawMessage, error\)](<#NewFileSchemaResolver>)
 - [func NormalizeEmbedding\(embedding \[\]float32\) \[\]float32](<#NormalizeEmbedding>)
@@ -827,6 +828,15 @@ func IsTranscriptMessage(elem *StreamElement) bool
 ```
 
 IsTranscriptMessage reports whether the save stage stores elem's Message in the transcript: a message this pipeline produced \(not history loaded from the store, a summary or a retrieved message\) that is not held for playout. A held Message is stored from its PlayoutRelease element instead. A stage after the save stage counts these to know how far the transcript reaches.
+
+<a name="ModelContextMask"></a>
+## func [ModelContextMask](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/blocked_input_history.go#L177>)
+
+```go
+func ModelContextMask(msgs []types.Message) []bool
+```
+
+ModelContextMask reports, for each message of msgs, whether ExcludeFromModelContext leaves it out: an interrupted reply, or a message of a blocked input turn. It returns nil when it leaves none out. A host that rebuilds a history from another copy of it uses the mask to keep what the transcript holds out of model context out of it still.
 
 <a name="NewCompositionStepExecutor"></a>
 ## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L143>)

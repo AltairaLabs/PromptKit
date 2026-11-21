@@ -322,7 +322,7 @@ The AG-UI adapter now sends state changes as `STATE_DELTA`, the run's token usag
 
 Every message a conversation stores now carries a stable id, under the new `types.MetaMessageID` Meta key, read with the new `Message.ID()` and assigned by the new `types.EnsureMessageID`. The id is kept by every shipped state store and reads back the same on every load. `agui.MessageToAGUI` and `MESSAGES_SNAPSHOT` use it, and `agui.MessageFromAGUI` keeps an AG-UI message's id as the message's stable id. Messages stored before the upgrade have no id and are not rewritten: a snapshot keys each by its thread and position, as before, and `MessageToAGUI` mints an id for it on each call.
 
-Three new adapter options read the rest of `RunAgentInput`, each off by default: `agui.WithClientHistory` replaces the conversation's history with the client's through the new `Conversation.ReplaceHistory`, dropping its system, developer and reasoning messages; `agui.WithInputContext` opens the new message with a delimited context block; `agui.WithFrontendTools` offers the client's tools to the model for the run through the new `Conversation.OfferClientTools`, refusing a name that is already a tool's with the new `sdk.ErrToolNameConflict`.
+Three new adapter options read the rest of `RunAgentInput`, each off by default. `agui.WithClientHistory` replaces the conversation's history with the client's, dropping its system, developer and reasoning messages, through the new `sdk.WithHistory` send option (also `Conversation.ReplaceHistory`). The conversation's own copy of each message it holds wins over the client's, so blocked input turns and interrupted replies stay out of model context and stored metadata survives the echo. `agui.WithInputContext` opens the new message with a delimited context block. `agui.WithFrontendTools` offers the client's tools to the model for the turn through the new `sdk.WithClientTools` send option, refusing a name that is already a tool's with the new `sdk.ErrToolNameConflict`; the tools are registered with the new `tools.Registry.RegisterLocal`, on the conversation's own registry only. `sdk.WithMaxHistorySize` caps a replaced history, and the new `stage.ModelContextMask` reports which messages `stage.ExcludeFromModelContext` leaves out.
 
 | If you | You will see | Change |
 |---|---|---|
@@ -332,7 +332,8 @@ Three new adapter options read the rest of `RunAgentInput`, each off by default:
 | Convert AG-UI messages with `MessageFromAGUI` | the message's `id` under `Meta["_message_id"]` | nothing |
 | Want the model to see the client's history, as AG-UI's whole-history `messages` intend | the conversation's own history, as before | pass `agui.WithClientHistory(input.Messages[:len(input.Messages)-1])` to `RunSend`, only for a client entitled to edit its conversation |
 | Want the model to see `RunAgentInput.context` | nothing from it, as before | pass `agui.WithInputContext(input.Context)` |
-| Declare frontend tools in the pack only so the model is offered them | the same, as before | pass `agui.WithFrontendTools(input.Tools)` on every run instead; a name the pack also declares fails the run, so leave pack tools out |
+| Declare frontend tools in the pack only so the model is offered them | the same, as before | pass `agui.WithFrontendTools(input.Tools)` on every `RunSend` instead; a name the pack also declares fails the run, so leave pack tools out |
+| Send a `*types.Message` that carries tool calls or a tool result, with `WithMaxMessageSize` set | the size limit counts the tool calls' arguments and the tool result's parts too | raise the limit if such a message is now refused |
 
 ### Caller identity
 

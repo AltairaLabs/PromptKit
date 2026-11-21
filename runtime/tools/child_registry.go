@@ -1,5 +1,7 @@
 package tools
 
+import "errors"
+
 // Child returns a registry that shares this one's tool DESCRIPTORS but owns its
 // own EXECUTORS.
 //
@@ -41,6 +43,9 @@ func (r *Registry) Child(opts ...RegistryOption) *Registry {
 // chain. A child normally holds no descriptors of its own -- Register writes
 // through -- so this is the parent's map in practice; the local check remains so
 // a registry built standalone still works.
+//
+// A descriptor registered with RegisterLocal resolves last, so a tool the
+// registry or its parent chain holds under the same name always wins over it.
 func (r *Registry) lookupTool(name string) (*ToolDescriptor, bool) {
 	for reg := r; reg != nil; reg = reg.parent {
 		reg.mu.RLock()
@@ -50,7 +55,56 @@ func (r *Registry) lookupTool(name string) (*ToolDescriptor, bool) {
 			return tool, true
 		}
 	}
+	if tool := r.Local(name); tool != nil {
+		return tool, true
+	}
 	return nil, false
+}
+
+// RegisterLocal registers a descriptor on this registry alone: unlike
+// Register, never on the parent of a registry made with Child, so it is
+// invisible to the parent and to the parent's other children. Get, GetTool
+// and tool execution resolve it, after every descriptor the registry and its
+// parent chain hold, so one registered there under the same name, even
+// later, wins over it. List, GetTools, IterateTools and GetByNamespace do not
+// include it. It replaces a local descriptor of the same name, and sets its
+// Namespace from its name.
+//
+// It is for a descriptor that belongs to one conversation's run, such as a
+// tool an application offers the model at runtime.
+func (r *Registry) RegisterLocal(descriptor *ToolDescriptor) error {
+	if descriptor == nil {
+		return errors.New("tool registry: cannot register a nil descriptor")
+	}
+	if descriptor.Name == "" {
+		return errors.New("tool registry: cannot register a descriptor with an empty name")
+	}
+	_ = r.validator.ValidateArgs(descriptor, []byte("{}"))
+	descriptor.Namespace, _ = ParseToolName(descriptor.Name)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.local == nil {
+		r.local = make(map[string]*ToolDescriptor)
+	}
+	r.local[descriptor.Name] = descriptor
+	return nil
+}
+
+// UnregisterLocal removes a descriptor RegisterLocal registered, and reports
+// whether there was one.
+func (r *Registry) UnregisterLocal(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.local[name]
+	delete(r.local, name)
+	return ok
+}
+
+// Local returns the descriptor RegisterLocal registered under name, or nil.
+func (r *Registry) Local(name string) *ToolDescriptor {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.local[name]
 }
 
 // lookupExecutor resolves an executor by name in this registry, falling back to

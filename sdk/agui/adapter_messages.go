@@ -121,10 +121,18 @@ func sameCalls(a, b []types.MessageToolCall) bool {
 // id, or, for a message stored before ids were assigned (or one whose id an
 // earlier message of the snapshot already took), the thread id and its
 // position, as "<thread>-<i>".
+//
+// A positional id another message of the snapshot already took (a client may
+// name its own message "<thread>-<i>") gets a suffix, "<thread>-<i>-2" and
+// on, so no two messages of a snapshot share an id.
 func snapshotID(stable, threadID string, i int, used map[string]bool) string {
 	id := stable
 	if id == "" || used[id] {
-		id = threadID + "-" + strconv.Itoa(i)
+		base := threadID + "-" + strconv.Itoa(i)
+		id = base
+		for n := 2; used[id]; n++ {
+			id = base + "-" + strconv.Itoa(n)
+		}
 	}
 	used[id] = true
 	return id
