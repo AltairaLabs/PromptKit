@@ -895,6 +895,9 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 		duplexStage.SetPromptDeclarations(cfg.PromptDeclarations)
 		duplexStage.SetCaller(cfg.Caller)
 		duplexStage.SetBlockedMessage(cfg.BlockedMessage)
+		// A held reply is silence: each partial-reply judgment has a shorter
+		// bound than on the text path.
+		duplexStage.SetStreamHold(realtimeStreamHold(cfg.StreamHold))
 		// The session's tool calls run through the same tool runner, under the
 		// same policy, approval gate, rate window and caller, as a text turn's.
 		duplexStage.SetToolExecution(cfg.ToolRegistry, cfg.ToolPolicy, stage.DuplexToolConfig{

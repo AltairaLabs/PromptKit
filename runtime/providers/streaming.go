@@ -101,6 +101,15 @@ type StreamChunk struct {
 	// When true, clients should clear any buffered audio and prepare for a new response
 	Interrupted bool `json:"interrupted,omitempty"`
 
+	// GenerationComplete marks a chunk that ends a reply's content: no more of
+	// its text or audio follows, though its turn may complete (FinishReason)
+	// later. It carries nothing else. A session that completes a reply's turn
+	// as soon as it is generated (OpenAI Realtime's response.done) does not
+	// send it; one whose turn completes only when the reply would have
+	// finished playing (Gemini Live) does, so a pipeline holding the reply
+	// back need not wait for that.
+	GenerationComplete bool `json:"generation_complete,omitempty"`
+
 	// purgeAudio marks the in-band barge-in marker (see BargeMarker). The
 	// StreamPump consumes it; it never reaches Response().
 	purgeAudio bool

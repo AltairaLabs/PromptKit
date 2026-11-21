@@ -1418,9 +1418,27 @@ func WithoutContentValidation() Option {
 }
 
 // StreamHoldConfig sizes the segments an output guardrail with
-// stream_hold: segment judges a streamed reply in, and bounds its judging
-// (WithStreamHold). Zero fields keep their defaults.
+// stream_hold: segment judges a streamed reply in, bounds its judging, and
+// chooses how a realtime session holds a spoken reply (WithStreamHold). Zero
+// fields keep their defaults.
 type StreamHoldConfig = stage.StreamHoldConfig
+
+// RealtimeHold is how a realtime (OpenDuplex) session holds a spoken reply
+// for the output guardrails whose stream_hold holds it
+// (StreamHoldConfig.Realtime).
+type RealtimeHold = stage.RealtimeHold
+
+// The ways a realtime session holds a spoken reply (StreamHoldConfig.Realtime).
+const (
+	// RealtimeHoldOff plays the reply as it arrives. The default.
+	RealtimeHoldOff = stage.RealtimeHoldOff
+	// RealtimeHoldTurn holds the reply's audio and transcript until the
+	// completed reply passes the guardrails, then releases it at once.
+	RealtimeHoldTurn = stage.RealtimeHoldTurn
+	// RealtimeHoldSegment releases the reply's audio a segment at a time, as
+	// the guardrails pass the transcript that covers it.
+	RealtimeHoldSegment = stage.RealtimeHoldSegment
+)
 
 // WithStreamHold sets how output guardrails with stream_hold: segment judge a
 // streamed reply, for every such guardrail in the conversation: they judge the
@@ -1436,17 +1454,42 @@ type StreamHoldConfig = stage.StreamHoldConfig
 //     round (default 8). Past it, the rest of the round is held and judged
 //     once with the completed reply.
 //
-//   - SegmentTimeout bounds each partial-reply judge call (default 10s),
+//   - SegmentTimeout bounds each partial-reply judge call (default 10s; 3s
+//     in a realtime session and 2s in a VAD session, whose caller hears
+//     nothing while a segment waits),
 //     unless the guardrail sets stream_hold_timeout. A call that runs past it
 //     fails closed: the caller gets the guardrail's message.
+//
+//   - Realtime turns holding on for a realtime session (OpenDuplex), which
+//     otherwise plays a reply as it arrives. RealtimeHoldTurn holds the
+//     reply's audio and transcript until the completed reply passes, then
+//     releases it at once: first audio waits for the whole reply and the
+//     judge. RealtimeHoldSegment releases the audio a segment at a time, as
+//     the guardrails pass the transcript that covers it; a guardrail with
+//     stream_hold: turn still holds the whole reply. A reply that fails is
+//     never heard past what was released: the caller hears the guardrail's
+//     message instead. Only guardrails whose stream_hold is segment or turn
+//     hold anything.
+//
+//   - Holdback is how much of the most recently received audio a segment
+//     release keeps back, for a session whose transcript can trail its audio
+//     (Gemini Live, about 1.5s). Zero takes the session's own figure.
 //
 //     conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //     sdk.WithStreamHold(sdk.StreamHoldConfig{MinChars: 120, MaxSegmentJudges: 4}),
 //     )
+//
+//     voice, _ := sdk.OpenDuplex("./voice.pack.json", "assistant",
+//     sdk.WithStreamHold(sdk.StreamHoldConfig{Realtime: sdk.RealtimeHoldTurn}),
+//     )
 func WithStreamHold(cfg StreamHoldConfig) Option {
 	return func(c *config) error {
-		if cfg.MinChars < 0 || cfg.MaxSegmentJudges < 0 || cfg.SegmentTimeout < 0 {
+		if cfg.MinChars < 0 || cfg.MaxSegmentJudges < 0 || cfg.SegmentTimeout < 0 || cfg.Holdback < 0 {
 			return fmt.Errorf("WithStreamHold: limits must be non-negative, got %+v", cfg)
+		}
+		if !cfg.Realtime.Valid() {
+			return fmt.Errorf("WithStreamHold: Realtime %q is not one of %q, %q or %q",
+				cfg.Realtime, RealtimeHoldOff, RealtimeHoldTurn, RealtimeHoldSegment)
 		}
 		c.streamHold = cfg
 		return nil

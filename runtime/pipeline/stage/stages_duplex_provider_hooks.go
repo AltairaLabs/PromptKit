@@ -116,6 +116,16 @@ type duplexTurnGuard struct {
 	// spoken is set once a block has shown and spoken a guardrail's message
 	// for the turn: a turn gets one, however many guardrails fire on it.
 	spoken bool
+	// passed is the reply text the completed-reply check passed before the
+	// turn completed (onGenerationComplete): a turn ending with that text and
+	// no tool calls is not judged again.
+	passed *string
+}
+
+// passedAsIs reports whether msg is the reply the completed-reply check
+// already passed.
+func (g *duplexTurnGuard) passedAsIs(msg *types.Message) bool {
+	return g.passed != nil && *g.passed == msg.Content && len(msg.ToolCalls) == 0
 }
 
 // duplexHistory is the conversation the session has seen, which the hooks'
@@ -615,6 +625,8 @@ func (s *DuplexProviderStage) guardOutputChunk(
 // blockTurn marks the current reply blocked, so the rest of its text and audio
 // is dropped, and has it cut (cutReply) unless it already was.
 func (s *DuplexProviderStage) blockTurn() {
+	// What a hold still holds of the reply is never heard.
+	s.dropReplyHold(false)
 	if !s.turnGuard.blocked {
 		s.cutReplyOf(s.replyGeneration())
 	}
@@ -665,16 +677,20 @@ func (s *DuplexProviderStage) blockTurnWith(
 	s.blockTurnWithMessage(s.blockedTurnMessage(ctx, req, d, direction))
 }
 
-// blockTurnWithMessage is blockTurnWith with the blocked turn's message.
+// blockTurnWithMessage is blockTurnWith with the blocked turn's message. In
+// a reply the caller already heard the start of under a hold
+// (stages_duplex_reply_hold.go), the turn's text is what was heard followed
+// by the message, which then follows the shown text rather than replacing it.
 func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
-	s.turnGuard.blockedText = &blocked.Content
+	content, live, replaces := heardAndMessage(s.heardReply(), blocked.Content)
+	s.turnGuard.blockedText = &content
 	// Merged, not replaced: a mark an earlier block on this turn set (a
 	// blocked input's) must survive this one.
 	s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
 	s.turnGuard.replaced = true
 	s.turnGuard.spoken = true
 	s.blockTurn()
-	s.showBlockedText(blocked.Content, true, true)
+	s.showBlockedText(live, true, replaces)
 }
 
 // blockedTurnMessage is blockedTurnMessage with its text chosen by the
@@ -891,7 +907,8 @@ func (s *DuplexProviderStage) turnText() string {
 // turn's text (accumulatedText) keeps all of it; only the live text waits. The
 // audio of it cannot wait: it has already been generated and plays as it is.
 func (s *DuplexProviderStage) holdLiveText(chunk *providers.StreamChunk, isOutputTranscription bool) {
-	if !s.hookRegistry.HasChunkInterceptors() {
+	// A held reply's text is held whole (stages_duplex_reply_hold.go).
+	if !s.hookRegistry.HasChunkInterceptors() || s.replyHold != nil {
 		return
 	}
 	if chunk.Interrupted {
@@ -966,12 +983,18 @@ func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *Stre
 		markBlockedTurn(msg, elem, &guard)
 	}
 	s.endedTurnCut = guard.blocked
-	if !guard.replaced && s.runTurnAfterCallHooks(ctx, msg, elem) {
+	if !guard.replaced && !guard.passedAsIs(msg) && s.runTurnAfterCallHooks(ctx, msg, elem) {
 		if !guard.blocked {
 			s.cutReplyOf(s.replyGeneration())
 		}
 		s.endedTurnCut = true
-		s.showBlockedText(msg.Content, true, true)
+		message := msg.Content
+		content, live, replaces := heardAndMessage(s.heardReply(), message)
+		if content != message {
+			msg.Content = content
+			msg.Parts = replaceTextParts(msg.Parts, content)
+		}
+		s.showBlockedText(live, true, replaces)
 	}
 	s.history.add(msg)
 	s.completeAssistantTurn()
@@ -1059,4 +1082,11 @@ func replaceTextParts(parts []types.ContentPart, content string) []types.Content
 		out = append([]types.ContentPart{{Type: types.ContentTypeText, Text: &text}}, out...)
 	}
 	return out
+}
+
+// SetStreamHold sets how the stage holds a spoken reply for the output
+// guardrails whose stream_hold holds it (StreamHoldConfig.Realtime), and how
+// segments are sized and judged. Must be called before the stage runs.
+func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig) {
+	s.streamHold = cfg
 }

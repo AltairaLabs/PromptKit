@@ -92,9 +92,13 @@ type RealtimeSession struct {
 	// conversation.item.truncate events awaiting the server's answer, so a
 	// rejected one is logged instead of failing the turn
 	// (realtime_playout.go). Guarded by recvMu.
-	playout   *audio.Playout
-	now       func() time.Time
-	truncates truncateTracker
+	playout *audio.Playout
+	now     func() time.Time
+	// playoutHeld is set once the pipeline holds reply audio back
+	// (HoldPlayout): audio then counts toward playout as it is released
+	// (AudioReleased), not as it arrives. Guarded by recvMu.
+	playoutHeld bool
+	truncates   truncateTracker
 	// cancels tracks the response.cancel events InterruptResponse sent, so
 	// one the server rejects (the response had ended) is not a session error.
 	cancels truncateTracker
@@ -965,7 +969,7 @@ func (s *RealtimeSession) handleAudioDelta(e *ResponseAudioDeltaEvent) {
 		logger.Warn("failed to decode base64 audio from OpenAI Realtime", "error", err)
 		return
 	}
-	s.playoutEstimate().Add(e.ItemID, e.ContentIndex, audio.PCM16Duration(len(rawBytes), s.outputSampleRate(), 1))
+	s.countDeliveredAudio(e.ItemID, e.ContentIndex, audio.PCM16Duration(len(rawBytes), s.outputSampleRate(), 1))
 
 	s.emit(providers.StreamChunk{
 		MediaData: &providers.StreamMediaData{

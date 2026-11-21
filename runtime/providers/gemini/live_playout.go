@@ -55,7 +55,7 @@ func (s *StreamSession) replyStarted() {
 	}
 	s.turnOpen = true
 	s.gen++ // a new generation: the reply
-	s.playoutEstimate().NewResponse()
+	s.withPlayout(func(p *audio.Playout) { p.NewResponse() })
 	s.lateInput = !s.inputClosed && !s.inputLastAt.IsZero() && s.clock().Sub(s.inputLastAt) < inputLateWindow
 }
 
@@ -88,11 +88,16 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 		return nil
 	}
 	s.lateInput = false
-	if !s.playoutEstimate().Playing() {
+	playing := false
+	s.withPlayout(func(p *audio.Playout) {
+		if playing = p.Playing(); playing {
+			p.Stop()
+		}
+	})
+	if !playing {
 		return nil
 	}
 	logger.Debug("StreamSession: barge-in while the finished reply is still playing")
-	s.playoutEstimate().Stop()
 	s.Barge()
 	marker := providers.BargeMarker()
 	err := s.sendChunk(&marker)
@@ -102,3 +107,54 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	}
 	return s.sendChunk(&providers.StreamChunk{Interrupted: true})
 }
+
+// withPlayout runs fn on the playout estimate under playoutMu.
+func (s *StreamSession) withPlayout(fn func(*audio.Playout)) {
+	s.playoutMu.Lock()
+	defer s.playoutMu.Unlock()
+	fn(s.playoutEstimate())
+}
+
+// countDeliveredAudio counts d of reply audio toward the playout estimate as
+// it is delivered, unless the pipeline holds reply audio back (HoldPlayout).
+func (s *StreamSession) countDeliveredAudio(d time.Duration) {
+	s.withPlayout(func(p *audio.Playout) {
+		if !s.playoutHeld {
+			p.Add("", 0, d)
+		}
+	})
+}
+
+var (
+	_ providers.PlayoutHolder    = (*StreamSession)(nil)
+	_ providers.TranscriptLagger = (*StreamSession)(nil)
+)
+
+// HoldPlayout implements providers.PlayoutHolder: from now on a reply's audio
+// counts toward the playout estimate only as the pipeline releases it to the
+// caller (AudioReleased), not as it arrives.
+func (s *StreamSession) HoldPlayout() {
+	s.playoutMu.Lock()
+	defer s.playoutMu.Unlock()
+	s.playoutHeld = true
+}
+
+// AudioReleased implements providers.PlayoutHolder: chunk's audio reached the
+// caller now, so it plays from now on.
+func (s *StreamSession) AudioReleased(chunk *providers.StreamChunk) {
+	if chunk == nil || chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
+		return
+	}
+	m := chunk.MediaData
+	d := audio.PCM16Duration(len(m.Data), m.SampleRate, m.Channels)
+	s.withPlayout(func(p *audio.Playout) { p.Add("", 0, d) })
+}
+
+// outputTranscriptLag is the most reply audio Gemini Live's output transcript
+// was measured to trail (1.34 s over 96 sentences), rounded up.
+const outputTranscriptLag = 1500 * time.Millisecond
+
+// OutputTranscriptLag implements providers.TranscriptLagger: Gemini Live's
+// output transcript usually leads its audio, but has been seen to trail it by
+// up to outputTranscriptLag.
+func (s *StreamSession) OutputTranscriptLag() time.Duration { return outputTranscriptLag }

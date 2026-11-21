@@ -35,9 +35,49 @@ type StreamHoldConfig struct {
 	// Default 10s.
 	SegmentTimeout time.Duration
 
+	// Realtime is how a realtime (duplex) session holds a spoken reply for
+	// the output guardrails whose stream_hold holds it (segment or turn):
+	// RealtimeHoldOff (the default), RealtimeHoldTurn or RealtimeHoldSegment.
+	// A realtime model speaks as it writes, so holding the text alone keeps
+	// nothing from the caller's ears: the reply's audio is held with it.
+	Realtime RealtimeHold
+	// Holdback is how much of the reply audio received most recently a
+	// RealtimeHoldSegment release keeps back, for a session whose transcript
+	// can trail its audio: the audio of words not yet judged. Zero takes the
+	// session's own measure (providers.TranscriptLagger), and none for a
+	// session whose transcript never trails.
+	Holdback time.Duration
+
 	// firstMinChars and maxChars override the sizes MinChars derives, for
 	// tests.
 	firstMinChars, maxChars int
+}
+
+// RealtimeHold is how a realtime session holds a spoken reply for the output
+// guardrails that hold it (StreamHoldConfig.Realtime).
+type RealtimeHold string
+
+const (
+	// RealtimeHoldOff holds nothing: the reply plays as it arrives, and the
+	// guardrails judge its text as it streams and once it completes, as they
+	// do without a hold. The default.
+	RealtimeHoldOff RealtimeHold = "off"
+	// RealtimeHoldTurn holds the whole reply, audio and transcript, until the
+	// completed reply passes, then releases it at once.
+	RealtimeHoldTurn RealtimeHold = "turn"
+	// RealtimeHoldSegment holds the reply's audio and transcript a segment at
+	// a time: a segment's audio is released once the guardrails passed the
+	// transcript that covers it. A turn guardrail still holds the whole reply.
+	RealtimeHoldSegment RealtimeHold = "segment"
+)
+
+// Valid reports whether h is a RealtimeHold ("" is RealtimeHoldOff).
+func (h RealtimeHold) Valid() bool {
+	switch h {
+	case "", RealtimeHoldOff, RealtimeHoldTurn, RealtimeHoldSegment:
+		return true
+	}
+	return false
 }
 
 // segmentConfig is the segment sizing c sets, defaults applied.
@@ -84,10 +124,9 @@ func (c StreamHoldConfig) withDefaults() StreamHoldConfig {
 // segment guardrails' partial-reply judgments run here, one at a time per
 // guardrail, while the model writes on.
 type streamHold struct {
-	stage *ProviderStage
-	req   *hooks.ProviderRequest
-	cfg   StreamHoldConfig
-	rr    roundRef
+	req *hooks.ProviderRequest
+	cfg StreamHoldConfig
+	rr  roundRef
 
 	holders []*heldGuardrail
 	// judging is false when a turn guardrail holds the round: nothing can be
@@ -142,11 +181,21 @@ func (s *ProviderStage) newStreamHold(
 	if len(holders) == 0 {
 		return nil
 	}
-	cfg := s.config.StreamHold.withDefaults()
-	h := &streamHold{
-		stage: s, req: req, cfg: cfg, rr: rr, judging: true,
-		seg: newSegmenter(cfg.segmentConfig()),
-	}
+	h := newHeldGuardrails(ctx, holders, req, s.config.StreamHold)
+	h.rr = rr
+	text.holdFor(len(holders))
+	return h
+}
+
+// newHeldGuardrails returns the judging of a reply to req that holders hold
+// (hooks.StreamHolder), under cfg, until ctx ends: judging is false when one
+// holds the whole reply (StreamHoldTurn), since nothing can be released
+// before the completed reply passes.
+func newHeldGuardrails(
+	ctx context.Context, holders []hooks.StreamHolder, req *hooks.ProviderRequest, cfg StreamHoldConfig,
+) *streamHold {
+	cfg = cfg.withDefaults()
+	h := &streamHold{req: req, cfg: cfg, judging: true, seg: newSegmenter(cfg.segmentConfig())}
 	for i, hook := range holders {
 		g := &heldGuardrail{hook: hook, index: i, segment: hook.StreamHold() == hooks.StreamHoldSegment}
 		if !g.segment {
@@ -157,7 +206,6 @@ func (s *ProviderStage) newStreamHold(
 	h.parent = ctx
 	h.ctx, h.cancel = context.WithCancel(ctx)
 	h.results = make(chan partialVerdict, len(holders))
-	text.holdFor(len(holders))
 	return h
 }
 

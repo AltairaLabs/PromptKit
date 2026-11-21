@@ -478,10 +478,22 @@ func TestResolve_Modes(t *testing.T) {
 		{flags{provider: "openai", mode: modeASM, voice: "nova"}, "-stt and -voice apply to -mode vad"},
 		{flags{provider: "openai", mode: modeASM, tts: "elevenlabs"},
 			`unknown TTS service "elevenlabs" (want openai or gemini)`},
+		{flags{provider: "openai", mode: modeASM, hold: "sentence"},
+			`unknown -stream-hold "sentence" (want off, turn or segment)`},
+		{flags{provider: "openai", mode: modeVAD, hold: "turn"}, "-stream-hold applies to -mode asm"},
 	} {
 		_, err := resolve(tc.f)
 		assert.EqualError(t, err, tc.want, "%+v", tc.f)
 	}
+
+	held, err := resolve(flags{provider: "gemini", mode: modeASM, hold: "segment"})
+	require.NoError(t, err)
+	assert.Equal(t, sdk.RealtimeHoldSegment, held.streamHold)
+	assert.Len(t, held.holdOptions(), 2, "the hold and its output judge")
+	assert.True(t, strings.HasSuffix(held.banner(), "; replies held for the output judge: segment"), held.banner())
+	off, err := resolve(flags{provider: "gemini", mode: modeASM, hold: "off"})
+	require.NoError(t, err)
+	assert.Empty(t, off.holdOptions(), "off holds nothing and adds no judge")
 
 	t.Setenv("OPENAI_API_KEY", "")
 	_, err = resolve(flagsFor("gemini", modeVAD))
@@ -600,6 +612,8 @@ func TestShowcaseEventLog_ScriptedVADSession(t *testing.T) {
 	}
 
 	blocked := ask("Tell me about my friend Bruno.")
+	assert.Positive(t, blocked.firstAudio, "the first audio is timed from the request")
+	blocked.firstAudio = 0
 	assert.Equal(t, reply{finish: types.FinishReasonSafety, audio: 100 * time.Millisecond}, blocked)
 	assert.Equal(t, []string{
 		`09:30:00.000  assistant message.created #1 "We don't talk about Bruno."`,

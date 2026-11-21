@@ -195,6 +195,20 @@ A composition opened no prompt of its own, so only the opened prompt's validator
 
 ### Realtime and voice sessions
 
+#### Realtime sessions can hold a spoken reply for its guardrails
+
+`sdk.StreamHoldConfig` has a `Realtime` field. Set to `sdk.RealtimeHoldTurn` or `sdk.RealtimeHoldSegment`, a realtime session holds a reply's audio until the output guardrails that hold it have judged it (see [Realtime sessions](/reference/checks/#realtime-sessions)). It is off by default, so a session you do not change plays as before. Under a hold, each partial-reply judgment is bounded by 3 seconds unless `SegmentTimeout` or the guardrail's `stream_hold_timeout` sets another bound; one that runs past it fails closed.
+
+Two provider-level changes come with it:
+
+- A Gemini Live session now sends a chunk marked `GenerationComplete` when a reply's content is complete, ahead of its turn completion. The chunk carries nothing else. The duplex pipeline consumes it.
+- `providers.PlayoutHolder` and `providers.TranscriptLagger` are new optional session interfaces. OpenAI Realtime implements the first; Gemini Live implements both.
+
+| If you | You will see | Change |
+|---|---|---|
+| Read a Gemini Live session's `Response()` channel yourself | an extra empty chunk with `GenerationComplete` set before each reply's turn completion | skip it, or use it as the reply's end |
+| Want a realtime reply judged before it is heard | the reply plays as it arrives, as before | set `Realtime` in `sdk.WithStreamHold` |
+
 #### Realtime tool calls run through the tool runner
 
 A realtime (ASM) session ran each tool call itself against the tool registry, one at a time, with an approval check but no tool policy or tool hooks, and was offered only `StreamingInputConfig.Tools`. Its calls now run in the `DuplexProviderStage` through the runner a text turn uses. [Choose a voice mode](/sdk/how-to/voice/choose-voice-mode/#realtime-tool-calls) lists the rules.

@@ -58,18 +58,22 @@ func feedChunksWith(
 ) ([]StreamElement, error) {
 	t.Helper()
 	ctx := context.Background()
-	out := make(chan StreamElement, 64)
-	var err error
-	for i := range chunks {
-		if err = s.handleResponseChunk(ctx, &chunks[i], out); err != nil {
-			break
-		}
-		if verdictsFirst {
-			if err = s.awaitVerdicts(ctx, out); err != nil {
-				break
+	// A broken stage may block on a verdict no one answers, or on an output
+	// no one reads: the feed fails at the deadline instead of hanging.
+	out := make(chan StreamElement, 256)
+	err := within(t, "feeding the chunks", func() error {
+		for i := range chunks {
+			if err := s.handleResponseChunk(ctx, &chunks[i], out); err != nil {
+				return err
+			}
+			if verdictsFirst {
+				if err := s.awaitVerdicts(ctx, out); err != nil {
+					return err
+				}
 			}
 		}
-	}
+		return nil
+	})
 	close(out)
 	var elems []StreamElement
 	for e := range out {

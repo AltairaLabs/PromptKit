@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -248,6 +249,36 @@ type StreamInputSupport interface {
 // to the conversation.
 type ResponseInterrupter interface {
 	InterruptResponse(ctx context.Context, generation int64) error
+}
+
+// PlayoutHolder is an optional StreamInputSession interface for a session that
+// estimates how much of a reply's audio the caller has heard from the audio it
+// delivers: to tell a caller speaking over a reply that still plays (barge-in)
+// from one starting a new turn, and to cut its own copy of an interrupted
+// reply to what was heard.
+//
+// A pipeline that holds a reply's audio back until its guardrails have judged
+// it calls HoldPlayout once, before the session delivers any reply. From then
+// on the session counts a reply's audio only as the pipeline releases it to
+// the caller (AudioReleased, given the chunk that carried it, as delivered),
+// so the estimate runs from release, not arrival, and audio the pipeline drops
+// is never counted as heard. Both are safe to call from any goroutine.
+type PlayoutHolder interface {
+	HoldPlayout()
+	AudioReleased(chunk *StreamChunk)
+}
+
+// TranscriptLagger is an optional StreamInputSession interface for a session
+// whose transcript of a reply's audio can arrive after that audio. A pipeline
+// that releases a reply's audio as the guardrails pass its transcript would
+// otherwise release audio whose words were not judged yet, so it holds back
+// OutputTranscriptLag of the audio received most recently. A session that
+// does not implement it delivers each piece of transcript no later than the
+// last of its audio.
+type TranscriptLagger interface {
+	// OutputTranscriptLag is the most audio, in playing time, the session's
+	// output transcript has been seen to trail by.
+	OutputTranscriptLag() time.Duration
 }
 
 // TurnForgetter is an optional StreamInputSession interface for a session that

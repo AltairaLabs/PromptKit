@@ -336,7 +336,7 @@ func (s *StreamSession) processServerContent(content *ServerContent) error {
 		// immediately, drop the interrupted response's queued audio, and skip
 		// still-arriving audio until the turn completes — plus the in-band
 		// Interrupted chunk for the pipeline.
-		s.playoutEstimate().Stop()
+		s.withPlayout(func(p *audio.Playout) { p.Stop() })
 		s.turnOpen = false // the interruption ends the turn; later usage is its
 		s.Barge()
 		marker := providers.BargeMarker()
@@ -377,10 +377,23 @@ func (s *StreamSession) processServerContent(content *ServerContent) error {
 	}
 
 	if content.ModelTurn != nil {
-		return s.processModelTurn(content)
+		if err := s.processModelTurn(content); err != nil {
+			return err
+		}
 	}
+	return s.handleGenerationComplete(content)
+}
 
-	return nil
+// handleGenerationComplete reports a reply's generationComplete, which comes
+// about a reply's playing time before its turnComplete, as a chunk marked
+// GenerationComplete: nothing more of the reply follows. One that arrives
+// with or after the turn's completion is not reported, the completion says as
+// much, nor is a tool-call generation's, whose tool calls end its turn.
+func (s *StreamSession) handleGenerationComplete(content *ServerContent) error {
+	if !content.GenerationComplete || content.TurnComplete || !s.turnOpen {
+		return nil
+	}
+	return s.sendChunk(&providers.StreamChunk{GenerationComplete: true})
 }
 
 // handleInputTranscription sends input transcription if present.
@@ -445,7 +458,7 @@ func (s *StreamSession) processModelTurn(content *ServerContent) error {
 		if part.InlineData != nil {
 			if media := s.decodeTurnMedia(part.InlineData); media != nil {
 				response.MediaData = media
-				s.playoutEstimate().Add("", 0, audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels))
+				s.countDeliveredAudio(audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels))
 			}
 		}
 	}

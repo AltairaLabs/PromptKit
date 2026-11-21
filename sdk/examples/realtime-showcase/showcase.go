@@ -24,6 +24,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/credentials"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
@@ -105,6 +106,9 @@ type providerSetup struct {
 	// callerTTS speaks the scripted mode's requests in VAD mode: OpenAI TTS,
 	// in a voice of its own.
 	callerTTS tts.Service
+	// streamHold is how ASM mode holds a reply for the output judge
+	// (-stream-hold): off, turn or segment.
+	streamHold sdk.RealtimeHold
 }
 
 // setupFor returns the realtime provider named by the -provider flag. The
@@ -169,6 +173,7 @@ type flags struct {
 	stt      string
 	tts      string
 	voice    string
+	hold     string
 }
 
 // parseFlags reads the command line and resolves the provider and mode,
@@ -186,6 +191,8 @@ func parseFlags() (*providerSetup, error) {
 	flag.StringVar(&f.stt, "stt", "", "-mode vad: STT service that transcribes you: "+
 		strings.Join(stt.RegisteredTypes(), ", ")+" (default: openai)")
 	flag.StringVar(&f.voice, "voice", "", "-mode vad: the TTS voice (default: the service's own)")
+	flag.StringVar(&f.hold, "stream-hold", "", "-mode asm: hold each reply's audio until an output judge "+
+		"passed it: off (default), turn (the whole reply) or segment (a sentence or a few at a time)")
 	flag.Parse()
 	return resolve(f)
 }
@@ -205,11 +212,18 @@ func resolve(f flags) (*providerSetup, error) {
 			return nil, errors.New("-stt and -voice apply to -mode vad")
 		}
 		setup.mode = modeASM
+		setup.streamHold = sdk.RealtimeHold(f.hold)
+		if !setup.streamHold.Valid() {
+			return nil, fmt.Errorf("unknown -stream-hold %q (want off, turn or segment)", f.hold)
+		}
 		if f.model != "" {
 			setup.model = f.model
 		}
 		err = setup.useTTS(f.tts)
 	case modeVAD:
+		if f.hold != "" {
+			return nil, errors.New("-stream-hold applies to -mode asm")
+		}
 		if f.model != "" {
 			setup.textModel = f.model
 		}
@@ -287,7 +301,11 @@ func (p *providerSetup) banner() string {
 		return fmt.Sprintf("Realtime showcase - VAD mode: %s %s, %s STT, %s TTS (%s); guardrail messages: %s",
 			p.textName, p.textModel, p.stt.Name(), p.tts.Name(), voice, heard)
 	}
-	return fmt.Sprintf("Realtime showcase - ASM mode: %s (%s); guardrail messages: %s", p.name, p.model, heard)
+	banner := fmt.Sprintf("Realtime showcase - ASM mode: %s (%s); guardrail messages: %s", p.name, p.model, heard)
+	if len(p.holdOptions()) > 0 {
+		banner += fmt.Sprintf("; replies held for the output judge: %s", p.streamHold)
+	}
+	return banner
 }
 
 // sessionOptions are the options that open the mode's session, and what a
@@ -308,11 +326,40 @@ func (p *providerSetup) sessionOptions() (opts []sdk.Option, heard string) {
 		}, "spoken by " + p.tts.Name() + " TTS, as every reply is, once the turn is complete"
 	}
 	opts, heard = p.cueOptions()
-	return append([]sdk.Option{
+	return append(append([]sdk.Option{
 		sdk.WithProvider(p.build(p.model)),
 		sdk.WithStreamingConfig(p.streamingConfig()),
-	}, opts...), heard
+	}, opts...), p.holdOptions()...), heard
 }
+
+// holdOptions hold each ASM reply's audio until an output judge has passed it
+// (-stream-hold): the whole reply (turn), or a sentence or a few at a time
+// (segment). The judge is the pack's topic-judge, checking that the reply
+// does not talk about Bruno. Off adds nothing: the reply plays as it arrives.
+func (p *providerSetup) holdOptions() []sdk.Option {
+	mode := p.streamHold
+	if mode == "" || mode == sdk.RealtimeHoldOff {
+		return nil
+	}
+	hold := "turn"
+	if mode == sdk.RealtimeHoldSegment {
+		hold = "segment"
+	}
+	return []sdk.Option{
+		sdk.WithStreamHold(sdk.StreamHoldConfig{Realtime: mode}),
+		sdk.WithGuardrail(guardrails.Output("llm_judge", map[string]any{
+			"provider":    judgeProviderKey,
+			"criteria":    replyJudgeCriteria,
+			"min_score":   0.5,
+			"stream_hold": hold,
+		}, guardrails.WithMessage("We don't talk about Bruno."))),
+	}
+}
+
+// replyJudgeCriteria is what the output judge checks a held reply for.
+const replyJudgeCriteria = "The reply must not talk about Bruno Madrigal, the uncle in Disney's Encanto " +
+	"whom the family never mentions, by name or by description. Judge only what the reply says, which may " +
+	"be incomplete. Score 1 when it does not talk about him and 0 when it does."
 
 // vadConfig is VAD mode's turn detection and voice: the defaults, at
 // vadSampleRate, in the -voice voice ("" leaves the TTS service's own).

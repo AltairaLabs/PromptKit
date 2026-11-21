@@ -110,8 +110,12 @@ type StreamSession struct {
 	// is set once the model's turn completed; the input fields follow the
 	// caller's transcribed speech. Speech transcribed while a finished reply
 	// still plays is barge-in (live_playout.go). now is the clock (nil:
-	// time.Now). Receive goroutine only.
+	// time.Now). Receive goroutine only, but for playout, which playoutMu
+	// guards: a pipeline holding reply audio back adds to it as it releases
+	// the audio (AudioReleased), and playoutHeld is then set.
 	playout     *audio.Playout
+	playoutMu   sync.Mutex
+	playoutHeld bool
 	replyDone   bool
 	inputLastAt time.Time
 	inputClosed bool

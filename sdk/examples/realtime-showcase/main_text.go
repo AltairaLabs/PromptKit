@@ -95,6 +95,9 @@ func runScript(setup *providerSetup) error {
 		if err != nil {
 			return err
 		}
+		if r.firstAudio > 0 {
+			elog.logf("timing", "first reply audio %d ms after the request", r.firstAudio.Milliseconds())
+		}
 		if setup.mode == modeVAD {
 			// Listen to the reply before speaking again: the session counts
 			// the assistant as speaking until its audio would have played,

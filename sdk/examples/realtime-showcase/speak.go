@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
@@ -103,6 +104,7 @@ const turnTimeout = 90 * time.Second
 // VAD mode.
 func send(setup *providerSetup, conv *sdk.Conversation, elog *eventLog, line string) error {
 	ctx := context.Background()
+	sentAt.Store(time.Now().UnixNano())
 	if setup.mode != modeVAD {
 		elog.logf("you type", "%q", line)
 		return conv.SendText(ctx, line)
@@ -116,31 +118,40 @@ func send(setup *providerSetup, conv *sdk.Conversation, elog *eventLog, line str
 	return sendSpeech(ctx, conv, pcm)
 }
 
-// reply is a finished reply: its finish reason and how long its audio plays.
+// sentAt is when the last request was sent (UnixNano), from which a reply's
+// first audio is timed.
+var sentAt atomic.Int64
+
+// reply is a finished reply: its finish reason, how long its audio plays,
+// and how long after the request its first audio arrived (0 for none).
 type reply struct {
-	finish string
-	audio  time.Duration
+	finish     string
+	audio      time.Duration
+	firstAudio time.Duration
 }
 
 // readReplies reads Response(), shows each chunk to the log, and reports
 // each finished reply on turns. A tool-call turn is not a reply: the model
 // answers after the tool's result.
 func readReplies(resp <-chan providers.StreamChunk, elog *eventLog, turns chan<- reply) {
-	var played time.Duration
+	var played, first time.Duration
 	for c := range resp {
 		elog.observe(c)
 		if m := c.MediaData; m != nil {
 			played += audio.PCM16Duration(len(m.Data), m.SampleRate, 1)
+			if cue, _ := c.Metadata["cue"].(string); first == 0 && cue == "" {
+				first = time.Since(time.Unix(0, sentAt.Load()))
+			}
 		}
 		if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
 			continue
 		}
 		if fr, _ := c.Metadata["finish_reason"].(string); fr != "tool_use" {
 			select {
-			case turns <- reply{finish: fr, audio: played}:
+			case turns <- reply{finish: fr, audio: played, firstAudio: first}:
 			default: // nobody is waiting (the script is done)
 			}
-			played = 0
+			played, first = 0, 0
 		}
 	}
 	close(turns)

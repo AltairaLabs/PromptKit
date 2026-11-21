@@ -105,6 +105,11 @@ type MockStreamSession struct {
 	closeCalled bool
 	mu          sync.Mutex
 
+	// playoutHeld and releasedAudio record the pipeline holding reply audio
+	// back (mock_stream_playout.go). Guarded by mu.
+	playoutHeld   bool
+	releasedAudio []byte
+
 	// Configurable behavior for testing
 	sendChunkErr       error
 	sendTextErr        error

@@ -182,7 +182,15 @@ In ASM mode the pipeline runs the model's tool calls and sends their results to 
 
 ## Guardrails in realtime voice
 
-In ASM mode the model speaks as it generates. Its audio reaches you as it is produced, and the transcript of that audio arrives alongside it. Output guardrails judge the transcript, and input guardrails judge the transcript of the caller's speech. Neither can hold back audio:
+In ASM mode the model speaks as it generates. Its audio reaches you as it is produced, and the transcript of that audio arrives alongside it. Output guardrails judge the transcript, and input guardrails judge the transcript of the caller's speech. By default neither holds back audio, as the list below describes. To have a reply's audio held until the output guardrails whose `stream_hold` is `segment` or `turn` have passed it, set `Realtime` in `sdk.WithStreamHold`. It costs first-audio latency; see [Realtime sessions](/reference/checks/#realtime-sessions).
+
+```go
+conv, err := sdk.OpenDuplex("./voice.pack.json", "assistant",
+    sdk.WithStreamHold(sdk.StreamHoldConfig{Realtime: sdk.RealtimeHoldTurn}),
+)
+```
+
+Without it:
 
 - A streaming output check (`banned_words`, `length`) runs on each transcript delta and can cut a reply part-way. A realtime session forwards each text delta once it passes, holding back the end of one that could be the start of a banned word, as text streaming does. The audio cannot be held back: it plays as it arrives. The guardrail's message arrives on a `Response()` chunk with `ReplacesText` set: show it in place of the reply's text so far. Every other output guardrail checks the completed reply. A completed-reply check corrects the stored reply, but the caller has already heard all of it.
 - When a guardrail blocks a reply, the session cuts it. OpenAI Realtime cancels the response and cuts the model's copy of the reply to the audio the caller has heard, so the model does not see the blocked words in later turns. A response the server has not created yet is canceled as soon as it is. Gemini Live cannot stop a reply, so its remaining text and audio are dropped. Gemini keeps the whole reply in its own context.
