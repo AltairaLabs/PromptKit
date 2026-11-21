@@ -126,6 +126,12 @@ The server completes the card before serving it:
 
 `GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
 
+A 1.0 card always carries the fields A2A 1.0 marks required: `name`, `description`, `supportedInterfaces`, `version`, `capabilities`, `defaultInputModes`, `defaultOutputModes` and `skills`, and each skill's `description` and `tags`. Unset ones are sent empty (`""`, `{}`, `[]`), so a server without `WithCard` still serves a complete card, with an empty name. Set the name, description, version and modes on the card yourself.
+
+Decoding a card keeps everything either version defines, including `signatures`, extension `params` and a 0.3 skill's `security`, which becomes `securityRequirements`. PromptKit carries signatures but does not create or verify them. They are left out of the 0.3 card, which is a different document from the one that was signed. The server also changes the interfaces and capabilities of the card it serves, so a signed card it has to complete does not match its signature: sign the card as served.
+
+The card response is cacheable. It carries `Cache-Control: max-age=300`, an `ETag` hashed from the body and `Vary: A2A-Version`, because the version header picks the card's shape. A request whose `If-None-Match` names the current tag gets `304 Not Modified`. `a2aserver.WithCardMaxAge` changes the max-age; zero or less sends `no-cache`, so clients revalidate on every fetch.
+
 ### Where the client sends calls
 
 After `Client.Discover`, the runtime client considers only the card's interfaces on the scheme, host and port given to `a2a.NewClient` (default ports filled in). Of those it calls the first JSON-RPC interface that serves the version it speaks, otherwise the first JSON-RPC one, taking its path (an agent serving JSON-RPC at `/`, for example), its version and its `tenant`. An interface at the default `/a2a` keeps the base URL as given.

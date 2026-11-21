@@ -33,12 +33,16 @@ Types are derived from the A2A protocol specification \(a2a.proto\) and use came
 - [type APIKeySecurityScheme](<#APIKeySecurityScheme>)
 - [type AgentCapabilities](<#AgentCapabilities>)
 - [type AgentCard](<#AgentCard>)
+  - [func \(card AgentCard\) MarshalJSON\(\) \(\[\]byte, error\)](<#AgentCard.MarshalJSON>)
   - [func \(card \*AgentCard\) PreferredVersion\(\) ProtocolVersion](<#AgentCard.PreferredVersion>)
   - [func \(card \*AgentCard\) UnmarshalJSON\(data \[\]byte\) error](<#AgentCard.UnmarshalJSON>)
+- [type AgentCardSignature](<#AgentCardSignature>)
 - [type AgentExtension](<#AgentExtension>)
 - [type AgentInterface](<#AgentInterface>)
 - [type AgentProvider](<#AgentProvider>)
 - [type AgentSkill](<#AgentSkill>)
+  - [func \(s AgentSkill\) MarshalJSON\(\) \(\[\]byte, error\)](<#AgentSkill.MarshalJSON>)
+  - [func \(s \*AgentSkill\) UnmarshalJSON\(data \[\]byte\) error](<#AgentSkill.UnmarshalJSON>)
 - [type Artifact](<#Artifact>)
   - [func ContentPartsToArtifacts\(parts \[\]types.ContentPart\) \(\[\]Artifact, error\)](<#ContentPartsToArtifacts>)
 - [type CancelTaskRequest](<#CancelTaskRequest>)
@@ -424,7 +428,7 @@ type APIKeySecurityScheme struct {
 ```
 
 <a name="AgentCapabilities"></a>
-## type [AgentCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L416-L421>)
+## type [AgentCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L438-L443>)
 
 AgentCapabilities describes what the agent supports.
 
@@ -438,21 +442,23 @@ type AgentCapabilities struct {
 ```
 
 <a name="AgentCard"></a>
-## type [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L375-L394>)
+## type [AgentCard](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L380-L403>)
 
 AgentCard describes an agent's capabilities and endpoints.
+
+A card always encodes the fields A2A 1.0 marks REQUIRED \(name, description, supportedInterfaces, version, capabilities, defaultInputModes, defaultOutputModes and skills\), as empty values when unset, so a strict client finds every one of them.
 
 ```go
 type AgentCard struct {
     Name                string            `json:"name"`
-    Description         string            `json:"description,omitempty"`
-    Version             string            `json:"version,omitempty"`
+    Description         string            `json:"description"`
+    Version             string            `json:"version"`
     Provider            *AgentProvider    `json:"provider,omitempty"`
-    Capabilities        AgentCapabilities `json:"capabilities,omitzero"`
-    Skills              []AgentSkill      `json:"skills,omitempty"`
-    DefaultInputModes   []string          `json:"defaultInputModes,omitempty"`
-    DefaultOutputModes  []string          `json:"defaultOutputModes,omitempty"`
-    SupportedInterfaces []AgentInterface  `json:"supportedInterfaces,omitempty"`
+    Capabilities        AgentCapabilities `json:"capabilities"`
+    Skills              []AgentSkill      `json:"skills"`
+    DefaultInputModes   []string          `json:"defaultInputModes"`
+    DefaultOutputModes  []string          `json:"defaultOutputModes"`
+    SupportedInterfaces []AgentInterface  `json:"supportedInterfaces"`
     IconURL             string            `json:"iconUrl,omitempty"`
     DocumentationURL    string            `json:"documentationUrl,omitempty"`
 
@@ -462,8 +468,21 @@ type AgentCard struct {
     // SecurityRequirements lists the scheme combinations a caller must
     // satisfy; any one requirement suffices.
     SecurityRequirements []SecurityRequirement `json:"securityRequirements,omitempty"`
+
+    // Signatures are JSON Web Signatures computed over the card (A2A 1.0
+    // §8.4). PromptKit carries them; it does not compute or verify them.
+    Signatures []AgentCardSignature `json:"signatures,omitempty"`
 }
 ```
+
+<a name="AgentCard.MarshalJSON"></a>
+### func \(AgentCard\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/card.go#L7>)
+
+```go
+func (card AgentCard) MarshalJSON() ([]byte, error)
+```
+
+MarshalJSON implements json.Marshaler. The REQUIRED lists encode as \[\] when unset rather than null, which a strict 1.0 client rejects.
 
 <a name="AgentCard.PreferredVersion"></a>
 ### func \(\*AgentCard\) [PreferredVersion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/version.go#L168>)
@@ -475,7 +494,7 @@ func (card *AgentCard) PreferredVersion() ProtocolVersion
 PreferredVersion picks the protocol version to speak to the agent that published card: 1.0 when any JSON\-RPC interface declares it, or when the card declares no interfaces or none that use JSON\-RPC; otherwise 0.3.
 
 <a name="AgentCard.UnmarshalJSON"></a>
-### func \(\*AgentCard\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/wire.go#L463>)
+### func \(\*AgentCard\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/wire.go#L467>)
 
 ```go
 func (card *AgentCard) UnmarshalJSON(data []byte) error
@@ -483,8 +502,24 @@ func (card *AgentCard) UnmarshalJSON(data []byte) error
 
 UnmarshalJSON implements json.Unmarshaler. A 0.3 card declares its endpoint in url/preferredTransport/additionalInterfaces rather than supportedInterfaces, and its requirements in "security"; both are folded into the 1.0 fields when the card does not carry them itself.
 
+<a name="AgentCardSignature"></a>
+## type [AgentCardSignature](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L407-L414>)
+
+AgentCardSignature is a JWS signature of an AgentCard in RFC 7515 JSON form \(A2A 1.0 §8.4.2\).
+
+```go
+type AgentCardSignature struct {
+    // Protected is the base64url-encoded JWS protected header.
+    Protected string `json:"protected"`
+    // Signature is the base64url-encoded signature.
+    Signature string `json:"signature"`
+    // Header holds the unprotected JWS header values.
+    Header map[string]any `json:"header,omitempty"`
+}
+```
+
 <a name="AgentExtension"></a>
-## type [AgentExtension](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L435-L439>)
+## type [AgentExtension](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L458-L464>)
 
 AgentExtension describes an optional protocol extension.
 
@@ -493,49 +528,51 @@ type AgentExtension struct {
     URI         string `json:"uri"`
     Description string `json:"description,omitempty"`
     Required    bool   `json:"required,omitempty"`
+    // Params is the extension's own configuration, passed through as is.
+    Params map[string]any `json:"params,omitempty"`
 }
 ```
 
 <a name="AgentInterface"></a>
-## type [AgentInterface](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L424-L432>)
+## type [AgentInterface](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L447-L455>)
 
-AgentInterface describes a protocol endpoint.
+AgentInterface describes a protocol endpoint. URL, ProtocolBinding and ProtocolVersion are REQUIRED in A2A 1.0 and always encoded.
 
 ```go
 type AgentInterface struct {
     URL string `json:"url"`
     // ProtocolBinding is the transport: [ProtocolBindingJSONRPC], "GRPC" or
     // "HTTP+JSON".
-    ProtocolBinding string `json:"protocolBinding,omitempty"`
+    ProtocolBinding string `json:"protocolBinding"`
     // ProtocolVersion is the A2A Major.Minor version served at URL.
-    ProtocolVersion string `json:"protocolVersion,omitempty"`
+    ProtocolVersion string `json:"protocolVersion"`
     Tenant          string `json:"tenant,omitempty"`
 }
 ```
 
 <a name="AgentProvider"></a>
-## type [AgentProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L410-L413>)
+## type [AgentProvider](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L432-L435>)
 
-AgentProvider identifies the organization behind an agent.
+AgentProvider identifies the organization behind an agent. Both fields are REQUIRED in A2A 1.0.
 
 ```go
 type AgentProvider struct {
     Organization string `json:"organization"`
-    URL          string `json:"url,omitempty"`
+    URL          string `json:"url"`
 }
 ```
 
 <a name="AgentSkill"></a>
-## type [AgentSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L397-L407>)
+## type [AgentSkill](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L418-L428>)
 
-AgentSkill describes a specific skill an agent can perform.
+AgentSkill describes a specific skill an agent can perform. Description and tags are REQUIRED in A2A 1.0 and always encoded.
 
 ```go
 type AgentSkill struct {
     ID          string   `json:"id"`
     Name        string   `json:"name"`
-    Description string   `json:"description,omitempty"`
-    Tags        []string `json:"tags,omitempty"`
+    Description string   `json:"description"`
+    Tags        []string `json:"tags"`
     Examples    []string `json:"examples,omitempty"`
     InputModes  []string `json:"inputModes,omitempty"`
     OutputModes []string `json:"outputModes,omitempty"`
@@ -543,6 +580,24 @@ type AgentSkill struct {
     SecurityRequirements []SecurityRequirement `json:"securityRequirements,omitempty"`
 }
 ```
+
+<a name="AgentSkill.MarshalJSON"></a>
+### func \(AgentSkill\) [MarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/card.go#L23>)
+
+```go
+func (s AgentSkill) MarshalJSON() ([]byte, error)
+```
+
+MarshalJSON implements json.Marshaler. Tags is REQUIRED and encodes as \[\] when unset.
+
+<a name="AgentSkill.UnmarshalJSON"></a>
+### func \(\*AgentSkill\) [UnmarshalJSON](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/card.go#L33>)
+
+```go
+func (s *AgentSkill) UnmarshalJSON(data []byte) error
+```
+
+UnmarshalJSON implements json.Unmarshaler. A 0.3 skill declares its requirements in "security"; they are folded into SecurityRequirements when the skill does not carry the 1.0 field itself.
 
 <a name="Artifact"></a>
 ## type [Artifact](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L346-L353>)
@@ -570,7 +625,7 @@ func ContentPartsToArtifacts(parts []types.ContentPart) ([]Artifact, error)
 ContentPartsToArtifacts converts PromptKit ContentParts into A2A Artifacts. It returns a single Artifact, with ID "artifact\-1", containing every part. It returns nil for an empty parts slice and an error if any part fails to convert.
 
 <a name="CancelTaskRequest"></a>
-## type [CancelTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L510-L513>)
+## type [CancelTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L535-L538>)
 
 CancelTaskRequest is the params for CancelTask \(0.3: tasks/cancel\).
 
@@ -855,7 +910,7 @@ func WithRetryPolicy(policy RetryPolicy) ExecutorOption
 WithRetryPolicy sets the retry policy for the A2A executor.
 
 <a name="GetTaskRequest"></a>
-## type [GetTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L503-L507>)
+## type [GetTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L528-L532>)
 
 GetTaskRequest is the params for GetTask \(0.3: tasks/get\).
 
@@ -902,7 +957,7 @@ func (e *HTTPStatusError) Error() string
 
 
 <a name="JSONRPCError"></a>
-## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L460-L464>)
+## type [JSONRPCError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L485-L489>)
 
 JSONRPCError is a JSON\-RPC 2.0 error object.
 
@@ -915,7 +970,7 @@ type JSONRPCError struct {
 ```
 
 <a name="JSONRPCRequest"></a>
-## type [JSONRPCRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L444-L449>)
+## type [JSONRPCRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L469-L474>)
 
 JSONRPCRequest is a JSON\-RPC 2.0 request.
 
@@ -929,7 +984,7 @@ type JSONRPCRequest struct {
 ```
 
 <a name="JSONRPCResponse"></a>
-## type [JSONRPCResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L452-L457>)
+## type [JSONRPCResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L477-L482>)
 
 JSONRPCResponse is a JSON\-RPC 2.0 response.
 
@@ -943,7 +998,7 @@ type JSONRPCResponse struct {
 ```
 
 <a name="ListTasksRequest"></a>
-## type [ListTasksRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L516-L527>)
+## type [ListTasksRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L541-L552>)
 
 ListTasksRequest is the params for ListTasks \(1.0 only\).
 
@@ -963,7 +1018,7 @@ type ListTasksRequest struct {
 ```
 
 <a name="ListTasksResponse"></a>
-## type [ListTasksResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L531-L536>)
+## type [ListTasksResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L556-L561>)
 
 ListTasksResponse is the result for ListTasks. NextPageToken is empty on the last page.
 
@@ -1381,7 +1436,7 @@ func (s *SecurityScheme) UnmarshalJSON(data []byte) error
 UnmarshalJSON implements json.Unmarshaler for both versions' shapes.
 
 <a name="SendMessageConfiguration"></a>
-## type [SendMessageConfiguration](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L483-L490>)
+## type [SendMessageConfiguration](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L508-L515>)
 
 SendMessageConfiguration controls message handling.
 
@@ -1399,7 +1454,7 @@ type SendMessageConfiguration struct {
 ```
 
 <a name="SendMessageConfiguration.WaitsForCompletion"></a>
-### func \(\*SendMessageConfiguration\) [WaitsForCompletion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L495>)
+### func \(\*SendMessageConfiguration\) [WaitsForCompletion](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L520>)
 
 ```go
 func (c *SendMessageConfiguration) WaitsForCompletion(v ProtocolVersion) bool
@@ -1408,7 +1463,7 @@ func (c *SendMessageConfiguration) WaitsForCompletion(v ProtocolVersion) bool
 WaitsForCompletion reports whether a SendMessage under version v should wait for the task to finish or be interrupted before answering. A nil configuration takes the version's default.
 
 <a name="SendMessageRequest"></a>
-## type [SendMessageRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L470-L475>)
+## type [SendMessageRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L495-L500>)
 
 SendMessageRequest is the params for SendMessage and SendStreamingMessage \(0.3: message/send, message/stream\).
 
@@ -1422,7 +1477,7 @@ type SendMessageRequest struct {
 ```
 
 <a name="SendMessageResponse"></a>
-## type [SendMessageResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L547-L550>)
+## type [SendMessageResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L572-L575>)
 
 SendMessageResponse is the A2A 1.0 result of SendMessage: exactly one of Task or Message is set. \(0.3 returns the Task or Message bare.\)
 
@@ -1452,7 +1507,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamResponse"></a>
-## type [StreamResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L554-L559>)
+## type [StreamResponse](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L579-L584>)
 
 StreamResponse is one A2A 1.0 streaming result: exactly one field is set. \(0.3 sends each object bare, discriminated by its "kind".\)
 
@@ -1466,7 +1521,7 @@ type StreamResponse struct {
 ```
 
 <a name="SubscribeTaskRequest"></a>
-## type [SubscribeTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L540-L543>)
+## type [SubscribeTaskRequest](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L565-L568>)
 
 SubscribeTaskRequest is the params for SubscribeToTask \(0.3: tasks/resubscribe\).
 
@@ -1494,7 +1549,7 @@ type Task struct {
 ```
 
 <a name="TaskArtifactUpdateEvent"></a>
-## type [TaskArtifactUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L572-L579>)
+## type [TaskArtifactUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L597-L604>)
 
 TaskArtifactUpdateEvent is sent during streaming when an artifact is produced.
 
@@ -1614,7 +1669,7 @@ type TaskStatus struct {
 ```
 
 <a name="TaskStatusUpdateEvent"></a>
-## type [TaskStatusUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L564-L569>)
+## type [TaskStatusUpdateEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/a2a/types.go#L589-L594>)
 
 TaskStatusUpdateEvent is sent during streaming when a task's status changes.
 
