@@ -1,7 +1,6 @@
 package a2aserver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -63,7 +62,7 @@ func TestBlockingSend_CallerDisconnectReleasesTheHandler(t *testing.T) {
 	params, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage("ctx-hung-leave")})
 	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendMessage, Params: params})
 	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req, _ := newRPCRequest(ctx, ts.URL, a2a.MethodV1SendMessage, body)
 	req.Header.Set(a2a.HeaderVersion, "1.0")
 	go func() {
 		if resp, err := http.DefaultClient.Do(req); err == nil {

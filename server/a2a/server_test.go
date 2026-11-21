@@ -99,7 +99,7 @@ func a2aRPCRequest(t *testing.T, ts *httptest.Server, method string, params any)
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	resp, err := postVersioned(ts.URL, method, body)
 	if err != nil {
 		t.Fatalf("POST /a2a: %v", err)
 	}
@@ -110,6 +110,34 @@ func a2aRPCRequest(t *testing.T, ts *httptest.Server, method string, params any)
 		t.Fatalf("decode response: %v", err)
 	}
 	return &rpcResp
+}
+
+// postVersioned posts a JSON-RPC body for method to base's /a2a endpoint with the
+// A2A-Version that method's name belongs to, as a conforming client sends it.
+func postVersioned(base, method string, body []byte) (*http.Response, error) {
+	req, err := newRPCRequest(context.Background(), base, method, body)
+	if err != nil {
+		return nil, err
+	}
+	return http.DefaultClient.Do(req)
+}
+
+// versionFor is the A2A-Version a request using method sends: the version
+// whose name it is.
+func versionFor(method string) string {
+	_, v, _ := a2a.LookupMethod(method)
+	return string(v)
+}
+
+// newRPCRequest builds the POST postVersioned sends.
+func newRPCRequest(ctx context.Context, base, method string, body []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/a2a", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(a2a.HeaderVersion, versionFor(method))
+	return req, nil
 }
 
 func a2aRPCRequestTask(t *testing.T, ts *httptest.Server, method string, params any) *a2a.Task {
@@ -748,6 +776,7 @@ func TestTraceContextPropagation_SendMessage(t *testing.T) {
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		ts.URL+"/a2a", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(a2a.HeaderVersion, "1.0")
 	req.Header.Set("traceparent", wantTP)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -821,6 +850,7 @@ func TestTraceContextPropagation_StreamMessage(t *testing.T) {
 		ts.URL+"/a2a", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(a2a.HeaderVersion, "1.0")
 	req.Header.Set("traceparent", wantTP)
 
 	resp, err := http.DefaultClient.Do(req)
@@ -1581,7 +1611,7 @@ func TestServerMaxBodySizeRejectsOversizedRequest(t *testing.T) {
 		Params:  params,
 	})
 
-	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	resp, err := postVersioned(ts.URL, a2a.MethodV1SendMessage, body)
 	if err != nil {
 		t.Fatalf("POST /a2a: %v", err)
 	}
@@ -1729,7 +1759,7 @@ func TestServerListenAndServeWithTraffic(t *testing.T) {
 	reqBody.Params = params
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post("http://"+addr+"/a2a", "application/json", bytes.NewReader(body))
+	resp, err := postVersioned("http://"+addr, a2a.MethodV1SendMessage, body)
 	if err != nil {
 		t.Fatalf("POST /a2a: %v", err)
 	}

@@ -40,6 +40,7 @@ func callDirect(t *testing.T, srv *Server, w http.ResponseWriter, method string,
 	body, err := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: paramsJSON})
 	require.NoError(t, err)
 	r := httptest.NewRequest(http.MethodPost, "/a2a", bytes.NewReader(body))
+	r.Header.Set(a2a.HeaderVersion, versionFor(method))
 	srv.handleRPC(w, r)
 }
 
@@ -128,8 +129,8 @@ func TestStream_InvalidParams(t *testing.T) {
 	defer ts.Close()
 
 	for _, method := range []string{a2a.MethodV1SendStreamingMessage, a2a.MethodV1SubscribeToTask} {
-		resp, err := http.Post(ts.URL+"/a2a", "application/json",
-			bytes.NewReader([]byte(`{"jsonrpc":"2.0","id":1,"method":"`+method+`","params":"nope"}`)))
+		resp, err := postVersioned(ts.URL, method,
+			[]byte(`{"jsonrpc":"2.0","id":1,"method":"`+method+`","params":"nope"}`))
 		require.NoError(t, err)
 		assert.Equal(t, a2a.ErrCodeInvalidParams, rawError(t, resp).Code, method)
 	}
@@ -273,7 +274,7 @@ func TestStream_DisconnectLeavesTheTaskAndSubscribersAlone(t *testing.T) {
 	params, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage("ctx-leave")})
 	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendStreamingMessage, Params: params})
 	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req, _ := newRPCRequest(ctx, ts.URL, a2a.MethodV1SendStreamingMessage, body)
 	req.Header.Set(a2a.HeaderVersion, "1.0")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

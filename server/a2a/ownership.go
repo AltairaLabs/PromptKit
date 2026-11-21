@@ -99,7 +99,7 @@ func (s *Server) callerOwns(call *rpcCall, taskID string) bool {
 func (s *Server) getTaskFor(call *rpcCall, taskID string) *a2a.Task {
 	task, err := s.taskStore.Get(taskID)
 	if err != nil || !s.callerOwns(call, taskID) {
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+		call.failTask(a2a.ErrCodeTaskNotFound, "Task not found", taskID)
 		return nil
 	}
 	return task

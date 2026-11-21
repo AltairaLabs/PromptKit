@@ -135,23 +135,22 @@ func (m *A2AServer) handleAgentCard(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(m.card)
 }
 
-// handleRPC dispatches a JSON-RPC 2.0 request.
+// handleRPC dispatches a JSON-RPC 2.0 request. It reads and checks the
+// request as the PromptKit server does (a2a.ReadServerRequest): the same
+// envelope rules, version resolution and id echo, so a test against the mock
+// sees what the real server would answer.
 func (m *A2AServer) handleRPC(w http.ResponseWriter, r *http.Request) {
-	var req a2a.JSONRPCRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeRPCError(w, nil, -32700, "Parse error")
+	in, refusal := a2a.ReadServerRequest(r)
+	if refusal != nil {
+		w.Header().Set(headerContentType, mimeJSON)
+		_ = json.NewEncoder(w).Encode(refusal)
 		return
 	}
-
-	op, v, ok := a2a.LookupMethod(req.Method)
-	if !ok || op != a2a.OpSendMessage {
-		writeRPCError(w, req.ID, a2a.ErrCodeMethodNotFound, "Method not found")
+	if in.Operation != a2a.OpSendMessage {
+		writeRPCError(w, in.ID, a2a.ErrCodeMethodNotFound, "Method not found")
 		return
 	}
-	if hv, err := a2a.ParseProtocolVersion(r.Header.Get(a2a.HeaderVersion)); err == nil && hv != "" {
-		v = hv
-	}
-	m.handleSendMessage(w, &req, v)
+	m.handleSendMessage(w, &in.JSONRPCRequest, in.Version)
 }
 
 // handleSendMessage processes a SendMessage (0.3: message/send) request,

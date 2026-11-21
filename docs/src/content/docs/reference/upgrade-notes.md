@@ -123,7 +123,7 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
-The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, streaming and AG-UI, caller identity, and providers.
+The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, streaming and AG-UI, caller identity, providers, retries, and the A2A server.
 
 ### Turn numbering
 
@@ -412,6 +412,26 @@ Provider HTTP requests, A2A agent calls, TTS and STT requests, MCP connects and 
 | Retry MCP connects | each wait is lengthened by up to half at random and never exceeds a minute, where it was exactly `RetryDelay` doubled per retry | nothing |
 | Cancel an MCP connect while it waits to retry | `Initialize` returns the context's error | match `context.Canceled` with `errors.Is` |
 | Configure `DoWithRetry` with a delay that reaches its 60-second cap | the wait at the cap is 60 seconds, where jitter could take it to 90 | nothing |
+
+### A2A server
+
+#### The A2A server reads a request's version from `A2A-Version` alone, and checks the JSON-RPC envelope
+
+A request is answered in the version its `A2A-Version` header or query parameter names, and a request that names none is A2A 0.3 (A2A 1.0 §3.6.2). The server used to answer a 1.0 method name sent without the header in 1.0, and answered a method name from the other version in the header's version. The official 1.0 clients for Python, JavaScript and Go send the header, and so does the runtime's `a2a.Client`. Their servers refuse a 1.0 method without it, as PromptKit's now does. The envelope is checked as JSON-RPC 2.0 requires.
+
+| If you | You will see | Change |
+|---|---|---|
+| Test against `runtime/a2a/mock` | the mock applies these rules too: it reads requests with `a2a.ReadServerRequest`, the server's own code | send requests a conforming client would |
+| Send a blank `A2A-Version`, or several header lines | a blank value counts as no header, and the query parameter is read next; lines naming different versions get `-32009` | send one version |
+| Call a 1.0 method (`SendMessage`, `GetTask`, ...) without `A2A-Version`, for example from `curl` or a hand-written client | `-32009` VersionNotSupportedError, whose message says to send `A2A-Version: 1.0` | send `A2A-Version: 1.0`, or the `A2A-Version=1.0` query parameter |
+| Send `A2A-Version: 0.3` with a 1.0 method name | `-32009`, where the call was answered in 0.3 shapes | use the 0.3 name (`message/send`), or send `1.0` |
+| Send `A2A-Version: 1.0` with a 0.3 method name (`message/send`, `tasks/get`, ...) | `-32601` Method not found, naming the 1.0 method, where the call was answered in 1.0 shapes | use the 1.0 name (`SendMessage`) |
+| Send a request without `"jsonrpc": "2.0"`, with a `method` that is not a non-empty string, or with an `id` that is an object, array or boolean | `-32600` Invalid Request, where a missing `jsonrpc` or such an `id` was served, a missing `method` failed with `-32601`, and a `method` that is not a string failed with `-32700` | send a JSON-RPC 2.0 Request object |
+| Send a JSON-RPC batch (an array) | `-32600`, where it failed with `-32700` | send one request per call |
+| Use a numeric `id` larger than 2^53 | the response echoes it exactly, where it came back rounded | nothing |
+| Read `error.data` on an A2A error (`-32001` to `-32009`) answered in 1.0 | an array holding one `google.rpc.ErrorInfo`: `reason` (`TASK_NOT_FOUND`, ...), `domain` `a2a-protocol.org`, and `metadata.taskId` on errors about a task, where `data` was unset (A2A 1.0 §9.5). `-32009` carries it in 0.3 too. Other 0.3 errors still have none | read `reason` instead of matching message text; `a2a.RPCError.Data` holds the array |
+| Read a status `timestamp` from a stream or subscription | every status update has one, where the update that ended a stream had none. It is the time the task store recorded, the one `GetTask` returns, where updates carried a time of their own | nothing |
+| Keep tasks in a custom `TaskStore` with timestamps in a zone other than UTC | `timestamp` sent in UTC with a `Z` suffix and 0, 3, 6 or 9 fractional digits, where it carried the store's offset (A2A 1.0 §5.6.1). Every `a2a.TaskStatus` the runtime marshals is written the same way | nothing |
 
 ## v2.21.0
 

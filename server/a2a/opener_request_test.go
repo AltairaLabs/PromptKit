@@ -184,7 +184,7 @@ func TestNewServerFor_WithTaskOwnerOverridesTaskScope(t *testing.T) {
 func postSend(ctx context.Context, client *http.Client, url, caller, contextID string) bool {
 	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage(contextID)})
 	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 1, Method: a2a.MethodV1SendMessage, Params: paramsJSON})
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url+"/a2a", bytes.NewReader(body))
+	req, _ := newRPCRequest(ctx, url, a2a.MethodV1SendMessage, body)
 	req.Header.Set(a2a.HeaderVersion, "1.0")
 	req.Header.Set(callerHeader, caller)
 	resp, err := client.Do(req)
@@ -237,6 +237,7 @@ func TestNewServerFor_CanceledWaiterStopsWaiting(t *testing.T) {
 	paramsJSON, _ := json.Marshal(a2a.SendMessageRequest{Message: userMessage("ctx-1")})
 	body, _ := json.Marshal(a2a.JSONRPCRequest{JSONRPC: "2.0", ID: 2, Method: a2a.MethodV1SendMessage, Params: paramsJSON})
 	req := httptest.NewRequest(http.MethodPost, "/a2a", bytes.NewReader(body)).WithContext(ctx)
+	req.Header.Set(a2a.HeaderVersion, "1.0")
 	req.Header.Set(a2a.HeaderVersion, "1.0")
 	req.Header.Set(callerHeader, "alice")
 	served := make(chan struct{})

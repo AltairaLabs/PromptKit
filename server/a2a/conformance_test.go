@@ -192,10 +192,11 @@ func TestConformance_SendMessageShapes(t *testing.T) {
 	part := v03["artifacts"].([]any)[0].(map[string]any)["parts"].([]any)[0].(map[string]any)
 	assert.Equal(t, "text", part["kind"])
 
-	// The header wins over the method name.
-	forced := rawResult(t, rawRPC(t, ts, "0.3", a2a.MethodV1SendMessage,
+	// The header and the method name must agree (#2133): a 1.0 method in a
+	// 0.3 request is not served in 0.3 shapes.
+	mismatch := rawError(t, rawRPC(t, ts, "0.3", a2a.MethodV1SendMessage,
 		a2a.SendMessageRequest{Message: userMessage("ctx-forced"), Configuration: blocking}))
-	assert.Equal(t, "task", forced["kind"])
+	assert.Equal(t, a2a.ErrCodeVersionNotSupported, mismatch.Code)
 
 	// An unsupported version is refused with VersionNotSupported.
 	e := rawError(t, rawRPC(t, ts, "2.0", a2a.MethodV1SendMessage,
@@ -394,16 +395,16 @@ func TestConformance_UnsupportedOperations(t *testing.T) {
 	for _, method := range []string{
 		a2a.MethodV1CreateTaskPushNotificationConfig, a2a.MethodV03SetPushNotificationConfig,
 	} {
-		e := rawError(t, rawRPC(t, ts, "", method, map[string]any{"taskId": "t"}))
+		e := rawError(t, rawRPC(t, ts, versionFor(method), method, map[string]any{"taskId": "t"}))
 		assert.Equal(t, a2a.ErrCodePushNotificationNotSupported, e.Code, method)
 	}
 	// The card does not declare an extended card, so the method is
 	// unsupported (A2A 1.0 §3.3.4), not "not configured".
-	e := rawError(t, rawRPC(t, ts, "", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
+	e := rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetExtendedAgentCard, map[string]any{}))
 	assert.Equal(t, a2a.ErrCodeUnsupportedOperation, e.Code)
 	e = rawError(t, rawRPC(t, ts, "", "tasks/frobnicate", map[string]any{}))
 	assert.Equal(t, a2a.ErrCodeMethodNotFound, e.Code)
-	e = rawError(t, rawRPC(t, ts, "", a2a.MethodV1GetTask, nil))
+	e = rawError(t, rawRPC(t, ts, "1.0", a2a.MethodV1GetTask, nil))
 	assert.Equal(t, a2a.ErrCodeInvalidParams, e.Code)
 }
 

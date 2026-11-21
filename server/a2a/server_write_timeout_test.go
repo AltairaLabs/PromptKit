@@ -1,7 +1,6 @@
 package a2aserver
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,7 +41,7 @@ func tryPostRPC(t *testing.T, base, method string, params any) (*http.Response, 
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
-	return http.Post(base+"/a2a", "application/json", bytes.NewReader(body))
+	return postVersioned(base, method, body)
 }
 
 // postRPC is tryPostRPC that fails the test on a transport error.

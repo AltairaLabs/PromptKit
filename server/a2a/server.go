@@ -591,7 +591,7 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	v, err := requestVersion(r, a2a.ProtocolVersion03)
+	v, _, err := a2a.RequestVersion(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -663,23 +663,13 @@ func (s *Server) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxBodySize)
 
-	var req a2a.JSONRPCRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeRPCError(w, nil, a2a.ErrCodeParse, "Parse error")
+	in, refusal := a2a.ReadServerRequest(r)
+	if refusal != nil {
+		writeRPCResponse(w, http.StatusOK, refusal)
 		return
 	}
-
-	op, methodVersion, known := a2a.LookupMethod(req.Method)
-	if !known {
-		writeRPCError(w, req.ID, a2a.ErrCodeMethodNotFound, "Method not found")
-		return
-	}
-	v, err := requestVersion(r, methodVersion)
-	if err != nil {
-		writeRPCError(w, req.ID, a2a.ErrCodeVersionNotSupported, err.Error())
-		return
-	}
-	call := &rpcCall{w: w, r: r, req: &req, v: v, log: s.log}
+	req, op, v := &in.JSONRPCRequest, in.Operation, in.Version
+	call := &rpcCall{w: w, r: r, req: req, v: v, log: s.log}
 	if s.owner != nil {
 		if call.owner = s.owner(r); call.owner == "" {
 			writeRPCErrorWithStatus(w, http.StatusUnauthorized, req.ID, -32000, "Caller identity required")
@@ -781,11 +771,11 @@ func (s *Server) beginTask(call *rpcCall, target *turnTarget) bool {
 
 	switch err := s.taskStore.SetState(target.taskID, a2a.TaskStateWorking, nil); {
 	case err == nil:
-		s.publishStatus(target.taskID, target.contextID, a2a.TaskStatus{State: a2a.TaskStateWorking})
+		s.publishStatus(target.taskID, target.contextID, s.recordedStatus(target.taskID, a2a.TaskStateWorking, nil))
 		target.claimed = true
 		return true
 	case errors.Is(err, ErrTaskNotFound):
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+		call.failTask(a2a.ErrCodeTaskNotFound, "Task not found", target.taskID)
 	case errors.Is(err, ErrTaskTerminal), errors.Is(err, ErrInvalidTransition), errors.Is(err, ErrTransitionRefused):
 		if errors.Is(err, ErrTransitionRefused) {
 			s.logStateWriteError(target.taskID, a2a.TaskStateWorking, err)
@@ -1066,7 +1056,18 @@ func (s *Server) setState(taskID, contextID string, state a2a.TaskState, msg *a2
 		s.logStateWriteError(taskID, state, err)
 		return
 	}
-	s.publishStatus(taskID, contextID, a2a.TaskStatus{State: state, Message: msg})
+	s.publishStatus(taskID, contextID, s.recordedStatus(taskID, state, msg))
+}
+
+// recordedStatus returns the status the store holds for taskID just after it
+// recorded state, so an emitted status carries exactly the timestamp GetTask
+// returns. If the store cannot be read, or the task has moved on already (a
+// CancelTask got in between), the status is state and msg, stamped now.
+func (s *Server) recordedStatus(taskID string, state a2a.TaskState, msg *a2a.Message) a2a.TaskStatus {
+	if task, err := s.taskStore.Get(taskID); err == nil && task.Status.State == state {
+		return stamped(task.Status)
+	}
+	return stamped(a2a.TaskStatus{State: state, Message: msg})
 }
 
 // log returns the logger the server writes to: the WithLogger logger, or
@@ -1092,13 +1093,19 @@ func (s *Server) logStateWriteError(taskID string, state a2a.TaskState, err erro
 
 // publishStatus publishes a status update to the task's subscribers.
 func (s *Server) publishStatus(taskID, contextID string, status a2a.TaskStatus) {
+	s.publish(taskID, TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
+		TaskID: taskID, ContextID: contextID, Status: stamped(status),
+	}})
+}
+
+// stamped returns status with a timestamp: its own, or now when it has none.
+// Every status update says when its status was recorded.
+func stamped(status a2a.TaskStatus) a2a.TaskStatus {
 	if status.Timestamp == nil {
 		now := time.Now().UTC()
 		status.Timestamp = &now
 	}
-	s.publish(taskID, TaskEvent{StatusUpdate: &a2a.TaskStatusUpdateEvent{
-		TaskID: taskID, ContextID: contextID, Status: status,
-	}})
+	return status
 }
 
 // publish delivers an event to the task's subscribers.
@@ -1262,18 +1269,18 @@ func (s *Server) handleCancelTask(call *rpcCall) {
 		return
 	}
 	if task.Status.State.IsTerminal() {
-		call.fail(a2a.ErrCodeTaskNotCancelable,
-			fmt.Sprintf("Task cannot be canceled: it is %s", task.Status.State.V03Name()))
+		call.failTask(a2a.ErrCodeTaskNotCancelable,
+			fmt.Sprintf("Task cannot be canceled: it is %s", task.Status.State.V03Name()), params.ID)
 		return
 	}
 
 	switch cancelErr := s.taskStore.Cancel(params.ID); {
 	case errors.Is(cancelErr, ErrTaskTerminal):
 		// Finished between the read and the cancel.
-		call.fail(a2a.ErrCodeTaskNotCancelable, "Task cannot be canceled: it has already finished")
+		call.failTask(a2a.ErrCodeTaskNotCancelable, "Task cannot be canceled: it has already finished", params.ID)
 		return
 	case errors.Is(cancelErr, ErrTaskNotFound):
-		call.fail(a2a.ErrCodeTaskNotFound, "Task not found")
+		call.failTask(a2a.ErrCodeTaskNotFound, "Task not found", params.ID)
 		return
 	case cancelErr != nil:
 		call.internalError(fmt.Sprintf("task cancel failed for %s", params.ID), cancelErr)
@@ -1505,23 +1512,27 @@ func writeRPCResult(w http.ResponseWriter, id, result any, log *slog.Logger) {
 
 // writeRPCError writes a JSON-RPC 2.0 error response.
 func writeRPCError(w http.ResponseWriter, id any, code int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: jsonRPCVersion,
-		ID:      id,
-		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
-	})
+	writeRPCErrorObject(w, http.StatusOK, id, &a2a.JSONRPCError{Code: code, Message: msg})
 }
 
 // writeRPCErrorWithStatus writes a JSON-RPC 2.0 error response with a specific HTTP status code.
 func writeRPCErrorWithStatus(w http.ResponseWriter, status int, id any, code int, msg string) {
+	writeRPCErrorObject(w, status, id, &a2a.JSONRPCError{Code: code, Message: msg})
+}
+
+// writeRPCErrorObject writes a JSON-RPC 2.0 error response carrying e, with
+// HTTP status status.
+func writeRPCErrorObject(w http.ResponseWriter, status int, id any, e *a2a.JSONRPCError) {
+	writeRPCResponse(w, status, &a2a.JSONRPCResponse{JSONRPC: jsonRPCVersion, ID: id, Error: e})
+}
+
+// writeRPCResponse writes resp with HTTP status status.
+func writeRPCResponse(w http.ResponseWriter, status int, resp *a2a.JSONRPCResponse) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(a2a.JSONRPCResponse{
-		JSONRPC: jsonRPCVersion,
-		ID:      id,
-		Error:   &a2a.JSONRPCError{Code: code, Message: msg},
-	})
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // evictionLoop periodically sweeps expired tasks, conversations, and

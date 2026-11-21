@@ -16,12 +16,12 @@ import (
 
 // The server speaks A2A 1.0 and 0.3 over one endpoint.
 //
-// Every request is answered in the version it asked for: the A2A-Version
-// header (or query parameter) when present, otherwise the version whose method
-// name it used — 1.0's SendMessage, 0.3's message/send. The spec reads a
-// request with no version as 0.3, and a 0.3 method name is exactly that; a
-// 1.0 method name with no header is a 1.0 client that forgot the header, and
-// answering it in 0.3 shapes would help nobody. Decoding needs no version at
+// Every request is answered in the version its A2A-Version header (or query
+// parameter) names, and a request without one is 0.3 (A2A 1.0 §3.6.1,
+// §3.6.2). The method name has to be one that version has: a 1.0 name in a
+// 0.3 request is VersionNotSupportedError, telling the 1.0 client that left
+// the header off to send it, and a 0.3 name in a 1.0 request is
+// MethodNotFound, since 1.0 has no such method. Decoding needs no version at
 // all: the runtime types accept every version's spelling.
 
 // rpcCall is one JSON-RPC request with the protocol version to answer it in
@@ -55,23 +55,6 @@ func (c *rpcCall) ctx() context.Context {
 	return context.Background()
 }
 
-// requestVersion resolves the protocol version of a request: explicit
-// A2A-Version first, the method name's version otherwise.
-func requestVersion(r *http.Request, methodVersion a2a.ProtocolVersion) (a2a.ProtocolVersion, error) {
-	raw := r.Header.Get(a2a.HeaderVersion)
-	if raw == "" {
-		raw = r.URL.Query().Get(a2a.HeaderVersion)
-	}
-	v, err := a2a.ParseProtocolVersion(raw)
-	if err != nil {
-		return "", err
-	}
-	if v == "" {
-		v = methodVersion
-	}
-	return v, nil
-}
-
 // result writes a JSON-RPC success response.
 func (c *rpcCall) result(result any) {
 	writeRPCResult(c.w, c.req.ID, result, c.logger())
@@ -79,7 +62,13 @@ func (c *rpcCall) result(result any) {
 
 // fail writes a JSON-RPC error response.
 func (c *rpcCall) fail(code int, msg string) {
-	writeRPCError(c.w, c.req.ID, code, msg)
+	writeRPCErrorObject(c.w, http.StatusOK, c.req.ID, a2a.ErrorFor(c.v, code, msg, nil))
+}
+
+// failTask writes a JSON-RPC error response about taskID, which a 1.0
+// error's ErrorInfo names.
+func (c *rpcCall) failTask(code int, msg, taskID string) {
+	writeRPCErrorObject(c.w, http.StatusOK, c.req.ID, a2a.ErrorFor(c.v, code, msg, map[string]string{"taskId": taskID}))
 }
 
 // internalError logs cause and answers with a generic internal error, so

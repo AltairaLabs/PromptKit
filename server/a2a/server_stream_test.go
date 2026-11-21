@@ -41,7 +41,7 @@ func readSSEEvents(t *testing.T, ts *httptest.Server, method string, params any)
 		t.Fatalf("marshal request: %v", err)
 	}
 
-	resp, err := http.Post(ts.URL+"/a2a", "application/json", bytes.NewReader(body))
+	resp, err := postVersioned(ts.URL, method, body)
 	if err != nil {
 		t.Fatalf("POST /a2a: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestServer_StreamMessage_ClientDisconnect(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req, _ := newRPCRequest(ctx, ts.URL, a2a.MethodV1SendStreamingMessage, body)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -366,7 +366,7 @@ func TestServer_StreamMessage_ClientDisconnect_SlowProducer(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, ts.URL+"/a2a", bytes.NewReader(body))
+	req, _ := newRPCRequest(ctx, ts.URL, a2a.MethodV1SendStreamingMessage, body)
 	req.Header.Set("Content-Type", "application/json")
 
 	go func() {
