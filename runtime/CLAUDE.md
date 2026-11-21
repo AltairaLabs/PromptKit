@@ -95,7 +95,7 @@ substitute for it.
 - **New tool executor**: Implement `Executor`, register via `Registry.RegisterExecutor()`
 - **New event type**: Add to `events/types.go`, add emitter method, subscribe in consumers
 - **New hook type**: Define interface in `hooks/`, add to Registry, call from appropriate stage
-- **New pipeline stage**: Implement `Stage` interface, wire in `sdk/internal/pipeline/builder.go`
+- **New pipeline stage**: Implement `Stage` interface, wire in `sdk/internal/pipeline/builder.go`. A stage of the realtime (duplex) chain from the provider stage on gets a slot in `stage.NewRealtimeChain` (`pipeline/stage/realtime_chain.go`) instead: the SDK builds its realtime chain from it and hosts (PromptArena) are expected to, so its order is defined once
 - **New provider capability**: Define optional interface (like `ContextWindowProvider`), type-assert in consumers
 - **New statestore capability**: Define optional interface (like `MessageLog`), type-assert in pipeline stages
 
