@@ -101,17 +101,6 @@ func WithEmbeddingFormat(format string) EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.format = format }
 }
 
-// WithBatchSize declares the most texts one request may carry, replacing the
-// family default that MaxBatchSize reports. A size above the family's API
-// limit is clamped to the limit, with a warning. Values below 1 are ignored.
-func WithBatchSize(n int) EmbeddingOption {
-	return func(p *EmbeddingProvider) {
-		if n > 0 {
-			p.batchSize = n
-		}
-	}
-}
-
 // WithPlatformAuth marks the provider as authenticated by its HTTP client's
 // transport. Bedrock has no API-key mode, so this is always the case in real
 // use; the flag exists for symmetry with the other embedding providers.
@@ -122,6 +111,13 @@ func WithPlatformAuth() EmbeddingOption {
 // WithWiring applies the transport-derived settings the factory resolved.
 func WithWiring(w providers.EmbeddingWiring) EmbeddingOption {
 	return func(p *EmbeddingProvider) { p.dimsExplicit = p.ApplyWiring(w) }
+}
+
+// WithBatchSize declares the most texts one request may carry, replacing the
+// family default that MaxBatchSize reports. A size above the family's API
+// limit is clamped to the limit, with a warning. Values below 1 are ignored.
+func WithBatchSize(n int) EmbeddingOption {
+	return func(p *EmbeddingProvider) { p.batchSize = max(n, 0) }
 }
 
 // NewEmbeddingProvider creates a Bedrock embedding provider. Without a declared

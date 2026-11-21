@@ -78,22 +78,18 @@ type EmbeddingProvider struct {
 // EmbeddingOption configures the EmbeddingProvider.
 type EmbeddingOption func(*EmbeddingProvider)
 
-// WithTaskType sets the Vertex task type ("RETRIEVAL_DOCUMENT",
-// "RETRIEVAL_QUERY", "SEMANTIC_SIMILARITY", …).
-func WithTaskType(taskType string) EmbeddingOption {
-	return func(p *EmbeddingProvider) { p.taskType = taskType }
-}
-
 // WithBatchSize declares the most texts one request may carry, replacing the
 // family default that MaxBatchSize reports. For a known family, a size above
 // its API limit is clamped to the limit, with a warning. Values below 1 are
 // ignored.
 func WithBatchSize(n int) EmbeddingOption {
-	return func(p *EmbeddingProvider) {
-		if n > 0 {
-			p.batchSize = n
-		}
-	}
+	return func(p *EmbeddingProvider) { p.batchSize = max(n, 0) }
+}
+
+// WithTaskType sets the Vertex task type ("RETRIEVAL_DOCUMENT",
+// "RETRIEVAL_QUERY", "SEMANTIC_SIMILARITY", …).
+func WithTaskType(taskType string) EmbeddingOption {
+	return func(p *EmbeddingProvider) { p.taskType = taskType }
 }
 
 // WithPlatformAuth marks the provider as authenticated by its HTTP client's
