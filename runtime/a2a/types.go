@@ -372,16 +372,21 @@ type Task struct {
 // --- Agent Discovery ---
 
 // AgentCard describes an agent's capabilities and endpoints.
+//
+// A card always encodes the fields A2A 1.0 marks REQUIRED (name, description,
+// supportedInterfaces, version, capabilities, defaultInputModes,
+// defaultOutputModes and skills), as empty values when unset, so a strict
+// client finds every one of them.
 type AgentCard struct {
 	Name                string            `json:"name"`
-	Description         string            `json:"description,omitempty"`
-	Version             string            `json:"version,omitempty"`
+	Description         string            `json:"description"`
+	Version             string            `json:"version"`
 	Provider            *AgentProvider    `json:"provider,omitempty"`
-	Capabilities        AgentCapabilities `json:"capabilities,omitzero"`
-	Skills              []AgentSkill      `json:"skills,omitempty"`
-	DefaultInputModes   []string          `json:"defaultInputModes,omitempty"`
-	DefaultOutputModes  []string          `json:"defaultOutputModes,omitempty"`
-	SupportedInterfaces []AgentInterface  `json:"supportedInterfaces,omitempty"`
+	Capabilities        AgentCapabilities `json:"capabilities"`
+	Skills              []AgentSkill      `json:"skills"`
+	DefaultInputModes   []string          `json:"defaultInputModes"`
+	DefaultOutputModes  []string          `json:"defaultOutputModes"`
+	SupportedInterfaces []AgentInterface  `json:"supportedInterfaces"`
 	IconURL             string            `json:"iconUrl,omitempty"`
 	DocumentationURL    string            `json:"documentationUrl,omitempty"`
 
@@ -391,14 +396,30 @@ type AgentCard struct {
 	// SecurityRequirements lists the scheme combinations a caller must
 	// satisfy; any one requirement suffices.
 	SecurityRequirements []SecurityRequirement `json:"securityRequirements,omitempty"`
+
+	// Signatures are JSON Web Signatures computed over the card (A2A 1.0
+	// §8.4). PromptKit carries them; it does not compute or verify them.
+	Signatures []AgentCardSignature `json:"signatures,omitempty"`
 }
 
-// AgentSkill describes a specific skill an agent can perform.
+// AgentCardSignature is a JWS signature of an AgentCard in RFC 7515 JSON
+// form (A2A 1.0 §8.4.2).
+type AgentCardSignature struct {
+	// Protected is the base64url-encoded JWS protected header.
+	Protected string `json:"protected"`
+	// Signature is the base64url-encoded signature.
+	Signature string `json:"signature"`
+	// Header holds the unprotected JWS header values.
+	Header map[string]any `json:"header,omitempty"`
+}
+
+// AgentSkill describes a specific skill an agent can perform. Description and
+// tags are REQUIRED in A2A 1.0 and always encoded.
 type AgentSkill struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
 	Examples    []string `json:"examples,omitempty"`
 	InputModes  []string `json:"inputModes,omitempty"`
 	OutputModes []string `json:"outputModes,omitempty"`
@@ -406,10 +427,11 @@ type AgentSkill struct {
 	SecurityRequirements []SecurityRequirement `json:"securityRequirements,omitempty"`
 }
 
-// AgentProvider identifies the organization behind an agent.
+// AgentProvider identifies the organization behind an agent. Both fields
+// are REQUIRED in A2A 1.0.
 type AgentProvider struct {
 	Organization string `json:"organization"`
-	URL          string `json:"url,omitempty"`
+	URL          string `json:"url"`
 }
 
 // AgentCapabilities describes what the agent supports.
@@ -420,14 +442,15 @@ type AgentCapabilities struct {
 	Extensions        []AgentExtension `json:"extensions,omitempty"`
 }
 
-// AgentInterface describes a protocol endpoint.
+// AgentInterface describes a protocol endpoint. URL, ProtocolBinding and
+// ProtocolVersion are REQUIRED in A2A 1.0 and always encoded.
 type AgentInterface struct {
 	URL string `json:"url"`
 	// ProtocolBinding is the transport: [ProtocolBindingJSONRPC], "GRPC" or
 	// "HTTP+JSON".
-	ProtocolBinding string `json:"protocolBinding,omitempty"`
+	ProtocolBinding string `json:"protocolBinding"`
 	// ProtocolVersion is the A2A Major.Minor version served at URL.
-	ProtocolVersion string `json:"protocolVersion,omitempty"`
+	ProtocolVersion string `json:"protocolVersion"`
 	Tenant          string `json:"tenant,omitempty"`
 }
 
@@ -436,6 +459,8 @@ type AgentExtension struct {
 	URI         string `json:"uri"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
+	// Params is the extension's own configuration, passed through as is.
+	Params map[string]any `json:"params,omitempty"`
 }
 
 // --- JSON-RPC Envelope ---

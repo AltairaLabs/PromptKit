@@ -1,0 +1,33 @@
+{
+  "protocolVersion": "0.3.0",
+  "name": "Recipe Agent",
+  "description": "Agent that helps users with recipes and cooking.",
+  "url": "https://recipes.example.com/a2a",
+  "preferredTransport": "JSONRPC",
+  "provider": {"organization": "Example Kitchens", "url": "https://kitchens.example.com"},
+  "version": "0.9.1",
+  "capabilities": {
+    "streaming": true,
+    "extensions": [
+      {"uri": "https://example.com/ext/units/v1", "required": false, "params": {"system": "metric"}}
+    ]
+  },
+  "securitySchemes": {
+    "oidc": {"type": "openIdConnect", "openIdConnectUrl": "https://id.example.com/.well-known/openid-configuration"}
+  },
+  "security": [{"oidc": ["openid"]}],
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "skills": [
+    {
+      "id": "find-recipe",
+      "name": "Find recipe",
+      "description": "Finds recipes by ingredient.",
+      "tags": ["cooking"],
+      "security": [{"oidc": ["recipes.read"]}]
+    }
+  ],
+  "signatures": [
+    {"protected": "eyJhbGciOiJFUzI1NiJ9", "signature": "c2lnbmF0dXJl", "header": {"kid": "k2"}}
+  ]
+}

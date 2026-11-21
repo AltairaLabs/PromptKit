@@ -39,6 +39,10 @@ const (
 	// next request when keep-alives are enabled.
 	defaultIdleTimeout = 120 * time.Second
 
+	// defaultCardMaxAge is how long a client or cache may reuse the served
+	// agent card before revalidating it (WithCardMaxAge).
+	defaultCardMaxAge = 5 * time.Minute
+
 	// defaultMaxBodySize is the maximum allowed size of a request body (10 MB).
 	defaultMaxBodySize int64 = 10 << 20
 
@@ -75,6 +79,11 @@ type Authenticator interface {
 // AgentCardProvider returns the agent card to serve at
 // /.well-known/agent-card.json (and the legacy /.well-known/agent.json). The
 // server completes the returned card as WithCard describes.
+//
+// A card from a provider may differ per request (by tenant, cookie or
+// forwarded header), so unless WithCardMaxAge is set it is served with
+// Cache-Control: no-cache: clients revalidate every fetch, and its ETag makes
+// an unchanged card a 304. A *StaticCard is cached like a WithCard card.
 type AgentCardProvider interface {
 	AgentCard(r *http.Request) (*a2a.AgentCard, error)
 }
@@ -107,6 +116,19 @@ func WithCard(card *a2a.AgentCard) Option {
 // WithCardProvider sets a dynamic agent card provider.
 func WithCardProvider(p AgentCardProvider) Option {
 	return func(s *Server) { s.cardProvider = p }
+}
+
+// WithCardMaxAge sets the max-age of the Cache-Control header on the served
+// agent card (A2A 1.0 §8.6): how long a client or cache may reuse the card
+// before asking again. Without it, a card set with WithCard (or none) gets
+// five minutes and a card from a dynamic AgentCardProvider gets "no-cache".
+// Zero or less sends "no-cache", so clients revalidate every time; the card's
+// ETag keeps that to a 304 while the card is unchanged.
+func WithCardMaxAge(d time.Duration) Option {
+	return func(s *Server) {
+		s.cardMaxAge = d
+		s.cardMaxAgeSet = true
+	}
 }
 
 // WithPort sets the TCP port for ListenAndServe. It has no effect on Serve.
@@ -235,6 +257,8 @@ type Server struct {
 	handler       MessageHandler
 	taskStore     TaskStore
 	cardProvider  AgentCardProvider
+	cardMaxAge    time.Duration
+	cardMaxAgeSet bool
 	authenticator Authenticator
 	port          int
 	httpSrv       *http.Server
@@ -557,7 +581,8 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 // handleAgentCard serves the agent card in the caller's protocol version: the
 // 1.0 card when the request asks for 1.0, otherwise the 0.3 card, which also
 // carries supportedInterfaces so a 1.0 client that sent no header still finds
-// its interface.
+// its interface. The response is cacheable (A2A 1.0 §8.6): see writeCacheable
+// and WithCardMaxAge.
 func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 	card, err := s.card(r)
 	if err != nil {
@@ -570,8 +595,27 @@ func (s *Server) handleAgentCard(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v.WireAgentCard(card))
+	body, err := json.Marshal(v.WireAgentCard(card))
+	if err != nil {
+		s.log().ErrorContext(r.Context(), "a2a: failed to encode agent card", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	body = append(body, '\n')
+	writeCacheable(w, r, body, s.cardCacheMaxAge())
+}
+
+// cardCacheMaxAge is the served card's max-age: WithCardMaxAge when set,
+// otherwise the default for a static card and none (no-cache) for a dynamic
+// provider's, which may vary per request.
+func (s *Server) cardCacheMaxAge() time.Duration {
+	if s.cardMaxAgeSet {
+		return s.cardMaxAge
+	}
+	if _, static := s.cardProvider.(*StaticCard); s.cardProvider != nil && !static {
+		return 0
+	}
+	return defaultCardMaxAge
 }
 
 // card returns the agent card this server publishes for r.

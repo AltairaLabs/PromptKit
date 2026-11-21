@@ -126,6 +126,12 @@ The server completes the card before serving it:
 
 `GetExtendedAgentCard` fails with `UnsupportedOperationError` (`-32004`) unless the card declares `extendedAgentCard`, and with `ExtendedAgentCardNotConfiguredError` (`-32007`) if it does. A request that sends `A2A-Version: 1.0` gets the 1.0 card. Any other request gets the 0.3 card: `url`, `preferredTransport` and `protocolVersion`, with `supportedInterfaces` alongside.
 
+A 1.0 card always carries the fields A2A 1.0 marks required: `name`, `description`, `supportedInterfaces`, `version`, `capabilities`, `defaultInputModes`, `defaultOutputModes` and `skills`, and each skill's `description` and `tags`. Unset ones are sent empty (`""`, `{}`, `[]`), so a server without `WithCard` still serves a complete card, with an empty name. Set the name, description, version and modes on the card yourself.
+
+Decoding a card keeps everything either version defines, including `signatures`, extension `params` and a 0.3 skill's `security`, which becomes `securityRequirements`. PromptKit carries signatures but does not create or verify them. They are left out of the 0.3 card, which is a different document from the one that was signed. The server also changes the interfaces and capabilities of the card it serves, so a signed card it has to complete does not match its signature: sign the card as served.
+
+The card response is cacheable. It carries `Cache-Control: max-age=300`, a weak `ETag` hashed from the body and `Vary: A2A-Version`, because the version header picks the card's shape. The tag is weak so it stays valid when compression middleware re-encodes the body, and `Vary` is added to any value a wrapping middleware set. A request whose `If-None-Match` names the current tag gets `304 Not Modified`. A card from an `AgentCardProvider` can differ per request, so it is sent with `Cache-Control: no-cache`: clients revalidate on every fetch and get a 304 while the card is unchanged. `a2aserver.WithCardMaxAge` sets the max-age for either kind of card; zero or less sends `no-cache`.
+
 ### Where the client sends calls
 
 After `Client.Discover`, the runtime client considers only the card's interfaces on the scheme, host and port given to `a2a.NewClient` (default ports filled in). Of those it calls the first JSON-RPC interface that serves the version it speaks, otherwise the first JSON-RPC one, taking its path (an agent serving JSON-RPC at `/`, for example), its version and its `tenant`. An interface at the default `/a2a` keeps the base URL as given.

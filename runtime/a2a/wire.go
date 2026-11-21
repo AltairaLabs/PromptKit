@@ -354,6 +354,10 @@ type v03Skill struct {
 }
 
 // v03Card is the 0.3 card, carrying the 1.0 supportedInterfaces alongside.
+//
+// It has no signatures: a signature covers the card its signer published,
+// and this rendering of it (0.3 field names, supportedInterfaces added) is a
+// different document that the signature cannot verify.
 type v03Card struct {
 	ProtocolVersion                   string                       `json:"protocolVersion"`
 	Name                              string                       `json:"name"`
