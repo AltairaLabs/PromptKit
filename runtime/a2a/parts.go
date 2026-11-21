@@ -2,6 +2,8 @@ package a2a
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -19,7 +21,7 @@ func InferContentType(mediaType string) string {
 		return types.ContentTypeAudio
 	case strings.HasPrefix(mediaType, "video/"):
 		return types.ContentTypeVideo
-	case mediaType == "application/pdf",
+	case mediaType == types.MIMETypePDF,
 		strings.HasPrefix(mediaType, "text/"):
 		return types.ContentTypeDocument
 	default:
@@ -27,10 +29,31 @@ func InferContentType(mediaType string) string {
 	}
 }
 
+// ErrContentTypeNotSupported is wrapped by the errors PartToContentPart and
+// MessageToMessage return for content whose media type cannot be determined,
+// or is application/octet-stream, which names none. A server answers it with
+// ContentTypeNotSupportedError (ErrCodeContentTypeNotSupported).
+var ErrContentTypeNotSupported = errors.New("a2a: content type not supported")
+
+// errDataPart is PartToContentPart's error for a structured data part, which
+// has no media content part to become.
+var errDataPart = errors.New("a2a: structured data parts are not supported")
+
 // PartToContentPart converts an A2A Part to a PromptKit ContentPart. A text part
-// becomes a text content part. A Raw or URL part becomes a media content part
-// and requires MediaType. A structured data part, or a part with none of text,
-// raw, URL or data, returns an error.
+// becomes a text content part. A Raw or URL part becomes a media content part.
+//
+// Its media type is MediaType when set; A2A makes that field optional, so
+// otherwise it is taken from Filename's extension, then from a data URL's
+// header (text/plain when the header names none, as RFC 2397 says) or the URL
+// path's extension, or from sniffing Raw's bytes. Every media type is reported
+// under the name providers list: lowercase, without parameters, and with
+// aliases such as audio/x-wav and audio/wave given as audio/wav.
+//
+// A media part whose type none of these name, whose type is
+// application/octet-stream, or whose undeclared text is not UTF-8, returns an
+// error wrapping ErrContentTypeNotSupported. A data URL without a comma, a
+// structured data part, or a part with none of text, raw, a non-empty URL or
+// data, returns an error.
 func PartToContentPart(part *Part) (types.ContentPart, error) {
 	switch {
 	case part.Text != nil:
@@ -39,37 +62,58 @@ func PartToContentPart(part *Part) (types.ContentPart, error) {
 			Text: part.Text,
 		}, nil
 
-	case len(part.Raw) > 0 && part.MediaType != "":
+	case len(part.Raw) > 0:
+		mediaType, err := rawMediaType(part)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
 		b64 := base64.StdEncoding.EncodeToString(part.Raw)
 		return types.ContentPart{
-			Type: InferContentType(part.MediaType),
+			Type: InferContentType(mediaType),
 			Media: &types.MediaContent{
 				Data:     &b64,
-				MIMEType: part.MediaType,
+				MIMEType: mediaType,
 			},
 		}, nil
 
-	case part.URL != nil && part.MediaType != "":
+	case part.URL != nil && *part.URL != "":
+		mediaType, err := urlMediaType(part)
+		if err != nil {
+			return types.ContentPart{}, err
+		}
 		return types.ContentPart{
-			Type: InferContentType(part.MediaType),
+			Type: InferContentType(mediaType),
 			Media: &types.MediaContent{
 				URL:      part.URL,
-				MIMEType: part.MediaType,
+				MIMEType: mediaType,
 			},
 		}, nil
 
 	case part.dataValue() != nil:
-		return types.ContentPart{}, fmt.Errorf("a2a: structured data parts are not supported")
+		return types.ContentPart{}, errDataPart
 
 	default:
 		return types.ContentPart{}, fmt.Errorf("a2a: empty part (no text, raw, url, or data)")
 	}
 }
 
+// dataPartToContentPart renders a data part as a text content part holding
+// the value's JSON, which is how a conversation can read structured input.
+func dataPartToContentPart(part *Part) (types.ContentPart, error) {
+	encoded, err := json.Marshal(part.dataValue())
+	if err != nil {
+		return types.ContentPart{}, fmt.Errorf("a2a: encoding data part: %w", err)
+	}
+	text := string(encoded)
+	return types.ContentPart{Type: types.ContentTypeText, Text: &text}, nil
+}
+
 // MessageToMessage converts an A2A Message to a PromptKit Message. The "agent"
 // role becomes "assistant"; any other role is copied unchanged. Metadata becomes
-// Meta, and Content is set from the text parts. It returns an error naming the
-// first part that fails to convert.
+// Meta. Parts are converted with PartToContentPart, except that a data part
+// becomes a text part holding the value's JSON. Content is set from the text
+// parts. It returns an error naming the first part that fails to convert;
+// content of a type that cannot be determined wraps ErrContentTypeNotSupported.
 func MessageToMessage(msg *Message) (*types.Message, error) {
 	role := string(msg.Role)
 	if role == "agent" {
@@ -81,8 +125,12 @@ func MessageToMessage(msg *Message) (*types.Message, error) {
 		Meta: msg.Metadata,
 	}
 
-	for i, p := range msg.Parts {
-		cp, err := PartToContentPart(&p)
+	for i := range msg.Parts {
+		p := &msg.Parts[i]
+		cp, err := PartToContentPart(p)
+		if errors.Is(err, errDataPart) {
+			cp, err = dataPartToContentPart(p)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("a2a: converting part %d: %w", i, err)
 		}

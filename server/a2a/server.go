@@ -19,6 +19,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/a2a"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (
@@ -817,20 +818,24 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 		return
 	}
 
+	// A tool-result message resumes a conversation; any other message is
+	// converted before a conversation is opened for it, so one the server
+	// refuses opens nothing.
+	toolResults := extractToolResults(params.Message.Parts)
+	var pkMsg *types.Message
+	if len(toolResults) == 0 {
+		if pkMsg = convertMessage(call, &params.Message); pkMsg == nil {
+			return
+		}
+	}
+
 	conv := s.openConversation(call, target.contextID)
 	if conv == nil {
 		return
 	}
 
-	// Check if this is a tool-result message for a resumable conversation.
-	if toolResults := extractToolResults(params.Message.Parts); len(toolResults) > 0 {
+	if len(toolResults) > 0 {
 		s.handleToolResultMessage(call, conv, &target, toolResults, params.Configuration)
-		return
-	}
-
-	pkMsg, err := a2a.MessageToMessage(&params.Message)
-	if err != nil {
-		call.fail(a2a.ErrCodeInvalidParams, fmt.Sprintf("Invalid message: %v", err))
 		return
 	}
 
@@ -846,6 +851,22 @@ func (s *Server) handleSendMessage(call *rpcCall) {
 	bgCtx := context.WithoutCancel(call.r.Context())
 	done := s.runConversation(bgCtx, target.taskID, target.contextID, conv, pkMsg)
 	s.awaitTurn(call, target.taskID, done, params.Configuration)
+}
+
+// convertMessage converts an inbound message for a conversation. Content the
+// server cannot type fails the call with ContentTypeNotSupportedError, and
+// any other unconvertible part with InvalidParams; it returns nil then.
+func convertMessage(call *rpcCall, msg *a2a.Message) *types.Message {
+	pkMsg, err := a2a.MessageToMessage(msg)
+	if err == nil {
+		return pkMsg
+	}
+	code := a2a.ErrCodeInvalidParams
+	if errors.Is(err, a2a.ErrContentTypeNotSupported) {
+		code = a2a.ErrCodeContentTypeNotSupported
+	}
+	call.fail(code, fmt.Sprintf("Invalid message: %v", err))
+	return nil
 }
 
 // toolResultEntry represents a single client tool result extracted from an A2A message.
