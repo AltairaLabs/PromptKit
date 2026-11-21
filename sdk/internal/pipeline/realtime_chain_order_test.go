@@ -127,6 +127,16 @@ func TestCollectPipelineStages_RealtimeStageOrder(t *testing.T) {
 				"duplex_provider", "cue", "playout-hold", "memory_extraction", "audio-pacing-output"),
 		},
 		{
+			name: "a recording store without a config, an extractor without a store: neither stage",
+			cfg: func() *Config {
+				cfg := base()
+				cfg.RecordingStore = recStore
+				cfg.MemoryExtractor = noopExtractor{}
+				return cfg
+			}(),
+			want: append(append([]string{}, front...), "duplex_provider", "cue"),
+		},
+		{
 			name: "save and broadcast, reorder, no recording",
 			cfg: func() *Config {
 				cfg := base()
