@@ -729,6 +729,9 @@ var (
     // ErrRealtimeChainSlot is returned for a slot name the chain does not have,
     // or a nil stage inserted after a slot.
     ErrRealtimeChainSlot = errors.New("realtime chain: invalid slot")
+    // ErrRealtimeChainPacing is returned for a RealtimePacing value the chain
+    // does not have.
+    ErrRealtimeChainPacing = errors.New("realtime chain: unknown pacing mode")
 )
 ```
 
@@ -4907,7 +4910,7 @@ func (r *RandomRouter) RegisterOutput(name string, output chan<- StreamElement)
 RegisterOutput registers an output channel with a name.
 
 <a name="RealtimeChainConfig"></a>
-## type [RealtimeChainConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L79-L121>)
+## type [RealtimeChainConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L81-L124>)
 
 RealtimeChainConfig is what a host varies in the realtime chain. The zero value builds the provider stage followed by the cue stage.
 
@@ -4935,7 +4938,7 @@ type RealtimeChainConfig struct {
     Recording RecordingStageConfig
 
     // AudioTap, MemoryExtraction and Save are host-built stages placed in
-    // their slots; nil leaves the slot empty.
+    // their slots; nil (typed or untyped) leaves the slot empty.
     AudioTap         Stage
     MemoryExtraction Stage
     Save             Stage
@@ -4944,7 +4947,8 @@ type RealtimeChainConfig struct {
     // each completed message on it.
     MessageBroadcast *events.Emitter
 
-    // Pacing selects the output audio pacing stage.
+    // Pacing selects the output audio pacing stage; a value other than the
+    // RealtimePacing constants is an error.
     Pacing RealtimePacing
 
     // After inserts stages directly after a slot, in the order given. A slot
@@ -4958,7 +4962,7 @@ type RealtimeChainConfig struct {
 ```
 
 <a name="RealtimePacing"></a>
-## type [RealtimePacing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L61>)
+## type [RealtimePacing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L63>)
 
 RealtimePacing selects the output audio pacing stage of the realtime chain.
 
@@ -4985,7 +4989,7 @@ const (
 ```
 
 <a name="RealtimeSlot"></a>
-## type [RealtimeSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L13>)
+## type [RealtimeSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L15>)
 
 RealtimeSlot names a position in the realtime chain NewRealtimeChain builds. A host inserts its own stages after a slot \(RealtimeChainConfig.After\) and removes the stage in a slot \(RealtimeChainConfig.Drop\) by its name.
 
@@ -5647,7 +5651,7 @@ When duplex creates its session the stage learns the session's voice and output 
 While a clip renders, reply output waits behind it for at most 1.5s; past that the earcon plays in its place, and the clip is kept for the next cue. A cut \(barge\-in\) while it renders drops the cue. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) renders PCM16 at 24 kHz in the voice service's default voice.
 
 <a name="NewRealtimeChain"></a>
-### func [NewRealtimeChain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L148>)
+### func [NewRealtimeChain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L162>)
 
 ```go
 func NewRealtimeChain(provider *DuplexProviderStage, cfg RealtimeChainConfig) ([]Stage, error)
@@ -5663,6 +5667,10 @@ memory-extraction, message-broadcast, save, pacing
 The cue stage directly follows the provider, ahead of the stages that treat its audio as reply audio. The transcript reorder stage runs before everything that reads the transcript, the playout hold before everything that records what was heard, and pacing last, so the bookkeeping stages run at full speed while the reply reaches a realtime speaker at playback rate.
 
 The host puts its own front stages \(prompt assembly, input recording, resampling, client\-side turn detection\) ahead of the returned stages and chains them with a PipelineBuilder.
+
+Build one chain per provider stage. The cue stage plays the provider's cues, so each call that succeeds rewires them: to the cue stage it returns, or to none when the cue slot is dropped. A chain built earlier for the same provider then plays none. A call that returns an error changes nothing.
+
+A nil stage, typed or untyped, in AudioTap, MemoryExtraction or Save leaves the slot empty; in After it is an error.
 
 <a name="WithNamePrefix"></a>
 ### func [WithNamePrefix](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/rename.go#L29>)

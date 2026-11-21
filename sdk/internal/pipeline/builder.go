@@ -581,7 +581,7 @@ func collectPipelineStages(
 	// A realtime (ASM) pipeline's chain from the provider stage on is the
 	// runtime's (stage.NewRealtimeChain), the one every host builds.
 	if duplex := duplexProviderStage(providerStages); duplex != nil {
-		chain, chainErr := stage.NewRealtimeChain(duplex, realtimeChainConfig(cfg, stateStoreConfig))
+		chain, chainErr := newRealtimeChain(duplex, realtimeChainConfig(cfg, stateStoreConfig))
 		if chainErr != nil {
 			return nil, chainErr
 		}
@@ -616,6 +616,10 @@ func collectPipelineStages(
 
 	return stages, nil
 }
+
+// newRealtimeChain builds the realtime chain; a variable so a test can see
+// that the SDK's realtime pipeline is the chain it returns.
+var newRealtimeChain = stage.NewRealtimeChain
 
 // duplexProviderStage returns the realtime provider stage among the provider
 // stages, or nil when the pipeline is not realtime (text, VAD, composition).

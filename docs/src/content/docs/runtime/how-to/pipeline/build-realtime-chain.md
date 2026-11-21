@@ -24,7 +24,7 @@ duplex := stage.NewDuplexProviderStageWithTurnState(
 duplex.SetHookRegistry(guardrails)
 ```
 
-Configure the stage (hooks, tool execution, caller) before you pass it to `NewRealtimeChain`.
+Configure the stage (hooks, tool execution, caller) before you pass it to `NewRealtimeChain`. Build one chain per provider stage: each successful call wires the provider's cues to the cue stage it returns, so a chain built earlier for the same provider stage plays no cues.
 
 ## 2. Describe the chain
 
@@ -59,7 +59,7 @@ cfg := stage.RealtimeChainConfig{
 | `RealtimeSlotSave` | your `Save` stage | `Save` is set |
 | `RealtimeSlotPacing` | `AudioPacingStage` named `audio-pacing-output` | `Pacing` is not `RealtimePacingNone` |
 
-The chain sets the recording stage's position to output, whatever `Recording.Position` holds.
+The chain sets the recording stage's position to output, whatever `Recording.Position` holds. A nil `AudioTap`, `MemoryExtraction` or `Save`, including a typed nil such as a nil `*stage.IncrementalSaveStage`, leaves its slot empty.
 
 `Pacing` takes one of three values:
 
@@ -127,7 +127,7 @@ Without the insertions and drops of steps 3 and 4, the configuration in step 2 p
 
 ## Troubleshooting
 
-`NewRealtimeChain` returns an error wrapping `stage.ErrRealtimeChainProvider` when the provider stage is nil or `Drop` lists `RealtimeSlotProvider`. It returns an error wrapping `stage.ErrRealtimeChainSlot` when `After` or `Drop` names a slot the chain does not have, or `After` holds a nil stage.
+`NewRealtimeChain` returns an error wrapping `stage.ErrRealtimeChainProvider` when the provider stage is nil or `Drop` lists `RealtimeSlotProvider`. It returns an error wrapping `stage.ErrRealtimeChainSlot` when `After` or `Drop` names a slot the chain does not have, or `After` holds a nil stage (typed or untyped). It returns an error wrapping `stage.ErrRealtimeChainPacing` when `Pacing` holds a value other than the three listed in step 2. A call that returns an error leaves the provider stage unchanged.
 
 If `Build` rejects duplicate stage names, rename the stage you inserted: the pipeline builder treats stage names as unique IDs.
 

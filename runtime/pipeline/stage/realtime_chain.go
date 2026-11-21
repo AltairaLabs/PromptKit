@@ -3,6 +3,8 @@ package stage
 import (
 	"errors"
 	"fmt"
+	"reflect"
+	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 )
@@ -99,7 +101,7 @@ type RealtimeChainConfig struct {
 	Recording RecordingStageConfig
 
 	// AudioTap, MemoryExtraction and Save are host-built stages placed in
-	// their slots; nil leaves the slot empty.
+	// their slots; nil (typed or untyped) leaves the slot empty.
 	AudioTap         Stage
 	MemoryExtraction Stage
 	Save             Stage
@@ -108,7 +110,8 @@ type RealtimeChainConfig struct {
 	// each completed message on it.
 	MessageBroadcast *events.Emitter
 
-	// Pacing selects the output audio pacing stage.
+	// Pacing selects the output audio pacing stage; a value other than the
+	// RealtimePacing constants is an error.
 	Pacing RealtimePacing
 
 	// After inserts stages directly after a slot, in the order given. A slot
@@ -128,6 +131,9 @@ var (
 	// ErrRealtimeChainSlot is returned for a slot name the chain does not have,
 	// or a nil stage inserted after a slot.
 	ErrRealtimeChainSlot = errors.New("realtime chain: invalid slot")
+	// ErrRealtimeChainPacing is returned for a RealtimePacing value the chain
+	// does not have.
+	ErrRealtimeChainPacing = errors.New("realtime chain: unknown pacing mode")
 )
 
 // NewRealtimeChain returns the stages of a realtime (duplex) pipeline from
@@ -145,6 +151,14 @@ var (
 // The host puts its own front stages (prompt assembly, input recording,
 // resampling, client-side turn detection) ahead of the returned stages and
 // chains them with a PipelineBuilder.
+//
+// Build one chain per provider stage. The cue stage plays the provider's cues,
+// so each call that succeeds rewires them: to the cue stage it returns, or to
+// none when the cue slot is dropped. A chain built earlier for the same
+// provider then plays none. A call that returns an error changes nothing.
+//
+// A nil stage, typed or untyped, in AudioTap, MemoryExtraction or Save leaves
+// the slot empty; in After it is an error.
 func NewRealtimeChain(provider *DuplexProviderStage, cfg RealtimeChainConfig) ([]Stage, error) {
 	if provider == nil {
 		return nil, ErrRealtimeChainProvider
@@ -156,16 +170,43 @@ func NewRealtimeChain(provider *DuplexProviderStage, cfg RealtimeChainConfig) ([
 	if err := checkRealtimeAfter(cfg.After); err != nil {
 		return nil, err
 	}
+	if !isRealtimePacing(cfg.Pacing) {
+		return nil, fmt.Errorf("%w: %d", ErrRealtimeChainPacing, cfg.Pacing)
+	}
+	provider.cues = nil // the cue slot's stage, if any, wires its own
 	var out []Stage
 	for _, slot := range realtimeSlots {
 		if !dropped[slot] {
-			if st := cfg.slotStage(slot, provider); st != nil {
+			if st := cfg.slotStage(slot, provider); !isNilStage(st) {
 				out = append(out, st)
 			}
 		}
 		out = append(out, cfg.After[slot]...)
 	}
 	return out, nil
+}
+
+// isNilStage reports whether st is nil, or an interface holding a nil value.
+func isNilStage(st Stage) bool {
+	if st == nil {
+		return true
+	}
+	v := reflect.ValueOf(st)
+	switch v.Kind() { //nolint:exhaustive // only nillable kinds can hold a nil
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+func isRealtimePacing(p RealtimePacing) bool {
+	switch p {
+	case RealtimePacingNone, RealtimePacingFlushOnCut, RealtimePacingPlayThrough:
+		return true
+	default:
+		return false
+	}
 }
 
 // realtimeDropped returns the set of slots cfg drops.
@@ -184,14 +225,20 @@ func realtimeDropped(cfg RealtimeChainConfig) (map[RealtimeSlot]bool, error) {
 }
 
 // checkRealtimeAfter rejects an insertion after an unknown slot, or of a nil
-// stage.
+// stage. It checks the slots in name order, so the error names the same slot
+// on every call.
 func checkRealtimeAfter(after map[RealtimeSlot][]Stage) error {
-	for slot, stages := range after {
+	slots := make([]RealtimeSlot, 0, len(after))
+	for slot := range after {
+		slots = append(slots, slot)
+	}
+	sort.Slice(slots, func(i, j int) bool { return slots[i] < slots[j] })
+	for _, slot := range slots {
 		if !isRealtimeSlot(slot) {
 			return fmt.Errorf("%w: after %q", ErrRealtimeChainSlot, slot)
 		}
-		for _, st := range stages {
-			if st == nil {
+		for _, st := range after[slot] {
+			if isNilStage(st) {
 				return fmt.Errorf("%w: nil stage after %q", ErrRealtimeChainSlot, slot)
 			}
 		}
@@ -254,7 +301,7 @@ func (cfg *RealtimeChainConfig) pacingStage() Stage {
 		return NewNamedAudioPacingStage(realtimeOutputPacingName)
 	case RealtimePacingNone:
 		return nil
-	default:
+	default: // rejected by NewRealtimeChain
 		return nil
 	}
 }

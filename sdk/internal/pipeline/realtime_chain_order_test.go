@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -189,4 +190,40 @@ func TestCollectPipelineStages_RealtimeReorderUsesPlaceholder(t *testing.T) {
 	require.NotNil(t, first.Message)
 	assert.Equal(t, "user", first.Message.Role)
 	assert.Equal(t, "[inaudible]", first.Message.Content)
+}
+
+// The SDK's realtime pipeline is the chain the runtime builder returns, built
+// for the SDK's own duplex provider stage from the SDK config, and a builder
+// error fails the build.
+func TestCollectPipelineStages_RealtimeChainComesFromRuntimeBuilder(t *testing.T) {
+	cfg := &Config{
+		PromptRegistry:      createTestRegistry("chat"),
+		TaskType:            "chat",
+		StreamInputProvider: mock.NewStreamingProvider("test", "test-model", false),
+		StreamInputConfig:   &providers.StreamingInputConfig{},
+		PaceOutputAudio:     true,
+	}
+	var gotProvider *stage.DuplexProviderStage
+	var gotCfg stage.RealtimeChainConfig
+	restore := newRealtimeChain
+	t.Cleanup(func() { newRealtimeChain = restore })
+	newRealtimeChain = func(p *stage.DuplexProviderStage, c stage.RealtimeChainConfig) ([]stage.Stage, error) {
+		gotProvider, gotCfg = p, c
+		return []stage.Stage{p, stage.NewPassthroughStage("from-builder")}, nil
+	}
+
+	assert.Equal(t,
+		[]string{"variable_provider", "prompt_assembly", "template", "duplex_provider", "from-builder"},
+		realtimeStageNames(t, cfg))
+	require.NotNil(t, gotProvider)
+	assert.Equal(t, "duplex_provider", gotProvider.Name())
+	assert.Equal(t, stage.RealtimePacingFlushOnCut, gotCfg.Pacing)
+	assert.True(t, gotCfg.PlayoutHold)
+
+	boom := errors.New("boom")
+	newRealtimeChain = func(*stage.DuplexProviderStage, stage.RealtimeChainConfig) ([]stage.Stage, error) {
+		return nil, boom
+	}
+	_, err := collectPipelineStages(cfg, nil, false)
+	assert.ErrorIs(t, err, boom)
 }

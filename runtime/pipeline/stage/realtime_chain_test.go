@@ -38,13 +38,13 @@ func fullRealtimeConfig(t *testing.T) RealtimeChainConfig {
 		ReorderInputTranscript:     true,
 		InputTranscriptPlaceholder: "[inaudible]",
 		PlayoutHold:                true,
-		RecordingStore:         store,
-		Recording:              RecordingStageConfig{Position: RecordingPositionInput, SessionID: "s"},
-		AudioTap:               hostStage("tap"),
-		MemoryExtraction:       hostStage("extract"),
-		MessageBroadcast:       events.NewEmitter(events.NewEventBus(), "r", "s", "c"),
-		Save:                   hostStage("save"),
-		Pacing:                 RealtimePacingFlushOnCut,
+		RecordingStore:             store,
+		Recording:                  RecordingStageConfig{Position: RecordingPositionInput, SessionID: "s"},
+		AudioTap:                   hostStage("tap"),
+		MemoryExtraction:           hostStage("extract"),
+		MessageBroadcast:           events.NewEmitter(events.NewEventBus(), "r", "s", "c"),
+		Save:                       hostStage("save"),
+		Pacing:                     RealtimePacingFlushOnCut,
 	}
 }
 
@@ -180,4 +180,68 @@ func TestNewRealtimeChain_Errors(t *testing.T) {
 	})
 	require.ErrorIs(t, err, ErrRealtimeChainSlot)
 	assert.EqualError(t, err, `realtime chain: invalid slot: nil stage after "cue"`)
+}
+
+// A pacing mode the chain does not know is an error, not a chain without
+// pacing.
+func TestNewRealtimeChain_UnknownPacing(t *testing.T) {
+	_, err := NewRealtimeChain(newRealtimeTestProvider(), RealtimeChainConfig{Pacing: RealtimePacing(7)})
+	require.ErrorIs(t, err, ErrRealtimeChainPacing)
+	assert.EqualError(t, err, "realtime chain: unknown pacing mode: 7")
+}
+
+// A typed nil stage counts as no stage: it leaves its slot empty, and it is
+// rejected where a nil stage is.
+func TestNewRealtimeChain_TypedNilStages(t *testing.T) {
+	var none *PassthroughStage
+	stages, err := NewRealtimeChain(newRealtimeTestProvider(), RealtimeChainConfig{
+		AudioTap: none, MemoryExtraction: none, Save: none,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"duplex_provider", "cue"}, chainNames(stages))
+
+	_, err = NewRealtimeChain(newRealtimeTestProvider(), RealtimeChainConfig{
+		After: map[RealtimeSlot][]Stage{RealtimeSlotSave: {none}},
+	})
+	require.ErrorIs(t, err, ErrRealtimeChainSlot)
+	assert.EqualError(t, err, `realtime chain: invalid slot: nil stage after "save"`)
+}
+
+// Each call wires the provider's cues to the cue stage it returns, or to none
+// when the cue is dropped; a call that fails leaves the provider as it was.
+func TestNewRealtimeChain_RebuildRewiresCue(t *testing.T) {
+	provider := newRealtimeTestProvider()
+	first, err := NewRealtimeChain(provider, RealtimeChainConfig{})
+	require.NoError(t, err)
+	firstCue, ok := first[1].(*cueStage)
+	require.True(t, ok)
+	require.Same(t, firstCue.bank, provider.cues)
+
+	_, err = NewRealtimeChain(provider, RealtimeChainConfig{Drop: []RealtimeSlot{"avatar"}})
+	require.Error(t, err)
+	assert.Same(t, firstCue.bank, provider.cues, "a failed call changes nothing")
+
+	_, err = NewRealtimeChain(provider, RealtimeChainConfig{Drop: []RealtimeSlot{RealtimeSlotCue}})
+	require.NoError(t, err)
+	assert.Nil(t, provider.cues, "the dropped cue leaves no cue stage playing this provider's cues")
+
+	third, err := NewRealtimeChain(provider, RealtimeChainConfig{})
+	require.NoError(t, err)
+	thirdCue, ok := third[1].(*cueStage)
+	require.True(t, ok)
+	assert.Same(t, thirdCue.bank, provider.cues)
+	assert.NotSame(t, firstCue.bank, provider.cues)
+}
+
+// With several invalid insertions the error names the same one every time:
+// the first in slot-name order.
+func TestNewRealtimeChain_AfterErrorIsDeterministic(t *testing.T) {
+	after := map[RealtimeSlot][]Stage{
+		"zebra": {hostStage("z")}, "avatar": {hostStage("a")}, "middle": {hostStage("m")},
+		RealtimeSlotCue: {hostStage("ok")},
+	}
+	for i := 0; i < 50; i++ {
+		_, err := NewRealtimeChain(newRealtimeTestProvider(), RealtimeChainConfig{After: after})
+		require.EqualError(t, err, `realtime chain: invalid slot: after "avatar"`)
+	}
 }
