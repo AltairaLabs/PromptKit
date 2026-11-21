@@ -609,17 +609,32 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		// A truncation keeps a prefix of the model's own text: that is the
 		// turn's text from here on. It is shown, not spoken, and the
 		// completed turn is still judged. The caller already has what was
-		// forwarded: only what follows it is sent.
+		// forwarded: only what follows it is sent. Under a hold the caller
+		// has only what was released, with its audio: the turn keeps that,
+		// and nothing they did not hear is shown.
+		kept, held := v.text, s.replyHold != nil
+		if heard := s.heardReply(); held && strings.HasPrefix(kept, heard) {
+			kept = heard
+		}
 		s.accumulatedText.Reset()
-		s.accumulatedText.WriteString(v.text)
+		s.accumulatedText.WriteString(kept)
 		s.blockTurn()
-		if rest, kept := strings.CutPrefix(v.text, sent); !kept {
-			s.showBlockedText(v.text, false, true)
-		} else if rest != "" {
-			s.showBlockedText(rest, false, false)
+		if !held { // under a hold nothing beyond what was heard is shown
+			s.showTruncatedText(v.text, sent)
 		}
 	}
 	dropAssistantOutput(chunk, isOutputTranscription)
+}
+
+// showTruncatedText shows the caller a truncated reply's text, kept, given
+// the text they already have, sent: what follows it, or kept in place of it
+// when kept does not begin with it.
+func (s *DuplexProviderStage) showTruncatedText(kept, sent string) {
+	if rest, ok := strings.CutPrefix(kept, sent); !ok {
+		s.showBlockedText(kept, false, true)
+	} else if rest != "" {
+		s.showBlockedText(rest, false, false)
+	}
 }
 
 // blockTurn marks the current reply blocked, so the rest of its text and audio

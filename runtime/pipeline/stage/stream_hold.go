@@ -41,11 +41,13 @@ type StreamHoldConfig struct {
 	// A realtime model speaks as it writes, so holding the text alone keeps
 	// nothing from the caller's ears: the reply's audio is held with it.
 	Realtime RealtimeHold
-	// Holdback is how much of the reply audio received most recently a
-	// RealtimeHoldSegment release keeps back, for a session whose transcript
-	// can trail its audio: the audio of words not yet judged. Zero takes the
-	// session's own measure (providers.TranscriptLagger), and none for a
-	// session whose transcript never trails.
+	// Holdback is how far a session's transcript can trail its audio: how
+	// much of the reply audio received most recently a RealtimeHoldSegment
+	// release keeps back (the audio of words not yet judged), and how long a
+	// held reply whose generation completed waits for its last words before
+	// it is judged. Zero takes the session's own measure
+	// (providers.TranscriptLagger), and none for a session whose transcript
+	// never trails.
 	Holdback time.Duration
 
 	// firstMinChars and maxChars override the sizes MinChars derives, for

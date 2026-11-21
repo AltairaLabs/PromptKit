@@ -109,6 +109,9 @@ type MockStreamSession struct {
 	// back (mock_stream_playout.go). Guarded by mu.
 	playoutHeld   bool
 	releasedAudio []byte
+	// heldInterrupted and heldDrops record InterruptHeldAudio and HeldAudioDropped.
+	heldInterrupted bool
+	heldDrops       int
 
 	// Configurable behavior for testing
 	sendChunkErr       error

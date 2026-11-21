@@ -148,6 +148,7 @@ func (s *rtHold) quiet(t *testing.T, r *heldRead) {
 		select {
 		case c, ok := <-s.ch:
 			require.True(t, ok)
+			require.NoError(t, c.Error)
 			r.add(c)
 		case <-deadline:
 			return
@@ -663,4 +664,80 @@ func TestRealtimeHold_SegmentTimeoutFailsClosed(t *testing.T) {
 	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason)
 	require.Len(t, msgs[0].Validations, 1)
 	assert.Equal(t, "timeout", msgs[0].Validations[0].Details["reason"])
+}
+
+// A caller who starts speaking while a reply that finished generating is
+// still held for its judge speaks over it: the session reports it, and the
+// reply is never released, though the judge then passes it. The stored turn
+// is what was heard of it: nothing.
+func TestRealtimeHold_CallerSpeakingOverTheHeldReplyDropsIt(t *testing.T) {
+	s := openRealtimeHold(t, nil, []bool{true}, realtimeHold(RealtimeHoldTurn))
+	r := &heldRead{}
+	s.emit(said("Sunny skies."), spoke(1), endChunk())
+	recvWithin(t, s.judge.started)
+	s.sess.InterruptHeldAudio()
+	s.emit(&providers.StreamChunk{Interrupted: true})
+	letThrough(t, s.judge.gate)
+	s.until(t, r, func() bool { return r.has("interrupted") })
+	s.quiet(t, r)
+
+	assert.NotContains(t, r.trace, "text:Sunny skies.")
+	assert.NotContains(t, r.trace, "audio:1")
+	assert.NotContains(t, r.trace, "end:stop", "no turn of the reply ends: none was heard")
+	assert.Empty(t, s.sess.ReleasedAudio(), "none of the reply played")
+	assert.Positive(t, s.sess.HeldDrops(), "the session is told the held reply was dropped")
+	for _, m := range s.assistants(t) {
+		assert.Empty(t, m.Content, "nothing of the reply was heard")
+		assert.Empty(t, storedAudio(t, m))
+	}
+}
+
+// A judge that errors fails closed under either hold: the caller hears the
+// guardrail's message and none of the reply.
+func TestRealtimeHold_JudgeErrorFailsClosed(t *testing.T) {
+	for name, tc := range map[string]struct {
+		params map[string]any
+		mode   RealtimeHold
+	}{
+		"turn":    {nil, RealtimeHoldTurn},
+		"segment": {map[string]any{"stream_hold": "segment"}, RealtimeHoldSegment},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := openRealtimeHold(t, tc.params, nil, realtimeHold(tc.mode))
+			s.judge.fail = errors.New("judge unavailable")
+			r := &heldRead{}
+			s.emit(spoke(1), said("Sunny skies."), said(" Rain later."), spoke(2), endChunk())
+			recvWithin(t, s.judge.started)
+			letThrough(t, s.judge.gate)
+			s.until(t, r, func() bool { return r.ended() && r.has("cue-audio") })
+
+			assert.Equal(t, []string{"interrupted", "text:" + holdMessage, "end:safety"}, withoutCue(r.trace))
+			assert.Empty(t, s.sess.ReleasedAudio())
+			msgs := s.assistants(t)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, holdMessage, msgs[0].Content)
+			assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason)
+		})
+	}
+}
+
+// A reply with a transcript and no audio is held and released like any
+// other, its text a segment at a time.
+func TestRealtimeHold_TranscriptOnlyReply(t *testing.T) {
+	s := openRealtimeHold(t, map[string]any{"stream_hold": "segment"}, []bool{true, true},
+		realtimeHold(RealtimeHoldSegment))
+	r := &heldRead{}
+	s.emit(said("Sunny skies."), said(" Rain later."))
+	assert.Equal(t, "Sunny skies.", recvWithin(t, s.judge.started))
+	letThrough(t, s.judge.gate)
+	s.until(t, r, func() bool { return r.has("text:Sunny skies.") })
+	s.emit(endChunk())
+	recvWithin(t, s.judge.started)
+	letThrough(t, s.judge.gate)
+	s.until(t, r, r.ended)
+
+	assert.Equal(t, []string{"text:Sunny skies.", "text: Rain later.", "end:stop"}, r.trace)
+	msgs := s.assistants(t)
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "Sunny skies. Rain later.", msgs[0].Content)
 }

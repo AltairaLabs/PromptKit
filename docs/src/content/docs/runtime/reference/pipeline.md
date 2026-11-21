@@ -2419,7 +2419,7 @@ func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSe
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
 
 <a name="DuplexProviderStage.SetStreamHold"></a>
-### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1090>)
+### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1105>)
 
 ```go
 func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)
@@ -5014,7 +5014,7 @@ type RealtimeChainConfig struct {
 ```
 
 <a name="RealtimeHold"></a>
-## type [RealtimeHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L58>)
+## type [RealtimeHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L60>)
 
 RealtimeHold is how a realtime session holds a spoken reply for the output guardrails that hold it \(StreamHoldConfig.Realtime\).
 
@@ -5041,7 +5041,7 @@ const (
 ```
 
 <a name="RealtimeHold.Valid"></a>
-### func \(RealtimeHold\) [Valid](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L75>)
+### func \(RealtimeHold\) [Valid](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L77>)
 
 ```go
 func (h RealtimeHold) Valid() bool
@@ -6340,7 +6340,7 @@ func (e *StreamExecution) Output() <-chan StreamElement
 Output returns the execution's output, as Execute returns it.
 
 <a name="StreamHoldConfig"></a>
-## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L21-L54>)
+## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L21-L56>)
 
 StreamHoldConfig sizes the segments a stream\_hold: segment output guardrail judges a streamed reply in, and bounds its judging. It is per conversation, not per guardrail: every segment guardrail judges the same segments. Zero fields take the defaults.
 
@@ -6368,11 +6368,13 @@ type StreamHoldConfig struct {
     // A realtime model speaks as it writes, so holding the text alone keeps
     // nothing from the caller's ears: the reply's audio is held with it.
     Realtime RealtimeHold
-    // Holdback is how much of the reply audio received most recently a
-    // RealtimeHoldSegment release keeps back, for a session whose transcript
-    // can trail its audio: the audio of words not yet judged. Zero takes the
-    // session's own measure (providers.TranscriptLagger), and none for a
-    // session whose transcript never trails.
+    // Holdback is how far a session's transcript can trail its audio: how
+    // much of the reply audio received most recently a RealtimeHoldSegment
+    // release keeps back (the audio of words not yet judged), and how long a
+    // held reply whose generation completed waits for its last words before
+    // it is judged. Zero takes the session's own measure
+    // (providers.TranscriptLagger), and none for a session whose transcript
+    // never trails.
     Holdback time.Duration
     // contains filtered or unexported fields
 }

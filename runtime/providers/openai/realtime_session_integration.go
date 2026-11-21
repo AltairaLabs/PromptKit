@@ -98,7 +98,12 @@ type RealtimeSession struct {
 	// (HoldPlayout): audio then counts toward playout as it is released
 	// (AudioReleased), not as it arrives. Guarded by recvMu.
 	playoutHeld bool
-	truncates   truncateTracker
+	// heldItems is the reply audio delivered while playout is held, per item,
+	// and heldInterrupted is set once the caller spoke over some of it still
+	// held (realtime_playout.go). Guarded by recvMu.
+	heldItems       []heldItem
+	heldInterrupted bool
+	truncates       truncateTracker
 	// cancels tracks the response.cancel events InterruptResponse sent, so
 	// one the server rejects (the response had ended) is not a session error.
 	cancels truncateTracker
@@ -845,7 +850,9 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 		s.speechSeq++
 	}
 	playing := s.playoutEstimate().Playing()
-	if !s.responseActive && !playing {
+	// Speech over a held reply's silence is over the reply: it waits for the
+	// caller, though they hear nothing of it yet.
+	if !s.responseActive && !playing && !s.interruptHeldAudio() {
 		logger.Debug("OpenAI Realtime: speech started (turn start)", "item_id", e.ItemID)
 		return
 	}
@@ -864,16 +871,22 @@ func (s *RealtimeSession) handleSpeechStarted(e *InputAudioBufferSpeechStartedEv
 // conversation.item.truncate.
 func (s *RealtimeSession) truncateHeard() {
 	for _, cut := range s.playoutEstimate().Stop() {
-		event := conversationItemTruncateEvent{
-			ClientEvent:  ClientEvent{EventID: s.nextEventID(), Type: realtimeEventItemTruncate},
-			ItemID:       cut.ItemID,
-			ContentIndex: cut.ContentIndex,
-			AudioEndMs:   int(cut.Heard.Milliseconds()),
-		}
-		s.truncates.sent(event.EventID, cut.ItemID)
-		if err := s.ws.Send(event); err != nil {
-			logger.Warn("OpenAI Realtime: failed to truncate the interrupted reply", "item_id", cut.ItemID, "error", err)
-		}
+		s.sendTruncate(cut.ItemID, cut.ContentIndex, cut.Heard)
+	}
+}
+
+// sendTruncate cuts the model's copy of an audio item to the heard part,
+// with conversation.item.truncate.
+func (s *RealtimeSession) sendTruncate(itemID string, contentIndex int, heard time.Duration) {
+	event := conversationItemTruncateEvent{
+		ClientEvent:  ClientEvent{EventID: s.nextEventID(), Type: realtimeEventItemTruncate},
+		ItemID:       itemID,
+		ContentIndex: contentIndex,
+		AudioEndMs:   int(heard.Milliseconds()),
+	}
+	s.truncates.sent(event.EventID, itemID)
+	if err := s.ws.Send(event); err != nil {
+		logger.Warn("OpenAI Realtime: failed to truncate the interrupted reply", "item_id", itemID, "error", err)
 	}
 }
 

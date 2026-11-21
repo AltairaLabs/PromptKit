@@ -80,17 +80,23 @@ func TestLiveReplyHold_GenerationCompleteNotReported(t *testing.T) {
 
 // With its playout held, the session counts a reply's audio as playing only
 // from its release: speech 3.5 s after two seconds of audio arrived, 0.5 s
-// after its release, is barge-in, while unreleased audio never plays, even
-// 1.5 s after it arrived.
+// after its release, is barge-in, while audio the pipeline dropped never
+// plays, even 1.5 s after it arrived. Audio still held, neither released nor
+// dropped, waits for the caller: speaking over it is barge-in, and the
+// session reports it so the pipeline releases none of it.
 func TestLiveReplyHold_HeldPlayoutCountsFromRelease(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		release  bool
+		drop     bool
 		speakAt  time.Duration
 		wantBarg bool
+		wantHeld bool
 	}{
-		{"released", true, 3500 * time.Millisecond, true},
-		{"never released", false, 1500 * time.Millisecond, false},
+		{"released", true, true, 3500 * time.Millisecond, true, false},
+		{"released and played out", true, false, 6 * time.Second, false, false},
+		{"dropped", false, true, 1500 * time.Millisecond, false, false},
+		{"still held", false, false, 1500 * time.Millisecond, true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, now := playoutSession(t)
@@ -104,10 +110,14 @@ func TestLiveReplyHold_HeldPlayoutCountsFromRelease(t *testing.T) {
 					s.AudioReleased(&held[i])
 				}
 			}
+			if tc.drop {
+				s.HeldAudioDropped()
+			}
 			*now = t0.Add(tc.speakAt)
 			process(t, s, callerSays("wait"))
 
 			assert.Equal(t, tc.wantBarg, barged(s))
+			assert.Equal(t, tc.wantHeld, s.HeldAudioInterrupted())
 			want := 0
 			if tc.wantBarg {
 				want = 1

@@ -1471,9 +1471,15 @@ const (
 //     message instead. Only guardrails whose stream_hold is segment or turn
 //     hold anything.
 //
-//   - Holdback is how much of the most recently received audio a segment
-//     release keeps back, for a session whose transcript can trail its audio
-//     (Gemini Live, about 1.5s). Zero takes the session's own figure.
+//   - Holdback is how far a session's transcript can trail its audio
+//     (Gemini Live, about 1.5s): a segment release keeps that much of the
+//     most recently received audio back, and a reply whose generation
+//     completed waits that long for its last words before it is judged. Zero
+//     takes the session's own figure.
+//
+//     A held reply that delivers audio but no transcript fails closed, since
+//     no guardrail can judge it: hold replies only on a session with output
+//     transcription.
 //
 //     conv, _ := sdk.Open("./chat.pack.json", "assistant",
 //     sdk.WithStreamHold(sdk.StreamHoldConfig{MinChars: 120, MaxSegmentJudges: 4}),

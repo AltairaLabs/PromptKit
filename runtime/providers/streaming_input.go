@@ -262,10 +262,21 @@ type ResponseInterrupter interface {
 // on the session counts a reply's audio only as the pipeline releases it to
 // the caller (AudioReleased, given the chunk that carried it, as delivered),
 // so the estimate runs from release, not arrival, and audio the pipeline drops
-// is never counted as heard. Both are safe to call from any goroutine.
+// is never counted as heard.
+//
+// Audio the session delivered that the pipeline has neither released nor
+// dropped is still waiting for the caller: a caller who starts speaking then
+// speaks over the reply, though they hear only silence, and the session
+// reports it as a barge-in (an Interrupted chunk). HeldAudioInterrupted then
+// reports true, so the pipeline releases none of that reply's held audio.
+// The pipeline calls HeldAudioDropped once it has dropped or finished
+// releasing what it held of a reply; that clears both. All are safe to call
+// from any goroutine.
 type PlayoutHolder interface {
 	HoldPlayout()
 	AudioReleased(chunk *StreamChunk)
+	HeldAudioInterrupted() bool
+	HeldAudioDropped()
 }
 
 // TranscriptLagger is an optional StreamInputSession interface for a session

@@ -19,8 +19,9 @@ import (
 
 // runHeldPlayout delivers a reply of seconds of audio at t0 to a session
 // whose playout is held, releases the audio at t0+release (none when release
-// is negative), then has the caller speak at t0+speakAfter.
-func runHeldPlayout(t *testing.T, seconds int, release, speakAfter time.Duration) playoutRun {
+// is negative; then dropped, with dropped), then has the caller speak at
+// t0+speakAfter.
+func runHeldPlayout(t *testing.T, seconds int, release, speakAfter time.Duration, dropped bool) playoutRun {
 	t.Helper()
 	ps := newPlayoutServer(t, []int{seconds}, false)
 	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
@@ -57,6 +58,9 @@ func runHeldPlayout(t *testing.T, seconds int, release, speakAfter time.Duration
 			session.AudioReleased(&held[i])
 		}
 	}
+	if dropped {
+		session.HeldAudioDropped()
+	}
 	clock.set(t0.Add(speakAfter))
 	close(ps.speak)
 	var run playoutRun
@@ -72,6 +76,7 @@ func runHeldPlayout(t *testing.T, seconds int, release, speakAfter time.Duration
 		run.barged = true
 	default:
 	}
+	run.heldInterrupted = session.HeldAudioInterrupted()
 	require.NoError(t, session.CommitAudioBuffer())
 	select {
 	case run.clients = <-ps.client:
@@ -84,7 +89,7 @@ func runHeldPlayout(t *testing.T, seconds int, release, speakAfter time.Duration
 // Released 2 s after it arrived, a 3 s reply the caller interrupts 2.5 s
 // after arrival was heard for 0.5 s, not 2.5 s.
 func TestRealtimeHeldPlayout_HeardCountsFromRelease(t *testing.T) {
-	run := runHeldPlayout(t, 3, 2*time.Second, 2500*time.Millisecond)
+	run := runHeldPlayout(t, 3, 2*time.Second, 2500*time.Millisecond, true)
 
 	assert.True(t, run.barged, "the released reply still plays: barge-in")
 	assert.Equal(t, 1, interruptedChunks(run.chunks))
@@ -94,14 +99,41 @@ func TestRealtimeHeldPlayout_HeardCountsFromRelease(t *testing.T) {
 	}}, truncateEvents(run.clients), "cut to the 0.5 s heard since release")
 }
 
-// Audio held and never released (a guardrail dropped it) never played: the
-// caller speaking is a new turn, not a barge-in.
-func TestRealtimeHeldPlayout_DroppedAudioIsNeverHeard(t *testing.T) {
-	run := runHeldPlayout(t, 3, -1, time.Second)
+// Audio released in full and played out waits for nothing: the caller
+// speaking after it is a new turn.
+func TestRealtimeHeldPlayout_ReleasedAudioThatPlayedOutWaitsForNothing(t *testing.T) {
+	run := runHeldPlayout(t, 3, 0, 5*time.Second, false)
 
 	assert.False(t, run.barged)
+	assert.False(t, run.heldInterrupted)
+	assert.Empty(t, truncateEvents(run.clients))
+}
+
+// Audio held and dropped (a guardrail failed it) never played: the caller
+// speaking is a new turn, not a barge-in.
+func TestRealtimeHeldPlayout_DroppedAudioIsNeverHeard(t *testing.T) {
+	run := runHeldPlayout(t, 3, -1, time.Second, true)
+
+	assert.False(t, run.barged)
+	assert.False(t, run.heldInterrupted)
 	assert.Zero(t, interruptedChunks(run.chunks))
 	assert.Empty(t, truncateEvents(run.clients))
+}
+
+// Audio still held when the caller starts speaking (the reply finished
+// generating and its judge runs) is waiting for them: their speech is a
+// barge-in on it. The session reports the interruption, so the pipeline
+// releases none of it, and cuts the model's copy to the nothing heard.
+func TestRealtimeHeldPlayout_SpeakingOverHeldAudioBargesIn(t *testing.T) {
+	run := runHeldPlayout(t, 3, -1, time.Second, false)
+
+	assert.True(t, run.barged)
+	assert.True(t, run.heldInterrupted)
+	assert.Equal(t, 1, interruptedChunks(run.chunks))
+	assert.Equal(t, []map[string]any{{
+		"type": "conversation.item.truncate", "item_id": "item_R1",
+		"content_index": float64(0), "audio_end_ms": float64(0),
+	}}, truncateEvents(run.clients), "nothing of the reply was heard")
 }
 
 // A released chunk with no audio adds nothing to what plays.

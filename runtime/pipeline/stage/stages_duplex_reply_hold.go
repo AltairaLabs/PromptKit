@@ -70,6 +70,14 @@ type duplexReplyHold struct {
 	// ending is set once the reply's content is complete: the completed
 	// reply's check judges what no segment judgment has, so none starts.
 	ending bool
+	// settle fires once a reply whose generation completed has waited out
+	// the holdback, the most its transcript can trail its audio, so the last
+	// words are judged with the rest (onReplyHoldSettled). Nil otherwise.
+	settle <-chan time.Time
+	// interrupted is set once the caller began speaking over the held reply
+	// (providers.PlayoutHolder HeldAudioInterrupted): none of what it holds
+	// is released, and what still arrives of it is dropped.
+	interrupted bool
 }
 
 // heldOutput is a piece of the reply held back from the caller.
@@ -155,6 +163,11 @@ func (s *DuplexProviderStage) holdReplyOutput(chunk *providers.StreamChunk, elem
 		}
 		return false
 	}
+	if h.interrupted {
+		// The caller spoke over the reply: the rest of it is never heard.
+		elem.Text, elem.Audio = nil, nil
+		return true
+	}
 	out := heldOutput{elem: StreamElement{Text: elem.Text, Audio: elem.Audio, Timestamp: elem.Timestamp}}
 	if elem.Text != nil {
 		out.text = *elem.Text
@@ -171,6 +184,26 @@ func (s *DuplexProviderStage) holdReplyOutput(chunk *providers.StreamChunk, elem
 		h.judge.segmentAndJudge(out.text)
 	}
 	return true
+}
+
+// replyHoldSettle is the channel that fires once a held reply whose
+// generation completed has waited out its transcript's lag, or nil (never
+// ready).
+func (s *DuplexProviderStage) replyHoldSettle() <-chan time.Time {
+	if s.replyHold == nil {
+		return nil
+	}
+	return s.replyHold.settle
+}
+
+// onReplyHoldSettled judges and releases a held reply whose generation
+// completed, once its transcript's lag has passed.
+func (s *DuplexProviderStage) onReplyHoldSettled(ctx context.Context, output chan<- StreamElement) error {
+	if s.replyHold == nil {
+		return nil
+	}
+	s.replyHold.settle = nil
+	return s.settleGeneratedReply(ctx, output)
 }
 
 // replyHoldVerdicts is the channel the held reply's segment judgments
@@ -254,6 +287,14 @@ func (s *DuplexProviderStage) releaseCleared(ctx context.Context, output chan<- 
 // reports their audio to a session that counts released audio.
 func (s *DuplexProviderStage) releaseHeldOutput(ctx context.Context, n int, output chan<- StreamElement) error {
 	h := s.replyHold
+	if h.interrupted || s.playoutHeld != nil && s.playoutHeld.HeldAudioInterrupted() {
+		// The caller began speaking over the held reply's silence: it is
+		// a turn of their own, and the held reply is never heard.
+		h.interrupted = true
+		h.held = nil
+		h.judge.stop()
+		return nil
+	}
 	for range n {
 		o := h.held[0]
 		h.held = h.held[1:]
@@ -271,17 +312,40 @@ func (s *DuplexProviderStage) releaseHeldOutput(ctx context.Context, n int, outp
 	return nil
 }
 
-// onGenerationComplete judges a held reply whose content is complete before
-// its turn completes (GenerationComplete): it passes and is released now, or
-// is cut now. A reply making tool calls waits for its turn's completion,
-// whose check judges the calls too.
+// onGenerationComplete starts judging a held reply whose content is complete
+// before its turn completes (GenerationComplete): once the holdback has
+// passed, for a session whose transcript can trail its audio, it passes and
+// is released, or is cut (settleGeneratedReply). On the scenario path, whose
+// caller transcript reaches the history only with the turn, it waits for the
+// turn's completion.
 func (s *DuplexProviderStage) onGenerationComplete(ctx context.Context, output chan<- StreamElement) error {
+	h := s.replyHold
+	if h == nil || h.passed || h.settle != nil || s.hasQueuedTurnID() {
+		return nil
+	}
+	if h.holdback > 0 {
+		h.settle = time.After(h.holdback)
+		return nil
+	}
+	return s.settleGeneratedReply(ctx, output)
+}
+
+// settleGeneratedReply judges a held reply whose content is complete before
+// its turn completes: it passes and is released now, or is cut now. A reply
+// making tool calls waits for its turn's completion, whose check judges the
+// calls too.
+func (s *DuplexProviderStage) settleGeneratedReply(ctx context.Context, output chan<- StreamElement) error {
 	if err := s.awaitReplyVerdicts(ctx, output); err != nil {
 		return err
 	}
+	// A hold ends when its reply is blocked (blockTurn), and passes only
+	// here: one still here has neither.
 	h := s.replyHold
-	if h == nil || h.passed || s.turnGuard.blocked || len(s.accumulatedToolCalls) > 0 {
+	if h == nil || len(s.accumulatedToolCalls) > 0 {
 		return nil
+	}
+	if s.failUntranscribedReply(ctx) {
+		return s.cutReply(ctx, output)
 	}
 	h.judge.stop()
 	msg := &types.Message{Role: roleAssistant, Content: s.accumulatedText.String()}
@@ -303,8 +367,13 @@ func (s *DuplexProviderStage) onGenerationComplete(ctx context.Context, output c
 func (s *DuplexProviderStage) settleReplyHold(
 	ctx context.Context, elem *StreamElement, turnDone bool, output chan<- StreamElement,
 ) error {
+	if !turnDone {
+		return nil
+	}
+	// The reply's turn is over: nothing of it is held any longer.
+	defer s.heldAudioDropped()
 	h := s.replyHold
-	if h == nil || !turnDone {
+	if h == nil {
 		return nil
 	}
 	s.replyHold = nil
@@ -327,9 +396,61 @@ func (s *DuplexProviderStage) settleReplyHold(
 		s.replyHold = h
 		err := s.releaseHeldOutput(ctx, len(h.held), output)
 		s.replyHold = nil
+		if h.interrupted {
+			keepHeardReply(elem, h)
+		}
 		return err
 	}
 	return nil
+}
+
+// keepHeardReply makes elem's turn the reply the caller heard of h before
+// they spoke over it: its released transcript and audio, ended interrupted.
+// A reply none of which was heard leaves no turn: elem then only marks the
+// reply interrupted, as a barge-in on a reply not yet heard does.
+func keepHeardReply(elem *StreamElement, h *duplexReplyHold) {
+	fr := finishReasonInterrupted
+	elem.Meta.FinishReason = &fr
+	msg := elem.Message
+	if msg == nil {
+		return
+	}
+	if h.heard.Len() == 0 && h.heardAudio == 0 {
+		elem.Message, elem.EndOfStream = nil, false
+		elem.Meta.Interrupted = true
+		return
+	}
+	msg.Content = h.heard.String()
+	msg.Parts = replaceTextParts(msg.Parts, msg.Content)
+	keepHeardAudio(msg, h.heardAudio)
+	msg.FinishReason = fr
+	msg.Meta = mergeMeta(msg.Meta, map[string]interface{}{finishReasonMetaKey: fr})
+}
+
+// heldAudioDropped tells a session that counts released audio that nothing
+// of the reply is held any longer (providers.PlayoutHolder).
+func (s *DuplexProviderStage) heldAudioDropped() {
+	if s.playoutHeld != nil {
+		s.playoutHeld.HeldAudioDropped()
+	}
+}
+
+// failUntranscribedReply fails a held reply closed when it delivered audio
+// but no transcript: no guardrail can judge what it says, so none of it is
+// released and the caller hears the blocked message. Reports whether it did.
+func (s *DuplexProviderStage) failUntranscribedReply(ctx context.Context) bool {
+	h := s.replyHold
+	if h == nil || h.passed || h.interrupted || s.turnGuard.blocked || h.text > 0 || h.audio == 0 {
+		return false
+	}
+	d := hooks.Deny("the reply's audio has no transcript to judge")
+	s.turnGuard.validations = append(s.turnGuard.validations, types.ValidationResult{
+		ValidatorType: "stream_hold", Passed: false, Timestamp: timeNow(),
+		Details: map[string]interface{}{"reason": "no_transcript"},
+	})
+	s.noteBlock(d, hooks.DirectionOutput, s.replyGeneration())
+	s.blockTurnWith(ctx, h.judge.req, &d, hooks.DirectionOutput)
+	return true
 }
 
 // dropReplyHold drops what the hold still holds, when the reply is cut or
@@ -340,6 +461,7 @@ func (s *DuplexProviderStage) dropReplyHold(heardText bool) {
 	if h == nil {
 		return
 	}
+	s.heldAudioDropped()
 	s.replyHold = nil
 	h.judge.stop()
 	h.held = nil
@@ -420,6 +542,9 @@ func (s *DuplexProviderStage) finishReplyVerdicts(
 	}
 	if err := s.awaitReplyVerdicts(ctx, output); err != nil {
 		return err
+	}
+	if assistantChunkText(chunk, isOutputTranscription) == "" {
+		s.failUntranscribedReply(ctx)
 	}
 	if s.turnGuard.blocked {
 		dropAssistantOutput(chunk, isOutputTranscription)

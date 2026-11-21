@@ -125,6 +125,8 @@ type playoutRun struct {
 	chunks  []providers.StreamChunk
 	barged  bool
 	clients []map[string]any
+	// heldInterrupted is what HeldAudioInterrupted reported after the speech.
+	heldInterrupted bool
 }
 
 // runPlayout plays a reply of seconds of audio delivered at t0, then has the

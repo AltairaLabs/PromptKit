@@ -79,10 +79,11 @@ func (s *RealtimeSession) AudioReleased(chunk *providers.StreamChunk) {
 	itemID, _ := chunk.Metadata[keyItemID].(string)
 	contentIndex, _ := chunk.Metadata[keyContentIndex].(int)
 	media := chunk.MediaData
+	d := audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels)
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
-	s.playoutEstimate().Add(itemID, contentIndex,
-		audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels))
+	s.playoutEstimate().Add(itemID, contentIndex, d)
+	s.holdItemAudio(itemID, contentIndex, d, true)
 }
 
 // countDeliveredAudio counts audio for item (itemID, contentIndex) toward
@@ -90,7 +91,82 @@ func (s *RealtimeSession) AudioReleased(chunk *providers.StreamChunk) {
 // (HoldPlayout). Called with recvMu held.
 func (s *RealtimeSession) countDeliveredAudio(itemID string, contentIndex int, d time.Duration) {
 	if s.playoutHeld {
+		s.holdItemAudio(itemID, contentIndex, d, false)
 		return
 	}
 	s.playoutEstimate().Add(itemID, contentIndex, d)
+}
+
+// heldItem is reply audio of one item the session delivered while the
+// pipeline holds playout back: how much it delivered and how much the
+// pipeline has released.
+type heldItem struct {
+	key                 heldItemKey
+	delivered, released time.Duration
+}
+
+// heldItemKey names an audio item's content part.
+type heldItemKey struct {
+	itemID       string
+	contentIndex int
+}
+
+// holdItemAudio records d of item (itemID, contentIndex) as delivered and
+// held (released false) or released. Called with recvMu held.
+func (s *RealtimeSession) holdItemAudio(itemID string, contentIndex int, d time.Duration, released bool) {
+	key := heldItemKey{itemID: itemID, contentIndex: contentIndex}
+	for i := range s.heldItems {
+		if it := &s.heldItems[i]; it.key == key {
+			if released {
+				it.released += d
+			} else {
+				it.delivered += d
+			}
+			return
+		}
+	}
+	if !released {
+		s.heldItems = append(s.heldItems, heldItem{key: key, delivered: d})
+	}
+}
+
+// interruptHeldAudio handles the caller starting to speak with no reply
+// generating or playing: if audio the pipeline holds is still waiting for
+// them, their speech is over it, so it reports true, marks the held audio
+// interrupted (HeldAudioInterrupted) and cuts the model's copy of each held
+// item to what was released of it. Called with recvMu held.
+func (s *RealtimeSession) interruptHeldAudio() bool {
+	var waiting []heldItem
+	for _, it := range s.heldItems {
+		if it.delivered > it.released {
+			waiting = append(waiting, it)
+		}
+	}
+	if len(waiting) == 0 {
+		return false
+	}
+	s.heldInterrupted = true
+	for _, it := range waiting {
+		s.sendTruncate(it.key.itemID, it.key.contentIndex, it.released)
+	}
+	s.heldItems = nil
+	return true
+}
+
+// HeldAudioInterrupted implements providers.PlayoutHolder: whether the caller
+// began speaking over audio the pipeline still held, since it last dropped
+// what it held.
+func (s *RealtimeSession) HeldAudioInterrupted() bool {
+	s.recvMu.Lock()
+	defer s.recvMu.Unlock()
+	return s.heldInterrupted
+}
+
+// HeldAudioDropped implements providers.PlayoutHolder: nothing of a reply is
+// held any longer, so none of it waits for the caller.
+func (s *RealtimeSession) HeldAudioDropped() {
+	s.recvMu.Lock()
+	defer s.recvMu.Unlock()
+	s.heldItems = nil
+	s.heldInterrupted = false
 }

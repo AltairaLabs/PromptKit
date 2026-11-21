@@ -83,9 +83,15 @@ func newReleased(t *testing.T, cfg StreamHoldConfig, lag time.Duration, hs ...ho
 // answered within a short while, and returns what the caller got.
 func (r *released) feed(chunk providers.StreamChunk) []string {
 	r.t.Helper()
+	return trace(r.feedElems(chunk))
+}
+
+// feedElems is feed, returning the elements the caller got.
+func (r *released) feedElems(chunk providers.StreamChunk) []StreamElement {
+	r.t.Helper()
 	r.handle(chunk)
 	r.settle()
-	return r.drain()
+	return r.drainElems()
 }
 
 // settle applies the segment verdicts that arrive within a short while.
@@ -93,13 +99,15 @@ func (r *released) settle() {
 	r.t.Helper()
 	ctx := context.Background()
 	for {
-		ch := r.s.replyHoldVerdicts()
-		if ch == nil {
+		ch, settled := r.s.replyHoldVerdicts(), r.s.replyHoldSettle()
+		if ch == nil && settled == nil {
 			return
 		}
 		select {
 		case v := <-ch:
 			require.NoError(r.t, r.s.onReplyVerdict(ctx, v, r.out))
+		case <-settled:
+			require.NoError(r.t, r.s.onReplyHoldSettled(ctx, r.out))
 		case <-time.After(100 * time.Millisecond):
 			return
 		}
@@ -116,14 +124,16 @@ func (r *released) handle(chunk providers.StreamChunk) {
 	require.NoError(r.t, err)
 }
 
-func (r *released) drain() []string {
+func (r *released) drain() []string { return trace(r.drainElems()) }
+
+func (r *released) drainElems() []StreamElement {
 	var elems []StreamElement
 	for {
 		select {
 		case e := <-r.out:
 			elems = append(elems, e)
 		default:
-			return trace(elems)
+			return elems
 		}
 	}
 }
@@ -266,7 +276,8 @@ func TestReplyRelease_GenerationCompleteReleasesAtOnce(t *testing.T) {
 	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
 	r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
 	assert.Empty(t, r.feed(transcriptChunk("Sunny skies.", pcm(10))))
-	assert.Equal(t, []string{"text:Sunny skies.", "audio:10"}, r.feed(providers.StreamChunk{GenerationComplete: true}))
+	r.handle(providers.StreamChunk{GenerationComplete: true})
+	assert.Equal(t, []string{"text:Sunny skies.", "audio:10"}, r.drain(), "with no transcript lag, at once")
 	assert.Equal(t, 10, sess.released)
 	assert.Equal(t, []string{"Sunny skies."}, hook.calls())
 }

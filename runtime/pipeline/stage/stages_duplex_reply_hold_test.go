@@ -67,6 +67,8 @@ type replyHoldHook struct {
 	mu      sync.Mutex
 	judged  []string // what each judgment saw, partial or complete
 	partial int
+	// callerSaid is the caller's latest turn the last AfterCall saw.
+	callerSaid string
 }
 
 func (h *replyHoldHook) Name() string                     { return "hold" }
@@ -75,8 +77,24 @@ func (h *replyHoldHook) BeforeCall(context.Context, *hooks.ProviderRequest) hook
 	return hooks.Allow
 }
 
-func (h *replyHoldHook) AfterCall(_ context.Context, _ *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+func (h *replyHoldHook) AfterCall(_ context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+	h.mu.Lock()
+	h.callerSaid = ""
+	for _, m := range req.Messages {
+		if m.Role == roleUser {
+			h.callerSaid = m.Content
+		}
+	}
+	h.mu.Unlock()
 	return h.judge(resp.Message.Content, false)
+}
+
+// lastCallerSaid is the caller's latest turn in the history the last
+// completed-reply check saw.
+func (h *replyHoldHook) lastCallerSaid() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.callerSaid
 }
 
 func (h *replyHoldHook) JudgePartialReply(_ context.Context, _ *hooks.ProviderRequest, r hooks.PartialReply) hooks.Decision {
@@ -109,6 +127,10 @@ type heldPlayoutSession struct {
 	lag      time.Duration
 	held     bool
 	released int
+	// interrupted is what HeldAudioInterrupted reports: the caller spoke over
+	// held audio. HeldAudioDropped clears it and counts dropped.
+	interrupted bool
+	dropped     int
 }
 
 func (p *heldPlayoutSession) HoldPlayout() { p.held = true }
@@ -116,6 +138,8 @@ func (p *heldPlayoutSession) AudioReleased(c *providers.StreamChunk) {
 	p.released += len(c.MediaData.Data)
 }
 func (p *heldPlayoutSession) OutputTranscriptLag() time.Duration { return p.lag }
+func (p *heldPlayoutSession) HeldAudioInterrupted() bool         { return p.interrupted }
+func (p *heldPlayoutSession) HeldAudioDropped()                  { p.interrupted = false; p.dropped++ }
 
 // holdStage is a duplex stage holding replies in mode for hook, on a
 // heldPlayoutSession.

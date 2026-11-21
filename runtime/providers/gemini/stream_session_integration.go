@@ -116,11 +116,16 @@ type StreamSession struct {
 	playout     *audio.Playout
 	playoutMu   sync.Mutex
 	playoutHeld bool
-	replyDone   bool
-	inputLastAt time.Time
-	inputClosed bool
-	lateInput   bool
-	now         func() time.Time
+	// heldPending is the reply audio delivered while playout is held that the
+	// pipeline has not released, and heldInterrupted is set once the caller
+	// spoke over some of it (live_playout.go). Guarded by playoutMu.
+	heldPending     time.Duration
+	heldInterrupted bool
+	replyDone       bool
+	inputLastAt     time.Time
+	inputClosed     bool
+	lateInput       bool
+	now             func() time.Time
 }
 
 // VADConfig configures Voice Activity Detection settings for Gemini Live API.

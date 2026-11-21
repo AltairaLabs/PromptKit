@@ -1359,6 +1359,9 @@ func (s *DuplexProviderStage) forwardResponseElements(
 		case v := <-s.replyHoldVerdicts():
 			err = s.onReplyVerdict(ctx, v, output)
 
+		case <-s.replyHoldSettle():
+			err = s.onReplyHoldSettled(ctx, output)
+
 		case chunk, ok := <-responseChannel:
 			if !ok {
 				return s.finishOnResponseClosed(ctx, output, wait.weClosedSession)

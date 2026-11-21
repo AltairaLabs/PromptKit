@@ -22,3 +22,17 @@ func TestMockStreamSession_RecordsHeldPlayout(t *testing.T) {
 	assert.True(t, s.PlayoutHeld())
 	assert.Equal(t, []byte{1, 2, 3}, s.ReleasedAudio())
 }
+
+// A test has the caller speak over held audio (InterruptHeldAudio): the
+// session reports it until the pipeline says it dropped what it held, and
+// counts each drop.
+func TestMockStreamSession_RecordsSpeechOverHeldAudio(t *testing.T) {
+	s := NewMockStreamSession()
+	assert.False(t, s.HeldAudioInterrupted())
+	s.InterruptHeldAudio()
+	assert.True(t, s.HeldAudioInterrupted())
+	s.HeldAudioDropped()
+	assert.False(t, s.HeldAudioInterrupted())
+	s.HeldAudioDropped()
+	assert.Equal(t, 2, s.HeldDrops())
+}

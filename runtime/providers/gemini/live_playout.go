@@ -92,6 +92,10 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	s.withPlayout(func(p *audio.Playout) {
 		if playing = p.Playing(); playing {
 			p.Stop()
+		} else if s.heldPending > 0 {
+			// Audio the pipeline still holds waits for the caller, though
+			// they hear nothing of it yet: speech now is over it.
+			playing, s.heldInterrupted, s.heldPending = true, true, 0
 		}
 	})
 	if !playing {
@@ -119,9 +123,11 @@ func (s *StreamSession) withPlayout(fn func(*audio.Playout)) {
 // it is delivered, unless the pipeline holds reply audio back (HoldPlayout).
 func (s *StreamSession) countDeliveredAudio(d time.Duration) {
 	s.withPlayout(func(p *audio.Playout) {
-		if !s.playoutHeld {
-			p.Add("", 0, d)
+		if s.playoutHeld {
+			s.heldPending += d
+			return
 		}
+		p.Add("", 0, d)
 	})
 }
 
@@ -147,7 +153,10 @@ func (s *StreamSession) AudioReleased(chunk *providers.StreamChunk) {
 	}
 	m := chunk.MediaData
 	d := audio.PCM16Duration(len(m.Data), m.SampleRate, m.Channels)
-	s.withPlayout(func(p *audio.Playout) { p.Add("", 0, d) })
+	s.withPlayout(func(p *audio.Playout) {
+		p.Add("", 0, d)
+		s.heldPending = max(0, s.heldPending-d)
+	})
 }
 
 // outputTranscriptLag is the most reply audio Gemini Live's output transcript
@@ -158,3 +167,21 @@ const outputTranscriptLag = 1500 * time.Millisecond
 // output transcript usually leads its audio, but has been seen to trail it by
 // up to outputTranscriptLag.
 func (s *StreamSession) OutputTranscriptLag() time.Duration { return outputTranscriptLag }
+
+// HeldAudioInterrupted implements providers.PlayoutHolder: whether the caller
+// began speaking over audio the pipeline still held, since it last dropped
+// what it held.
+func (s *StreamSession) HeldAudioInterrupted() bool {
+	s.playoutMu.Lock()
+	defer s.playoutMu.Unlock()
+	return s.heldInterrupted
+}
+
+// HeldAudioDropped implements providers.PlayoutHolder: nothing of a reply is
+// held any longer, so none of it waits for the caller.
+func (s *StreamSession) HeldAudioDropped() {
+	s.playoutMu.Lock()
+	defer s.playoutMu.Unlock()
+	s.heldPending = 0
+	s.heldInterrupted = false
+}
