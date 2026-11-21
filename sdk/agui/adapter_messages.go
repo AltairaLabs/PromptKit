@@ -25,11 +25,12 @@ const reasoningIDSuffix = "-reasoning"
 //
 // AG-UI reconciles a snapshot by message id and drops the messages a client
 // holds that it does not name, so the snapshot is the agent's history
-// outright. PromptKit's messages carry no id; each is keyed by the thread and
-// its position in the history, which a later snapshot of the same thread
-// gives it again, so each run's snapshot replaces the last one's messages in
-// place. The messages streamed during the run had ids of their own, and the
-// snapshot replaces them too.
+// outright, and each run's snapshot replaces the last one's messages in
+// place. Each message is keyed by its stable id (types.MetaMessageID), the
+// same in every run's snapshot; a message stored before ids were assigned is
+// keyed by the thread and its position in the history instead. The messages
+// streamed during the run had ids of their own, and the snapshot replaces
+// them too.
 //
 // A history that reads back empty or shorter than the run's own turn is not
 // the conversation (a store failed, or does not keep it), and a snapshot of
@@ -52,8 +53,9 @@ func (st *runState) emitMessagesSnapshot() {
 	}
 	reasoning := st.turnReasoning(history)
 	msgs := make([]aguitypes.Message, 0, len(history))
+	used := make(map[string]bool, len(history))
 	for i := range history {
-		id := st.a.cfg.threadID + "-" + strconv.Itoa(i)
+		id := snapshotID(history[i].ID(), st.a.cfg.threadID, i, used)
 		if text := reasoning[i]; text != "" {
 			msgs = append(msgs, aguitypes.Message{ID: id + reasoningIDSuffix, Role: aguitypes.RoleReasoning, Content: text})
 		}
@@ -115,6 +117,19 @@ func sameCalls(a, b []types.MessageToolCall) bool {
 	return true
 }
 
+// snapshotID is the id a snapshot gives the message at position i: its stable
+// id, or, for a message stored before ids were assigned (or one whose id an
+// earlier message of the snapshot already took), the thread id and its
+// position, as "<thread>-<i>".
+func snapshotID(stable, threadID string, i int, used map[string]bool) string {
+	id := stable
+	if id == "" || used[id] {
+		id = threadID + "-" + strconv.Itoa(i)
+	}
+	used[id] = true
+	return id
+}
+
 // snapshotMessage is msg as a snapshot message with id, or false for a
 // message AG-UI cannot restate (a tool message with no result). A tool
 // result is restated as text, the form AG-UI's Go SDK accepts for it.
@@ -128,7 +143,7 @@ func snapshotMessage(id string, msg *types.Message) (aguitypes.Message, bool) {
 			Content: toolResultText(msg.ToolResult), Error: msg.ToolResult.Error,
 		}, true
 	}
-	m := MessageToAGUI(msg)
+	m := MessageToAGUI(msg) // without a context block RunSend added
 	m.ID = id
 	return m, true
 }
