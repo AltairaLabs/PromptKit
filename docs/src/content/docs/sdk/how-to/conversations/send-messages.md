@@ -96,6 +96,18 @@ for chunk := range conv.Stream(ctx, "Tell me a story") {
 }
 ```
 
+A judge guardrail can hold the reply back until it has judged it, per segment or whole (its `stream_hold` param; see [Stream hold](/reference/checks/#stream-hold)). With `stream_hold: segment`, text arrives a sentence or a few at a time, each part once the judge has passed it. With `stream_hold: turn`, the whole reply arrives as one chunk once it passed. When the guardrail fails a segment after earlier ones arrived, its message arrives with `ReplacesText` set, as above. Tune the segments and the judging with `sdk.WithStreamHold`:
+
+```go
+conv, err := sdk.Open("./chat.pack.json", "assistant",
+    sdk.WithStreamHold(sdk.StreamHoldConfig{
+        MinChars:         120, // larger segments: fewer judge calls
+        MaxSegmentJudges: 4,
+        SegmentTimeout:   3 * time.Second,
+    }),
+)
+```
+
 `StreamRaw` chunks, `TextDeltaEvent` and `stream.CollectText` carry the same marker. Over A2A, the server restarts the text artifact with the message, sending its update with `append: false`. Over AG-UI, the adapter ends the streamed text message and sends the guardrail's message as a new one.
 
 A turn that calls tools streams each round in order. A round's text comes first. Once it has streamed, a `sdk.ChunkToolCall` chunk carries each call the round made (in `ToolCall`), before the calls run. Once they have run, a `sdk.ChunkToolResult` chunk carries each result the model is given (in `ToolResult`). Both carry `Round`, the round's number from 1. Text after them is the next round's reply. A round whose calls end the turn, such as a client tool waiting for an answer or a call held for approval, sends its calls; its results are in the `ChunkDone` response's `TurnMessages`.

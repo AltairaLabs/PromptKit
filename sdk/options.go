@@ -418,6 +418,10 @@ type config struct {
 	// skipContentValidation turns off the provider stage's media-part check.
 	skipContentValidation bool
 
+	// streamHold sizes and bounds stream_hold: segment guardrails' judging
+	// (WithStreamHold).
+	streamHold stage.StreamHoldConfig
+
 	// toolPolicy is the caller tool policy (WithToolPolicy), merged per turn
 	// with the prompt's tool_policy. Nil: the prompt's alone.
 	toolPolicy *rtpipeline.ToolPolicy
@@ -1405,6 +1409,42 @@ func WithLogger(l *slog.Logger) Option {
 func WithoutContentValidation() Option {
 	return func(c *config) error {
 		c.skipContentValidation = true
+		return nil
+	}
+}
+
+// StreamHoldConfig sizes the segments an output guardrail with
+// stream_hold: segment judges a streamed reply in, and bounds its judging
+// (WithStreamHold). Zero fields keep their defaults.
+type StreamHoldConfig = stage.StreamHoldConfig
+
+// WithStreamHold sets how output guardrails with stream_hold: segment judge a
+// streamed reply, for every such guardrail in the conversation: they judge the
+// same segments.
+//
+//   - MinChars is the size, in characters of reply text, sentences merge up
+//     to before a segment ends (default 60). Larger segments mean fewer
+//     judge calls and later releases. A round's first segment ends sooner,
+//     at 24 characters, because its release latency is what a caller
+//     notices most.
+//
+//   - MaxSegmentJudges caps a guardrail's partial-reply judge calls per model
+//     round (default 8). Past it, the rest of the round is held and judged
+//     once with the completed reply.
+//
+//   - SegmentTimeout bounds each partial-reply judge call (default 10s),
+//     unless the guardrail sets stream_hold_timeout. A call that runs past it
+//     fails closed: the caller gets the guardrail's message.
+//
+//     conv, _ := sdk.Open("./chat.pack.json", "assistant",
+//     sdk.WithStreamHold(sdk.StreamHoldConfig{MinChars: 120, MaxSegmentJudges: 4}),
+//     )
+func WithStreamHold(cfg StreamHoldConfig) Option {
+	return func(c *config) error {
+		if cfg.MinChars < 0 || cfg.MaxSegmentJudges < 0 || cfg.SegmentTimeout < 0 {
+			return fmt.Errorf("WithStreamHold: limits must be non-negative, got %+v", cfg)
+		}
+		c.streamHold = cfg
 		return nil
 	}
 }

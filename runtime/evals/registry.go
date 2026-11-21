@@ -54,6 +54,20 @@ type PartialHolder interface {
 	PartialHold(content string, params map[string]any) int
 }
 
+// PartialJudge is an optional interface for a handler that can soundly judge
+// a reply still being written (EvalContext.Partial): its verdict on what a
+// prefix says does not depend on what follows. A guardrail on such a handler
+// may hold a streamed reply per segment (stream_hold: segment), judging each
+// segment before it reaches the caller. A handler whose criteria a prefix
+// fails by being incomplete ("answers the question") must not implement it.
+type PartialJudge interface {
+	// SegmentHoldByDefault reports whether the handler's output guardrails
+	// hold a streamed reply per segment unless the guardrail says otherwise
+	// (true), or hold the whole turn (false): a free-form judge whose
+	// criteria may need the complete reply.
+	SegmentHoldByDefault() bool
+}
+
 // ParamValidator is an optional interface for EvalTypeHandler implementations
 // that have required or strictly-typed params. Handlers without required
 // params need not implement it.

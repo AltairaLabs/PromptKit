@@ -527,6 +527,12 @@ type EvalContext struct {
 	// host's own handler can read it. It is not otherwise serialized:
 	// PromptKit never persists, logs or emits it.
 	Caller types.Caller `json:"-"`
+
+	// Partial marks CurrentOutput as a reply still being written: a
+	// stream_hold: segment guardrail judging the reply so far, before the
+	// model has finished it (PartialJudge). A handler judges only what it
+	// says, not what it has yet to say; an LLM judge is told so.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // PartialEvalRequest is the partial content a StreamableRequestEvalHandler

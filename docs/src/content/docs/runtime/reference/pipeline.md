@@ -422,6 +422,7 @@ The first stage error ends the turn. The pipeline does not cancel the other stag
 - [type StreamExecution](<#StreamExecution>)
   - [func \(e \*StreamExecution\) Err\(\) error](<#StreamExecution.Err>)
   - [func \(e \*StreamExecution\) Output\(\) \<\-chan StreamElement](<#StreamExecution.Output>)
+- [type StreamHoldConfig](<#StreamHoldConfig>)
 - [type StreamPipeline](<#StreamPipeline>)
   - [func \(p \*StreamPipeline\) Execute\(ctx context.Context, input \<\-chan StreamElement\) \(\<\-chan StreamElement, error\)](<#StreamPipeline.Execute>)
   - [func \(p \*StreamPipeline\) ExecuteSync\(ctx context.Context, input ...StreamElement\) \(\*ExecutionResult, error\)](<#StreamPipeline.ExecuteSync>)
@@ -2444,7 +2445,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L393>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L400>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2496,6 +2497,13 @@ type ElementMetadata struct {
     // text is its message, the turn's whole text. A consumer rendering deltas
     // swaps what it showed for it (providers.StreamChunk.ReplacesText).
     ReplacesText bool
+
+    // SegmentEnd marks a text delta whose text ends a segment of the reply
+    // (a sentence or a few), or the reply itself, as a stream_hold releases
+    // it: the provider stage has released the segment whole, so a consumer
+    // that works a segment at a time (speech output) can take it at once,
+    // without waiting for the text after it.
+    SegmentEnd bool
 
     // InterruptedTurnComplete marks the element that closes an
     // interrupted turn (downstream cleanup signal).
@@ -3692,7 +3700,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L396-L407>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L403-L414>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -4615,7 +4623,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L317>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L180-L322>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4757,11 +4765,16 @@ type ProviderConfig struct {
     // what it sends. Providers that do not implement
     // providers.MultimodalCapabilityProvider are never checked.
     SkipContentValidation bool
+
+    // StreamHold sizes the segments stream_hold: segment output guardrails
+    // judge a streamed reply in, and bounds their judging. Zero fields take
+    // the defaults.
+    StreamHold StreamHoldConfig
 }
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L330>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L335>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4770,7 +4783,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L320>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L325>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4795,7 +4808,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L377-L382>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L382-L387>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4804,7 +4817,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L389-L395>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L394-L400>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4813,7 +4826,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L402-L409>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L407-L414>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4822,7 +4835,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L416-L424>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L421-L429>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4831,7 +4844,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L683-L687>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L688-L692>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4840,7 +4853,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L374>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L379>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -6158,7 +6171,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3065>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3112>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6259,6 +6272,32 @@ func (e *StreamExecution) Output() <-chan StreamElement
 ```
 
 Output returns the execution's output, as Execute returns it.
+
+<a name="StreamHoldConfig"></a>
+## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L21-L41>)
+
+StreamHoldConfig sizes the segments a stream\_hold: segment output guardrail judges a streamed reply in, and bounds its judging. It is per conversation, not per guardrail: every segment guardrail judges the same segments. Zero fields take the defaults.
+
+```go
+type StreamHoldConfig struct {
+    // MinChars is the size, in characters, sentences merge up to before a
+    // segment ends. Default 60. A round's first segment ends at 24 characters
+    // (or MinChars, when smaller), because the first release is the latency a
+    // caller notices most. A segment with no boundary (a long code block,
+    // text without punctuation) is cut at the last whitespace before 600
+    // characters, or 10 times MinChars when that is larger.
+    MinChars int
+    // MaxSegmentJudges caps the partial-reply judgments each guardrail makes
+    // per round. Past it, the rest of the round is judged once, with the
+    // completed reply. Default 8.
+    MaxSegmentJudges int
+    // SegmentTimeout bounds each partial-reply judgment, unless the guardrail
+    // sets stream_hold_timeout. A judgment that runs past it fails closed.
+    // Default 10s.
+    SegmentTimeout time.Duration
+    // contains filtered or unexported fields
+}
+```
 
 <a name="StreamPipeline"></a>
 ## type [StreamPipeline](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/pipeline.go#L33-L78>)
@@ -6737,7 +6776,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L423-L426>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L430-L433>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -7041,7 +7080,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L410-L419>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L417-L426>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

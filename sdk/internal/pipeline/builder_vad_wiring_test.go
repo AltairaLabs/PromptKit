@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -85,6 +86,18 @@ func TestVADProviderConfig_CarriesTheMessageLog(t *testing.T) {
 func TestVADProviderConfig_StaysStreaming(t *testing.T) {
 	got := vadProviderConfig(&Config{})
 	assert.True(t, got.Streaming, "VAD is a continuous multi-turn session")
+}
+
+// A voice session bounds each partial-reply judgment more tightly than text
+// does, unless the host set a bound; the rest of the stream hold settings
+// reach the stage as set.
+func TestVADProviderConfig_StreamHoldBoundsJudgmentsForVoice(t *testing.T) {
+	got := vadProviderConfig(&Config{StreamHold: stage.StreamHoldConfig{MinChars: 40, MaxSegmentJudges: 3}})
+	assert.Equal(t, stage.StreamHoldConfig{MinChars: 40, MaxSegmentJudges: 3, SegmentTimeout: 2 * time.Second},
+		got.StreamHold)
+
+	set := vadProviderConfig(&Config{StreamHold: stage.StreamHoldConfig{SegmentTimeout: 5 * time.Second}})
+	assert.Equal(t, 5*time.Second, set.StreamHold.SegmentTimeout)
 }
 
 // Scalar settings still reach the stage.

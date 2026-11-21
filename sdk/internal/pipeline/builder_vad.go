@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
@@ -140,6 +141,9 @@ func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.St
 // Add a field here only alongside an assertion in builder_vad_wiring_test.go.
 func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 	pc := &stage.ProviderConfig{
+		// A held reply in a voice session is silence, so each partial-reply
+		// judgment gets a shorter default bound than text.
+		StreamHold:       voiceStreamHold(cfg.StreamHold),
 		MaxTokens:        cfg.MaxTokens,
 		Temperature:      cfg.Temperature,
 		TemperatureSet:   cfg.TemperatureSet,
@@ -187,4 +191,18 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		pc.Compactor = buildCompactionStrategy(cfg)
 	}
 	return pc
+}
+
+// voiceSegmentTimeout is the default bound on a stream_hold guardrail's
+// partial-reply judgment in a voice session: the caller hears nothing while a
+// segment waits for its verdict.
+const voiceSegmentTimeout = 2 * time.Second
+
+// voiceStreamHold is the conversation's stream hold settings for a voice
+// session: a judgment bound the host did not set is voiceSegmentTimeout.
+func voiceStreamHold(c stage.StreamHoldConfig) stage.StreamHoldConfig {
+	if c.SegmentTimeout <= 0 {
+		c.SegmentTimeout = voiceSegmentTimeout
+	}
+	return c
 }

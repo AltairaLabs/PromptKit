@@ -167,6 +167,7 @@ func ragJudgeCall(
 	if opts.Criteria == "" {
 		opts.Criteria = defaultCriteria
 	}
+	withPartialNote(&opts, evalCtx)
 
 	judgeResult, judgeErr := provider.Judge(ctx, opts)
 	if judgeErr != nil {

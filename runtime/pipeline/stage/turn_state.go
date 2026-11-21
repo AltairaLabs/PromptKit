@@ -261,6 +261,13 @@ type ElementMetadata struct {
 	// swaps what it showed for it (providers.StreamChunk.ReplacesText).
 	ReplacesText bool
 
+	// SegmentEnd marks a text delta whose text ends a segment of the reply
+	// (a sentence or a few), or the reply itself, as a stream_hold releases
+	// it: the provider stage has released the segment whole, so a consumer
+	// that works a segment at a time (speech output) can take it at once,
+	// without waiting for the text after it.
+	SegmentEnd bool
+
 	// InterruptedTurnComplete marks the element that closes an
 	// interrupted turn (downstream cleanup signal).
 	InterruptedTurnComplete bool

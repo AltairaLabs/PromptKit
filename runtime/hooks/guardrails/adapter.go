@@ -3,6 +3,7 @@ package guardrails
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -108,6 +109,12 @@ type GuardrailHookAdapter struct {
 	// declaration is the pack's definition of this validator, reported on
 	// validation events. Nil for a guardrail not declared in a pack.
 	declaration *packspec.Validator
+
+	// streamHold is how much of a streamed reply the guardrail holds back
+	// (stream_hold), and streamHoldTimeout its stream_hold_timeout: the bound
+	// on each partial-reply judgment, zero for the host's.
+	streamHold        hooks.StreamHoldMode
+	streamHoldTimeout time.Duration
 }
 
 // SetEvalTimeout overrides the bound on handler.Eval calls, for a host that
@@ -289,21 +296,29 @@ func (a *GuardrailHookAdapter) evalParams() (map[string]any, evals.ScoreThreshol
 	params := evals.ApplyDefaults(a.evalType, a.params)
 	params = evals.NormalizeParams(a.evalType, params)
 	thresholds := evals.ExtractScoreThresholds(params)
-	return stripDirection(evals.StripScoreThresholds(params)), thresholds
+	return stripParams(evals.StripScoreThresholds(params),
+		guardrailParamDirection, guardrailParamStreamHold, guardrailParamStreamHoldTimeout), thresholds
 }
 
-// stripDirection returns params without the wrapper's "direction" key. The
-// input map is never mutated: adapters share their params across turns.
-func stripDirection(params map[string]any) map[string]any {
-	if _, present := params["direction"]; !present {
+// stripParams returns params without the guardrail's own keys: "direction",
+// and the stream_hold params, which say how the guardrail holds a streamed
+// reply and mean nothing to the handler. The input map is never mutated:
+// adapters share their params across turns.
+func stripParams(params map[string]any, keys ...string) map[string]any {
+	present := false
+	for _, k := range keys {
+		if _, ok := params[k]; ok {
+			present = true
+		}
+	}
+	if !present {
 		return params
 	}
 	stripped := make(map[string]any, len(params))
 	for k, v := range params {
-		if k == "direction" {
-			continue
+		if !slices.Contains(keys, k) {
+			stripped[k] = v
 		}
-		stripped[k] = v
 	}
 	return stripped
 }
@@ -340,11 +355,27 @@ func (a *GuardrailHookAdapter) evaluate(
 func (a *GuardrailHookAdapter) evaluateMessage(
 	ctx context.Context, evalCtx *evals.EvalContext, enforceTarget *types.Message,
 ) hooks.Decision {
+	return a.evaluateWith(ctx, evalCtx, enforceTarget, evalRun{})
+}
+
+// evalRun is what sets one evaluation apart beyond its context: a partial
+// reply's own timeout and the segment it judges.
+type evalRun struct {
+	timeout      time.Duration // zero: the guardrail's eval timeout
+	segmentIndex int           // 1-based; zero for a whole message
+	segmentEnd   int
+}
+
+// evaluateWith is evaluateMessage for one run.
+func (a *GuardrailHookAdapter) evaluateWith(
+	ctx context.Context, evalCtx *evals.EvalContext, enforceTarget *types.Message, run evalRun,
+) hooks.Decision {
 	params, thresholds := a.evalParams()
 
 	lc := lifecycle{
 		emitter: a.emitter, name: a.evalType, valType: a.evalType, direction: a.direction,
 		turnIndex: turnIndexOf(evalCtx), validator: a.declaration,
+		segmentIndex: run.segmentIndex, segmentEnd: run.segmentEnd,
 	}
 	start := lc.start()
 
@@ -353,7 +384,11 @@ func (a *GuardrailHookAdapter) evaluateMessage(
 	// must not hang the turn forever. context.WithTimeout takes the earlier of
 	// ctx's existing deadline and this one, so a caller-supplied shorter budget
 	// is never extended.
-	handlerCtx, cancel := context.WithTimeout(ctx, a.evalTimeoutOrDefault())
+	timeout := run.timeout
+	if timeout <= 0 {
+		timeout = a.evalTimeoutOrDefault()
+	}
+	handlerCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Inference providers the guardrail's handler calls report through the
@@ -501,6 +536,10 @@ func (a *GuardrailHookAdapter) InterceptChunk(ctx context.Context, req hooks.Chu
 		return d
 	}
 
+	if a.streamHold == hooks.StreamHoldNone {
+		// stream_hold: none holds no tail back; the chunk check still runs.
+		return hooks.Allow
+	}
 	return hooks.Decision{Allow: true, Hold: a.partialHold(content, params)}
 }
 

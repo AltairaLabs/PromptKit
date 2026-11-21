@@ -118,6 +118,7 @@ Guardrail hooks in the provider stage emit `validation.passed` or `validation.fa
 - `Direction`: `"input"` (before the call) or `"output"` (after it).
 - `Enforced`: whether the guardrail modified the content or blocked the call.
 - `Score`: the evaluation score.
+- `SegmentIndex` and `SegmentEnd`: for a `stream_hold: segment` guardrail's judgment of a reply still streaming, the 1-based index of the last segment judged and the byte offset where it ends in the round's reply. Both are 0 for a judgment of a whole message.
 
 ### Eval results
 
@@ -158,6 +159,8 @@ bus.Subscribe(events.EventTemplateRendered, func(e *events.Event) {
 ### Streaming, conversation and reasoning
 
 - `stream.interrupted`
+- `stream.hold.released`: reply text that `stream_hold` guardrails held back reached the caller (`StreamHoldReleasedData`: `Round`, `ProviderCallID`, the `From` and `To` byte offsets in the round's reply, and `Held`, how long its first byte waited).
+- `stream.hold.cut`: a `stream_hold: segment` guardrail failed a segment while the reply streamed, and its message replaced the reply (`StreamHoldCutData`: `Guardrail`, `SegmentIndex`, `ReleasedBytes` the caller had before the cut, and `CanceledJudges`).
 - `conversation.started`
 - `reasoning.delta` and `reasoning.completed` carry the model's reasoning. They are not conversational content.
 

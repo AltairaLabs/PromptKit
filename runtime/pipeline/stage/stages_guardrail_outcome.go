@@ -208,14 +208,19 @@ func (g guardrailOutcome) verdict(
 // Each holding guardrail reports a cleared offset into the reply's text: how
 // far it has judged the text safe to release. The controller releases up to
 // the least of them. A tail guardrail (hooks.Decision.Hold, a banned word's
-// possible start) has cleared all it received but its hold (clearTails). With
-// no guardrail holding, everything received is released at once.
+// possible start) has cleared all it received but its hold (clearTails). A
+// stream_hold guardrail (hooks.StreamHolder) has cleared up to the end of the
+// last segment it passed (segment), or nothing until the completed reply
+// passes (turn) (clearHeld). With no guardrail holding, everything received is
+// released at once.
 type holdController struct {
 	sent    strings.Builder // released so far
 	pending string          // received, not yet released
-	// cleared is each holding guardrail's cleared offset.
+	// cleared is each chunk interceptor's cleared offset.
 	cleared []int
-	media   []StreamElement // media that arrived after pending text
+	// held is each stream_hold guardrail's cleared offset.
+	held  []int
+	media []StreamElement // media that arrived after pending text
 }
 
 // add takes delta, the text a chunk adds to the reply.
@@ -234,14 +239,33 @@ func (h *holdController) clearTails(holds []int) {
 	}
 }
 
-// clearAll records that nothing is held any more: the reply has ended.
+// clearAll records that the chunk interceptors hold nothing any more: the
+// reply has ended, so nothing can complete what they held. A stream_hold
+// guardrail's hold stands until it judged the completed reply (releaseHeld).
 func (h *holdController) clearAll() { h.cleared = h.cleared[:0] }
+
+// holdFor starts n stream_hold guardrails' holds, none of the reply cleared.
+func (h *holdController) holdFor(n int) { h.held = make([]int, n) }
+
+// clearHeld records that stream_hold guardrail i has cleared the reply up to
+// offset.
+func (h *holdController) clearHeld(i, offset int) { h.held[i] = max(h.held[i], offset) }
+
+// releaseHeld records that the stream_hold guardrails passed the completed
+// reply: they hold nothing any more.
+func (h *holdController) releaseHeld() { h.held = nil }
+
+// text is the reply's text so far, released and held.
+func (h *holdController) text() string { return h.sent.String() + h.pending }
 
 // release returns the text every guardrail has cleared that was not released
 // before, and records it as released.
 func (h *holdController) release() string {
 	upto := h.received()
 	for _, c := range h.cleared {
+		upto = min(upto, c)
+	}
+	for _, c := range h.held {
 		upto = min(upto, c)
 	}
 	n := min(max(upto-h.sent.Len(), 0), len(h.pending))
@@ -288,5 +312,6 @@ func (h *holdController) reset() {
 	h.sent.Reset()
 	h.pending = ""
 	h.cleared = h.cleared[:0]
+	clear(h.held)
 	h.media = nil
 }
