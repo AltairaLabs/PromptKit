@@ -47,6 +47,12 @@ func TestSpeechSegmenter_CapsAnUnbrokenRun(t *testing.T) {
 	got, rest := segmentAll(10, strings.Repeat("x", 25))
 	assert.Equal(t, []string{"xxxxxxxxxx", "xxxxxxxxxx"}, got)
 	assert.Equal(t, "xxxxx", rest)
+
+	// With no cap set, the default one applies: a run with no sentence end is
+	// still spoken in pieces, not held until the reply ends.
+	got, rest = segmentAll(0, strings.Repeat("y", 2*defaultSegmentMaxRunes+10))
+	assert.Equal(t, []string{strings.Repeat("y", defaultSegmentMaxRunes), strings.Repeat("y", defaultSegmentMaxRunes)}, got)
+	assert.Equal(t, strings.Repeat("y", 10), rest)
 }
 
 func TestSpeechSegmenter_FlushAndResetDropText(t *testing.T) {

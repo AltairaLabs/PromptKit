@@ -241,6 +241,54 @@ func (r *speechRecorder) sawInterrupt() bool {
 	return r.interrupt
 }
 
+// streamingSpeechBound bounds every wait in these tests. A passing test never
+// waits on it; a broken pipeline that stops reading the caller's audio, never
+// ends a turn, or hangs on Close must fail here, not at the test binary's
+// timeout.
+const streamingSpeechBound = 8 * time.Second
+
+// speak sends one utterance (speakOneUtterance), failing the test if the
+// session stops taking the caller's audio.
+func speak(t *testing.T, conv *Conversation) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		speakOneUtterance(t, conv)
+	}()
+	select {
+	case <-done:
+	case <-time.After(streamingSpeechBound):
+		t.Fatal("the session stopped taking the caller's audio")
+	}
+}
+
+// closeWithin closes conv and returns Close's error, failing the test if
+// Close does not return.
+func closeWithin(t *testing.T, conv *Conversation) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- conv.Close() }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(streamingSpeechBound):
+		t.Error("Close did not return")
+		return nil
+	}
+}
+
+// awaitClosed waits for ch to close, failing the test with what if it has not
+// by streamingSpeechBound.
+func awaitClosed(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(streamingSpeechBound):
+		t.Fatal(what)
+	}
+}
+
 func openStreamingSpeechConv(
 	t *testing.T, provider providers.Provider, sttSvc *scriptedSTTService, ttsSvc tts.Service, opts ...Option,
 ) (*Conversation, *speechRecorder) {
@@ -252,7 +300,7 @@ func openStreamingSpeechConv(
 	}, opts...)
 	conv, err := OpenDuplex(writeIngestionTestPack(t), "main", all...)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conv.Close() })
+	t.Cleanup(func() { _ = closeWithin(t, conv) })
 	responseCh, err := conv.Response()
 	require.NoError(t, err)
 	rec := &speechRecorder{}
@@ -304,8 +352,8 @@ func TestVADMode_SpeaksEachSentenceAsTheReplyStreams(t *testing.T) {
 		WithStateStore(store))
 	convID := conv.ID()
 
-	speakOneUtterance(t, conv)
-	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, 8*time.Second),
+	speak(t, conv)
+	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, streamingSpeechBound),
 		"the reply never completed")
 
 	calls := ttsSvc.snapshot()
@@ -315,7 +363,7 @@ func TestVADMode_SpeaksEachSentenceAsTheReplyStreams(t *testing.T) {
 		calls[0].at, provider.lastChunkAt())
 	assert.Equal(t, []int{1, 2, 3}, rec.audioMarkers(), "the caller receives each sentence's audio, in order")
 
-	require.NoError(t, conv.Close())
+	require.NoError(t, closeWithin(t, conv))
 	stored := storedAssistant(t, store, convID)
 	require.Len(t, stored, 1, "the turn stores one reply")
 	assert.Equal(t, "The fox woke early. It ran to the river. Then it slept.", stored[0].Content)
@@ -343,26 +391,18 @@ func TestVADMode_CallerSpeechCancelsTheStreamingReply(t *testing.T) {
 	}
 	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me a story", "what is the capital"), ttsSvc)
 
-	speakOneUtterance(t, conv)
-	select {
-	case <-ttsSvc.first:
-	case <-time.After(8 * time.Second):
-		t.Fatal("the first sentence was never synthesized while the reply streamed")
-	}
+	speak(t, conv)
+	awaitClosed(t, ttsSvc.first, "the first sentence was never synthesized while the reply streamed")
 
-	speakOneUtterance(t, conv) // talks over the reply
+	speak(t, conv) // talks over the reply
 
-	select {
-	case <-provider.canceled:
-	case <-time.After(8 * time.Second):
-		t.Fatal("caller speech must cancel the model call still generating the reply")
-	}
+	awaitClosed(t, provider.canceled, "caller speech must cancel the model call still generating the reply")
 	first := ttsSvc.snapshot()[0]
-	require.True(t, waitFor(func() bool { return first.ctx.Err() != nil }, 8*time.Second),
+	require.True(t, waitFor(func() bool { return first.ctx.Err() != nil }, streamingSpeechBound),
 		"caller speech must cancel the synthesis in flight")
-	require.True(t, provider.waitForTurns(2, 8*time.Second), "the caller's speech must be the next turn")
+	require.True(t, provider.waitForTurns(2, streamingSpeechBound), "the caller's speech must be the next turn")
 	assert.Contains(t, userTextsIn(provider.turnAt(1)), "what is the capital")
-	require.True(t, waitFor(func() bool { return len(ttsSvc.texts()) >= 2 }, 8*time.Second),
+	require.True(t, waitFor(func() bool { return len(ttsSvc.texts()) >= 2 }, streamingSpeechBound),
 		"the next turn's reply is spoken")
 	time.Sleep(20 * time.Millisecond) // nothing of the canceled reply may follow
 	assert.Equal(t, []string{"The fox woke early.", "Paris."}, ttsSvc.texts(),
@@ -422,19 +462,15 @@ func TestVADMode_ShortUtteranceDuringAPendingReplyBargesIn(t *testing.T) {
 	conv, rec := openStreamingSpeechConv(t, provider, newScriptedSTT("tell me a story", "that's that"),
 		newSegmentTTS(), WithVAD(&startingOnlyVAD{}))
 
-	speakOneUtterance(t, conv)
-	require.True(t, provider.waitForTurns(1, 8*time.Second), "the first turn never reached the model")
+	speak(t, conv)
+	require.True(t, provider.waitForTurns(1, streamingSpeechBound), "the first turn never reached the model")
 
-	speakOneUtterance(t, conv)
+	speak(t, conv)
 
-	select {
-	case <-provider.canceled:
-	case <-time.After(8 * time.Second):
-		t.Fatal("a turn spoken while the reply is pending must cancel it")
-	}
-	require.True(t, provider.waitForTurns(2, 8*time.Second), "the short utterance must be the next turn")
+	awaitClosed(t, provider.canceled, "a turn spoken while the reply is pending must cancel it")
+	require.True(t, provider.waitForTurns(2, streamingSpeechBound), "the short utterance must be the next turn")
 	assert.Contains(t, userTextsIn(provider.turnAt(1)), "that's that")
-	assert.True(t, waitFor(rec.sawInterrupt, 8*time.Second), "the caller is told to flush playback")
+	assert.True(t, waitFor(rec.sawInterrupt, streamingSpeechBound), "the caller is told to flush playback")
 }
 
 // dragonGuard replaces a reply that mentions a dragon with its own message,
@@ -479,15 +515,15 @@ func TestVADMode_GuardrailReplacementMidReplyIsSpokenInstead(t *testing.T) {
 		WithStateStore(store), WithProviderHook(dragonGuard{}))
 	convID := conv.ID()
 
-	speakOneUtterance(t, conv)
-	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, 8*time.Second),
+	speak(t, conv)
+	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, streamingSpeechBound),
 		"the reply never completed")
 
 	assert.Equal(t, []string{"The fox woke early.", dragonGuardMessage}, ttsSvc.texts(),
 		"the cleared sentence and then the guardrail's message are spoken; the blocked text never is")
 	assert.Equal(t, []int{1, 2}, rec.audioMarkers())
 
-	require.NoError(t, conv.Close())
+	require.NoError(t, closeWithin(t, conv))
 	stored := storedAssistant(t, store, convID)
 	require.Len(t, stored, 1)
 	assert.Equal(t, "The fox woke early. "+dragonGuardMessage, stored[0].Content)
@@ -518,28 +554,28 @@ func TestVADMode_SegmentHeldReplyIsSpokenOnlyAsItIsReleased(t *testing.T) {
 	})
 	convID := conv.ID()
 
-	speakOneUtterance(t, conv)
+	speak(t, conv)
 	model.next(t)
 	assert.Equal(t, "The weather is mild today.", recvWithin(t, judge.started))
 	time.Sleep(20 * time.Millisecond) // a held segment must not be spoken in the meantime
 	assert.Empty(t, ttsSvc.texts(), "nothing is spoken while the judge holds it")
 
-	judge.gate <- struct{}{}
+	letThrough(t, judge.gate)
 	recvWithin(t, ttsSvc.first)
 	assert.Equal(t, []string{"The weather is mild today."}, ttsSvc.texts(), "the released segment is spoken")
 
 	model.next(t)
 	assert.Equal(t, "The weather is mild today. Buy CompetitorCo shares now.", recvWithin(t, judge.started))
 	model.next(t) // the reply ends while the segment is judged
-	judge.gate <- struct{}{}
-	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, 8*time.Second),
+	letThrough(t, judge.gate)
+	require.True(t, waitFor(func() bool { return rec.turnCompletes() >= 1 }, streamingSpeechBound),
 		"the reply never completed")
 
 	assert.Equal(t, []string{"The weather is mild today.", holdMessage}, ttsSvc.texts(),
 		"the failed segment is never spoken; the guardrail's message is")
 	assert.Equal(t, []int{1, 2}, rec.audioMarkers())
 
-	require.NoError(t, conv.Close())
+	require.NoError(t, closeWithin(t, conv))
 	stored := storedAssistant(t, store, convID)
 	require.Len(t, stored, 1)
 	assert.Equal(t, "The weather is mild today. "+holdMessage, stored[0].Content,

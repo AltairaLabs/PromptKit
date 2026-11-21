@@ -103,20 +103,15 @@ func TestTTSStageWithInterruption_DropsInFlightOnInterrupt(t *testing.T) {
 	}
 	s := stage.NewTTSStageWithInterruption(mock, stage.DefaultTTSStageWithInterruptionConfig())
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 16)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- makeTextElement("hello, this is the bot speaking at length")
-	<-started // synthesis is in-flight
-	input <- stage.NewInterruptElement()
-	close(input)
-
-	require.NoError(t, <-done)
+	r.send(t, makeTextElement("hello, this is the bot speaking at length"))
+	awaitSignal(t, started, "synthesis never started")
+	r.send(t, stage.NewInterruptElement())
+	got := r.finish(t)
 
 	var audioCount, interruptCount int
-	for e := range output {
+	for _, e := range got {
 		if e.Audio != nil {
 			audioCount++
 		}
@@ -143,21 +138,16 @@ func TestTTSStageWithInterruption_SynthesizesAfterInterrupt(t *testing.T) {
 	}
 	s := stage.NewTTSStageWithInterruption(mock, stage.DefaultTTSStageWithInterruptionConfig())
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 16)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- makeTextElement("first reply, interrupted")
-	<-firstStarted
-	input <- stage.NewInterruptElement()
-	input <- makeTextElement("second reply, after barge-in")
-	close(input)
-
-	require.NoError(t, <-done)
+	r.send(t, makeTextElement("first reply, interrupted"))
+	awaitSignal(t, firstStarted, "synthesis never started")
+	r.send(t, stage.NewInterruptElement())
+	r.send(t, makeTextElement("second reply, after barge-in"))
+	got := r.finish(t)
 
 	var audioCount, interruptCount int
-	for e := range output {
+	for _, e := range got {
 		if e.Audio != nil {
 			audioCount++
 		}
@@ -428,21 +418,16 @@ func TestTTSStageWithInterruption_StaleFlagWithoutInterruptElementStillSynthesiz
 	_, _ = handler.ProcessVADState(context.Background(), audio.VADStateSpeaking)
 	require.True(t, handler.WasInterrupted(), "precondition: handler must be interrupted")
 
-	input := make(chan stage.StreamElement, 1)
-	output := make(chan stage.StreamElement, 10)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- makeTextElement("This proceeds despite the stale interrupted flag")
-	close(input)
-
-	require.NoError(t, <-done)
+	r.send(t, makeTextElement("This proceeds despite the stale interrupted flag"))
+	got := r.finish(t)
 
 	// With no Interrupt element in the channel, synthesis proceeds even if the
 	// handler's interrupted flag was set before this turn — only an in-channel
 	// Interrupt element (plus synthCtx cancellation) drops audio.
 	var audioCount int
-	for e := range output {
+	for _, e := range got {
 		if e.Audio != nil {
 			audioCount++
 		}
@@ -471,18 +456,13 @@ func TestTTSStageWithInterruption_CompletedSynthesisEmittedWhenSynthCtxNotCancel
 
 	s := stage.NewTTSStageWithInterruption(mock, config)
 
-	input := make(chan stage.StreamElement, 1)
-	output := make(chan stage.StreamElement, 10)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- makeTextElement("Test post-synthesis interruption")
-	close(input)
-
-	require.NoError(t, <-done)
+	r.send(t, makeTextElement("Test post-synthesis interruption"))
+	got := r.finish(t)
 
 	var audioCount int
-	for e := range output {
+	for _, e := range got {
 		if e.Audio != nil {
 			audioCount++
 		}
@@ -512,20 +492,15 @@ func TestTTSStageWithInterruption_StaleFlagNoLongerDropsNextSynthesis(t *testing
 
 	s := stage.NewTTSStageWithInterruption(mock, config)
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 16)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
 	// An Interrupt element arrives (as AudioTurnStage emits on barge-in), then turn-2 text.
-	input <- stage.NewInterruptElement()
-	input <- makeTextElement("second-turn reply")
-	close(input)
-
-	require.NoError(t, <-done)
+	r.send(t, stage.NewInterruptElement())
+	r.send(t, makeTextElement("second-turn reply"))
+	got := r.finish(t)
 
 	var audioCount, interruptCount int
-	for e := range output {
+	for _, e := range got {
 		if e.Audio != nil {
 			audioCount++
 		}
@@ -553,17 +528,10 @@ func TestTTSStageWithInterruption_InterruptElementClearsHandler(t *testing.T) {
 
 	s := stage.NewTTSStageWithInterruption(&mockTTSService{}, config)
 
-	input := make(chan stage.StreamElement, 1)
-	output := make(chan stage.StreamElement, 4)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- stage.NewInterruptElement()
-	close(input)
-
-	require.NoError(t, <-done)
-	for range output {
-	} // drain
+	r.send(t, stage.NewInterruptElement())
+	r.finish(t)
 
 	assert.False(t, handler.WasInterrupted(),
 		"Interrupt element must call handler.Reset() to clear the interrupted flag for the next turn")

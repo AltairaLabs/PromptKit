@@ -113,20 +113,16 @@ func TestTTSStageWithInterruption_CanceledSynthesisForwardsMessage(t *testing.T)
 	}
 	s := stage.NewTTSStageWithInterruption(svc, stage.DefaultTTSStageWithInterruptionConfig())
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 16)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- stage.NewMessageElement(&types.Message{Role: "assistant", Content: "a long reply"})
-	<-started
-	input <- stage.NewInterruptElement()
-	close(input)
-	require.NoError(t, <-done)
+	r.send(t, stage.NewMessageElement(&types.Message{Role: "assistant", Content: "a long reply"}))
+	awaitSignal(t, started, "synthesis never started")
+	r.send(t, stage.NewInterruptElement())
+	got := r.finish(t)
 
 	var messages []*types.Message
 	var audio, interrupts int
-	for e := range output {
+	for _, e := range got {
 		if e.Message != nil {
 			messages = append(messages, e.Message)
 		}

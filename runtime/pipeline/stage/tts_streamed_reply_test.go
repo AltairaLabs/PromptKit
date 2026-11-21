@@ -115,38 +115,115 @@ func kinds(elems []stage.StreamElement) []string {
 	return out
 }
 
+// replyTestBound bounds every wait in these tests. A reply over a few scripted
+// elements takes milliseconds; a broken stage may stop reading its input, never
+// emit, or block in a synthesis that waits on a context nothing cancels, and
+// must fail here, not at the test binary's timeout.
+const replyTestBound = 5 * time.Second
+
+// replyRun is a TTSStageWithInterruption's Process running on its own
+// goroutine, fed and read one element at a time, every step bounded by
+// replyTestBound. Cleanup cancels Process's context, which releases a
+// synthesis still waiting on it.
+type replyRun struct {
+	cancel context.CancelFunc
+	input  chan stage.StreamElement
+	output chan stage.StreamElement
+	done   chan error
+	got    []stage.StreamElement
+}
+
+func startReplyRun(t *testing.T, s stage.Stage) *replyRun {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	r := &replyRun{
+		cancel: cancel,
+		input:  make(chan stage.StreamElement),
+		output: make(chan stage.StreamElement, 32),
+		done:   make(chan error, 1),
+	}
+	go func() { r.done <- s.Process(ctx, r.input, r.output) }()
+	return r
+}
+
+// send hands the stage its next input element.
+func (r *replyRun) send(t *testing.T, elems ...stage.StreamElement) {
+	t.Helper()
+	for _, e := range elems {
+		select {
+		case r.input <- e:
+		case <-time.After(replyTestBound):
+			t.Fatalf("the stage stopped reading its input (sending %v)", kinds([]stage.StreamElement{e}))
+		}
+	}
+}
+
+// next is the stage's next output element.
+func (r *replyRun) next(t *testing.T) stage.StreamElement {
+	t.Helper()
+	select {
+	case e, ok := <-r.output:
+		if !ok {
+			t.Fatal("the stage closed its output early")
+		}
+		r.got = append(r.got, e)
+		return e
+	case <-time.After(replyTestBound):
+		t.Fatalf("the stage emitted nothing more after %v", kinds(r.got))
+		return stage.StreamElement{}
+	}
+}
+
+// finish closes the input, waits for Process to return without error, and
+// returns everything the stage emitted, in order.
+func (r *replyRun) finish(t *testing.T) []stage.StreamElement {
+	t.Helper()
+	close(r.input)
+	select {
+	case err := <-r.done:
+		require.NoError(t, err)
+	case <-time.After(replyTestBound):
+		t.Fatalf("Process did not return after its input closed; emitted %v", kinds(r.got))
+	}
+	for {
+		select {
+		case e, ok := <-r.output:
+			if !ok {
+				return r.got
+			}
+			r.got = append(r.got, e)
+		case <-time.After(replyTestBound):
+			t.Fatal("the stage did not close its output")
+			return nil
+		}
+	}
+}
+
+// awaitSignal waits for ch to close or receive, failing the test if it has not
+// by replyTestBound.
+func awaitSignal(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(replyTestBound):
+		t.Fatal(what)
+	}
+}
+
 // A sentence is synthesized as soon as its delta completes it, before the rest
 // of the reply has arrived; the completed Message is not spoken again, and it
 // carries the cost of every segment.
 func TestTTSStageWithInterruption_SpeaksStreamedSentencesAsTheyComplete(t *testing.T) {
 	svc := newSegmentRecordingTTS()
-	s := newStreamedReplyStage(svc)
+	r := startReplyRun(t, newStreamedReplyStage(svc))
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 32)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
-
-	input <- delta("One. ")
-	var got []stage.StreamElement
-	deadline := time.After(2 * time.Second)
-	for len(audioElements(got)) == 0 {
-		select {
-		case e := <-output:
-			got = append(got, e)
-		case <-deadline:
-			t.Fatal("the first sentence was not spoken before the rest of the reply arrived")
-		}
+	r.send(t, delta("One. "))
+	for len(audioElements(r.got)) == 0 {
+		r.next(t) // fails if the first sentence waits for the rest of the reply
 	}
-	input <- delta("Two")
-	input <- delta(" three.")
-	input <- assistant("One. Two three.")
-	input <- stage.NewEndOfTurnElement()
-	close(input)
-	require.NoError(t, <-done)
-	for e := range output {
-		got = append(got, e)
-	}
+	r.send(t, delta("Two"), delta(" three."), assistant("One. Two three."), stage.NewEndOfTurnElement())
+	got := r.finish(t)
 
 	assert.Equal(t, []string{"One.", "Two three."}, svc.spoken())
 	assert.Equal(t, []string{
@@ -184,6 +261,83 @@ func TestTTSStageWithInterruption_StreamsASegmentsAudioInPieces(t *testing.T) {
 		}
 	}
 	assert.Equal(t, pcm, joined, "the pieces are the segment's audio, in order")
+}
+
+// A segment whose audio ends on a piece boundary is handed on as exactly
+// those pieces: the empty read at the end of the audio is not a piece.
+func TestTTSStageWithInterruption_AudioEndingOnAPieceBoundaryAddsNoEmptyPiece(t *testing.T) {
+	svc := newSegmentRecordingTTS()
+	pcm := generateTestPCMAudio(6400) // 200ms at 16kHz: two 100ms pieces
+	svc.synth = func(context.Context, int, string) (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(pcm)), nil
+	}
+	r := startReplyRun(t, newStreamedReplyStage(svc))
+	r.send(t, delta("Hello."), assistant("Hello."))
+	pieces := audioElements(r.finish(t))
+
+	require.Len(t, pieces, 2)
+	for _, p := range pieces {
+		assert.Len(t, p.Audio.Samples, 3200)
+	}
+}
+
+// A streaming delta with no text (a final chunk carrying only its finish
+// reason) passes through and speaks nothing.
+func TestTTSStageWithInterruption_TextlessDeltaPassesThrough(t *testing.T) {
+	svc := newSegmentRecordingTTS()
+	r := startReplyRun(t, newStreamedReplyStage(svc))
+	bare := stage.StreamElement{}
+	bare.Meta.StreamingDelta = true
+	r.send(t, delta("Hi there. "), bare, assistant("Hi there."))
+	got := r.finish(t)
+
+	assert.Equal(t, []string{"Hi there."}, svc.spoken())
+	require.Len(t, got, 4, "the textless delta is passed on too")
+	assert.True(t, got[2].Meta.StreamingDelta && got[2].Text == nil, "the textless delta, in order")
+	assert.Equal(t, []string{"delta:Hi there. ", "audio:Hi there.", "message:Hi there."}, kinds(got))
+}
+
+// A synthesis a barge-in cut short is not a failure, whatever error the
+// service returns once its context is canceled: the reply's Message carries
+// no error.
+func TestTTSStageWithInterruption_SynthesisErrorAfterBargeInIsNotAFailure(t *testing.T) {
+	svc := newSegmentRecordingTTS()
+	started := make(chan struct{})
+	svc.synth = func(ctx context.Context, n int, _ string) (io.ReadCloser, error) {
+		if n == 1 {
+			close(started)
+			<-ctx.Done()
+			return nil, errors.New("connection reset by peer")
+		}
+		return io.NopCloser(bytes.NewReader(make([]byte, 320))), nil
+	}
+	r := startReplyRun(t, newStreamedReplyStage(svc))
+
+	r.send(t, delta("One. "))
+	awaitSignal(t, started, "the first sentence was never synthesized")
+	r.send(t, assistant("One."), stage.NewInterruptElement())
+	got := r.finish(t)
+
+	require.Equal(t, []string{"delta:One. ", "message:One.", "interrupt"}, kinds(got))
+	assert.NoError(t, got[1].Error, "a canceled synthesis does not fail the reply")
+}
+
+// Once the stage's context ends, it keeps reading its input to the end, so
+// the stage feeding it is never blocked.
+func TestTTSStageWithInterruption_KeepsReadingInputAfterItsContextEnds(t *testing.T) {
+	svc := newSegmentRecordingTTS()
+	r := startReplyRun(t, newStreamedReplyStage(svc))
+	r.send(t, delta("One. "))
+	r.cancel()
+	for i := 0; i < 50; i++ {
+		r.send(t, delta("More. ")) // fails if nothing reads the input
+	}
+	close(r.input)
+	select {
+	case <-r.done:
+	case <-time.After(replyTestBound):
+		t.Fatal("Process did not return after its context ended")
+	}
 }
 
 // A guardrail's mid-stream replacement drops what was released but not yet
@@ -231,25 +385,14 @@ func TestTTSStageWithInterruption_ReplacementBeforeAnythingHeardIsTheMessage(t *
 // at once, without waiting for the text after it to show a sentence end.
 func TestTTSStageWithInterruption_SegmentEndSpeaksAtOnce(t *testing.T) {
 	svc := newSegmentRecordingTTS()
-	s := newStreamedReplyStage(svc)
-
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 32)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, newStreamedReplyStage(svc))
 
 	released := delta("The weather is mild today.")
 	released.Meta.SegmentEnd = true
-	input <- released
-	<-output // the delta
-	select {
-	case e := <-output:
-		require.NotNil(t, e.Audio, "the released segment is spoken before more text arrives")
-	case <-time.After(2 * time.Second):
-		t.Fatal("a released segment waited for the next text")
-	}
-	close(input)
-	require.NoError(t, <-done)
+	r.send(t, released)
+	require.Equal(t, []string{"delta:The weather is mild today."}, kinds([]stage.StreamElement{r.next(t)}))
+	require.NotNil(t, r.next(t).Audio, "the released segment is spoken before more text arrives")
+	r.finish(t)
 	assert.Equal(t, []string{"The weather is mild today."}, svc.spoken())
 }
 
@@ -400,25 +543,13 @@ func TestTTSStageWithInterruption_InterruptStopsTheStreamedReply(t *testing.T) {
 		}
 		return io.NopCloser(bytes.NewReader(make([]byte, 320))), nil
 	}
-	s := newStreamedReplyStage(svc)
+	r := startReplyRun(t, newStreamedReplyStage(svc))
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 32)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
-
-	input <- delta("One. ")
-	<-started
-	input <- delta("Two. Three. ")
-	input <- assistant("One. Two. Three.")
-	input <- stage.NewEndOfTurnElement()
-	input <- stage.NewInterruptElement()
-	close(input)
-	require.NoError(t, <-done)
-	var got []stage.StreamElement
-	for e := range output {
-		got = append(got, e)
-	}
+	r.send(t, delta("One. "))
+	awaitSignal(t, started, "the first sentence was never synthesized")
+	r.send(t, delta("Two. Three. "), assistant("One. Two. Three."), stage.NewEndOfTurnElement(),
+		stage.NewInterruptElement())
+	got := r.finish(t)
 
 	assert.Equal(t, []string{"One."}, svc.spoken(), "nothing after the barge-in is synthesized")
 	assert.Equal(t, []string{
@@ -454,26 +585,13 @@ func TestTTSStageWithInterruption_InterruptMidSegmentStopsItsAudio(t *testing.T)
 	svc.synth = func(ctx context.Context, _ int, _ string) (io.ReadCloser, error) {
 		return io.NopCloser(&blockAfterReader{ctx: ctx, first: make([]byte, 3200)}), nil
 	}
-	s := newStreamedReplyStage(svc)
+	r := startReplyRun(t, newStreamedReplyStage(svc))
 
-	input := make(chan stage.StreamElement)
-	output := make(chan stage.StreamElement, 32)
-	done := make(chan error, 1)
-	go func() { done <- s.Process(context.Background(), input, output) }()
-
-	input <- delta("A long sentence. ")
-	first := <-output // the delta
-	require.Equal(t, []string{"delta:A long sentence. "}, kinds([]stage.StreamElement{first}))
-	piece := <-output
-	require.NotNil(t, piece.Audio, "the first piece arrives while the segment is still being read")
-	input <- assistant("A long sentence.")
-	input <- stage.NewInterruptElement()
-	close(input)
-	require.NoError(t, <-done)
-	var rest []stage.StreamElement
-	for e := range output {
-		rest = append(rest, e)
-	}
+	r.send(t, delta("A long sentence. "))
+	require.Equal(t, []string{"delta:A long sentence. "}, kinds([]stage.StreamElement{r.next(t)}))
+	require.NotNil(t, r.next(t).Audio, "the first piece arrives while the segment is still being read")
+	r.send(t, assistant("A long sentence."), stage.NewInterruptElement())
+	rest := r.finish(t)[2:]
 
 	assert.Equal(t, []string{"message:A long sentence.", "interrupt"}, kinds(rest))
 	assert.Equal(t, float64(-1), ttsCostUSD(rest[0].Message), "a segment cut short is not priced")

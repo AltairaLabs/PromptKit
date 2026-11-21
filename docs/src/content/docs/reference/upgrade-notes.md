@@ -529,7 +529,7 @@ A VAD session used to synthesize a reply only once the model had finished it, so
 | Guard VAD replies with an output guardrail that judges only the complete reply (an `AfterCall` hook, or a validator with no streaming evaluation) | the caller hears each sentence before that guardrail runs, as a text caller already sees it. If the guardrail then replaces the reply, the rest is not spoken and its message is | use a guardrail that judges streamed chunks; text it holds back is not spoken until it clears it |
 | Read the stored reply of a VAD turn an output guardrail cut after some of it was spoken | the sentences the caller heard, then the guardrail's message, where it was the message alone | nothing |
 | Use `ElevenLabsService` | requests go to `/text-to-speech/{voice}/stream`, which returns the audio as it is generated | nothing |
-| Speak a short turn while a VAD reply is pending or playing | the turn barges in on the reply, where an utterance the voice activity detector never reported as speech was queued after it | nothing |
+| Speak a short turn while a VAD reply is pending or playing | the turn barges in on the reply, where an utterance the voice activity detector never reported as speech was queued after it. A reply canceled before the model wrote any of it ends with the `Interrupted` chunk alone, with no `assistant_turn_complete` | stop waiting for a turn's `assistant_turn_complete` once `Interrupted` arrives |
 
 ## v2.21.0
 
