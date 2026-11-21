@@ -2,6 +2,9 @@ package openai
 
 import (
 	"context"
+	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -67,7 +70,7 @@ func runHeldPlayout(t *testing.T, r heldRun) playoutRun {
 	}
 	clock.set(t0.Add(release))
 	for i := range held[:releaseN] {
-		session.AudioReleased(&held[i])
+		session.ReleaseAudio(&held[i])
 	}
 	if dropped {
 		session.HeldAudioDropped()
@@ -209,11 +212,112 @@ func TestRealtimeHeldPlayout_DroppingAfterABargeInCutsOnce(t *testing.T) {
 func TestRealtimeHeldPlayout_ReleasingNoAudioPlaysNothing(t *testing.T) {
 	s := &RealtimeSession{now: func() time.Time { return time.Unix(0, 0) }}
 	s.HoldPlayout()
-	s.AudioReleased(nil)
-	s.AudioReleased(&providers.StreamChunk{})
-	s.AudioReleased(&providers.StreamChunk{MediaData: &providers.StreamMediaData{}})
+	s.ReleaseAudio(nil)
+	s.ReleaseAudio(&providers.StreamChunk{})
+	s.ReleaseAudio(&providers.StreamChunk{MediaData: &providers.StreamMediaData{}})
 	assert.False(t, s.playoutEstimate().Playing())
-	s.AudioReleased(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
+	s.ReleaseAudio(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
 		Data: make([]byte, 480), SampleRate: 24000, Channels: 1}})
 	assert.True(t, s.playoutEstimate().Playing())
+}
+
+// newSupersedeServer is a fake realtime server that delivers a second of
+// reply R1 and completes it, then starts R2 with a second of its own audio,
+// completing R2 only once speak is closed.
+func newSupersedeServer(t *testing.T) *playoutServer {
+	t.Helper()
+	ps := &playoutServer{speak: make(chan struct{}), client: make(chan []map[string]any, 1)}
+	second := base64.StdEncoding.EncodeToString(make([]byte, 2*DefaultRealtimeSampleRate))
+	ps.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		write := func(v map[string]any) { _ = conn.WriteJSON(v) }
+		write(map[string]any{"type": "session.created", "session": map[string]any{"id": "s", "model": "gpt-realtime"}})
+		if _, _, err := conn.ReadMessage(); err != nil { // session.update
+			return
+		}
+		go ps.recordClient(conn)
+		for _, id := range []string{"R1", "R2"} {
+			write(map[string]any{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress"}})
+			write(map[string]any{"type": "response.output_audio.delta", "item_id": "item_" + id,
+				"response_id": id, "content_index": 0, "delta": second})
+			if id == "R2" {
+				<-ps.speak
+			}
+			write(map[string]any{"type": "response.done", "response": map[string]any{"id": id, "status": "completed"}})
+		}
+		<-r.Context().Done()
+	}))
+	t.Cleanup(ps.srv.Close)
+	return ps
+}
+
+// The pipeline dropping a reply's held audio once the next reply has begun
+// cuts the dropped reply's copy at once; the reply in progress is cut only
+// once it too is dropped.
+func TestRealtimeHeldPlayout_DroppingASupersededReplyCutsItAtOnce(t *testing.T) {
+	ps := newSupersedeServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	config := DefaultRealtimeSessionConfig()
+	session, err := newRealtimeSession(ctx, "test-key", &config, realtimeSessionOpts{endpoint: bargeInWSURL(ps.srv)})
+	require.NoError(t, err)
+	defer func() { _ = session.Close() }()
+	session.HoldPlayout()
+	next := func() providers.StreamChunk {
+		select {
+		case c, ok := <-session.Response():
+			require.True(t, ok, "Response() closed")
+			return c
+		case <-ctx.Done():
+			t.Fatal("timed out")
+			return providers.StreamChunk{}
+		}
+	}
+	audioOf := func(id string) {
+		for {
+			if c := next(); c.MediaData != nil && c.Metadata[keyResponseID] == id {
+				return
+			}
+		}
+	}
+	audioOf("R1")
+	audioOf("R2") // R2 is in progress
+	session.HeldAudioDropped()
+	require.NoError(t, session.CommitAudioBuffer())
+	var clients []map[string]any
+	select {
+	case clients = <-ps.client:
+	case <-ctx.Done():
+		t.Fatal("the server never saw the commit")
+	}
+	close(ps.speak)
+	assert.Equal(t, []map[string]any{{"type": "conversation.item.truncate", "item_id": "item_R1",
+		"content_index": float64(0), "audio_end_ms": float64(0)}}, truncateEvents(clients),
+		"R1 is cut while R2 is in progress, and R2 is not")
+}
+
+// Audio of an item already cut to what was heard no longer waits for the
+// caller: later speech is a new turn, not a barge-in on it.
+func TestRealtimeHeldPlayout_CutItemsWaitForNothing(t *testing.T) {
+	s := &RealtimeSession{}
+	s.heldItems = []heldItem{{key: heldItemKey{itemID: "a"}, delivered: time.Second, cut: true}}
+	assert.False(t, s.holdingAudio())
+	assert.False(t, s.interruptHeldAudio())
+	s.heldItems = append(s.heldItems, heldItem{key: heldItemKey{itemID: "b"}, delivered: time.Second})
+	assert.True(t, s.holdingAudio())
+}
+
+// Once the caller spoke over the held audio, releasing more of it is refused
+// and counts nothing as heard.
+func TestRealtimeHeldPlayout_ReleaseAfterInterruptionIsRefused(t *testing.T) {
+	s := &RealtimeSession{now: func() time.Time { return time.Unix(0, 0) }}
+	s.HoldPlayout()
+	s.heldInterrupted = true
+	assert.False(t, s.ReleaseAudio(&providers.StreamChunk{MediaData: &providers.StreamMediaData{
+		Data: make([]byte, 480), SampleRate: 24000, Channels: 1}}))
+	assert.False(t, s.playoutEstimate().Playing())
 }

@@ -202,12 +202,14 @@ A composition opened no prompt of its own, so only the opened prompt's validator
 Two provider-level changes come with it:
 
 - A Gemini Live session whose pipeline holds reply audio (`providers.PlayoutHolder.HoldPlayout`) sends a chunk marked `GenerationComplete` when a reply's content is complete, ahead of its turn completion. The chunk carries nothing else, and the duplex pipeline consumes it. A session that does not hold reply audio sends no such chunk, so `Response()` reads as before.
-- `providers.PlayoutHolder` and `providers.TranscriptLagger` are new optional session interfaces. OpenAI Realtime implements the first; Gemini Live implements both. A `PlayoutHolder` session also treats a caller speaking over audio the pipeline still holds as a barge-in, and reports it (`HeldAudioInterrupted`) until the pipeline says it dropped what it held (`HeldAudioDropped`). OpenAI Realtime then cuts its model's copy of each held item to what was released of it, so the model does not take a dropped or unheard reply as heard.
+- `providers.PlayoutHolder` and `providers.TranscriptLagger` are new optional session interfaces. OpenAI Realtime implements the first; Gemini Live implements both. A `PlayoutHolder` session counts audio as heard from `ReleaseAudio`, which refuses once the caller has spoken over the held audio, so the check and the count are one step. It also treats a caller speaking over audio the pipeline still holds as a barge-in, and reports it (`HeldAudioInterrupted`) until the pipeline says it dropped what it held (`HeldAudioDropped`). OpenAI Realtime then cuts its model's copy of each held item to what was released of it, so the model does not take a dropped or unheard reply as heard.
 
 | If you | You will see | Change |
 |---|---|---|
 | Read the `Response()` channel of a Gemini Live session you called `HoldPlayout` on | an extra empty chunk with `GenerationComplete` set before each reply's turn completion | skip it, or use it as the reply's end |
 | Want a realtime reply judged before it is heard | the reply plays as it arrives, as before | set `Realtime` in `sdk.WithStreamHold` |
+| Delimit turns by `assistant_turn_complete` on `Response()` under a hold | a held reply the caller spoke over before any of it was released, or that was canceled unheard, sends no `assistant_turn_complete` and stores no assistant turn, so two caller turns can come in a row | treat a caller turn after a caller turn as the reply to the first having been dropped |
+| Hold a realtime reply that calls tools on OpenAI Realtime | when the reply is dropped unheard, its calls do not run, but the model's conversation keeps the `function_call` item without an output | nothing to change: the model sees a call it got no result for |
 | Hold replies on a session without output transcription | each held reply fails closed with the blocked message, since there is no transcript to judge | turn on the session's output transcription |
 | Hold replies on Gemini Live | a turn-held reply's first audio waits a further 1.5 seconds after its generation completes, for the transcript's last words | set `Holdback` to change the wait |
 

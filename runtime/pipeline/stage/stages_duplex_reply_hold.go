@@ -158,8 +158,8 @@ func (s *DuplexProviderStage) holdReplyOutput(chunk *providers.StreamChunk, elem
 	}
 	h := s.replyHold
 	if h == nil {
-		if elem.Audio != nil && s.playoutHeld != nil {
-			s.playoutHeld.AudioReleased(chunk)
+		if elem.Audio != nil && s.playoutHeld != nil && !s.playoutHeld.ReleaseAudio(chunk) {
+			elem.Audio = nil // the caller is speaking over it
 		}
 		return false
 	}
@@ -217,9 +217,10 @@ func (s *DuplexProviderStage) holdAfterPass(
 	h *duplexReplyHold, chunk *providers.StreamChunk, elem *StreamElement,
 ) bool {
 	if elem.Audio != nil {
-		h.heardAudio += len(elem.Audio.Samples)
-		if s.playoutHeld != nil {
-			s.playoutHeld.AudioReleased(chunk)
+		if s.playoutHeld != nil && !s.playoutHeld.ReleaseAudio(chunk) {
+			elem.Audio = nil // the caller is speaking over it
+		} else {
+			h.heardAudio += len(elem.Audio.Samples)
 		}
 	}
 	if elem.Text == nil {
@@ -332,14 +333,17 @@ func (s *DuplexProviderStage) releaseCleared(ctx context.Context, output chan<- 
 func (s *DuplexProviderStage) releaseHeldOutput(ctx context.Context, n int, output chan<- StreamElement) error {
 	h := s.replyHold
 	for range n {
-		if s.replyHoldInterrupted() {
-			// The caller began speaking over the held reply: it is a turn
-			// of their own, and what is still held is never heard.
+		o := h.held[0]
+		// The caller may begin speaking over the held reply at any point:
+		// it is a turn of their own, and what is still held is never heard.
+		// For audio the session checks and counts the release as one step.
+		if s.replyHoldInterrupted() ||
+			(o.elem.Audio != nil && s.playoutHeld != nil && !s.playoutHeld.ReleaseAudio(&o.src)) {
+			h.interrupted = true
 			h.held = nil
 			h.judge.stop()
 			return nil
 		}
-		o := h.held[0]
 		h.held = h.held[1:]
 		if err := s.emit(ctx, o.elem, output); err != nil {
 			return err
@@ -347,9 +351,6 @@ func (s *DuplexProviderStage) releaseHeldOutput(ctx context.Context, n int, outp
 		h.heard.WriteString(o.text)
 		if o.elem.Audio != nil {
 			h.heardAudio += len(o.elem.Audio.Samples)
-			if s.playoutHeld != nil {
-				s.playoutHeld.AudioReleased(&o.src)
-			}
 		}
 	}
 	return nil
@@ -509,6 +510,13 @@ func (s *DuplexProviderStage) dropReplyHold(heardText bool) {
 	s.heldAudioDropped()
 	s.replyHold = nil
 	h.judge.stop()
+	if h.passed {
+		// After the pass the reply's audio played as it arrived: the
+		// transcript held for the turn's check went with audio heard.
+		for i := range h.held {
+			h.heard.WriteString(h.held[i].text)
+		}
+	}
 	h.held = nil
 	if heardText {
 		s.accumulatedText.Reset()

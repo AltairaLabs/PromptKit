@@ -344,6 +344,16 @@ func (s *StreamSession) handleInterrupted() error {
 		}
 	})
 	s.turnOpen = false // the interruption ends the turn; later usage is its
+	if s.barged {
+		// The session already reported this reply interrupted (the caller
+		// spoke over it after its generation completed): only its usage
+		// is still to go.
+		if cost := s.takeTurnCost(); cost != nil {
+			return s.sendChunk(&providers.StreamChunk{CostInfo: cost})
+		}
+		return nil
+	}
+	s.barged = true
 	s.Barge()
 	marker := providers.BargeMarker()
 	if err := s.sendChunk(&marker); err != nil {

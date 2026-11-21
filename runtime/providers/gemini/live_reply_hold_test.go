@@ -109,7 +109,7 @@ func TestLiveReplyHold_HeldPlayoutCountsFromRelease(t *testing.T) {
 			*now = t0.Add(3 * time.Second)
 			if tc.release {
 				for i := range held {
-					s.AudioReleased(&held[i])
+					s.ReleaseAudio(&held[i])
 				}
 			}
 			if tc.drop {
@@ -200,4 +200,65 @@ func TestLiveReplyHold_SpeechWhileAHeldReplyGeneratesIsLeftToGemini(t *testing.T
 
 	assert.False(t, barged(s))
 	assert.False(t, s.HeldAudioInterrupted())
+}
+
+// Speech over a passed reply still playing, after its generation completed
+// and before its turn completes, is a barge-in the session reports; Gemini's
+// own interruption of the same reply, before or after, adds no second one.
+func TestLiveReplyHold_SpeechOverPassedAudioPlayingBargesInOnce(t *testing.T) {
+	interruptedMsg := &ServerMessage{ServerContent: &ServerContent{Interrupted: true}}
+	for name, msgs := range map[string][]*ServerMessage{
+		"the session alone": {callerSays("wait")},
+		"then Gemini":       {callerSays("wait"), interruptedMsg},
+		"Gemini first":      {interruptedMsg, callerSays("wait")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, now := playoutSession(t)
+			t0 := *now
+			s.HoldPlayout()
+			process(t, s, audioSecond(), generationComplete())
+			for _, c := range drainChunks(t, s) {
+				s.ReleaseAudio(&c) // released at t0: plays until t0+1s
+			}
+			*now = t0.Add(500 * time.Millisecond)
+			process(t, s, msgs...)
+			assert.True(t, barged(s))
+			assert.Equal(t, 1, interrupted(drainChunks(t, s)), "one barge-in")
+		})
+	}
+}
+
+// Without a hold, speech in the window between generationComplete and
+// turnComplete is left to Gemini, as before holds.
+func TestLiveReplyHold_SpeechAfterGenerationCompleteWithoutAHoldIsLeftToGemini(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	process(t, s, audioSecond(), generationComplete())
+	drainChunks(t, s)
+	*now = t0.Add(500 * time.Millisecond)
+	process(t, s, callerSays("wait"))
+	assert.False(t, barged(s))
+}
+
+// The reply's usage still goes when Gemini's interruption of a reply the
+// session already reported interrupted is not reported again.
+func TestLiveReplyHold_ASecondInterruptionStillCarriesTheUsage(t *testing.T) {
+	s, now := playoutSession(t)
+	t0 := *now
+	s.HoldPlayout()
+	process(t, s, audioSecond(), generationComplete())
+	for _, c := range drainChunks(t, s) {
+		s.ReleaseAudio(&c)
+	}
+	*now = t0.Add(500 * time.Millisecond)
+	process(t, s, callerSays("wait"), &ServerMessage{
+		ServerContent: &ServerContent{Interrupted: true}, UsageMetadata: textUsage(10, 5)})
+	var costs int
+	for _, c := range drainChunks(t, s) {
+		if c.CostInfo != nil {
+			costs++
+			assert.Equal(t, 10, c.CostInfo.InputTokens)
+		}
+	}
+	assert.Equal(t, 1, costs)
 }

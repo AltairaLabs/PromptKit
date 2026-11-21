@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -325,4 +326,93 @@ func TestReplyHold_RepeatedGenerationCompleteJudgesOnce(t *testing.T) {
 	assert.Equal(t, []string{"text:Sunny skies.", "audio:10"}, r.feed(providers.StreamChunk{GenerationComplete: true}))
 	assert.Empty(t, r.feed(providers.StreamChunk{GenerationComplete: true}))
 	assert.Equal(t, []string{"Sunny skies."}, hook.calls())
+}
+
+// replyCallerTurns feeds a reply of text through r, ended by end, and
+// returns the caller turn stamped on its end, or -1 when it left none.
+func replyCallerTurn(r *released, text string, end providers.StreamChunk) int {
+	r.t.Helper()
+	r.feed(transcriptChunk(text, pcm(10)))
+	for _, e := range r.feedElems(end) {
+		if e.Message != nil && e.Message.Role == roleAssistant && e.Meta.CallerTurn != nil {
+			return *e.Meta.CallerTurn
+		}
+	}
+	return -1
+}
+
+// A held reply dropped unheard still ends: the replies after it answer the
+// caller's turns in order, as they do after any barge-in. Both a reply the
+// caller spoke over and one the host canceled leave the count where it was.
+func TestReplyHold_ADroppedReplyEndsItsCallerTurn(t *testing.T) {
+	canceled := types.FinishReasonInterrupted
+	t.Run("spoken over", func(t *testing.T) {
+		hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+		r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+		r.s.callers.typed() // the caller's turn 0
+		r.feed(transcriptChunk("Sunny skies.", pcm(10)))
+		sess.interrupted = true // the caller speaks (turn 1) over the held reply
+		assert.Equal(t, -1, replyCallerTurn(r, "", stopChunk()), "no turn of the unheard reply")
+		assert.Equal(t, 1, replyCallerTurn(r, "Madrid.", stopChunk()))
+		r.s.callers.typed()
+		assert.Equal(t, 2, replyCallerTurn(r, "Paris.", stopChunk()))
+	})
+	t.Run("canceled", func(t *testing.T) {
+		hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+		r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+		r.s.callers.typed()
+		assert.Equal(t, -1, replyCallerTurn(r, "Sunny skies.", providers.StreamChunk{FinishReason: &canceled}))
+		r.s.callers.typed()
+		assert.Equal(t, 1, replyCallerTurn(r, "Madrid.", stopChunk()))
+		r.s.callers.typed()
+		assert.Equal(t, 2, replyCallerTurn(r, "Paris.", stopChunk()))
+	})
+}
+
+// speakingJudgeHook is a turn guardrail that fails the completed reply, the
+// caller beginning to speak over it while the judgment runs.
+type speakingJudgeHook struct {
+	replyHoldHook
+	sess *heldPlayoutSession
+}
+
+func (h *speakingJudgeHook) AfterCall(ctx context.Context, req *hooks.ProviderRequest, resp *hooks.ProviderResponse) hooks.Decision {
+	h.sess.interrupted = true
+	return h.replyHoldHook.AfterCall(ctx, req, resp)
+}
+
+// A reply the caller speaks over while its judge runs is theirs to drop, not
+// the judge's to block: no guardrail message plays, no note is left for the
+// model, and the failed judgment is not recorded on a turn.
+func TestReplyHold_AJudgmentTheCallerSpokeOverIsDiscarded(t *testing.T) {
+	msg := prompt.DefaultBlockedMessage
+	hook := &speakingJudgeHook{replyHoldHook: replyHoldHook{mode: hooks.StreamHoldTurn, failOn: "Bruno"}}
+	r, sess := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+	hook.sess = sess
+	r.feed(transcriptChunk("About Bruno.", pcm(10)))
+	elems := r.feedElems(stopChunk())
+	assert.NotContains(t, trace(elems), "text:"+msg, "no guardrail message plays")
+	for _, e := range elems {
+		assert.Nil(t, e.Message, "no turn of the unheard reply")
+	}
+	assert.Empty(t, r.s.pendingNotes, "no note for the model")
+	assert.Equal(t, []string{"About Bruno."}, hook.calls(), "the judgment ran")
+}
+
+// A passed reply's transcript held after the pass went with audio the caller
+// heard: a barge-in keeps it in the turn.
+func TestReplyHold_BargeInAfterAPassKeepsTheHeardLateTranscript(t *testing.T) {
+	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
+	r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
+	r.feed(transcriptChunk("Sunny skies.", pcm(10)))
+	r.feed(providers.StreamChunk{GenerationComplete: true})
+	r.feed(transcriptChunk(" Mild later.", pcm(20)))
+	var m *types.Message
+	for _, e := range r.feedElems(providers.StreamChunk{Interrupted: true}) {
+		if e.Message != nil && e.Message.Role == roleAssistant {
+			m = e.Message
+		}
+	}
+	require.NotNil(t, m)
+	assert.Equal(t, "Sunny skies. Mild later.", m.Content)
 }

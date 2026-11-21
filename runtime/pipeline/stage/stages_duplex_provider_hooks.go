@@ -1052,8 +1052,19 @@ func (s *DuplexProviderStage) dropUnheardReply(elem *StreamElement) bool {
 	if !s.replyHoldInterrupted() && !canceled {
 		return false
 	}
+	spokenOver := s.replyHoldInterrupted()
 	keepHeardReply(elem, s.replyHold)
-	return elem.Message == nil
+	if elem.Message != nil {
+		return false // the turn it ends is stamped when it is sent
+	}
+	// No turn ends with it, so the reply ends here: cut short by the
+	// caller's speech, a turn of their own, or by its cancellation.
+	if spokenOver {
+		s.callers.bargeIn()
+	} else {
+		s.callers.replyEnds()
+	}
+	return true
 }
 
 // markBlockedTurn marks a turn a guardrail blocked while it streamed: its text
@@ -1080,7 +1091,9 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 
 	req := s.hookRequest(s.history.snapshot())
 	v := s.guardrailOutcomeAt(req.TurnIndex).judgeResponse(ctx, req, msg, 0, msg.LatencyMs, false)
-	if !v.blocks() {
+	if !v.blocks() || s.replyHoldInterrupted() {
+		// A held reply the caller spoke over while it was judged is theirs
+		// to drop: its judgment changes nothing they heard.
 		return false
 	}
 	s.noteBlock(v.decision, hooks.DirectionOutput, s.replyGeneration())

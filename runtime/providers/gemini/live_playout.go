@@ -53,7 +53,7 @@ func (s *StreamSession) replyStarted() {
 	if s.turnOpen {
 		return
 	}
-	s.generationDone = false
+	s.generationDone, s.barged = false, false
 	s.turnOpen = true
 	s.gen++ // a new generation: the reply
 	s.withPlayout(func(p *audio.Playout) { p.NewResponse() })
@@ -79,7 +79,7 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	now := s.clock()
 	continues := s.lateInput && !s.inputClosed && now.Sub(s.inputLastAt) < inputSegmentGap
 	s.inputLastAt, s.inputClosed = now, tx.Finished
-	if !s.replyDone && !(s.generationDone && s.holdingAudio()) {
+	if !s.replyDone && !(s.generationDone && s.awaitingCaller()) {
 		// The model is generating (the server reports barge-in itself), or has
 		// not answered yet: a fragment now is the caller's earlier speech.
 		s.lateInput = s.lateInput || s.turnOpen
@@ -102,6 +102,9 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	if !playing {
 		return nil
 	}
+	// Gemini's own interruption of it, should it follow, is not reported
+	// again (handleInterrupted); one that came first stopped the playout.
+	s.barged = true
 	logger.Debug("StreamSession: barge-in while the finished reply is still playing")
 	s.Barge()
 	marker := providers.BargeMarker()
@@ -113,12 +116,13 @@ func (s *StreamSession) bargeInAfterReply(content *ServerContent) error {
 	return s.sendChunk(&providers.StreamChunk{Interrupted: true})
 }
 
-// holdingAudio reports whether reply audio the pipeline holds back still
-// waits for the caller.
-func (s *StreamSession) holdingAudio() bool {
+// awaitingCaller reports, for a pipeline that holds reply audio back,
+// whether the reply's audio still waits for the caller: held, or released
+// and still playing.
+func (s *StreamSession) awaitingCaller() bool {
 	s.playoutMu.Lock()
 	defer s.playoutMu.Unlock()
-	return s.heldPending != 0
+	return s.playoutHeld && (s.heldPending != 0 || s.playoutEstimate().Playing())
 }
 
 // withPlayout runs fn on the playout estimate under playoutMu.
@@ -147,25 +151,32 @@ var (
 
 // HoldPlayout implements providers.PlayoutHolder: from now on a reply's audio
 // counts toward the playout estimate only as the pipeline releases it to the
-// caller (AudioReleased), not as it arrives.
+// caller (ReleaseAudio), not as it arrives.
 func (s *StreamSession) HoldPlayout() {
 	s.playoutMu.Lock()
 	defer s.playoutMu.Unlock()
 	s.playoutHeld = true
 }
 
-// AudioReleased implements providers.PlayoutHolder: chunk's audio reached the
-// caller now, so it plays from now on.
-func (s *StreamSession) AudioReleased(chunk *providers.StreamChunk) {
-	if chunk == nil || chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
-		return
-	}
-	m := chunk.MediaData
-	d := audio.PCM16Duration(len(m.Data), m.SampleRate, m.Channels)
+// ReleaseAudio implements providers.PlayoutHolder: chunk's audio reaches the
+// caller now, so it plays from now on, unless the caller already spoke over
+// the held audio.
+func (s *StreamSession) ReleaseAudio(chunk *providers.StreamChunk) bool {
+	released := false
 	s.withPlayout(func(p *audio.Playout) {
+		if s.heldInterrupted {
+			return
+		}
+		released = true
+		if chunk == nil || chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
+			return
+		}
+		m := chunk.MediaData
+		d := audio.PCM16Duration(len(m.Data), m.SampleRate, m.Channels)
 		p.Add("", 0, d)
 		s.heldPending = max(0, s.heldPending-d)
 	})
+	return released
 }
 
 // outputTranscriptLag is the most reply audio Gemini Live's output transcript

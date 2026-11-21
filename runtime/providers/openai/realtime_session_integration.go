@@ -96,7 +96,7 @@ type RealtimeSession struct {
 	now     func() time.Time
 	// playoutHeld is set once the pipeline holds reply audio back
 	// (HoldPlayout): audio then counts toward playout as it is released
-	// (AudioReleased), not as it arrives. Guarded by recvMu.
+	// (ReleaseAudio), not as it arrives. Guarded by recvMu.
 	playoutHeld bool
 	// heldItems is the reply audio delivered while playout is held, per item,
 	// and heldInterrupted is set once the caller spoke over some of it still

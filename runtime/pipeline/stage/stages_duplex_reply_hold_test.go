@@ -137,13 +137,17 @@ type heldPlayoutSession struct {
 }
 
 func (p *heldPlayoutSession) HoldPlayout() { p.held = true }
-func (p *heldPlayoutSession) AudioReleased(c *providers.StreamChunk) {
+func (p *heldPlayoutSession) ReleaseAudio(c *providers.StreamChunk) bool {
+	if p.interrupted {
+		return false
+	}
 	p.released += len(c.MediaData.Data)
 	if p.interruptAfter > 0 {
 		if p.interruptAfter--; p.interruptAfter == 0 {
 			p.interrupted = true
 		}
 	}
+	return true
 }
 func (p *heldPlayoutSession) OutputTranscriptLag() time.Duration { return p.lag }
 func (p *heldPlayoutSession) HeldAudioInterrupted() bool         { return p.interrupted }

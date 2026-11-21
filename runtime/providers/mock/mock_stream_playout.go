@@ -12,15 +12,19 @@ func (m *MockStreamSession) HoldPlayout() {
 	m.playoutHeld = true
 }
 
-// AudioReleased implements providers.PlayoutHolder, recording the audio the
-// pipeline released to the caller (ReleasedAudio).
-func (m *MockStreamSession) AudioReleased(chunk *providers.StreamChunk) {
-	if chunk == nil || chunk.MediaData == nil {
-		return
-	}
+// ReleaseAudio implements providers.PlayoutHolder, recording the audio the
+// pipeline released to the caller (ReleasedAudio), unless the test had the
+// caller speak over the held audio (InterruptHeldAudio).
+func (m *MockStreamSession) ReleaseAudio(chunk *providers.StreamChunk) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.releasedAudio = append(m.releasedAudio, chunk.MediaData.Data...)
+	if m.heldInterrupted {
+		return false
+	}
+	if chunk != nil && chunk.MediaData != nil {
+		m.releasedAudio = append(m.releasedAudio, chunk.MediaData.Data...)
+	}
+	return true
 }
 
 // PlayoutHeld reports whether the pipeline asked the session to count reply

@@ -112,7 +112,7 @@ type StreamSession struct {
 	// still plays is barge-in (live_playout.go). now is the clock (nil:
 	// time.Now). Receive goroutine only, but for playout, which playoutMu
 	// guards: a pipeline holding reply audio back adds to it as it releases
-	// the audio (AudioReleased), and playoutHeld is then set.
+	// the audio (ReleaseAudio), and playoutHeld is then set.
 	playout     *audio.Playout
 	playoutMu   sync.Mutex
 	playoutHeld bool
@@ -123,8 +123,11 @@ type StreamSession struct {
 	heldInterrupted bool
 	replyDone       bool
 	// generationDone is set once the reply in progress reported
-	// generationComplete; its turn completes later.
+	// generationComplete; its turn completes later. barged is set once the
+	// reply is reported interrupted, by Gemini or by the session, so it is
+	// reported once.
 	generationDone bool
+	barged         bool
 	inputLastAt    time.Time
 	inputClosed    bool
 	lateInput      bool

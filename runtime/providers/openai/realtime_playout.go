@@ -63,27 +63,32 @@ var _ providers.PlayoutHolder = (*RealtimeSession)(nil)
 
 // HoldPlayout implements providers.PlayoutHolder: from now on a reply's audio
 // counts toward the playout estimate only as the pipeline releases it to the
-// caller (AudioReleased), not as it arrives.
+// caller (ReleaseAudio), not as it arrives.
 func (s *RealtimeSession) HoldPlayout() {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
 	s.playoutHeld = true
 }
 
-// AudioReleased implements providers.PlayoutHolder: chunk's audio, as the
-// session delivered it, reached the caller now, so it plays from now on.
-func (s *RealtimeSession) AudioReleased(chunk *providers.StreamChunk) {
+// ReleaseAudio implements providers.PlayoutHolder: chunk's audio, as the
+// session delivered it, reaches the caller now, so it plays from now on,
+// unless the caller already spoke over the held audio.
+func (s *RealtimeSession) ReleaseAudio(chunk *providers.StreamChunk) bool {
+	s.recvMu.Lock()
+	defer s.recvMu.Unlock()
+	if s.heldInterrupted {
+		return false
+	}
 	if chunk == nil || chunk.MediaData == nil || len(chunk.MediaData.Data) == 0 {
-		return
+		return true
 	}
 	itemID, _ := chunk.Metadata[keyItemID].(string)
 	contentIndex, _ := chunk.Metadata[keyContentIndex].(int)
 	media := chunk.MediaData
 	d := audio.PCM16Duration(len(media.Data), media.SampleRate, media.Channels)
-	s.recvMu.Lock()
-	defer s.recvMu.Unlock()
 	s.playoutEstimate().Add(itemID, contentIndex, d)
 	s.holdItemAudio(itemID, contentIndex, d, true)
+	return true
 }
 
 // countDeliveredAudio counts audio for item (itemID, contentIndex) toward
@@ -101,7 +106,9 @@ func (s *RealtimeSession) countDeliveredAudio(itemID string, contentIndex int, d
 // pipeline holds playout back: how much it delivered and how much the
 // pipeline has released.
 type heldItem struct {
-	key                 heldItemKey
+	key heldItemKey
+	// gen is the response that delivered it.
+	gen                 int64
 	delivered, released time.Duration
 	// cut is set once the model's copy of the item was cut to what was
 	// heard of it, so it is not cut again.
@@ -129,7 +136,7 @@ func (s *RealtimeSession) holdItemAudio(itemID string, contentIndex int, d time.
 		}
 	}
 	if !released {
-		s.heldItems = append(s.heldItems, heldItem{key: key, delivered: d})
+		s.heldItems = append(s.heldItems, heldItem{key: key, gen: s.gen, delivered: d})
 	}
 }
 
@@ -171,7 +178,7 @@ func (s *RealtimeSession) cutHeldItems(cut map[heldItemKey]bool) bool {
 // caller. Called with recvMu held.
 func (s *RealtimeSession) holdingAudio() bool {
 	for _, it := range s.heldItems {
-		if it.delivered > it.released {
+		if !it.cut && it.delivered > it.released {
 			return true
 		}
 	}
@@ -193,12 +200,19 @@ func (s *RealtimeSession) HeldAudioDropped() {
 	s.recvMu.Lock()
 	defer s.recvMu.Unlock()
 	// What was never released was never heard: the model's copy is cut to
-	// what was. A response still in progress is cut once it is canceled
-	// (InterruptResponse) or when its turn ends and the pipeline says so
-	// again, as an unheld reply is.
-	if !s.responseActive {
-		s.cutHeldItems(nil)
-		s.heldItems = nil
+	// what was. Each response that has ended, even one the response in
+	// progress superseded, is cut now; the response in progress is cut once
+	// it is canceled (InterruptResponse) or ends and is dropped in turn.
+	kept := s.heldItems[:0]
+	for _, it := range s.heldItems {
+		if s.responseActive && it.gen == s.gen {
+			kept = append(kept, it)
+			continue
+		}
+		if !it.cut && it.delivered > it.released {
+			s.sendTruncate(it.key.itemID, it.key.contentIndex, it.released)
+		}
 	}
+	s.heldItems = kept
 	s.heldInterrupted = false
 }

@@ -260,7 +260,7 @@ type ResponseInterrupter interface {
 // A pipeline that holds a reply's audio back until its guardrails have judged
 // it calls HoldPlayout once, before the session delivers any reply. From then
 // on the session counts a reply's audio only as the pipeline releases it to
-// the caller (AudioReleased, given the chunk that carried it, as delivered),
+// the caller (ReleaseAudio, given the chunk that carried it, as delivered),
 // so the estimate runs from release, not arrival, and audio the pipeline drops
 // is never counted as heard.
 //
@@ -274,7 +274,12 @@ type ResponseInterrupter interface {
 // from any goroutine.
 type PlayoutHolder interface {
 	HoldPlayout()
-	AudioReleased(chunk *StreamChunk)
+	// ReleaseAudio counts chunk's audio as playing from now and reports true,
+	// or, once the caller has spoken over the held audio
+	// (HeldAudioInterrupted), counts nothing and reports false: the pipeline
+	// then releases none of it. The check and the count are one step, so a
+	// barge-in cannot fall between them.
+	ReleaseAudio(chunk *StreamChunk) bool
 	HeldAudioInterrupted() bool
 	HeldAudioDropped()
 }
