@@ -118,8 +118,8 @@ func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, 
 	if first {
 		minLen = cfg.firstMinChars
 	}
-	fenceOpen := strings.Count(text[:from], codeFence)&1 == 1 // an odd count: inside a fence
-	sc := segmentScanner{text: text, inFence: fenceOpen}
+	sc := segmentScanner{text: text, inFence: strings.Count(text[:from], codeFence)%2 == 1}
+	fenceOpen := sc.inFence
 	for i := from; i < len(text); {
 		end, size := sc.step(i)
 		if end > 0 {

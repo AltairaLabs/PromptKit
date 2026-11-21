@@ -78,6 +78,16 @@ func newStreamedReplyStage(svc tts.Service) *stage.TTSStageWithInterruption {
 	return stage.NewTTSStageWithInterruption(svc, cfg)
 }
 
+// newUnpacedReplyStage is newStreamedReplyStage for a client that does not
+// play the audio in real time (NoPlaybackPacing): a test about how a
+// segment's audio is cut into pieces does not wait for it to play.
+func newUnpacedReplyStage(svc tts.Service) *stage.TTSStageWithInterruption {
+	cfg := stage.DefaultTTSStageWithInterruptionConfig()
+	cfg.Retry = tts.RetryConfig{MaxAttempts: 1}
+	cfg.NoPlaybackPacing = true
+	return stage.NewTTSStageWithInterruption(svc, cfg)
+}
+
 // ttsCostUSD is the total of the tts_cost stamped on msg, or -1 when none is.
 func ttsCostUSD(msg *types.Message) float64 {
 	costMap, ok := msg.Meta["tts_cost"].(map[string]any)
@@ -175,16 +185,20 @@ func (r *replyRun) next(t *testing.T) stage.StreamElement {
 	}
 }
 
-// settleQuiet is how long the stage's output stays quiet before settle takes
-// the reply as settled.
-const settleQuiet = 100 * time.Millisecond
+// settleProbe marks the empty element settle sends through the stage. The
+// stage handles its input in order, one element at a time, and passes an
+// element with nothing to speak straight on, so the probe comes out only once
+// everything sent before it has been handled.
+const settleProbe = "settle-probe"
 
-// settle reads the stage's output until it has been quiet for settleQuiet.
-// A reply's Message waits until its audio would have played, and an input
-// that closes first is a session closing, which cuts the reply short; so the
-// input closes only once what was sent has settled.
+// settle waits until the stage has handled everything sent so far: it sends a
+// probe and reads the output up to it. The probe is not kept in r.got. A
+// reply's Message waits until its audio would have played, and an input that
+// closes first is a session closing, which cuts the reply short; so the input
+// closes only once what was sent has settled.
 func (r *replyRun) settle(t *testing.T) {
 	t.Helper()
+	r.send(t, stage.StreamElement{Source: settleProbe})
 	deadline := time.After(replyTestBound)
 	for {
 		select {
@@ -192,9 +206,10 @@ func (r *replyRun) settle(t *testing.T) {
 			if !ok {
 				return
 			}
+			if e.Source == settleProbe {
+				return
+			}
 			r.got = append(r.got, e)
-		case <-time.After(settleQuiet):
-			return
 		case <-deadline:
 			t.Fatal("the stage's output never settled")
 		}
@@ -279,7 +294,7 @@ func TestTTSStageWithInterruption_StreamsASegmentsAudioInPieces(t *testing.T) {
 	svc.synth = func(context.Context, int, string) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(pcm)), nil
 	}
-	s := newStreamedReplyStage(svc)
+	s := newUnpacedReplyStage(svc)
 
 	results := runReply(t, s, []stage.StreamElement{delta("Hello."), assistant("Hello.")})
 
@@ -307,7 +322,7 @@ func TestTTSStageWithInterruption_AudioEndingOnAPieceBoundaryAddsNoEmptyPiece(t 
 	svc.synth = func(context.Context, int, string) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(pcm)), nil
 	}
-	r := startReplyRun(t, newStreamedReplyStage(svc))
+	r := startReplyRun(t, newUnpacedReplyStage(svc))
 	r.send(t, delta("Hello."), assistant("Hello."))
 	pieces := audioElements(r.finish(t))
 
@@ -364,6 +379,13 @@ func TestTTSStageWithInterruption_SynthesisErrorAfterBargeInIsNotAFailure(t *tes
 func TestTTSStageWithInterruption_KeepsReadingInputAfterItsContextEnds(t *testing.T) {
 	svc := newSegmentRecordingTTS()
 	r := startReplyRun(t, newStreamedReplyStage(svc))
+	// The output is read, as a pipeline's is, so the stage's bounded hand-off
+	// after its context ends never has to time out: what is timed is only
+	// whether the input is read.
+	go func() {
+		for range r.output {
+		}
+	}()
 	r.send(t, delta("One. "))
 	r.cancel()
 	for i := 0; i < 50; i++ {
