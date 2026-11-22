@@ -5375,11 +5375,11 @@ func DefaultResponseVADConfig() ResponseVADConfig
 DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
 
 <a name="ResponseVADStage"></a>
-## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/voice/stages_speech.go#L1532-L1539>)
+## type [ResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/voice/stages_speech.go#L1533-L1540>)
 
 ResponseVADStage monitors response audio for silence and delays EndOfStream until actual silence is detected. This decouples turn completion from provider signaling \(e.g., Gemini's turnComplete\) which may arrive before all audio chunks have been received.
 
-This stage: 1. Passes through all elements immediately \(audio, text, messages\) 2. When EndOfStream is received from upstream, starts monitoring for silence 3. Only emits EndOfStream downstream when VAD confirms sustained silence 4. Has a max wait timeout to prevent indefinite blocking
+This stage: 1. Passes through all elements immediately \(audio, text, messages\) 2. When EndOfStream is received from upstream, starts monitoring for silence 3. Only emits EndOfStream downstream when VAD confirms sustained silence 4. Has a max wait timeout to prevent indefinite blocking 5. Emits a held EndOfStream at once when the next turn's EndOfStream arrives
 
 This is a Transform stage with buffering: it may hold EndOfStream temporarily.
 
@@ -5391,7 +5391,7 @@ type ResponseVADStage struct {
 ```
 
 <a name="NewResponseVADStage"></a>
-### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/voice_aliases.go#L166>)
+### func [NewResponseVADStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/voice_aliases.go#L167>)
 
 ```go
 func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
@@ -5400,7 +5400,7 @@ func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error)
 NewResponseVADStage creates a new response VAD stage.
 
 <a name="ResponseVADStage.Process"></a>
-### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/voice/stages_speech.go#L1597-L1601>)
+### func \(\*ResponseVADStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/voice/stages_speech.go#L1598-L1602>)
 
 ```go
 func (s *ResponseVADStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -6534,7 +6534,7 @@ type TTSConfig struct {
 ```
 
 <a name="DefaultTTSConfig"></a>
-### func [DefaultTTSConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/voice_aliases.go#L177>)
+### func [DefaultTTSConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/voice_aliases.go#L178>)
 
 ```go
 func DefaultTTSConfig() TTSConfig
@@ -6572,7 +6572,7 @@ type TTSStage struct {
 ```
 
 <a name="NewTTSStage"></a>
-### func [NewTTSStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/voice_aliases.go#L188>)
+### func [NewTTSStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/voice_aliases.go#L189>)
 
 ```go
 func NewTTSStage(svc TTSService, config TTSConfig) *TTSStage

@@ -1527,6 +1527,7 @@ func DefaultResponseVADConfig() ResponseVADConfig {
 // 2. When EndOfStream is received from upstream, starts monitoring for silence
 // 3. Only emits EndOfStream downstream when VAD confirms sustained silence
 // 4. Has a max wait timeout to prevent indefinite blocking
+// 5. Emits a held EndOfStream at once when the next turn's EndOfStream arrives
 //
 // This is a Transform stage with buffering: it may hold EndOfStream temporarily.
 type ResponseVADStage struct {
@@ -1622,6 +1623,15 @@ func (s *ResponseVADStage) Process(
 
 			// Handle EndOfStream - hold it and start monitoring for silence
 			if elem.EndOfStream {
+				// A turn's end held while the next turn's arrives: the provider
+				// has finished that turn, and its reply was heard, so it goes
+				// on now, ahead of the new one, rather than being replaced.
+				if state.endOfStreamElem != nil {
+					logger.Debug("ResponseVADStage: next EndOfStream received, emitting the held one")
+					if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+						return err
+					}
+				}
 				logger.Debug("ResponseVADStage: EndOfStream received, starting silence monitoring")
 				state.endOfStreamReceived = true
 				state.endOfStreamElem = &elem

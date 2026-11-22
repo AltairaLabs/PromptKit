@@ -158,6 +158,7 @@ func DefaultResponseVADConfig() ResponseVADConfig {
 // 2. When EndOfStream is received from upstream, starts monitoring for silence
 // 3. Only emits EndOfStream downstream when VAD confirms sustained silence
 // 4. Has a max wait timeout to prevent indefinite blocking
+// 5. Emits a held EndOfStream at once when the next turn's EndOfStream arrives
 //
 // This is a Transform stage with buffering: it may hold EndOfStream temporarily.
 type ResponseVADStage = voice.ResponseVADStage
