@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"bytes"
@@ -166,7 +166,7 @@ func DefaultVideoToFramesConfig() VideoToFramesConfig {
 //
 // Non-video elements are passed through unchanged.
 type VideoToFramesStage struct {
-	BaseStage
+	core.BaseStage
 	config  VideoToFramesConfig
 	videoID int64 // atomic counter for unique video IDs
 }
@@ -174,7 +174,7 @@ type VideoToFramesStage struct {
 // NewVideoToFramesStage creates a new video-to-frames extraction stage.
 func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage {
 	return &VideoToFramesStage{
-		BaseStage: NewBaseStage("video-to-frames", StageTypeTransform),
+		BaseStage: core.NewBaseStage("video-to-frames", core.StageTypeTransform),
 		config:    config,
 	}
 }
@@ -183,8 +183,8 @@ func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage {
 // Extracts frames from videos and emits individual image elements for each frame.
 func (s *VideoToFramesStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -348,9 +348,9 @@ func DefaultFramesToMessageConfig() FramesToMessageConfig {
 
 // pendingFrames tracks accumulated frames for a single video.
 type pendingFrames struct {
-	frames        map[int]*ImageData // frame_index -> image data
-	totalFrames   int                // expected total
-	originalVideo *VideoData         // reference to source video
+	frames        map[int]*core.ImageData // frame_index -> image data
+	totalFrames   int                     // expected total
+	originalVideo *core.VideoData         // reference to source video
 	receivedAt    time.Time
 	sequence      int64
 	source        string
@@ -366,7 +366,7 @@ type pendingFrames struct {
 //
 // This is an Accumulate stage (N:1 fan-in pattern).
 type FramesToMessageStage struct {
-	BaseStage
+	core.BaseStage
 	config  FramesToMessageConfig
 	pending map[string]*pendingFrames // video_id -> pending
 	mu      sync.Mutex
@@ -375,7 +375,7 @@ type FramesToMessageStage struct {
 // NewFramesToMessageStage creates a new frame composition stage.
 func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage {
 	return &FramesToMessageStage{
-		BaseStage: NewBaseStage("frames-to-message", StageTypeAccumulate),
+		BaseStage: core.NewBaseStage("frames-to-message", core.StageTypeAccumulate),
 		config:    config,
 		pending:   make(map[string]*pendingFrames),
 	}
@@ -387,8 +387,8 @@ func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
 //nolint:gocognit // complex but well-structured fan-in loop
 func (s *FramesToMessageStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	// Start timeout checker
 	timeoutDone := make(chan struct{})
@@ -432,7 +432,7 @@ func (s *FramesToMessageStage) Process(
 			composed, err := s.composeMessage(complete)
 			if err != nil {
 				logger.Error("Failed to compose frames message", "error", err)
-				errElem := NewErrorElement(err)
+				errElem := core.NewErrorElement(err)
 				errElem.Sequence = complete.sequence
 				errElem.Source = complete.source
 				select {
@@ -443,7 +443,7 @@ func (s *FramesToMessageStage) Process(
 				continue
 			}
 
-			outElem := NewMessageElement(composed)
+			outElem := core.NewMessageElement(composed)
 			outElem.Sequence = complete.sequence
 			outElem.Source = complete.source
 
@@ -471,7 +471,7 @@ func (s *FramesToMessageStage) Process(
 			continue
 		}
 
-		outElem := NewMessageElement(composed)
+		outElem := core.NewMessageElement(composed)
 		outElem.Sequence = pf.sequence
 		outElem.Source = pf.source
 
@@ -487,7 +487,7 @@ func (s *FramesToMessageStage) Process(
 
 // accumulateFrame adds a frame to its pending video.
 // Returns the complete pendingFrames if all frames have been received.
-func (s *FramesToMessageStage) accumulateFrame(elem *StreamElement) (*pendingFrames, error) {
+func (s *FramesToMessageStage) accumulateFrame(elem *core.StreamElement) (*pendingFrames, error) {
 	info := elem.Meta.VideoFrames
 	if info == nil {
 		return nil, fmt.Errorf("missing video frames info")
@@ -503,7 +503,7 @@ func (s *FramesToMessageStage) accumulateFrame(elem *StreamElement) (*pendingFra
 	pf, exists := s.pending[videoID]
 	if !exists {
 		pf = &pendingFrames{
-			frames:        make(map[int]*ImageData),
+			frames:        make(map[int]*core.ImageData),
 			totalFrames:   totalFrames,
 			originalVideo: info.OriginalVideo,
 			receivedAt:    time.Now(),
@@ -556,7 +556,7 @@ func (s *FramesToMessageStage) composeMessage(pf *pendingFrames) (*types.Message
 }
 
 // selectFrames applies the selection strategy when limiting frames.
-func (s *FramesToMessageStage) selectFrames(frames map[int]*ImageData) []*ImageData {
+func (s *FramesToMessageStage) selectFrames(frames map[int]*core.ImageData) []*core.ImageData {
 	// Get sorted frame indices
 	indices := make([]int, 0, len(frames))
 	for idx := range frames {
@@ -567,7 +567,7 @@ func (s *FramesToMessageStage) selectFrames(frames map[int]*ImageData) []*ImageD
 	// If no limit or under limit, return all frames in order
 	maxFrames := s.config.MaxFramesPerMessage
 	if maxFrames <= 0 || len(indices) <= maxFrames {
-		result := make([]*ImageData, 0, len(indices))
+		result := make([]*core.ImageData, 0, len(indices))
 		for _, idx := range indices {
 			result = append(result, frames[idx])
 		}
@@ -597,7 +597,7 @@ func (s *FramesToMessageStage) selectFrames(frames map[int]*ImageData) []*ImageD
 	}
 
 	// Build result
-	result := make([]*ImageData, 0, len(selectedIndices))
+	result := make([]*core.ImageData, 0, len(selectedIndices))
 	for _, idx := range selectedIndices {
 		result = append(result, frames[idx])
 	}
@@ -605,7 +605,7 @@ func (s *FramesToMessageStage) selectFrames(frames map[int]*ImageData) []*ImageD
 }
 
 // createImagePart creates a ContentPart from ImageData.
-func (s *FramesToMessageStage) createImagePart(img *ImageData) (types.ContentPart, error) {
+func (s *FramesToMessageStage) createImagePart(img *core.ImageData) (types.ContentPart, error) {
 	if img == nil {
 		return types.ContentPart{}, fmt.Errorf("image data is nil")
 	}
@@ -646,7 +646,7 @@ func encodeImageData(data []byte) string {
 // checkTimeouts periodically checks for timed-out pending videos.
 func (s *FramesToMessageStage) checkTimeouts(
 	ctx context.Context,
-	output chan<- StreamElement,
+	output chan<- core.StreamElement,
 	done <-chan struct{},
 	exited chan<- struct{},
 ) {
@@ -670,7 +670,7 @@ func (s *FramesToMessageStage) checkTimeouts(
 // processTimeouts handles videos that have exceeded the completion timeout.
 //
 //nolint:dupl // Similar pattern to MediaComposeStage but different data structures
-func (s *FramesToMessageStage) processTimeouts(ctx context.Context, output chan<- StreamElement) {
+func (s *FramesToMessageStage) processTimeouts(ctx context.Context, output chan<- core.StreamElement) {
 	s.mu.Lock()
 	now := time.Now()
 	var timedOut []*pendingFrames
@@ -701,7 +701,7 @@ func (s *FramesToMessageStage) processTimeouts(ctx context.Context, output chan<
 			continue
 		}
 
-		outElem := NewMessageElement(composed)
+		outElem := core.NewMessageElement(composed)
 		outElem.Sequence = pf.sequence
 		outElem.Source = pf.source
 
@@ -732,8 +732,8 @@ func (s *VideoToFramesStage) readExtractedFrames(
 	ctx context.Context,
 	tempDir string,
 	videoID string,
-	elem *StreamElement,
-	output chan<- StreamElement,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
 ) (int, error) {
 	// List output files
 	entries, err := os.ReadDir(tempDir)
@@ -792,7 +792,7 @@ func (s *VideoToFramesStage) readExtractedFrames(
 		}
 
 		// Create ImageData
-		imageData := &ImageData{
+		imageData := &core.ImageData{
 			Data:     data,
 			MIMEType: mimeType,
 			Width:    width,
@@ -801,12 +801,12 @@ func (s *VideoToFramesStage) readExtractedFrames(
 		}
 
 		// Create StreamElement
-		frameElem := NewImageElement(imageData)
+		frameElem := core.NewImageElement(imageData)
 		frameElem.Sequence = elem.Sequence
 		frameElem.Source = elem.Source
 
 		// Add correlation metadata
-		frameElem.Meta.VideoFrames = &VideoFramesInfo{
+		frameElem.Meta.VideoFrames = &core.VideoFramesInfo{
 			VideoID:       videoID,
 			FrameIndex:    i,
 			TotalFrames:   totalFrames,

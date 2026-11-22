@@ -1,9 +1,10 @@
-package stage
+package media
 
 import (
 	"context"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -14,9 +15,9 @@ func TestFramesToMessageStage_DefaultFitsPerMessageMediaCap(t *testing.T) {
 	stg := NewFramesToMessageStage(DefaultFramesToMessageConfig())
 
 	const extracted = 30 // VideoToFramesStage's DefaultMaxFrames
-	pf := &pendingFrames{frames: make(map[int]*ImageData, extracted), totalFrames: extracted}
+	pf := &pendingFrames{frames: make(map[int]*core.ImageData, extracted), totalFrames: extracted}
 	for i := 0; i < extracted; i++ {
-		pf.frames[i] = &ImageData{Data: createTestFrameData(8, 8), MIMEType: "image/jpeg", Width: 8, Height: 8}
+		pf.frames[i] = &core.ImageData{Data: createTestFrameData(8, 8), MIMEType: "image/jpeg", Width: 8, Height: 8}
 	}
 
 	msg, err := stg.composeMessage(pf)

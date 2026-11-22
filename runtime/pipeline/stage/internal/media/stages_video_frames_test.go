@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
@@ -47,7 +49,7 @@ func TestVideoToFramesStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'video-to-frames', got '%s'", stg.Name())
 	}
 
-	if stg.Type() != StageTypeTransform {
+	if stg.Type() != core.StageTypeTransform {
 		t.Errorf("Expected type Transform, got %v", stg.Type())
 	}
 
@@ -75,20 +77,20 @@ func TestVideoToFramesStage_PassthroughNonVideo(t *testing.T) {
 	stg := NewVideoToFramesStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 2)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 2)
+	output := make(chan core.StreamElement, 10)
 
 	// Send image element (should pass through)
-	imageData := &ImageData{
+	imageData := &core.ImageData{
 		Data:     createTestFrameData(100, 100),
 		MIMEType: "image/jpeg",
 		Width:    100,
 		Height:   100,
 	}
-	input <- NewImageElement(imageData)
+	input <- core.NewImageElement(imageData)
 
 	// Send text element (should pass through)
-	input <- NewTextElement("Hello world")
+	input <- core.NewTextElement("Hello world")
 
 	close(input)
 
@@ -99,7 +101,7 @@ func TestVideoToFramesStage_PassthroughNonVideo(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -124,15 +126,15 @@ func TestVideoToFramesStage_ErrorOnMissingVideoData(t *testing.T) {
 	stg := NewVideoToFramesStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Send video element with no data
-	videoData := &VideoData{
+	videoData := &core.VideoData{
 		MIMEType: "video/mp4",
 		Data:     nil, // Empty data
 	}
-	input <- NewVideoElement(videoData)
+	input <- core.NewVideoElement(videoData)
 	close(input)
 
 	go func() {
@@ -142,7 +144,7 @@ func TestVideoToFramesStage_ErrorOnMissingVideoData(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -163,15 +165,15 @@ func TestVideoToFramesStage_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Send video element with data that would trigger processing
-	videoData := &VideoData{
+	videoData := &core.VideoData{
 		MIMEType: "video/mp4",
 		Data:     []byte("fake video data"),
 	}
-	input <- NewVideoElement(videoData)
+	input <- core.NewVideoElement(videoData)
 
 	// Cancel context during processing
 	cancel()
@@ -344,7 +346,7 @@ func TestFramesToMessageStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'frames-to-message', got '%s'", stg.Name())
 	}
 
-	if stg.Type() != StageTypeAccumulate {
+	if stg.Type() != core.StageTypeAccumulate {
 		t.Errorf("Expected type Accumulate, got %v", stg.Type())
 	}
 
@@ -366,18 +368,18 @@ func TestFramesToMessageStage_PassthroughNonFrame(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 2)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 2)
+	output := make(chan core.StreamElement, 10)
 
 	// Send elements without video_frames metadata (should pass through)
-	imageData := &ImageData{
+	imageData := &core.ImageData{
 		Data:     createTestFrameData(100, 100),
 		MIMEType: "image/jpeg",
 		Width:    100,
 		Height:   100,
 	}
-	input <- NewImageElement(imageData)
-	input <- NewTextElement("Just text")
+	input <- core.NewImageElement(imageData)
+	input <- core.NewTextElement("Just text")
 
 	close(input)
 
@@ -388,7 +390,7 @@ func TestFramesToMessageStage_PassthroughNonFrame(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -410,22 +412,22 @@ func TestFramesToMessageStage_ComposeFrames(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 5)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 5)
+	output := make(chan core.StreamElement, 10)
 
 	videoID := "test-video-1"
 	totalFrames := 3
 
 	// Send 3 frame elements with correlation metadata
 	for i := 0; i < totalFrames; i++ {
-		imageData := &ImageData{
+		imageData := &core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
 			Height:   100,
 		}
-		elem := NewImageElement(imageData)
-		elem.Meta.VideoFrames = &VideoFramesInfo{
+		elem := core.NewImageElement(imageData)
+		elem.Meta.VideoFrames = &core.VideoFramesInfo{
 			VideoID:     videoID,
 			FrameIndex:  i,
 			TotalFrames: totalFrames,
@@ -442,7 +444,7 @@ func TestFramesToMessageStage_ComposeFrames(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -477,8 +479,8 @@ func TestFramesToMessageStage_MultipleVideos(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 10)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
 
 	// Send frames for 2 different videos
 	videoID1 := "test-video-1"
@@ -486,13 +488,13 @@ func TestFramesToMessageStage_MultipleVideos(t *testing.T) {
 
 	// Video 1: 2 frames
 	for i := 0; i < 2; i++ {
-		elem := NewImageElement(&ImageData{
+		elem := core.NewImageElement(&core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
 			Height:   100,
 		})
-		elem.Meta.VideoFrames = &VideoFramesInfo{
+		elem.Meta.VideoFrames = &core.VideoFramesInfo{
 			VideoID:     videoID1,
 			FrameIndex:  i,
 			TotalFrames: 2,
@@ -502,13 +504,13 @@ func TestFramesToMessageStage_MultipleVideos(t *testing.T) {
 
 	// Video 2: 3 frames
 	for i := 0; i < 3; i++ {
-		elem := NewImageElement(&ImageData{
+		elem := core.NewImageElement(&core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
 			Height:   100,
 		})
-		elem.Meta.VideoFrames = &VideoFramesInfo{
+		elem.Meta.VideoFrames = &core.VideoFramesInfo{
 			VideoID:     videoID2,
 			FrameIndex:  i,
 			TotalFrames: 3,
@@ -525,7 +527,7 @@ func TestFramesToMessageStage_MultipleVideos(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -557,9 +559,9 @@ func TestFramesToMessageStage_SelectFrames_First(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 
 	// Create 5 frames
-	frames := make(map[int]*ImageData)
+	frames := make(map[int]*core.ImageData)
 	for i := 0; i < 5; i++ {
-		frames[i] = &ImageData{
+		frames[i] = &core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
@@ -582,9 +584,9 @@ func TestFramesToMessageStage_SelectFrames_Last(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 
 	// Create 5 frames
-	frames := make(map[int]*ImageData)
+	frames := make(map[int]*core.ImageData)
 	for i := 0; i < 5; i++ {
-		frames[i] = &ImageData{
+		frames[i] = &core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
@@ -607,9 +609,9 @@ func TestFramesToMessageStage_SelectFrames_Uniform(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 
 	// Create 10 frames
-	frames := make(map[int]*ImageData)
+	frames := make(map[int]*core.ImageData)
 	for i := 0; i < 10; i++ {
-		frames[i] = &ImageData{
+		frames[i] = &core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
@@ -631,9 +633,9 @@ func TestFramesToMessageStage_SelectFrames_NoLimit(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 
 	// Create 10 frames
-	frames := make(map[int]*ImageData)
+	frames := make(map[int]*core.ImageData)
 	for i := 0; i < 10; i++ {
-		frames[i] = &ImageData{
+		frames[i] = &core.ImageData{
 			Data:     createTestFrameData(100, 100),
 			MIMEType: "image/jpeg",
 			Width:    100,
@@ -655,18 +657,18 @@ func TestFramesToMessageStage_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Send a frame element
-	imageData := &ImageData{
+	imageData := &core.ImageData{
 		Data:     createTestFrameData(100, 100),
 		MIMEType: "image/jpeg",
 		Width:    100,
 		Height:   100,
 	}
-	elem := NewImageElement(imageData)
-	elem.Meta.VideoFrames = &VideoFramesInfo{
+	elem := core.NewImageElement(imageData)
+	elem.Meta.VideoFrames = &core.VideoFramesInfo{
 		VideoID:     "test-video",
 		FrameIndex:  0,
 		TotalFrames: 2,
@@ -770,7 +772,7 @@ func TestFramesToMessageStage_CreateImagePart_ExternalizedImage(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 
 	// Create externalized image
-	img := &ImageData{
+	img := &core.ImageData{
 		MIMEType:   "image/jpeg",
 		StorageRef: "s3://bucket/image.jpg",
 		Width:      100,
@@ -800,7 +802,7 @@ func TestFramesToMessageStage_ComposeMessage_EmptyFrames(t *testing.T) {
 	stg := NewFramesToMessageStage(config)
 
 	pf := &pendingFrames{
-		frames:      make(map[int]*ImageData),
+		frames:      make(map[int]*core.ImageData),
 		totalFrames: 0,
 	}
 
@@ -819,15 +821,15 @@ func TestFramesToMessageStage_Timeout(t *testing.T) {
 	config.CompletionTimeout = 20 * time.Millisecond
 	stg := NewFramesToMessageStage(config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
-	elem := NewImageElement(&ImageData{
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
+	elem := core.NewImageElement(&core.ImageData{
 		Data:     createTestFrameData(100, 100),
 		MIMEType: "image/jpeg",
 		Width:    100,
 		Height:   100,
 	})
-	elem.Meta.VideoFrames = &VideoFramesInfo{VideoID: "test-video", FrameIndex: 0, TotalFrames: 3}
+	elem.Meta.VideoFrames = &core.VideoFramesInfo{VideoID: "test-video", FrameIndex: 0, TotalFrames: 3}
 	input <- elem
 
 	errCh := make(chan error, 1)
@@ -863,7 +865,7 @@ func TestFramesToMessageStage_ProcessTimeouts(t *testing.T) {
 	// Seed the stage's pending map with an "old" entry (one frame received,
 	// expecting two; receivedAt set far enough in the past to trip the
 	// timeout immediately).
-	frames := map[int]*ImageData{
+	frames := map[int]*core.ImageData{
 		0: {Data: createTestFrameData(50, 50), MIMEType: "image/jpeg", Width: 50, Height: 50},
 	}
 	stg.pending["timed-out"] = &pendingFrames{
@@ -874,7 +876,7 @@ func TestFramesToMessageStage_ProcessTimeouts(t *testing.T) {
 		source:      "vad-test",
 	}
 
-	output := make(chan StreamElement, 4)
+	output := make(chan core.StreamElement, 4)
 	stg.processTimeouts(t.Context(), output)
 	close(output)
 
@@ -882,7 +884,7 @@ func TestFramesToMessageStage_ProcessTimeouts(t *testing.T) {
 		t.Fatal("expected pending entry to be evicted after timeout")
 	}
 
-	var emitted []StreamElement
+	var emitted []core.StreamElement
 	for elem := range output {
 		emitted = append(emitted, elem)
 	}
@@ -908,7 +910,7 @@ func TestVideoToFramesStage_WriteVideoToTempFile_DifferentFormats(t *testing.T) 
 	stg := NewVideoToFramesStage(config)
 
 	for _, tt := range tests {
-		video := &VideoData{
+		video := &core.VideoData{
 			MIMEType: tt.mimeType,
 			Data:     []byte("fake video data"),
 		}
@@ -952,7 +954,7 @@ func TestVideoToFramesStage_RunFFmpeg_NotFound(t *testing.T) {
 	}
 
 	// Should return ErrFFmpegNotFound
-	if err != ErrFFmpegNotFound {
+	if err != core.ErrFFmpegNotFound {
 		// Could be different error on some systems
 		t.Logf("Got error: %v (may be system-dependent)", err)
 	}

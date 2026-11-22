@@ -1,7 +1,7 @@
 // This file contains FFmpeg-dependent integration code for video frame extraction.
 // These functions require FFmpeg to be installed and cannot be unit tested without it.
 
-package stage
+package media
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 )
 
@@ -20,8 +22,8 @@ import (
 // This function requires FFmpeg to be installed.
 func (s *VideoToFramesStage) extractFrames(
 	ctx context.Context,
-	elem *StreamElement,
-	output chan<- StreamElement,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	video := elem.Video
 
@@ -67,7 +69,7 @@ func (s *VideoToFramesStage) extractFrames(
 	}
 
 	if frameCount == 0 {
-		return ErrNoFramesExtracted
+		return core.ErrNoFramesExtracted
 	}
 
 	return nil
@@ -76,7 +78,7 @@ func (s *VideoToFramesStage) extractFrames(
 // writeVideoToTempFile writes video data to a temporary file for FFmpeg.
 func (s *VideoToFramesStage) writeVideoToTempFile(
 	ctx context.Context,
-	video *VideoData,
+	video *core.VideoData,
 	tempDir string,
 ) (string, error) {
 	// Determine file extension from MIME type
@@ -98,7 +100,7 @@ func (s *VideoToFramesStage) writeVideoToTempFile(
 	var data []byte
 	if video.IsExternalized() {
 		if s.config.StorageService == nil {
-			return "", ErrVideoDataRequired
+			return "", core.ErrVideoDataRequired
 		}
 		loadedData, err := video.EnsureLoaded(ctx, s.config.StorageService)
 		if err != nil {
@@ -110,7 +112,7 @@ func (s *VideoToFramesStage) writeVideoToTempFile(
 	}
 
 	if len(data) == 0 {
-		return "", ErrVideoDataRequired
+		return "", core.ErrVideoDataRequired
 	}
 
 	// Write to file
@@ -138,15 +140,15 @@ func (s *VideoToFramesStage) runFFmpeg(ctx context.Context, args []string) error
 	if err := cmd.Run(); err != nil {
 		// Check if it was a timeout
 		if ffmpegCtx.Err() == context.DeadlineExceeded {
-			return ErrFFmpegTimeout
+			return core.ErrFFmpegTimeout
 		}
 
 		// Check if FFmpeg was not found
 		if execErr, ok := err.(*exec.Error); ok && execErr.Err == exec.ErrNotFound {
-			return ErrFFmpegNotFound
+			return core.ErrFFmpegNotFound
 		}
 
-		return fmt.Errorf("%w: %s", ErrFFmpegFailed, stderr.String())
+		return fmt.Errorf("%w: %s", core.ErrFFmpegFailed, stderr.String())
 	}
 
 	return nil

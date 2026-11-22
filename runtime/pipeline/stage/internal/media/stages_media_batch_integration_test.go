@@ -1,9 +1,11 @@
-package stage
+package media
 
 import (
 	"context"
 	"encoding/base64"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -14,10 +16,10 @@ func TestBatchMediaPipeline_ExtractResizeCompose(t *testing.T) {
 	ctx := context.Background()
 
 	// Create channels for pipeline stages
-	input := make(chan StreamElement, 1)
-	extractOutput := make(chan StreamElement, 10)
-	resizeOutput := make(chan StreamElement, 10)
-	composeOutput := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	extractOutput := make(chan core.StreamElement, 10)
+	resizeOutput := make(chan core.StreamElement, 10)
+	composeOutput := make(chan core.StreamElement, 10)
 
 	// Configure stages
 	extractConfig := DefaultMediaExtractConfig()
@@ -64,11 +66,11 @@ func TestBatchMediaPipeline_ExtractResizeCompose(t *testing.T) {
 	}()
 
 	// Send input
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	// Collect output
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range composeOutput {
 		results = append(results, elem)
 	}
@@ -120,10 +122,10 @@ func TestBatchMediaPipeline_MultipleImages(t *testing.T) {
 	ctx := context.Background()
 
 	// Create channels
-	input := make(chan StreamElement, 1)
-	extractOutput := make(chan StreamElement, 10)
-	resizeOutput := make(chan StreamElement, 10)
-	composeOutput := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	extractOutput := make(chan core.StreamElement, 10)
+	resizeOutput := make(chan core.StreamElement, 10)
+	composeOutput := make(chan core.StreamElement, 10)
 
 	// Configure stages
 	extractStage := NewMediaExtractStage(DefaultMediaExtractConfig())
@@ -165,11 +167,11 @@ func TestBatchMediaPipeline_MultipleImages(t *testing.T) {
 		errChan <- composeStage.Process(ctx, resizeOutput, composeOutput)
 	}()
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	// Collect output
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range composeOutput {
 		results = append(results, elem)
 	}
@@ -213,10 +215,10 @@ func TestBatchMediaPipeline_MultipleImages(t *testing.T) {
 func TestBatchMediaPipeline_TextOnlyPassthrough(t *testing.T) {
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	extractOutput := make(chan StreamElement, 10)
-	resizeOutput := make(chan StreamElement, 10)
-	composeOutput := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	extractOutput := make(chan core.StreamElement, 10)
+	resizeOutput := make(chan core.StreamElement, 10)
+	composeOutput := make(chan core.StreamElement, 10)
 
 	extractStage := NewMediaExtractStage(DefaultMediaExtractConfig())
 	resizeStage := NewImageResizeStage(DefaultImageResizeStageConfig())
@@ -240,10 +242,10 @@ func TestBatchMediaPipeline_TextOnlyPassthrough(t *testing.T) {
 		errChan <- composeStage.Process(ctx, resizeOutput, composeOutput)
 	}()
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range composeOutput {
 		results = append(results, elem)
 	}
@@ -277,10 +279,10 @@ func TestBatchMediaPipeline_TextOnlyPassthrough(t *testing.T) {
 func TestBatchMediaPipeline_MixedContent(t *testing.T) {
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	extractOutput := make(chan StreamElement, 10)
-	resizeOutput := make(chan StreamElement, 10)
-	composeOutput := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	extractOutput := make(chan core.StreamElement, 10)
+	resizeOutput := make(chan core.StreamElement, 10)
+	composeOutput := make(chan core.StreamElement, 10)
 
 	extractStage := NewMediaExtractStage(DefaultMediaExtractConfig())
 	resizeStage := NewImageResizeStage(ImageResizeStageConfig{
@@ -329,10 +331,10 @@ func TestBatchMediaPipeline_MixedContent(t *testing.T) {
 		errChan <- composeStage.Process(ctx, resizeOutput, composeOutput)
 	}()
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range composeOutput {
 		results = append(results, elem)
 	}

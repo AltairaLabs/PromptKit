@@ -1,9 +1,11 @@
-package stage
+package media
 
 import (
 	"context"
 	"encoding/base64"
 	"fmt"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/media"
@@ -52,7 +54,7 @@ func DefaultMediaConvertConfig() MediaConvertConfig {
 //
 // This is a Transform stage: element → converted element (1:1)
 type MediaConvertStage struct {
-	BaseStage
+	core.BaseStage
 	config         MediaConvertConfig
 	audioConverter *media.AudioConverter
 }
@@ -60,7 +62,7 @@ type MediaConvertStage struct {
 // NewMediaConvertStage creates a new media conversion stage.
 func NewMediaConvertStage(config *MediaConvertConfig) *MediaConvertStage {
 	return &MediaConvertStage{
-		BaseStage:      NewBaseStage("media-convert", StageTypeTransform),
+		BaseStage:      core.NewBaseStage("media-convert", core.StageTypeTransform),
 		config:         *config,
 		audioConverter: media.NewAudioConverter(config.AudioConverterConfig),
 	}
@@ -70,8 +72,8 @@ func NewMediaConvertStage(config *MediaConvertConfig) *MediaConvertStage {
 // Converts media elements to target formats as needed.
 func (s *MediaConvertStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -89,7 +91,7 @@ func (s *MediaConvertStage) Process(
 }
 
 // convertElement converts media in an element if needed.
-func (s *MediaConvertStage) convertElement(ctx context.Context, elem *StreamElement) StreamElement {
+func (s *MediaConvertStage) convertElement(ctx context.Context, elem *core.StreamElement) core.StreamElement {
 	// Handle standalone audio conversion
 	if elem.Audio != nil && len(s.config.TargetAudioFormats) > 0 {
 		s.tryConvertAudio(ctx, elem)
@@ -114,7 +116,7 @@ func (s *MediaConvertStage) convertElement(ctx context.Context, elem *StreamElem
 }
 
 // convertMessageParts converts media content in message parts.
-func (s *MediaConvertStage) convertMessageParts(ctx context.Context, elem *StreamElement) {
+func (s *MediaConvertStage) convertMessageParts(ctx context.Context, elem *core.StreamElement) {
 	for i := range elem.Message.Parts {
 		part := &elem.Message.Parts[i]
 
@@ -134,7 +136,9 @@ func (s *MediaConvertStage) convertMessageParts(ctx context.Context, elem *Strea
 }
 
 // convertMessageAudioPart converts audio content in a message part.
-func (s *MediaConvertStage) convertMessageAudioPart(ctx context.Context, part *types.ContentPart, elem *StreamElement) {
+func (s *MediaConvertStage) convertMessageAudioPart(
+	ctx context.Context, part *types.ContentPart, elem *core.StreamElement,
+) {
 	if part.Media == nil || part.Media.Data == nil {
 		return
 	}
@@ -189,7 +193,9 @@ func (s *MediaConvertStage) convertMessageAudioPart(ctx context.Context, part *t
 }
 
 // convertMessageImagePart converts image content in a message part.
-func (s *MediaConvertStage) convertMessageImagePart(_ context.Context, part *types.ContentPart, elem *StreamElement) {
+func (s *MediaConvertStage) convertMessageImagePart(
+	_ context.Context, part *types.ContentPart, elem *core.StreamElement,
+) {
 	if part.Media == nil || part.Media.Data == nil {
 		return
 	}
@@ -250,28 +256,28 @@ func (s *MediaConvertStage) convertMessageImagePart(_ context.Context, part *typ
 }
 
 // tryConvertAudio attempts audio conversion and handles errors.
-func (s *MediaConvertStage) tryConvertAudio(ctx context.Context, elem *StreamElement) {
+func (s *MediaConvertStage) tryConvertAudio(ctx context.Context, elem *core.StreamElement) {
 	if err := s.convertAudioElement(ctx, elem); err != nil {
 		s.handleConversionError(elem, err, "Audio", audioFormatToMIMEType(elem.Audio.Format))
 	}
 }
 
 // tryConvertImage attempts image conversion and handles errors.
-func (s *MediaConvertStage) tryConvertImage(ctx context.Context, elem *StreamElement) {
+func (s *MediaConvertStage) tryConvertImage(ctx context.Context, elem *core.StreamElement) {
 	if err := s.convertImageElement(ctx, elem); err != nil {
 		s.handleConversionError(elem, err, "Image", elem.Image.MIMEType)
 	}
 }
 
 // tryConvertVideo attempts video conversion and handles errors.
-func (s *MediaConvertStage) tryConvertVideo(ctx context.Context, elem *StreamElement) {
+func (s *MediaConvertStage) tryConvertVideo(ctx context.Context, elem *core.StreamElement) {
 	if err := s.convertVideoElement(ctx, elem); err != nil {
 		s.handleConversionError(elem, err, "Video", elem.Video.MIMEType)
 	}
 }
 
 // handleConversionError logs or propagates conversion errors based on config.
-func (s *MediaConvertStage) handleConversionError(elem *StreamElement, err error, mediaType, format string) {
+func (s *MediaConvertStage) handleConversionError(elem *core.StreamElement, err error, mediaType, format string) {
 	if s.config.PassthroughOnError {
 		logger.Warn(mediaType+" conversion failed, passing through original",
 			"error", err,
@@ -283,7 +289,7 @@ func (s *MediaConvertStage) handleConversionError(elem *StreamElement, err error
 }
 
 // convertAudioElement converts audio data to a supported format.
-func (s *MediaConvertStage) convertAudioElement(ctx context.Context, elem *StreamElement) error {
+func (s *MediaConvertStage) convertAudioElement(ctx context.Context, elem *core.StreamElement) error {
 	audio := elem.Audio
 	if audio == nil {
 		return nil
@@ -330,7 +336,7 @@ func (s *MediaConvertStage) convertAudioElement(ctx context.Context, elem *Strea
 }
 
 // convertImageElement converts image data to a supported format.
-func (s *MediaConvertStage) convertImageElement(_ context.Context, elem *StreamElement) error {
+func (s *MediaConvertStage) convertImageElement(_ context.Context, elem *core.StreamElement) error {
 	img := elem.Image
 	if img == nil {
 		return nil
@@ -382,7 +388,7 @@ func (s *MediaConvertStage) convertImageElement(_ context.Context, elem *StreamE
 
 // convertVideoElement converts video data to a supported format.
 // Currently a placeholder for future implementation.
-func (s *MediaConvertStage) convertVideoElement(_ context.Context, elem *StreamElement) error {
+func (s *MediaConvertStage) convertVideoElement(_ context.Context, elem *core.StreamElement) error {
 	video := elem.Video
 	if video == nil {
 		return nil
@@ -398,28 +404,32 @@ func (s *MediaConvertStage) convertVideoElement(_ context.Context, elem *StreamE
 }
 
 // InputCapabilities implements FormatCapable interface.
-func (s *MediaConvertStage) InputCapabilities() Capabilities {
+func (s *MediaConvertStage) InputCapabilities() core.Capabilities {
 	// Accepts any audio/image/video content
-	return Capabilities{
-		ContentTypes: []ContentType{ContentTypeAudio, ContentTypeImage, ContentTypeVideo, ContentTypeAny},
+	return core.Capabilities{
+		ContentTypes: []core.ContentType{
+			core.ContentTypeAudio, core.ContentTypeImage, core.ContentTypeVideo, core.ContentTypeAny,
+		},
 	}
 }
 
 // OutputCapabilities implements FormatCapable interface.
-func (s *MediaConvertStage) OutputCapabilities() Capabilities {
+func (s *MediaConvertStage) OutputCapabilities() core.Capabilities {
 	// Produces content in target formats
-	caps := Capabilities{
-		ContentTypes: []ContentType{ContentTypeAudio, ContentTypeImage, ContentTypeVideo, ContentTypeAny},
+	caps := core.Capabilities{
+		ContentTypes: []core.ContentType{
+			core.ContentTypeAudio, core.ContentTypeImage, core.ContentTypeVideo, core.ContentTypeAny,
+		},
 	}
 
 	if len(s.config.TargetAudioFormats) > 0 {
 		// Map string formats to AudioFormat enum
-		var formats []AudioFormat
+		var formats []core.AudioFormat
 		for _, mimeType := range s.config.TargetAudioFormats {
 			format := mimeTypeToAudioFormat(mimeType)
 			formats = append(formats, format)
 		}
-		caps.Audio = &AudioCapability{
+		caps.Audio = &core.AudioCapability{
 			Formats: formats,
 		}
 	}
@@ -428,16 +438,16 @@ func (s *MediaConvertStage) OutputCapabilities() Capabilities {
 }
 
 // mimeTypeToAudioFormat converts MIME type to stage AudioFormat.
-func mimeTypeToAudioFormat(mimeType string) AudioFormat {
+func mimeTypeToAudioFormat(mimeType string) core.AudioFormat {
 	switch mimeType {
 	case media.MIMETypeAudioWAV, media.MIMETypeAudioXWAV:
-		return AudioFormatPCM16 // WAV is typically PCM16
+		return core.AudioFormatPCM16 // WAV is typically PCM16
 	case media.MIMETypeAudioMP3:
-		return AudioFormatMP3
+		return core.AudioFormatMP3
 	case media.MIMETypeAudioOGG:
-		return AudioFormatOpus // OGG typically contains Opus
+		return core.AudioFormatOpus // OGG typically contains Opus
 	default:
-		return AudioFormatPCM16
+		return core.AudioFormatPCM16
 	}
 }
 
@@ -447,17 +457,17 @@ func (s *MediaConvertStage) GetConfig() MediaConvertConfig {
 }
 
 // audioFormatToMIMEType converts stage AudioFormat enum to MIME type string.
-func audioFormatToMIMEType(format AudioFormat) string {
+func audioFormatToMIMEType(format core.AudioFormat) string {
 	switch format {
-	case AudioFormatPCM16:
+	case core.AudioFormatPCM16:
 		return media.MIMETypeAudioWAV // PCM is typically in WAV container
-	case AudioFormatFloat32:
+	case core.AudioFormatFloat32:
 		return media.MIMETypeAudioWAV
-	case AudioFormatOpus:
+	case core.AudioFormatOpus:
 		return media.MIMETypeAudioOGG // Opus typically in OGG container
-	case AudioFormatMP3:
+	case core.AudioFormatMP3:
 		return media.MIMETypeAudioMP3
-	case AudioFormatAAC:
+	case core.AudioFormatAAC:
 		return media.MIMETypeAudioAAC
 	default:
 		return media.MIMETypeAudioWAV
@@ -465,18 +475,18 @@ func audioFormatToMIMEType(format AudioFormat) string {
 }
 
 // mimeTypeToStageAudioFormat converts MIME type string to stage AudioFormat enum.
-func mimeTypeToStageAudioFormat(mimeType string) AudioFormat {
+func mimeTypeToStageAudioFormat(mimeType string) core.AudioFormat {
 	switch mimeType {
 	case media.MIMETypeAudioWAV, media.MIMETypeAudioXWAV:
-		return AudioFormatPCM16
+		return core.AudioFormatPCM16
 	case media.MIMETypeAudioMP3:
-		return AudioFormatMP3
+		return core.AudioFormatMP3
 	case media.MIMETypeAudioOGG:
-		return AudioFormatOpus
+		return core.AudioFormatOpus
 	case media.MIMETypeAudioAAC, media.MIMETypeAudioM4A:
-		return AudioFormatAAC
+		return core.AudioFormatAAC
 	default:
-		return AudioFormatPCM16
+		return core.AudioFormatPCM16
 	}
 }
 

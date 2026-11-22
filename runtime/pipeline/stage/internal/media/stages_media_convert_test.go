@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"bytes"
@@ -10,6 +10,8 @@ import (
 	"image/color"
 	"image/png"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/media"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -90,7 +92,7 @@ func TestNewMediaConvertStage(t *testing.T) {
 		if stage.Name() != "media-convert" {
 			t.Errorf("expected name 'media-convert', got %q", stage.Name())
 		}
-		if stage.Type() != StageTypeTransform {
+		if stage.Type() != core.StageTypeTransform {
 			t.Errorf("expected type StageTypeTransform, got %v", stage.Type())
 		}
 		if !stage.config.PassthroughOnError {
@@ -122,17 +124,17 @@ func TestMediaConvertStage_Process_NoConversionNeeded(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create audio element already in target format
-	audioData := &AudioData{
+	audioData := &core.AudioData{
 		Samples:    []byte("test audio data"),
 		SampleRate: 16000,
 		Channels:   1,
-		Format:     AudioFormatPCM16, // This maps to WAV
+		Format:     core.AudioFormatPCM16, // This maps to WAV
 	}
-	input <- NewAudioElement(audioData)
+	input <- core.NewAudioElement(audioData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -160,11 +162,11 @@ func TestMediaConvertStage_Process_TextPassthrough(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create text element (should pass through unchanged)
-	input <- NewTextElement("Hello, world!")
+	input <- core.NewTextElement("Hello, world!")
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -187,14 +189,14 @@ func TestMediaConvertStage_Process_NoTargetFormats(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	audioData := &AudioData{
+	audioData := &core.AudioData{
 		Samples: []byte("test audio"),
-		Format:  AudioFormatMP3,
+		Format:  core.AudioFormatMP3,
 	}
-	input <- NewAudioElement(audioData)
+	input <- core.NewAudioElement(audioData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -206,7 +208,7 @@ func TestMediaConvertStage_Process_NoTargetFormats(t *testing.T) {
 	if result.Audio == nil {
 		t.Fatal("expected audio in result")
 	}
-	if result.Audio.Format != AudioFormatMP3 {
+	if result.Audio.Format != core.AudioFormatMP3 {
 		t.Errorf("expected format to remain MP3, got %v", result.Audio.Format)
 	}
 }
@@ -216,11 +218,11 @@ func TestMediaConvertStage_Process_ContextCancellation(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement) // Unbuffered - will block on send
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement) // Unbuffered - will block on send
 
 	// Send an element first
-	input <- NewTextElement("test")
+	input <- core.NewTextElement("test")
 
 	// Start processing in goroutine
 	errChan := make(chan error, 1)
@@ -251,7 +253,7 @@ func TestMediaConvertStage_InputCapabilities(t *testing.T) {
 	caps := stage.InputCapabilities()
 
 	// Should accept any content type
-	expectedTypes := []ContentType{ContentTypeAudio, ContentTypeImage, ContentTypeVideo, ContentTypeAny}
+	expectedTypes := []core.ContentType{core.ContentTypeAudio, core.ContentTypeImage, core.ContentTypeVideo, core.ContentTypeAny}
 	if len(caps.ContentTypes) != len(expectedTypes) {
 		t.Errorf("expected %d content types, got %d", len(expectedTypes), len(caps.ContentTypes))
 	}
@@ -305,15 +307,15 @@ func TestMediaConvertStage_GetConfig(t *testing.T) {
 
 func TestAudioFormatToMIMEType(t *testing.T) {
 	tests := []struct {
-		format   AudioFormat
+		format   core.AudioFormat
 		expected string
 	}{
-		{AudioFormatPCM16, media.MIMETypeAudioWAV},
-		{AudioFormatFloat32, media.MIMETypeAudioWAV},
-		{AudioFormatOpus, media.MIMETypeAudioOGG},
-		{AudioFormatMP3, media.MIMETypeAudioMP3},
-		{AudioFormatAAC, media.MIMETypeAudioAAC},
-		{AudioFormat(999), media.MIMETypeAudioWAV}, // unknown defaults to WAV
+		{core.AudioFormatPCM16, media.MIMETypeAudioWAV},
+		{core.AudioFormatFloat32, media.MIMETypeAudioWAV},
+		{core.AudioFormatOpus, media.MIMETypeAudioOGG},
+		{core.AudioFormatMP3, media.MIMETypeAudioMP3},
+		{core.AudioFormatAAC, media.MIMETypeAudioAAC},
+		{core.AudioFormat(999), media.MIMETypeAudioWAV}, // unknown defaults to WAV
 	}
 
 	for _, tt := range tests {
@@ -329,15 +331,15 @@ func TestAudioFormatToMIMEType(t *testing.T) {
 func TestMimeTypeToStageAudioFormat(t *testing.T) {
 	tests := []struct {
 		mimeType string
-		expected AudioFormat
+		expected core.AudioFormat
 	}{
-		{media.MIMETypeAudioWAV, AudioFormatPCM16},
-		{"audio/x-wav", AudioFormatPCM16},
-		{media.MIMETypeAudioMP3, AudioFormatMP3},
-		{media.MIMETypeAudioOGG, AudioFormatOpus},
-		{media.MIMETypeAudioAAC, AudioFormatAAC},
-		{media.MIMETypeAudioM4A, AudioFormatAAC},
-		{"unknown", AudioFormatPCM16}, // unknown defaults to PCM16
+		{media.MIMETypeAudioWAV, core.AudioFormatPCM16},
+		{"audio/x-wav", core.AudioFormatPCM16},
+		{media.MIMETypeAudioMP3, core.AudioFormatMP3},
+		{media.MIMETypeAudioOGG, core.AudioFormatOpus},
+		{media.MIMETypeAudioAAC, core.AudioFormatAAC},
+		{media.MIMETypeAudioM4A, core.AudioFormatAAC},
+		{"unknown", core.AudioFormatPCM16}, // unknown defaults to PCM16
 	}
 
 	for _, tt := range tests {
@@ -357,15 +359,15 @@ func TestMediaConvertStage_ImagePassthrough(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Image in target format should pass through
-	imageData := &ImageData{
+	imageData := &core.ImageData{
 		Data:     []byte("fake jpeg data"),
 		MIMEType: "image/jpeg",
 	}
-	input <- NewImageElement(imageData)
+	input <- core.NewImageElement(imageData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -390,15 +392,15 @@ func TestMediaConvertStage_VideoConversionNotImplemented(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Video in different format triggers conversion attempt (which will fail)
-	videoData := &VideoData{
+	videoData := &core.VideoData{
 		Data:     []byte("fake webm data"),
 		MIMEType: "video/webm",
 	}
-	input <- NewVideoElement(videoData)
+	input <- core.NewVideoElement(videoData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -425,14 +427,14 @@ func TestMediaConvertStage_VideoConversionErrorPropagation(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	videoData := &VideoData{
+	videoData := &core.VideoData{
 		Data:     []byte("fake webm data"),
 		MIMEType: "video/webm",
 	}
-	input <- NewVideoElement(videoData)
+	input <- core.NewVideoElement(videoData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -471,16 +473,16 @@ func TestMediaConvertStage_Process_MultipleElements(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 3)
-	output := make(chan StreamElement, 3)
+	input := make(chan core.StreamElement, 3)
+	output := make(chan core.StreamElement, 3)
 
 	// Send multiple elements
-	input <- NewTextElement("text1")
-	input <- NewAudioElement(&AudioData{
+	input <- core.NewTextElement("text1")
+	input <- core.NewAudioElement(&core.AudioData{
 		Samples: []byte("audio"),
-		Format:  AudioFormatPCM16,
+		Format:  core.AudioFormatPCM16,
 	})
-	input <- NewTextElement("text2")
+	input <- core.NewTextElement("text2")
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -489,7 +491,7 @@ func TestMediaConvertStage_Process_MultipleElements(t *testing.T) {
 	}
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -504,8 +506,8 @@ func TestMediaConvertStage_Process_EmptyInput(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement)
+	output := make(chan core.StreamElement, 1)
 
 	// Close input immediately (no elements)
 	close(input)
@@ -527,11 +529,11 @@ func TestMediaConvertStage_Process_ErrorElement(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Send error element
-	input <- NewErrorElement(context.DeadlineExceeded)
+	input <- core.NewErrorElement(context.DeadlineExceeded)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -550,11 +552,11 @@ func TestMediaConvertStage_Process_EndOfStreamElement(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Send end of stream
-	input <- NewEndOfStreamElement()
+	input <- core.NewEndOfStreamElement()
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -576,15 +578,15 @@ func TestMediaConvertStage_ConvertAudioElement_NoData(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Audio with no samples
-	audioData := &AudioData{
+	audioData := &core.AudioData{
 		Samples: []byte{}, // Empty
-		Format:  AudioFormatPCM16,
+		Format:  core.AudioFormatPCM16,
 	}
-	input <- NewAudioElement(audioData)
+	input <- core.NewAudioElement(audioData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -605,14 +607,14 @@ func TestMediaConvertStage_ImageAlreadySupported(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	imageData := &ImageData{
+	imageData := &core.ImageData{
 		Data:     []byte("png data"),
 		MIMEType: "image/png",
 	}
-	input <- NewImageElement(imageData)
+	input <- core.NewImageElement(imageData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -636,14 +638,14 @@ func TestMediaConvertStage_VideoAlreadySupported(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	videoData := &VideoData{
+	videoData := &core.VideoData{
 		Data:     []byte("mp4 data"),
 		MIMEType: "video/mp4",
 	}
-	input <- NewVideoElement(videoData)
+	input <- core.NewVideoElement(videoData)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -663,13 +665,13 @@ func TestMediaConvertStage_VideoAlreadySupported(t *testing.T) {
 func TestMediaConvertStage_MimeTypeToAudioFormat(t *testing.T) {
 	tests := []struct {
 		mimeType string
-		expected AudioFormat
+		expected core.AudioFormat
 	}{
-		{media.MIMETypeAudioWAV, AudioFormatPCM16},
-		{media.MIMETypeAudioMP3, AudioFormatMP3},
-		{media.MIMETypeAudioOGG, AudioFormatOpus},
-		{"audio/aac", AudioFormatPCM16}, // Fallback for AAC (not in switch)
-		{"unknown", AudioFormatPCM16},
+		{media.MIMETypeAudioWAV, core.AudioFormatPCM16},
+		{media.MIMETypeAudioMP3, core.AudioFormatMP3},
+		{media.MIMETypeAudioOGG, core.AudioFormatOpus},
+		{"audio/aac", core.AudioFormatPCM16}, // Fallback for AAC (not in switch)
+		{"unknown", core.AudioFormatPCM16},
 	}
 
 	for _, tt := range tests {
@@ -686,7 +688,7 @@ func TestMediaConvertStage_StageType(t *testing.T) {
 	config := DefaultMediaConvertConfig()
 	stage := NewMediaConvertStage(&config)
 
-	if stage.Type() != StageTypeTransform {
+	if stage.Type() != core.StageTypeTransform {
 		t.Errorf("expected StageTypeTransform, got %v", stage.Type())
 	}
 }
@@ -700,7 +702,7 @@ func TestMediaConvertStage_NilAudio(t *testing.T) {
 	ctx := context.Background()
 
 	// Create element with nil audio
-	elem := StreamElement{
+	elem := core.StreamElement{
 		Audio: nil,
 	}
 
@@ -719,7 +721,7 @@ func TestMediaConvertStage_NilImage(t *testing.T) {
 
 	ctx := context.Background()
 
-	elem := StreamElement{
+	elem := core.StreamElement{
 		Image: nil,
 	}
 
@@ -737,7 +739,7 @@ func TestMediaConvertStage_NilVideo(t *testing.T) {
 
 	ctx := context.Background()
 
-	elem := StreamElement{
+	elem := core.StreamElement{
 		Video: nil,
 	}
 
@@ -756,8 +758,8 @@ func TestMediaConvertStage_MessageWithAudioParts(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with audio part already in target format
 	audioData := base64.StdEncoding.EncodeToString([]byte("fake wav audio"))
@@ -774,7 +776,7 @@ func TestMediaConvertStage_MessageWithAudioParts(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -802,8 +804,8 @@ func TestMediaConvertStage_MessageWithoutParts(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with no parts (text-only)
 	msg := &types.Message{
@@ -811,7 +813,7 @@ func TestMediaConvertStage_MessageWithoutParts(t *testing.T) {
 		Content: "Hello, world!",
 		Parts:   nil,
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -836,8 +838,8 @@ func TestMediaConvertStage_MessageWithNilMedia(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with audio part but nil media
 	msg := &types.Message{
@@ -849,7 +851,7 @@ func TestMediaConvertStage_MessageWithNilMedia(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -875,8 +877,8 @@ func TestMediaConvertStage_MessageWithNilData(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with audio part but nil data
 	msg := &types.Message{
@@ -891,7 +893,7 @@ func TestMediaConvertStage_MessageWithNilData(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -917,8 +919,8 @@ func TestMediaConvertStage_MessageWithEmptyMIMEType(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with audio part but empty MIME type
 	audioData := base64.StdEncoding.EncodeToString([]byte("fake audio"))
@@ -934,7 +936,7 @@ func TestMediaConvertStage_MessageWithEmptyMIMEType(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -959,8 +961,8 @@ func TestMediaConvertStage_MessageWithTextAndImageParts(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with text and image parts
 	imageData := base64.StdEncoding.EncodeToString([]byte("fake image"))
@@ -977,7 +979,7 @@ func TestMediaConvertStage_MessageWithTextAndImageParts(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -1003,8 +1005,8 @@ func TestMediaConvertStage_MessageNoTargetFormats(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	audioData := base64.StdEncoding.EncodeToString([]byte("fake mp3 audio"))
 	msg := &types.Message{
@@ -1019,7 +1021,7 @@ func TestMediaConvertStage_MessageNoTargetFormats(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -1039,15 +1041,15 @@ func TestMediaConvertStage_MessageNoTargetFormats(t *testing.T) {
 
 func TestMediaConvertStage_AudioFormatToMIMEType(t *testing.T) {
 	tests := []struct {
-		format   AudioFormat
+		format   core.AudioFormat
 		expected string
 	}{
-		{AudioFormatPCM16, media.MIMETypeAudioWAV},
-		{AudioFormatFloat32, media.MIMETypeAudioWAV},
-		{AudioFormatOpus, media.MIMETypeAudioOGG},
-		{AudioFormatMP3, media.MIMETypeAudioMP3},
-		{AudioFormatAAC, media.MIMETypeAudioAAC},
-		{AudioFormat(999), media.MIMETypeAudioWAV}, // unknown format defaults to WAV
+		{core.AudioFormatPCM16, media.MIMETypeAudioWAV},
+		{core.AudioFormatFloat32, media.MIMETypeAudioWAV},
+		{core.AudioFormatOpus, media.MIMETypeAudioOGG},
+		{core.AudioFormatMP3, media.MIMETypeAudioMP3},
+		{core.AudioFormatAAC, media.MIMETypeAudioAAC},
+		{core.AudioFormat(999), media.MIMETypeAudioWAV}, // unknown format defaults to WAV
 	}
 
 	for _, tt := range tests {
@@ -1063,15 +1065,15 @@ func TestMediaConvertStage_AudioFormatToMIMEType(t *testing.T) {
 func TestMediaConvertStage_MimeTypeToStageAudioFormat(t *testing.T) {
 	tests := []struct {
 		mimeType string
-		expected AudioFormat
+		expected core.AudioFormat
 	}{
-		{media.MIMETypeAudioWAV, AudioFormatPCM16},
-		{media.MIMETypeAudioXWAV, AudioFormatPCM16},
-		{media.MIMETypeAudioMP3, AudioFormatMP3},
-		{media.MIMETypeAudioOGG, AudioFormatOpus},
-		{media.MIMETypeAudioAAC, AudioFormatAAC},
-		{media.MIMETypeAudioM4A, AudioFormatAAC},
-		{"audio/unknown", AudioFormatPCM16}, // unknown defaults to PCM16
+		{media.MIMETypeAudioWAV, core.AudioFormatPCM16},
+		{media.MIMETypeAudioXWAV, core.AudioFormatPCM16},
+		{media.MIMETypeAudioMP3, core.AudioFormatMP3},
+		{media.MIMETypeAudioOGG, core.AudioFormatOpus},
+		{media.MIMETypeAudioAAC, core.AudioFormatAAC},
+		{media.MIMETypeAudioM4A, core.AudioFormatAAC},
+		{"audio/unknown", core.AudioFormatPCM16}, // unknown defaults to PCM16
 	}
 
 	for _, tt := range tests {
@@ -1092,8 +1094,8 @@ func TestMediaConvertStage_MessageWithInvalidBase64(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with invalid base64 data
 	invalidData := "not-valid-base64!!!"
@@ -1109,7 +1111,7 @@ func TestMediaConvertStage_MessageWithInvalidBase64(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -1135,8 +1137,8 @@ func TestMediaConvertStage_MessageWithInvalidBase64_ErrorPropagation(t *testing.
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create message with invalid base64 data
 	invalidData := "not-valid-base64!!!"
@@ -1152,7 +1154,7 @@ func TestMediaConvertStage_MessageWithInvalidBase64_ErrorPropagation(t *testing.
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -1178,12 +1180,12 @@ func TestMediaConvertStage_ImageConversionInvalidData(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create element with invalid image data
-	elem := StreamElement{
-		Image: &ImageData{
+	elem := core.StreamElement{
+		Image: &core.ImageData{
 			Data:     []byte("fake image data"),
 			MIMEType: "image/png", // Different from target
 		},
@@ -1212,14 +1214,14 @@ func TestMediaConvertStage_ImageConversionSuccess(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create a minimal valid PNG image (1x1 red pixel)
 	pngData := createMinimalPNG()
 
-	elem := StreamElement{
-		Image: &ImageData{
+	elem := core.StreamElement{
+		Image: &core.ImageData{
 			Data:     pngData,
 			MIMEType: media.MIMETypePNG, // Will be converted to JPEG
 			Width:    1,
@@ -1256,8 +1258,8 @@ func TestMediaConvertStage_MessageImageConversionSuccess(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create a minimal valid PNG image
 	pngData := createMinimalPNG()
@@ -1275,7 +1277,7 @@ func TestMediaConvertStage_MessageImageConversionSuccess(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)
@@ -1333,8 +1335,8 @@ func TestMediaConvertStage_MessageAudioConversionSuccess(t *testing.T) {
 	stage := NewMediaConvertStage(&config)
 
 	ctx := context.Background()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create a valid WAV file and encode to base64
 	wavData := createMinimalWAV()
@@ -1352,7 +1354,7 @@ func TestMediaConvertStage_MessageAudioConversionSuccess(t *testing.T) {
 			},
 		},
 	}
-	input <- NewMessageElement(msg)
+	input <- core.NewMessageElement(msg)
 	close(input)
 
 	err := stage.Process(ctx, input, output)

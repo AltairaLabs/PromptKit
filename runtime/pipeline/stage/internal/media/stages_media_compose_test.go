@@ -1,10 +1,12 @@
-package stage
+package media
 
 import (
 	"context"
 	"encoding/base64"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -17,7 +19,7 @@ func TestMediaComposeStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'media-compose', got '%s'", stg.Name())
 	}
 
-	if stg.Type() != StageTypeAccumulate {
+	if stg.Type() != core.StageTypeAccumulate {
 		t.Errorf("Expected type Accumulate, got %v", stg.Type())
 	}
 }
@@ -27,8 +29,8 @@ func TestMediaComposeStage_ComposeSingleImage(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create original message with text and image (as it would be before extraction)
 	origImageData := createTestImageData(512, 512)
@@ -46,13 +48,13 @@ func TestMediaComposeStage_ComposeSingleImage(t *testing.T) {
 
 	// Create the processed/resized image element
 	testData := createTestImageData(256, 256)
-	elem := NewImageElement(&ImageData{
+	elem := core.NewImageElement(&core.ImageData{
 		Data:     testData,
 		MIMEType: "image/jpeg",
 		Width:    256,
 		Height:   256,
 	})
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:       "msg-1",
 		PartIndex:       0,
 		TotalParts:      1,
@@ -70,7 +72,7 @@ func TestMediaComposeStage_ComposeSingleImage(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
@@ -114,8 +116,8 @@ func TestMediaComposeStage_ComposeMultipleImages(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 3)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 3)
+	output := make(chan core.StreamElement, 10)
 
 	// Create original message
 	origMsg := &types.Message{Role: "user"}
@@ -137,13 +139,13 @@ func TestMediaComposeStage_ComposeMultipleImages(t *testing.T) {
 	// Create extracted elements (as if from MediaExtractStage)
 	for i := 0; i < 3; i++ {
 		testData := createTestImageData(64, 64) // Simulated resize
-		elem := NewImageElement(&ImageData{
+		elem := core.NewImageElement(&core.ImageData{
 			Data:     testData,
 			MIMEType: "image/jpeg",
 			Width:    64,
 			Height:   64,
 		})
-		elem.Meta.MediaExtract = &MediaExtractInfo{
+		elem.Meta.MediaExtract = &core.MediaExtractInfo{
 			MessageID:       "msg-2",
 			PartIndex:       i,
 			TotalParts:      3,
@@ -162,7 +164,7 @@ func TestMediaComposeStage_ComposeMultipleImages(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
@@ -199,12 +201,12 @@ func TestMediaComposeStage_PassthroughNonExtracted(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Send element without extract metadata
 	text := "Hello world"
-	input <- StreamElement{Text: &text}
+	input <- core.StreamElement{Text: &text}
 	close(input)
 
 	go func() {
@@ -225,15 +227,15 @@ func TestMediaComposeStage_PreserveStorageRef(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create image with storage ref (no data)
-	elem := NewImageElement(&ImageData{
+	elem := core.NewImageElement(&core.ImageData{
 		MIMEType:   "image/jpeg",
 		StorageRef: "storage://bucket/processed.jpg",
 	})
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:  "msg-3",
 		PartIndex:  0,
 		TotalParts: 1,
@@ -249,7 +251,7 @@ func TestMediaComposeStage_PreserveStorageRef(t *testing.T) {
 		}
 	}()
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
@@ -283,18 +285,18 @@ func TestMediaComposeStage_MultipleMessages(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 4)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 4)
+	output := make(chan core.StreamElement, 10)
 
 	// Send elements from two different messages interleaved
 	for _, msgID := range []string{"msg-a", "msg-b"} {
 		for i := 0; i < 2; i++ {
 			testData := createTestImageData(64, 64)
-			elem := NewImageElement(&ImageData{
+			elem := core.NewImageElement(&core.ImageData{
 				Data:     testData,
 				MIMEType: "image/jpeg",
 			})
-			elem.Meta.MediaExtract = &MediaExtractInfo{
+			elem.Meta.MediaExtract = &core.MediaExtractInfo{
 				MessageID:  msgID,
 				PartIndex:  i,
 				TotalParts: 2,
@@ -312,7 +314,7 @@ func TestMediaComposeStage_MultipleMessages(t *testing.T) {
 		}
 	}()
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
@@ -345,16 +347,16 @@ func TestMediaComposeStage_ContextCancellation(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement) // Unbuffered to block
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement) // Unbuffered to block
 
 	// Send incomplete message (only 1 of 2 parts)
 	testData := createTestImageData(64, 64)
-	elem := NewImageElement(&ImageData{
+	elem := core.NewImageElement(&core.ImageData{
 		Data:     testData,
 		MIMEType: "image/jpeg",
 	})
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:  "msg-cancel",
 		PartIndex:  0,
 		TotalParts: 2,
@@ -397,7 +399,7 @@ func TestDefaultMediaComposeConfig(t *testing.T) {
 
 func TestImageDataToMediaContent(t *testing.T) {
 	t.Run("with data", func(t *testing.T) {
-		imageData := &ImageData{
+		imageData := &core.ImageData{
 			Data:     []byte{1, 2, 3, 4},
 			MIMEType: "image/png",
 			Width:    100,
@@ -422,7 +424,7 @@ func TestImageDataToMediaContent(t *testing.T) {
 	})
 
 	t.Run("with storage ref", func(t *testing.T) {
-		imageData := &ImageData{
+		imageData := &core.ImageData{
 			MIMEType:   "image/jpeg",
 			StorageRef: "storage://test",
 		}
@@ -440,7 +442,7 @@ func TestImageDataToMediaContent(t *testing.T) {
 
 func TestVideoDataToMediaContent(t *testing.T) {
 	t.Run("with data", func(t *testing.T) {
-		videoData := &VideoData{
+		videoData := &core.VideoData{
 			Data:      []byte{1, 2, 3, 4},
 			MIMEType:  "video/mp4",
 			Width:     1920,
@@ -470,7 +472,7 @@ func TestVideoDataToMediaContent(t *testing.T) {
 	})
 
 	t.Run("with storage ref", func(t *testing.T) {
-		videoData := &VideoData{
+		videoData := &core.VideoData{
 			MIMEType:   "video/mp4",
 			StorageRef: "storage://test/video.mp4",
 		}
@@ -491,8 +493,8 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create original message with video
 	origMsg := &types.Message{Role: "user"}
@@ -507,7 +509,7 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 	})
 
 	// Create the processed video element
-	elem := NewVideoElement(&VideoData{
+	elem := core.NewVideoElement(&core.VideoData{
 		Data:      []byte{0, 0, 0, 1, 2, 3, 4, 5},
 		MIMEType:  "video/mp4",
 		Width:     1280,
@@ -515,7 +517,7 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 		FrameRate: 30.0,
 		Duration:  time.Minute,
 	})
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:       "msg-video-1",
 		PartIndex:       0,
 		TotalParts:      1,
@@ -532,7 +534,7 @@ func TestMediaComposeStage_ComposeVideo(t *testing.T) {
 		}
 	}()
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
@@ -576,16 +578,16 @@ func TestMediaComposeStage_Timeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	input := make(chan StreamElement, 10)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
 
 	// Send only 1 of 2 parts - this will trigger timeout
 	testData := createTestImageData(64, 64)
-	elem := NewImageElement(&ImageData{
+	elem := core.NewImageElement(&core.ImageData{
 		Data:     testData,
 		MIMEType: "image/jpeg",
 	})
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:  "msg-timeout",
 		PartIndex:  0,
 		TotalParts: 2, // Expecting 2 parts but only sending 1
@@ -671,7 +673,7 @@ func TestCreateContentPartFromProcessed_Video(t *testing.T) {
 	processed := &processedPart{
 		index:     0,
 		mediaType: types.ContentTypeVideo,
-		video: &VideoData{
+		video: &core.VideoData{
 			Data:      []byte{1, 2, 3, 4},
 			MIMEType:  "video/mp4",
 			Width:     1920,
@@ -702,15 +704,15 @@ func TestMediaComposeStage_VideoWithStorageRef(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create video with storage ref (no data)
-	elem := NewVideoElement(&VideoData{
+	elem := core.NewVideoElement(&core.VideoData{
 		MIMEType:   "video/mp4",
 		StorageRef: "storage://bucket/processed.mp4",
 	})
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:  "msg-video-storage",
 		PartIndex:  0,
 		TotalParts: 1,
@@ -726,7 +728,7 @@ func TestMediaComposeStage_VideoWithStorageRef(t *testing.T) {
 		}
 	}()
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
@@ -760,8 +762,8 @@ func TestMediaComposeStage_ComposeErrorOnInvalidPart(t *testing.T) {
 	stg := NewMediaComposeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create original message with image
 	origMsg := &types.Message{Role: "user"}
@@ -775,8 +777,8 @@ func TestMediaComposeStage_ComposeErrorOnInvalidPart(t *testing.T) {
 	})
 
 	// Create element with nil image data (will cause error during compose)
-	elem := StreamElement{}
-	elem.Meta.MediaExtract = &MediaExtractInfo{
+	elem := core.StreamElement{}
+	elem.Meta.MediaExtract = &core.MediaExtractInfo{
 		MessageID:       "msg-error",
 		PartIndex:       0,
 		TotalParts:      1,
@@ -792,7 +794,7 @@ func TestMediaComposeStage_ComposeErrorOnInvalidPart(t *testing.T) {
 		_ = stg.Process(ctx, input, output)
 	}()
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for e := range output {
 		results = append(results, e)
 	}
