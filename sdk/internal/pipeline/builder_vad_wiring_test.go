@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
@@ -58,26 +59,33 @@ func (*stubSelector) Select(
 
 var _ selection.Selector = (*stubSelector)(nil)
 
-// VAD mode must persist through the message log like every other topology.
-//
-// It never did. The sibling streaming ProviderConfig in builder.go has always
-// set MessageLog and MessageLogConvID; the VAD one set neither, so a voice
-// session wrote nothing per turn. IncrementalSaveStage cannot cover for that in
-// a long-running session — it drains its input channel before writing, which
-// for duplex/VAD means one write at session close.
-func TestVADProviderConfig_CarriesTheMessageLog(t *testing.T) {
-	log := &recordingMessageLog{}
-	cfg := &Config{
-		MessageLog:     log,
-		ConversationID: "conv-vad-1",
-	}
+// VAD mode persists each turn through the save stage after the TTS stage,
+// not the provider stage's message-log write-through: the provider stage
+// writes the reply as the model wrote it, before anything knows how much of
+// it the caller heard, and the transcript records what was heard (#2846).
+// TestVADMode_BargeInStoresWhatTheCallerHeard (sdk) checks the stored result
+// with a message log configured.
+func TestVADProviderConfig_LeavesPersistenceToTheSaveStage(t *testing.T) {
+	got := vadProviderConfig(&Config{MessageLog: &recordingMessageLog{}, ConversationID: "conv-vad-1"})
 
-	got := vadProviderConfig(cfg)
+	assert.Equal(t, statestore.MessageLog(nil), got.MessageLog,
+		"the provider stage must not log the reply before it is heard")
 
-	require.NotNil(t, got.MessageLog, "VAD must persist per turn, not only at session close")
-	assert.Same(t, log, got.MessageLog)
-	assert.Equal(t, "conv-vad-1", got.MessageLogConvID,
-		"a log without the conversation id writes to the wrong conversation")
+	// The save stage after the TTS stage persists the turn instead, though a
+	// message log is configured.
+	store := statestore.NewMemoryStore()
+	save := stateStoreSaveStage(&Config{MessageLog: store, VADConfig: &stage.AudioTurnConfig{}},
+		&rtpipeline.StateStoreConfig{Store: store, ConversationID: "conv-vad-1"})
+	input := make(chan stage.StreamElement, 2)
+	output := make(chan stage.StreamElement, 4)
+	input <- stage.NewMessageElement(&types.Message{Role: "assistant", Content: "heard reply"})
+	input <- stage.NewEndOfTurnElement()
+	close(input)
+	require.NoError(t, save.Process(context.Background(), input, output))
+	state, err := store.Load(context.Background(), "conv-vad-1")
+	require.NoError(t, err)
+	require.Len(t, state.Messages, 1)
+	assert.Equal(t, "heard reply", state.Messages[0].Content)
 }
 
 // Streaming stays on: the tool loop fires per EndOfTurn rather than once when

@@ -47,10 +47,13 @@ type InterruptionHandler struct {
 
 	mu          sync.RWMutex
 	botSpeaking bool
-	// responding is set from the end of the user's turn until the reply's turn
-	// ends (BeginResponse/EndResponse), covering the generation that precedes
-	// any audio.
-	responding bool
+	// responding counts the replies owed: each user turn's end begins one
+	// (BeginResponse) and its reply's turn end, or the finding that no reply
+	// will follow, ends it (EndResponse). It covers the generation that
+	// precedes any audio. A count, not a flag, so a turn that ends while an
+	// earlier reply is still owed (noise that transcribes to nothing) ends
+	// only its own.
+	responding int
 	// respondAfterReset records a reply begun while an interruption was still
 	// being handled, so the Reset that closes that interruption keeps it.
 	respondAfterReset bool
@@ -122,6 +125,33 @@ func (h *InterruptionHandler) Interrupt() {
 	}
 }
 
+// BargeIn fires the interruption for a caller turn whose end already began
+// the reply it is owed (BeginResponse), once that turn is known to be speech,
+// and reports whether it fired. It fires only while an earlier reply is still
+// under way (owed besides the turn's own, being synthesized, or playing): one
+// that ended while the turn was transcribed has nothing left to interrupt.
+// When it fires, the turn's reply survives the Reset that closes the
+// interrupted one, as a reply begun after the interruption does. It fires
+// once within a turn; Reset clears it.
+func (h *InterruptionHandler) BargeIn() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.interrupted || h.strategy != InterruptionImmediate {
+		return false
+	}
+	earlier := h.responding > 1 || h.botSpeaking || h.clockLocked().Before(h.speakingUntil)
+	if !earlier {
+		return false
+	}
+	h.respondAfterReset = h.responding > 0
+	h.interrupted = true
+	h.fireLocked()
+	if h.onInterrupt != nil {
+		go h.onInterrupt()
+	}
+	return true
+}
+
 // SetBotSpeaking sets whether the bot is outputting audio (e.g. while TTS is
 // synthesizing). See BeginResponse and ExtendPlayback for the rest of the
 // window in which user speech interrupts the bot.
@@ -158,7 +188,7 @@ func (h *InterruptionHandler) fireDeferredLocked() {
 func (h *InterruptionHandler) BeginResponse() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.responding = true
+	h.responding++
 	if h.interrupted {
 		h.respondAfterReset = true
 	}
@@ -171,8 +201,12 @@ func (h *InterruptionHandler) BeginResponse() {
 func (h *InterruptionHandler) EndResponse() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.responding = false
-	h.respondAfterReset = false
+	if h.responding > 0 {
+		h.responding--
+	}
+	if h.responding == 0 {
+		h.respondAfterReset = false
+	}
 	h.fireDeferredLocked()
 }
 
@@ -204,7 +238,18 @@ func (h *InterruptionHandler) clockLocked() time.Time {
 // is synthesizing, owes a reply, or its audio is still playing. Caller must
 // hold h.mu (read or write).
 func (h *InterruptionHandler) engagedLocked() bool {
-	return h.botSpeaking || h.responding || h.clockLocked().Before(h.speakingUntil)
+	return h.botSpeaking || h.responding > 0 || h.clockLocked().Before(h.speakingUntil)
+}
+
+// WouldInterrupt reports whether user speech now would interrupt the bot at
+// once, without firing the interruption: the bot is engaged in a reply, the
+// strategy is InterruptionImmediate, and no interruption has fired since the
+// last Reset. A stage that decides on a barge-in later (once it knows the
+// speech was words) asks this when the speech ends.
+func (h *InterruptionHandler) WouldInterrupt() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.strategy == InterruptionImmediate && !h.interrupted && h.engagedLocked()
 }
 
 // IsBotSpeaking reports whether the bot is engaged in a reply, so that user
@@ -323,7 +368,10 @@ func (h *InterruptionHandler) Reset() {
 	h.botSpeaking = false
 	// A reply begun after the interruption fired belongs to the interrupting
 	// turn, so it outlives the Reset that closes the interrupted one.
-	h.responding = h.respondAfterReset
+	h.responding = 0
+	if h.respondAfterReset {
+		h.responding = 1
+	}
 	h.respondAfterReset = false
 	h.speakingUntil = time.Time{}
 	h.interrupted = false

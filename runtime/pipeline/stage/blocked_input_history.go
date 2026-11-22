@@ -178,7 +178,8 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message {
 }
 
 // ModelContextMask reports, for each message of msgs, whether
-// ExcludeFromModelContext leaves it out: an interrupted reply, a message of a
+// ExcludeFromModelContext leaves it out: an interrupted reply (but not what a
+// caller heard of one, types.Message.IsHeardPrefix), a message of a
 // blocked input turn, or one marked Meta[types.MetaExcludedFromModel]. It
 // returns nil when it leaves none out. A host that rebuilds a history from
 // another copy of it uses the mask to keep what the transcript holds out of
@@ -186,7 +187,9 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message {
 func ModelContextMask(msgs []types.Message) []bool {
 	mask := blockedInputTurns(msgs)
 	for i := range msgs {
-		if !msgs[i].IsInterrupted() {
+		// What a caller heard of a spoken reply they cut off stays: it was
+		// said (types.Message.IsHeardPrefix).
+		if !msgs[i].LeavesModelContext() {
 			continue
 		}
 		if mask == nil {
@@ -213,7 +216,7 @@ func withoutInterrupted(msgs []types.Message) ([]types.Message, []bool) {
 	}
 	keptBlocked := make([]bool, 0, len(kept))
 	for i := range msgs {
-		if !msgs[i].IsInterrupted() {
+		if !msgs[i].LeavesModelContext() {
 			keptBlocked = append(keptBlocked, blocked[i])
 		}
 	}

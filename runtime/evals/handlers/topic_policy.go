@@ -376,7 +376,10 @@ func isTopicConversationRole(role string) bool {
 //
 // An interrupted reply (a stream that died partway) is excluded for the same
 // reason: it is a fragment, not an answer, and the model never sees it either.
+// What a caller heard of a spoken reply they cut off (IsHeardPrefix) is kept,
+// as model context keeps it: it is what the agent said, and what a follow-up
+// may refer back to.
 func isSubstitutedAssistantTurn(m types.Message) bool {
 	return m.Role == roleAssistant &&
-		(m.FinishReason == types.FinishReasonSafety || m.IsInterrupted())
+		(m.FinishReason == types.FinishReasonSafety || m.LeavesModelContext())
 }

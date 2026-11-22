@@ -979,9 +979,11 @@ func stateStoreSaveStage(cfg *Config, stateStoreConfig *rtpipeline.StateStoreCon
 	}
 	// A realtime (ASM) session's provider stage has no per-round write-through,
 	// so the save stage persists its messages whether or not a MessageLog is
-	// configured; skipping them on its account persisted nothing at all.
+	// configured; skipping them on its account persisted nothing at all. A
+	// VAD session's has none either: its replies are stored as the caller
+	// heard them, which only the stages after the TTS stage know.
 	messageLog := cfg.MessageLog
-	if cfg.StreamInputProvider != nil {
+	if cfg.StreamInputProvider != nil || cfg.VADConfig != nil {
 		messageLog = nil
 	}
 	return stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{

@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/evals"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 // TestTopicPolicyHandler_WarnKeyIsPolicyNotSession pins the dedup key's
@@ -123,5 +125,29 @@ func TestTopicPolicyHandler_UnboundWarnsPerPolicyAcrossConversations(t *testing.
 	}
 	if len(h.warnedGuardrails) != 2 {
 		t.Fatalf("a second distinct policy recorded %d entries, want 2", len(h.warnedGuardrails))
+	}
+}
+
+// Topic history holds what model context holds: what a caller heard of a
+// spoken reply they cut off is part of the conversation, while a realtime
+// reply cut with its whole text, unheard tail and all, is not.
+func TestRecentTopicTurns_KeepsAHeardPrefix(t *testing.T) {
+	heard := types.Message{Role: roleAssistant, Content: "The fox woke early.", FinishReason: types.FinishReasonInterrupted,
+		Meta: map[string]interface{}{types.MetaPlayoutCut: types.PlayoutCutBargeIn, types.MetaHeardPrefix: true}}
+	realtime := types.Message{Role: roleAssistant, Content: "It ran to the river.", FinishReason: types.FinishReasonInterrupted,
+		Meta: map[string]interface{}{types.MetaPlayoutCut: types.PlayoutCutBargeIn}}
+	evalCtx := &evals.EvalContext{Messages: []types.Message{
+		{Role: roleUser, Content: "story"}, heard, {Role: roleUser, Content: "more"}, realtime,
+		{Role: roleUser, Content: "and then?"},
+	}}
+
+	got := recentTopicTurns(evalCtx, 10)
+
+	var texts []string
+	for _, m := range got {
+		texts = append(texts, m.Content)
+	}
+	if want := []string{"story", "The fox woke early.", "more"}; strings.Join(texts, "|") != strings.Join(want, "|") {
+		t.Fatalf("topic history = %q, want %q", texts, want)
 	}
 }

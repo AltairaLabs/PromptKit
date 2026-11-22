@@ -214,6 +214,11 @@ type ProviderConfig struct {
 	// MessageLogConvID is the conversation ID for message log operations.
 	MessageLogConvID string
 
+	// HeardReplies, shared with a cascaded voice pipeline's
+	// TTSStageWithInterruption, swaps each reply the caller cut off for what
+	// they heard of it in the history the next turn sends the model. Optional.
+	HeardReplies *HeardReplies
+
 	// Compactor folds stale tool results between rounds when token usage
 	// exceeds the configured threshold. Nil = disabled.
 	Compactor CompactionStrategy
@@ -864,8 +869,10 @@ func (s *ProviderStage) streamingStep(
 	case elem.Interrupt:
 		// Barge-in: in-flight generation was already canceled out of band by
 		// the reader. Drop the partial turn's input, roll a fresh context,
-		// and forward the Interrupt downstream.
+		// and forward the Interrupt downstream, where the speech-out stage
+		// reports what was heard of the reply it cut (heardReplies).
 		canceller.refresh()
+		s.heardReplies().expect()
 		return nil, false, sendStreamElement(ctx, elem, output)
 	case elem.EndOfTurn:
 		next, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
@@ -890,6 +897,14 @@ func (s *ProviderStage) streamingStep(
 		// Stray content passes through unchanged.
 		return pending, false, sendStreamElement(ctx, elem, output)
 	}
+}
+
+// heardReplies is the configured HeardReplies, nil when there is none.
+func (s *ProviderStage) heardReplies() *HeardReplies {
+	if s.config == nil {
+		return nil
+	}
+	return s.config.HeardReplies
 }
 
 // fireIfPending fires a streaming turn when there is buffered input, returning
@@ -934,6 +949,11 @@ func (s *ProviderStage) fireStreamingTurn(
 	// turn's messages have already passed through them by fire time, so the read
 	// is safely ordered after those writes (channel happens-before).
 	cfg := s.streamingTurnState()
+	// A reply the caller cut off goes on in the history as what they heard.
+	if heard := s.heardReplies(); heard != nil {
+		heard.await(forwardCtx)
+		*history = heard.apply(*history)
+	}
 	turn := s.beginStreamTurn(*history, pending)
 
 	// Emit this turn's user transcript(s) BEFORE generation, so the UI shows what
@@ -992,7 +1012,17 @@ func (s *ProviderStage) endFailedStreamingTurn(
 	forwardCtx context.Context, err error, full []types.Message,
 	history *[]types.Message, pending []types.Message, output chan<- StreamElement,
 ) error {
-	if keepErr := s.keepInterruptedTurn(forwardCtx, full, len(*history)+len(pending), history, output); keepErr != nil {
+	newStart := len(*history) + len(pending)
+	if !endsInterrupted(full) && errors.Is(err, context.Canceled) && forwardCtx.Err() == nil {
+		// A barge-in after one or more rounds completed (a tool ran, its
+		// result came back) and before the next said anything: the rounds
+		// that completed are kept, so the tool's call and result stay in the
+		// conversation, and the speech-out stage records what was heard.
+		if kept := completedRounds(full[min(newStart, len(full)):]); len(kept) > 0 {
+			return s.keepTurn(forwardCtx, append(full[:newStart:newStart], kept...), newStart, history, output)
+		}
+	}
+	if keepErr := s.keepInterruptedTurn(forwardCtx, full, newStart, history, output); keepErr != nil {
 		return keepErr
 	}
 	if forwardCtx.Err() != nil {
@@ -1048,6 +1078,15 @@ func (s *ProviderStage) keepInterruptedTurn(
 	if !endsInterrupted(full) {
 		return nil
 	}
+	return s.keepTurn(ctx, full, newStart, history, output)
+}
+
+// keepTurn emits a cut-short turn's new messages (from newStart) for the
+// stages after this one, makes full the history, and closes the turn with
+// an EndOfTurn.
+func (s *ProviderStage) keepTurn(
+	ctx context.Context, full []types.Message, newStart int, history *[]types.Message, output chan<- StreamElement,
+) error {
 	if newStart <= len(full) {
 		if err := s.emitResponseMessages(ctx, full[newStart:], output); err != nil {
 			return err
@@ -1055,6 +1094,76 @@ func (s *ProviderStage) keepInterruptedTurn(
 	}
 	*history = full
 	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):], s.turnIndex()), output)
+}
+
+// markRoundTextEnd tells the stages after this one, on a streaming (duplex)
+// turn, that a round's text is complete when its stream finished with tool
+// calls (hasToolCalls):
+// and the tools run next (ElementMetadata.RoundTextEnd). A speech-out stage
+// speaks the round's last sentence now instead of after the tools. A round
+// that streamed no text has nothing to mark. Best effort: a consumer that has
+// gone away does not fail the turn.
+func (s *ProviderStage) markRoundTextEnd(
+	ctx context.Context, response *types.Message, hasToolCalls bool, output chan<- StreamElement,
+) {
+	if !hasToolCalls || s.config == nil || !s.config.Streaming || output == nil || response.Content == "" {
+		return
+	}
+	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem.Meta.RoundTextEnd = true
+	elem.Meta.MessageID = response.ID()
+	_ = sendStreamElement(ctx, elem, output)
+}
+
+// completedRounds returns the rounds of msgs (a turn's new messages) that
+// completed: each assistant message with every tool call it made answered by
+// the tool results after it. It stops at the first round that did not (its
+// calls ran no further, or were never answered), so the calls it returns are
+// all paired, as providers require. Nil when no round completed.
+func completedRounds(msgs []types.Message) []types.Message {
+	end := 0
+	for i := 0; i < len(msgs); {
+		if msgs[i].Role != roleAssistant {
+			i++
+			continue
+		}
+		next, complete := roundEnd(msgs, i)
+		if !complete {
+			break
+		}
+		end, i = next, next
+	}
+	if end == 0 {
+		return nil
+	}
+	return msgs[:end:end]
+}
+
+// roundEnd returns where the round the assistant message at i opens ends
+// (after its tool results), and whether it completed: a reply that finished,
+// with every tool call it made answered.
+func roundEnd(msgs []types.Message, i int) (int, bool) {
+	answered := map[string]bool{}
+	j := i + 1
+	for ; j < len(msgs) && msgs[j].Role == roleTool; j++ {
+		if r := msgs[j].ToolResult; r != nil {
+			answered[r.ID] = true
+		}
+	}
+	if len(msgs[i].ToolCalls) == 0 {
+		return j, !msgs[i].IsInterrupted()
+	}
+	return j, allAnswered(msgs[i].ToolCalls, answered)
+}
+
+// allAnswered reports whether every call has a result in answered.
+func allAnswered(calls []types.MessageToolCall, answered map[string]bool) bool {
+	for _, call := range calls {
+		if !answered[call.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 // sendStreamElement forwards one element downstream, honoring cancellation.
@@ -1704,6 +1813,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 		// streamingRoundParams re-read acc.systemPrompt and loop.providerTools,
 		// so a mid-loop swap takes effect there.
 		s.stampWorkflowState(&response)
+		s.markRoundTextEnd(ctx, &response, hasToolCalls, output)
 		if done, msgs, err := loop.afterStreamedRound(ctx, acc.allowedTools, &response, hasToolCalls, rr); done {
 			return msgs, err
 		}
@@ -2848,8 +2958,10 @@ func (s *ProviderStage) flushHeld(
 // stream_hold guardrail holds it (a held round's truncation goes through
 // holdTruncation); media still waiting behind held text is dropped with the
 // blocked reply. The element carries types.FinishReasonSafety like a
-// blocked turn's (emitBlockedTurnText), and is a delta, so a speech-out stage
-// speaks the completed Message, once. A replacement is marked ReplacesText,
+// blocked turn's (emitBlockedTurnText), and is a delta, so it is spoken once:
+// TTSStage speaks the completed Message, and TTSStageWithInterruption, which
+// speaks released deltas as they arrive, drops what it has not yet spoken of
+// the reply and speaks this instead. A replacement is marked ReplacesText,
 // whether or not any of the reply was released before the cut: the message
 // alone is the turn's text, so a caller swaps any clean text it already showed
 // for it.
@@ -3083,8 +3195,9 @@ func textDeltaElement(text string, finishReason *string) StreamElement {
 	elem.Timestamp = timeNow()
 	elem.Priority = PriorityNormal
 
-	// Mark as an incremental delta so a downstream speech-out stage speaks
-	// the complete assistant Message instead of each fragment (see
+	// Mark as an incremental delta: the released text of the reply, which
+	// TTSStageWithInterruption speaks a segment at a time and TTSStage skips
+	// for the complete assistant Message (see
 	// ElementMetadata.StreamingDelta).
 	elem.Meta.StreamingDelta = true
 	if finishReason != nil {
@@ -3347,9 +3460,10 @@ func (s *ProviderStage) runBeforeCallHooks(
 // The element is shaped exactly like the element a real final chunk produces
 // (emitChunkElement), which is what keeps the reply delivered exactly once:
 //
-//   - Meta.StreamingDelta marks it as the live-text feed. A speech-out stage
-//     skips deltas and speaks the complete Message (stages_speech.go,
-//     stages_tts.go), so the canned reply is synthesized once; and
+//   - Meta.StreamingDelta marks it as the live-text feed. TTSStage skips
+//     deltas and speaks the complete Message; TTSStageWithInterruption speaks
+//     the deltas and matches the Message to them (replySpeech). Either way the
+//     canned reply is synthesized once; and
 //     accumulateResult only folds text that arrives after the assistant message,
 //     which this element precedes. Consumers that render deltas concatenate them
 //     to exactly the Message content, as on any other turn.

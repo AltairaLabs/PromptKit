@@ -2,6 +2,7 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -284,4 +286,226 @@ func TestProviderStage_Streaming_CanceledTurnKeepsUserInput(t *testing.T) {
 	}
 	assert.Equal(t, []string{"book me a table", "for two at eight"}, said,
 		"the canceled turn's user input stays in context")
+}
+
+// toolThenSilentProvider streams a tool round on its first call ("Let me
+// look." and a call to probe), stays silent on its second until the turn is
+// canceled (the model has not begun its answer), and answers later calls. It
+// records every request.
+type toolThenSilentProvider struct {
+	scriptedRoundProvider
+	answering chan struct{} // closed once the second call is waiting
+	// answerSecond makes the second call answer at once instead.
+	answerSecond bool
+	mu           sync.Mutex
+	requests     [][]types.Message
+}
+
+func (p *toolThenSilentProvider) SupportsStreaming() bool { return true }
+
+func (p *toolThenSilentProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (<-chan providers.StreamChunk, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, append([]types.Message(nil), req.Messages...))
+	n := len(p.requests)
+	p.mu.Unlock()
+	ch := make(chan providers.StreamChunk, 2)
+	switch n {
+	case 1:
+		finish := "tool_calls"
+		ch <- providers.StreamChunk{Content: "Let me look.", Delta: "Let me look."}
+		ch <- providers.StreamChunk{Content: "Let me look.", FinishReason: &finish,
+			ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "probe", Args: json.RawMessage(`{}`)}}}
+		close(ch)
+	case 2:
+		if p.answerSecond {
+			stop := "stop"
+			ch <- providers.StreamChunk{Content: "Sure.", Delta: "Sure.", FinishReason: &stop}
+			close(ch)
+			break
+		}
+		go func() {
+			defer close(ch)
+			close(p.answering)
+			<-ctx.Done()
+		}()
+	default:
+		stop := "stop"
+		ch <- providers.StreamChunk{Content: "Sure.", Delta: "Sure.", FinishReason: &stop}
+		close(ch)
+	}
+	return ch, nil
+}
+
+// A barge-in once a tool round completed, before the model says anything
+// more, keeps the round: its call and the tool's result are emitted for the
+// transcript, the turn ends, and the next request carries them as a pair.
+func TestProviderStage_Streaming_BargeInAfterAToolRoundKeepsIt(t *testing.T) {
+	prov := &toolThenSilentProvider{answering: make(chan struct{})}
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.AllowedTools = []string{"probe"}
+	st := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{Streaming: true}, nil, nil, turnState)
+
+	input := make(chan StreamElement)
+	output := make(chan StreamElement, 64)
+	done := make(chan error, 1)
+	go func() { done <- st.Process(context.Background(), input, output) }()
+	send := func(e StreamElement) { within(t, "a send", func() bool { input <- e; return true }) }
+
+	send(NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"}))
+	send(NewEndOfTurnElement())
+	recvWithin(t, prov.answering) // the tool ran; the model has not answered
+	send(NewInterruptElement())
+	send(NewMessageElement(&types.Message{Role: roleUser, Content: "stop"}))
+	send(NewEndOfTurnElement())
+	close(input)
+	require.NoError(t, recvWithin(t, done))
+
+	var emitted []string
+	for e := range output {
+		switch {
+		case e.Message != nil && len(e.Message.ToolCalls) > 0:
+			emitted = append(emitted, "call:"+e.Message.Content)
+		case e.Message != nil && e.Message.ToolResult != nil:
+			emitted = append(emitted, "result:"+e.Message.ToolResult.ID)
+		case e.EndOfTurn:
+			emitted = append(emitted, "end")
+		}
+	}
+	assert.Equal(t, []string{"call:Let me look.", "result:c1", "end", "end"}, emitted,
+		"the round is handed on and its turn ends, then the next turn's")
+
+	prov.mu.Lock()
+	defer prov.mu.Unlock()
+	require.Len(t, prov.requests, 3)
+	var next []string
+	for _, m := range prov.requests[2] {
+		entry := m.Role
+		if len(m.ToolCalls) > 0 {
+			entry += "+call:" + m.ToolCalls[0].ID
+		}
+		if m.ToolResult != nil {
+			entry += ":" + m.ToolResult.ID
+		}
+		next = append(next, entry)
+	}
+	assert.Equal(t, []string{"user", "assistant+call:c1", "tool:c1", "user"}, next)
+}
+
+// gatedExecutor runs a tool only once the test lets it, so a test can see
+// what the stage emitted before the tool ran.
+type gatedExecutor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (gatedExecutor) Name() string { return "local" }
+func (g gatedExecutor) Execute(context.Context, *tools.ToolDescriptor, json.RawMessage) (json.RawMessage, error) {
+	close(g.started)
+	<-g.release
+	return json.RawMessage(`{"ok":true}`), nil
+}
+
+// On a streaming turn, a round whose stream finished with tool calls is
+// marked RoundTextEnd, with the round's message id, before its tools run:
+// the round's text is complete, so a speech-out stage can speak all of it
+// while the tools run.
+func TestProviderStage_Streaming_MarksTheEndOfARoundsTextBeforeItsTools(t *testing.T) {
+	prov := &toolThenSilentProvider{answering: make(chan struct{})}
+	reg := registryWithTools(t, "probe")
+	exec := gatedExecutor{started: make(chan struct{}), release: make(chan struct{})}
+	reg.RegisterExecutor(exec)
+	turnState := NewTurnState()
+	turnState.AllowedTools = []string{"probe"}
+	st := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{Streaming: true}, nil, nil, turnState)
+
+	input := make(chan StreamElement)
+	output := make(chan StreamElement, 64)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = st.Process(ctx, input, output) }()
+	t.Cleanup(func() {
+		select {
+		case <-exec.release:
+		default:
+			close(exec.release)
+		}
+	})
+	within(t, "a send", func() bool {
+		input <- NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"})
+		input <- NewEndOfTurnElement()
+		return true
+	})
+	recvWithin(t, exec.started) // the tool is running, held
+
+	var deltaID string
+	var marked *StreamElement
+	for marked == nil {
+		e := recvWithin(t, output)
+		if e.Text != nil && *e.Text != "" {
+			deltaID = e.Meta.MessageID
+		}
+		if e.Meta.RoundTextEnd {
+			marked = &e
+		}
+	}
+	require.NotEmpty(t, deltaID)
+	assert.Equal(t, deltaID, marked.Meta.MessageID, "the marker names the round whose text ended")
+	assert.Nil(t, marked.Text)
+	assert.Nil(t, marked.Message)
+}
+
+// A turn that is not a streaming (duplex) one marks no round's end: there is
+// no speech-out stage to tell, and its caller would see the marker as output.
+func TestProviderStage_UnaryStreamMarksNoRoundTextEnd(t *testing.T) {
+	prov := &toolThenSilentProvider{answering: make(chan struct{}), answerSecond: true}
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.AllowedTools = []string{"probe"}
+	st := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 1)
+	input <- NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"})
+	close(input)
+	output := make(chan StreamElement, 64)
+	require.NoError(t, within(t, "Process", func() error { return st.Process(context.Background(), input, output) }))
+
+	var texts []string
+	for e := range output {
+		assert.False(t, e.Meta.RoundTextEnd, "no round-text-end on a unary stream")
+		if e.Text != nil && e.Meta.StreamingDelta {
+			texts = append(texts, *e.Text)
+		}
+	}
+	assert.Equal(t, []string{"Let me look.", "Sure."}, texts, "both rounds streamed")
+}
+
+// Only a round that goes on to run tools is marked: the turn's last round ends
+// with the turn itself.
+func TestProviderStage_Streaming_MarksOnlyToolRounds(t *testing.T) {
+	prov := &toolThenSilentProvider{answering: make(chan struct{}), answerSecond: true}
+	reg := registryWithTools(t, "probe")
+	reg.RegisterExecutor(staticExecutor{})
+	turnState := NewTurnState()
+	turnState.AllowedTools = []string{"probe"}
+	st := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{Streaming: true}, nil, nil, turnState)
+
+	input := make(chan StreamElement, 2)
+	input <- NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"})
+	input <- NewEndOfTurnElement()
+	close(input)
+	output := make(chan StreamElement, 64)
+	require.NoError(t, within(t, "Process", func() error { return st.Process(context.Background(), input, output) }))
+
+	marks := 0
+	for e := range output {
+		if e.Meta.RoundTextEnd {
+			marks++
+		}
+	}
+	assert.Equal(t, 1, marks, "the tool round, not the answer")
 }

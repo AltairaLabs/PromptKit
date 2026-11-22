@@ -355,10 +355,11 @@ func (s *IncrementalSaveStage) indexNewMessages(
 
 	blocked := blockedInputTurns(messages)
 	for i := range messages {
-		// An interrupted reply is a fragment the model never finished, and a
-		// blocked input turn is one the model may not see; indexing either
-		// would let retrieval put it back into model context.
-		if messages[i].IsInterrupted() || (len(blocked) > i && blocked[i]) {
+		// An interrupted reply is a fragment the model never finished (unless
+		// it is what a caller heard of a spoken reply, which model context
+		// keeps), and a blocked input turn is one the model may not see;
+		// indexing either would let retrieval put it back into model context.
+		if messages[i].LeavesModelContext() || (len(blocked) > i && blocked[i]) {
 			continue
 		}
 		if err := s.config.MessageIndex.Index(ctx, convID, baseIndex+i, messages[i]); err != nil {

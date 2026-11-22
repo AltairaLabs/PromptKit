@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -62,6 +61,9 @@ type eventLog struct {
 	// ended is closed by end: a speech cost not stored by then never will be.
 	ended     chan struct{}
 	endedOnce sync.Once
+	// heardAt is when the caller's words of the turn in progress were
+	// transcribed; zero once the reply's first audio is timed against it.
+	heardAt time.Time
 }
 
 // cueRenderSource is the Source of the TTS cost event a cue's render reports.
@@ -371,11 +373,21 @@ func (l *eventLog) observe(c providers.StreamChunk) {
 		l.logLockedf("cue", "the guardrail's message plays as audio (%s), not spoken by the model", kind)
 	}
 	l.cuePlaying = kind != ""
-	// In VAD mode the TTS service speaks each reply once it is complete; the
-	// chunk names the words it spoke.
+	// In VAD mode, the reply's first audio is timed from the transcript of the
+	// caller's words. It does not wait for the model to finish the reply,
+	// whose cost line marks when it did.
+	if _, ok := c.Metadata["input_transcription"].(string); ok && l.speechCosts {
+		l.heardAt = l.now()
+	}
+	if c.MediaData != nil && kind == "" && !l.heardAt.IsZero() {
+		l.logLockedf("timing", "first audio of the reply, %.1f s after your words were transcribed",
+			l.now().Sub(l.heardAt).Seconds())
+		l.heardAt = time.Time{}
+	}
+	// In VAD mode the TTS service speaks each sentence of a reply as the
+	// model streams it; the first chunk of each names the words it spoke.
 	if spoken, _ := c.Metadata["spoken_text"].(string); spoken != "" && kind == "" && c.MediaData != nil {
-		l.logLockedf("speech", "TTS speaks %q (%d ms of audio)",
-			shorten(spoken), audio.PCM16Duration(len(c.MediaData.Data), c.MediaData.SampleRate, 1).Milliseconds())
+		l.logLockedf("speech", "TTS speaks %q", shorten(spoken))
 	}
 	if done, _ := c.Metadata["assistant_turn_complete"].(bool); !done {
 		return

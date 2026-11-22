@@ -452,7 +452,7 @@ func WithCartesiaWSURL(url string) func(*CartesiaService)
 WithCartesiaWSURL sets a custom WebSocket URL.
 
 <a name="AudioFormat"></a>
-## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L165-L180>)
+## type [AudioFormat](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L173-L188>)
 
 AudioFormat describes an audio output format.
 
@@ -476,7 +476,7 @@ type AudioFormat struct {
 ```
 
 <a name="AudioFormat.String"></a>
-### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L240>)
+### func \(AudioFormat\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L248>)
 
 ```go
 func (f AudioFormat) String() string
@@ -745,7 +745,7 @@ func (s *ElevenLabsService) SetInlineTags(on bool)
 SetInlineTags declares whether the service's configured model takes inline markup tags such as "\[whispers\]". On, the tags are sent as written and PersonaRubric offers the markup rubric; off, they are stripped from the text and no rubric is offered. It wins over the model ID, which otherwise decides \(eleven\_v3\* takes tags\). A request for another model \(SynthesisConfig.Model\) is decided by that model's ID. The declarative form is additional\_config.inline\_tags.
 
 <a name="ElevenLabsService.SpokenText"></a>
-### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L210>)
+### func \(\*ElevenLabsService\) [SpokenText](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L219>)
 
 ```go
 func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) string
@@ -754,7 +754,7 @@ func (s *ElevenLabsService) SpokenText(text string, config SynthesisConfig) stri
 SpokenText reports the text ElevenLabs will actually speak for the given input, after markup lowering: a model that takes inline tags \(SetInlineTags, else eleven\_v3\) keeps them, other models strip them. Implements tts.SpokenTextReporter.
 
 <a name="ElevenLabsService.SupportedFormats"></a>
-### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L301>)
+### func \(\*ElevenLabsService\) [SupportedFormats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L310>)
 
 ```go
 func (s *ElevenLabsService) SupportedFormats() []AudioFormat
@@ -763,7 +763,7 @@ func (s *ElevenLabsService) SupportedFormats() []AudioFormat
 SupportedFormats returns audio formats supported by ElevenLabs.
 
 <a name="ElevenLabsService.SupportedVoices"></a>
-### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L286>)
+### func \(\*ElevenLabsService\) [SupportedVoices](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L295>)
 
 ```go
 func (s *ElevenLabsService) SupportedVoices() []Voice
@@ -772,7 +772,7 @@ func (s *ElevenLabsService) SupportedVoices() []Voice
 SupportedVoices returns a sample of available ElevenLabs voices. Note: ElevenLabs has many more voices including custom cloned voices. Use the ElevenLabs API to get a complete list of available voices.
 
 <a name="ElevenLabsService.Synthesize"></a>
-### func \(\*ElevenLabsService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L142-L144>)
+### func \(\*ElevenLabsService\) [Synthesize](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/elevenlabs.go#L146-L148>)
 
 ```go
 func (s *ElevenLabsService) Synthesize(ctx context.Context, text string, config SynthesisConfig) (io.ReadCloser, error)
@@ -1178,7 +1178,7 @@ type StreamingService interface {
 ```
 
 <a name="SynthesisConfig"></a>
-## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L104-L131>)
+## type [SynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L104-L139>)
 
 SynthesisConfig configures text\-to\-speech synthesis.
 
@@ -1210,11 +1210,19 @@ type SynthesisConfig struct {
     // Model is the TTS model to use (provider-specific). If empty, the service's
     // configured model is used. For OpenAI: ModelTTS1, ModelTTS1HD or ModelGPT4oMiniTTS.
     Model string
+
+    // PreviousText and NextText are the text spoken just before and just
+    // after this text, when it is one segment of a longer reply synthesized a
+    // segment at a time: a service can use them to keep the speech's prosody
+    // continuous across segments. Empty when there is none, or it is not known
+    // yet. Only ElevenLabsService sends them (previous_text and next_text).
+    PreviousText string
+    NextText     string
 }
 ```
 
 <a name="DefaultSynthesisConfig"></a>
-### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L134>)
+### func [DefaultSynthesisConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L142>)
 
 ```go
 func DefaultSynthesisConfig() SynthesisConfig
@@ -1300,7 +1308,7 @@ func (e *SynthesisError) Unwrap() error
 Unwrap returns the underlying error.
 
 <a name="Voice"></a>
-## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L144-L162>)
+## type [Voice](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/tts/service.go#L152-L170>)
 
 Voice describes a TTS voice available from a provider.
 

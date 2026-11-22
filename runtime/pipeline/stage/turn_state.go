@@ -268,6 +268,14 @@ type ElementMetadata struct {
 	// without waiting for the text after it.
 	SegmentEnd bool
 
+	// RoundTextEnd marks a control element the provider stage sends, on a
+	// streaming (duplex) turn, when a round's stream has finished and the
+	// round goes on to run its tool calls: the round's text (MessageID) is
+	// complete. A speech-out stage speaks what it holds of it at once, so a
+	// preamble ("Let me look that up.") is heard while the tools run. The
+	// element carries nothing else and is not output for the caller.
+	RoundTextEnd bool
+
 	// MessageID is the stable id (types.MetaMessageID) of the assistant
 	// message a text element is part of: the round's reply, which is stored
 	// under it, so a consumer streaming the text can name the message as the
@@ -371,11 +379,20 @@ type ElementMetadata struct {
 
 	// StreamingDelta marks an incremental content Text element emitted by a
 	// streaming provider mid-generation (see ProviderStage.emitChunkElement).
-	// These are the live-text feed for UI consumers; the same reply also arrives
-	// as a complete assistant Message. A speech-out stage must skip the deltas
-	// and speak the Message: the TTS provider takes a complete string, so
-	// synthesizing per fragment would be one request per token and choppy audio.
+	// These are the live-text feed for UI consumers, and the text the provider
+	// stage has released to the caller (output guardrails have cleared it); the
+	// same reply also arrives as a complete assistant Message. A speech-out
+	// stage speaks either the deltas, gathered into sentence-sized segments
+	// (TTSStageWithInterruption: one request per token would be choppy audio),
+	// or the Message (TTSStage), never both.
 	StreamingDelta bool
+
+	// BargeInIfTranscribed marks a caller turn's audio that ended while the
+	// bot was engaged in a reply but that the VAD never reported as speech
+	// (Speaking): a short word, or a cough or a door. AudioTurnStage leaves
+	// the reply alone; the STT stage interrupts it once the turn transcribes
+	// to words, so noise never cuts a reply off.
+	BargeInIfTranscribed bool
 
 	// TokenCount is the per-chunk token count emitted by streaming providers.
 	// Zero when the chunk did not include a token count.

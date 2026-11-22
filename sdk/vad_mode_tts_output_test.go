@@ -96,10 +96,14 @@ func TestVADMode_StoresAssistantMessageWithTTSCost(t *testing.T) {
 	responseCh, err := conv.Response()
 	require.NoError(t, err)
 	audioRates := make(chan int, 16)
+	turnDone := make(chan struct{}, 1)
 	go func() {
 		for chunk := range responseCh {
 			if chunk.MediaData != nil {
 				audioRates <- chunk.MediaData.SampleRate
+			}
+			if done, _ := chunk.Metadata["assistant_turn_complete"].(bool); done {
+				turnDone <- struct{}{}
 			}
 		}
 	}()
@@ -110,6 +114,13 @@ func TestVADMode_StoresAssistantMessageWithTTSCost(t *testing.T) {
 		assert.Equal(t, 16000, rate, "audio is labeled with the service's PCM rate")
 	case <-time.After(8 * time.Second):
 		t.Fatal("no synthesized audio reached the caller")
+	}
+	// The reply's turn ends once its audio has played; closed before then,
+	// the session would store only what had been heard.
+	select {
+	case <-turnDone:
+	case <-time.After(8 * time.Second):
+		t.Fatal("the reply's turn never ended")
 	}
 	require.NoError(t, conv.Close())
 

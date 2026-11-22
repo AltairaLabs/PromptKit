@@ -97,9 +97,14 @@ func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.St
 	}
 	stages = append(stages, trackStages...)
 
+	// The TTS stage reports to the provider stage what the caller heard of a
+	// reply they cut off, so the model's next turn goes on from it.
+	heard := stage.NewHeardReplies()
+
 	// 5d. ProviderStage - LLM call
 	if cfg.Provider != nil {
 		providerConfig := vadProviderConfig(cfg)
+		providerConfig.HeardReplies = heard
 		// The hook registry reaches the stage here, as it does in the
 		// streaming sibling. Passing nil is what made a pack's validators:
 		// silently do nothing in a voice session (#1944): guardrails are
@@ -121,6 +126,7 @@ func buildVADPipelineStages(cfg *Config, turnState *stage.TurnState) ([]stage.St
 	if cfg.TTSConfig != nil {
 		ttsConfig = *cfg.TTSConfig
 	}
+	ttsConfig.HeardReplies = heard
 	stages = append(stages, stage.NewTTSStageWithInterruption(cfg.TTSService, ttsConfig))
 
 	return stages, nil
@@ -151,12 +157,12 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		FrequencyPenalty: cfg.FrequencyPenalty,
 		PresencePenalty:  cfg.PresencePenalty,
 		TopK:             cfg.TopK,
-		// The message log is what persists a turn as it happens, rather than
-		// at session close, which is all IncrementalSaveStage can do for a
-		// long-running session: it drains its input channel before writing.
-		MessageLog:       cfg.MessageLog,
-		MessageLogConvID: cfg.ConversationID,
-		ApprovalGate:     cfg.ApprovalGate,
+		// No MessageLog write-through: the provider stage writes the reply
+		// as the model wrote it, before the TTS stage knows how much of it
+		// the caller heard. The save stage after the TTS stage persists each
+		// turn as it completes (FlushEachTurn), as heard, as a realtime
+		// session's does (stateStoreSaveStage).
+		ApprovalGate: cfg.ApprovalGate,
 		// The conversation's call-rate window, so voice counts calls for
 		// ToolPolicy.MaxCallsPerMinute where text does, and a held call
 		// ResolveTool approves is admitted in the same window.

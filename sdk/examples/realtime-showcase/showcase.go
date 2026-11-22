@@ -323,7 +323,7 @@ func (p *providerSetup) sessionOptions() (opts []sdk.Option, heard string) {
 		return []sdk.Option{
 			sdk.WithLLMProvider(sdk.ProviderSpec{ID: "showcase-llm", Type: p.judgeType, Model: p.textModel}),
 			sdk.WithVADMode(p.stt, p.tts, p.vadConfig()),
-		}, "spoken by " + p.tts.Name() + " TTS, as every reply is, once the turn is complete"
+		}, "spoken by " + p.tts.Name() + " TTS, as every reply is"
 	}
 	opts, heard = p.cueOptions()
 	return append(append([]sdk.Option{

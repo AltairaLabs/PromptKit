@@ -147,6 +147,39 @@ func TestNextSegmentEnd(t *testing.T) {
 
 // A segmenter fed a reply delta by delta reports each segment as the text
 // that completes it arrives.
+// A bare list marker is not a segment: the period after "1." at the start of
+// a line joins the item's text, so speech does not say "one." and pause, and a
+// judge is never given a segment that is only the marker.
+func TestNextSegmentEnd_ListMarkerJoinsItsItem(t *testing.T) {
+	small := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600}
+	cases := []struct {
+		name   string
+		text   string
+		from   int
+		want   int
+		wantOK bool
+	}{
+		{name: "numbered item", text: "1. Open it. Next", want: len("1. Open it."), wantOK: true},
+		{name: "numbered item after a line", text: "Steps:\n1. Open it. Next", from: len("Steps:\n"),
+			want: len("Steps:\n1. Open it."), wantOK: true},
+		{name: "two-digit item", text: "12. Close it. Next", want: len("12. Close it."), wantOK: true},
+		{name: "indented item", text: "  3. Wait. Next", want: len("  3. Wait."), wantOK: true},
+		{name: "lettered item", text: "a. Pick one. Next", want: len("a. Pick one."), wantOK: true},
+		{name: "marker with nothing after it yet", text: "1. ", wantOK: false},
+		{name: "a number ending a sentence mid-line", text: "It was 1999. Then", want: len("It was 1999."), wantOK: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := within(t, "nextSegmentEnd", func() segmentEnd {
+				end, ok := nextSegmentEnd(tc.text, tc.from, false, small)
+				return segmentEnd{end: end, ok: ok}
+			})
+			assert.Equal(t, tc.wantOK, got.ok)
+			assert.Equal(t, tc.want, got.end)
+		})
+	}
+}
+
 func TestSegmenter_Feed(t *testing.T) {
 	seg := newSegmenter(segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600})
 	assert.Empty(t, feedWithin(t, seg, "Hello there."))
@@ -165,4 +198,73 @@ func TestSegmenter_Feed(t *testing.T) {
 // The default sizing is stream_hold's.
 func TestDefaultSegmentConfig(t *testing.T) {
 	assert.Equal(t, segmentConfig{minChars: 60, firstMinChars: 24, maxChars: 600}, defaultSegmentConfig())
+}
+
+// segmentsOf feeds text to a segmenter in one delta and returns its segments,
+// the rest included.
+func segmentsOf(t *testing.T, cfg segmentConfig, text string) []string {
+	t.Helper()
+	seg := newSegmenter(cfg)
+	start := 0
+	var out []string
+	for _, end := range feedWithin(t, seg, text) {
+		out = append(out, text[start:end])
+		start = end
+	}
+	if start < len(text) {
+		out = append(out, text[start:])
+	}
+	return out
+}
+
+// The cap holds when a sentence longer than it arrives whole: the boundary
+// past the cap is not taken, the sentence is cut at the cap.
+func TestNextSegmentEnd_CapsASentenceThatArrivesWhole(t *testing.T) {
+	cfg := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 20}
+	text := "one two three four five six seven. Next."
+	got := within(t, "nextSegmentEnd", func() segmentEnd {
+		end, ok := nextSegmentEnd(text, 0, true, cfg)
+		return segmentEnd{end: end, ok: ok}
+	})
+	assert.True(t, got.ok)
+	assert.Equal(t, "one two three four ", text[:got.end], "cut at the last space before the cap")
+}
+
+// A cap cut never splits a code fence marker, so the text after the fence is
+// still segmented as prose.
+func TestNextSegmentEnd_CapCutKeepsTheFenceMarkerWhole(t *testing.T) {
+	cfg := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10}
+	text := "```\n" + strings.Repeat("y", 8) + "```" + " After. More. Done."
+	got := segmentsOf(t, cfg, text)
+	assert.Equal(t, text, strings.Join(got, ""), "every byte is in a segment, once")
+	for _, s := range got {
+		assert.NotEqual(t, "``", s[max(len(s)-2, 0):], "a segment ends inside a fence marker: %q", s)
+	}
+	assert.Equal(t, []string{"```\n", "yyyyyyyy", "``` After.", " More.", " Done."}, got,
+		"the closing marker stays whole, and the sentences after it are segments again")
+}
+
+// The cap counts whole sentences: one exactly at the cap is a segment whole,
+// and with no cap a sentence of any length is.
+func TestNextSegmentEnd_SentenceAtTheCapIsWhole(t *testing.T) {
+	text := "abcd efgh. Next"
+	for _, maxChars := range []int{len("abcd efgh."), 0} {
+		cfg := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: maxChars}
+		got := within(t, "nextSegmentEnd", func() segmentEnd {
+			end, ok := nextSegmentEnd(text, 0, true, cfg)
+			return segmentEnd{end: end, ok: ok}
+		})
+		assert.True(t, got.ok, "maxChars %d", maxChars)
+		assert.Equal(t, "abcd efgh.", text[:got.end], "maxChars %d", maxChars)
+	}
+}
+
+// A cut is moved back only off a fence marker it would split.
+func TestOutsideFenceMarker(t *testing.T) {
+	text := "abcd```xyz"
+	assert.Equal(t, 7, outsideFenceMarker(text, 0, 7), "a marker wholly before the cut stays")
+	assert.Equal(t, 4, outsideFenceMarker(text, 0, 5), "a cut inside a marker moves before it")
+	assert.Equal(t, 4, outsideFenceMarker(text, 0, 6))
+	assert.Equal(t, 7, outsideFenceMarker(text, 4, 5), "a marker at the segment start goes whole into it")
+	assert.Equal(t, 3, outsideFenceMarker(text, 0, 3), "no marker, no move")
 }

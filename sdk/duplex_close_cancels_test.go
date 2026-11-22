@@ -366,10 +366,14 @@ func TestDuplexClose_FinishesABusyTurnWhoseReaderHasStopped(t *testing.T) {
 	start := time.Now()
 	require.NoError(t, conv.Close())
 	assert.Less(t, time.Since(start), drainBound, "Close waited on a reader that had stopped reading")
-	assert.Equal(t, map[int]string{
-		0: "user:tell me a long story",
-		1: "assistant:" + strings.Repeat("word ", words),
-	}, persistedTranscript(t, store, "busy-close"), "the turn in flight is finished and saved")
+	// The reply was still playing when the session closed, so it is saved as
+	// far as the caller had heard it (#2846): a prefix of what the model wrote.
+	saved := persistedTranscript(t, store, "busy-close")
+	require.Len(t, saved, 2, "the turn in flight is finished and saved")
+	assert.Equal(t, "user:tell me a long story", saved[0])
+	assert.True(t, strings.HasPrefix(saved[1], "assistant:"), "the reply is saved: %q", saved[1])
+	assert.True(t, strings.HasPrefix(strings.Repeat("word ", words), strings.TrimPrefix(saved[1], "assistant:")),
+		"as far as it was heard")
 }
 
 // drainBound is well under the drain timeout (30s) Close used to wait out.

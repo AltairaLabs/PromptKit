@@ -128,6 +128,10 @@ type elevenLabsRequest struct {
 	Text          string                   `json:"text"`
 	ModelID       string                   `json:"model_id,omitempty"`
 	VoiceSettings *elevenLabsVoiceSettings `json:"voice_settings,omitempty"`
+	// PreviousText and NextText are the text spoken around this request's,
+	// for continuity across a reply synthesized a segment at a time.
+	PreviousText string `json:"previous_text,omitempty"`
+	NextText     string `json:"next_text,omitempty"`
 }
 
 // elevenLabsVoiceSettings configures voice parameters.
@@ -188,9 +192,14 @@ func (s *ElevenLabsService) Synthesize(
 			Stability:       elevenLabsDefaultStability,
 			SimilarityBoost: elevenLabsDefaultSimilarityBoost,
 		},
+		PreviousText: config.PreviousText,
+		NextText:     config.NextText,
 	}
 
-	endpoint := fmt.Sprintf("%s/text-to-speech/%s", s.BaseURL, voice)
+	// The streaming endpoint takes the same request and returns the audio as
+	// it is generated, so a reader gets the first audio before the whole text
+	// is synthesized.
+	endpoint := fmt.Sprintf("%s/text-to-speech/%s/stream", s.BaseURL, voice)
 	if format := s.mapFormat(config.Format); format != "" {
 		endpoint += "?output_format=" + format
 	}

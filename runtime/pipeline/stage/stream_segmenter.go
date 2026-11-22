@@ -25,7 +25,8 @@ import (
 //
 // Boundaries are a sentence terminator (. ! ? …) followed by whitespace, a CJK
 // terminator (。！？), a blank line, and a line end before a list item or table
-// row. A terminator is not a boundary inside a number (3.14), after a
+// row. A terminator is not a boundary inside a number (3.14), after a list
+// item's number ("1." at a line start), after a
 // single-letter word or an initialism (e.g., U.S.), after a common title or
 // abbreviation (Mr., Dr., vs.), or inside a code fence, inline code or a link.
 // A boundary is declared only once the text after it shows that it is one, so
@@ -118,14 +119,23 @@ func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, 
 		minLen = cfg.firstMinChars
 	}
 	sc := segmentScanner{text: text, inFence: strings.Count(text[:from], codeFence)%2 == 1}
+	fenceOpen := sc.inFence
 	for i := from; i < len(text); {
 		end, size := sc.step(i)
-		if end > 0 && utf8.RuneCountInString(text[from:end]) >= max(minLen, 1) {
-			return end, true
+		if end > 0 {
+			n := utf8.RuneCountInString(text[from:end])
+			if cfg.maxChars > 0 && n > cfg.maxChars {
+				// The sentence runs past the cap, though it arrived whole:
+				// cut it at the cap, as if it were still arriving.
+				break
+			}
+			if n >= max(minLen, 1) {
+				return end, true
+			}
 		}
 		i += size
 	}
-	return capSegmentEnd(text, from, sc.inFence, cfg.maxChars)
+	return capSegmentEnd(text, from, fenceOpen, cfg.maxChars)
 }
 
 // segmentScanner tracks the markdown context a boundary is suppressed in.
@@ -173,7 +183,7 @@ func (sc *segmentScanner) step(i int) (end, size int) {
 	case '。', '！', '？':
 		return i + size, size
 	case '.':
-		if abbreviationBefore(text, i) {
+		if abbreviationBefore(text, i) || listMarkerBefore(text, i) {
 			return 0, size
 		}
 		return sentenceEnd(text, i+size), size
@@ -206,6 +216,15 @@ func abbreviationBefore(text string, i int) bool {
 		return unicode.IsLetter(r)
 	}
 	return abbreviations[strings.ToLower(word)]
+}
+
+// listMarkerBefore reports whether the period at i ends a numbered list
+// item's marker ("1." at the start of a line): it belongs with the item's
+// text, not in a segment of its own.
+func listMarkerBefore(text string, i int) bool {
+	lineStart := strings.LastIndexByte(text[:i], '\n') + 1
+	marker := strings.TrimLeft(text[lineStart:i], " \t")
+	return marker != "" && strings.Trim(marker, "0123456789") == ""
 }
 
 // sentenceEnd returns where a sentence whose terminator ends at after ends:
@@ -266,6 +285,7 @@ func capSegmentEnd(text string, from int, fenceOpen bool, maxChars int) (int, bo
 	if n < maxChars {
 		return 0, false
 	}
+	capEnd = outsideFenceMarker(text, from, capEnd)
 	window := text[from:capEnd]
 	inFence := fenceOpen || strings.Contains(window, codeFence)
 	cut := strings.LastIndexByte(window, '\n')
@@ -277,4 +297,20 @@ func capSegmentEnd(text string, from int, fenceOpen bool, maxChars int) (int, bo
 		return from + cut + size, true
 	}
 	return capEnd, true
+}
+
+// outsideFenceMarker moves a cut at end back before a code fence marker it
+// would split, so the segments on either side each hold whole markers and the
+// fence state at every segment start (an odd count of markers before it) stays
+// true. A marker that starts at from cannot move back; the cut goes after it.
+func outsideFenceMarker(text string, from, end int) int {
+	for start := max(end-len(codeFence)+1, from); start < end; start++ {
+		if strings.HasPrefix(text[start:], codeFence) {
+			if start == from {
+				return min(from+len(codeFence), len(text))
+			}
+			return start
+		}
+	}
+	return end
 }

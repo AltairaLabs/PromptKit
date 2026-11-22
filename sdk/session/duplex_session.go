@@ -519,6 +519,11 @@ func (s *duplexSession) offerChunk(chunk providers.StreamChunk) {
 // session context is done or tool handling failed) and, when tool handling
 // failed, its error, which ends the session.
 func (s *duplexSession) handleOutputElement(ctx context.Context, elem *stage.StreamElement) (keep bool, failErr error) {
+	if elem.Meta.RoundTextEnd {
+		// The provider stage's marker for a speech-out stage: no output for
+		// the caller.
+		return true, nil
+	}
 	action, actionErr := streaming.ProcessResponseElement(elem, "duplexSession")
 	s.recordElementCalls(elem)
 

@@ -451,7 +451,7 @@ func TestResolve_Modes(t *testing.T) {
 	assert.Equal(t, "gemini-2.5-pro", vad.textModel, "-model is the text model in VAD mode")
 	assert.Equal(t, "gemini-3.8-live", vad.model)
 	assert.Equal(t, "Realtime showcase - VAD mode: Gemini gemini-2.5-pro, openai-whisper STT, openai TTS "+
-		"(its default voice); guardrail messages: spoken by openai TTS, as every reply is, once the turn is complete",
+		"(its default voice); guardrail messages: spoken by openai TTS, as every reply is",
 		vad.banner())
 	assert.Equal(t, vadSampleRate, vad.captureRate())
 	assert.Equal(t, 24000, asm.captureRate(), "ASM captures at the realtime model's input rate")
@@ -459,7 +459,7 @@ func TestResolve_Modes(t *testing.T) {
 	el, err := resolve(flags{provider: "openai", mode: modeVAD, tts: "elevenlabs", voice: "rachel"})
 	require.NoError(t, err)
 	assert.Equal(t, "Realtime showcase - VAD mode: OpenAI gpt-4.1-mini, openai-whisper STT, elevenlabs TTS "+
-		"(voice rachel); guardrail messages: spoken by elevenlabs TTS, as every reply is, once the turn is complete",
+		"(voice rachel); guardrail messages: spoken by elevenlabs TTS, as every reply is",
 		el.banner())
 	assert.Equal(t, "rachel", el.vadConfig().Voice)
 	assert.Equal(t, vadSampleRate, el.vadConfig().SampleRate)
@@ -621,10 +621,11 @@ func TestShowcaseEventLog_ScriptedVADSession(t *testing.T) {
 		`09:30:00.000  cost      TTS for #1: $0.0003 (26 character); session total $T`,
 		`09:30:00.000  guardrail no-bruno blocked the user's input ` +
 			`(forbidden content found: turn 0 contains "Bruno"); the turn ends, the session continues`,
-		`09:30:00.000  speech    TTS speaks "We don't talk about Bruno." (100 ms of audio)`,
+		`09:30:00.000  speech    TTS speaks "We don't talk about Bruno."`,
+		`09:30:00.000  timing    first audio of the reply, 0.0 s after your words were transcribed`,
 		`09:30:00.000  user      message.created #0 "Tell me about my friend Bruno."`,
 		`09:30:00.000  you say   "Tell me about my friend Bruno." (0.6 s of speech, synthesized by priced-tts TTS)`,
-	}, r.collect(7))
+	}, r.collect(8))
 	require.NoError(t, listen(context.Background(), conv, blocked.audio))
 
 	answered := ask("What is the capital of France?")
@@ -634,10 +635,11 @@ func TestShowcaseEventLog_ScriptedVADSession(t *testing.T) {
 		`09:30:00.000  cost      STT for #2: $0.0005 (5 second); session total $T`,
 		`09:30:00.000  cost      TTS for #3: $0.0003 (31 character); session total $T`,
 		`09:30:00.000  cost      call 1: $0.0002 (10 in / 7 out tokens); session total $T`,
-		`09:30:00.000  speech    TTS speaks "The capital of France is Paris." (100 ms of audio)`,
+		`09:30:00.000  speech    TTS speaks "The capital of France is Paris."`,
+		`09:30:00.000  timing    first audio of the reply, 0.0 s after your words were transcribed`,
 		`09:30:00.000  user      message.created #2 "What is the capital of France?"`,
 		`09:30:00.000  you say   "What is the capital of France?" (0.6 s of speech, synthesized by priced-tts TTS)`,
-	}, r.collect(7))
+	}, r.collect(8))
 
 	require.NoError(t, conv.Close())
 	bus.Close()

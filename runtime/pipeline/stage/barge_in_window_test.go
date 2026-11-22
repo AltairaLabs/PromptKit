@@ -143,24 +143,18 @@ func TestTTSStageWithInterruption_PlaybackKeepsBotSpeaking(t *testing.T) {
 	h.BeginResponse()
 	s := ttsWithHandler(pcmTTS(int(playback.Seconds()*16000)*2), h) // mock rate is 16kHz
 
-	input := make(chan stage.StreamElement, 4)
-	output := make(chan stage.StreamElement, 8)
-	go func() { _ = s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
 	start := time.Now()
-	input <- assistantElement("a reply")
-	input <- stage.NewEndOfTurnElement()
-	for elem := range output {
-		if elem.EndOfTurn {
-			break
-		}
+	r.send(t, assistantElement("a reply"), stage.NewEndOfTurnElement())
+	for !r.next(t).EndOfTurn {
 	}
 	if time.Since(start) < playback/2 {
 		assert.True(t, h.IsBotSpeaking(), "the reply's audio is still playing after its turn ended")
 	}
 	assert.Eventually(t, func() bool { return !h.IsBotSpeaking() }, 3*time.Second, 5*time.Millisecond,
 		"the bot stops counting as speaking once playback would have finished")
-	close(input)
+	r.finish(t)
 }
 
 // Between the reply's pieces (synthesis done, more of the turn still coming)
@@ -170,19 +164,17 @@ func TestTTSStageWithInterruption_StaysRespondingUntilEndOfTurn(t *testing.T) {
 	h.BeginResponse()
 	s := ttsWithHandler(pcmTTS(2), h) // 1 sample: playback is negligible
 
-	input := make(chan stage.StreamElement, 4)
-	output := make(chan stage.StreamElement, 8)
-	go func() { _ = s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- assistantElement("first part")
-	<-output
+	r.send(t, assistantElement("first part"))
+	require.NotNil(t, r.next(t).Audio)
 	time.Sleep(5 * time.Millisecond) // well past the 1-sample playback
 	assert.True(t, h.IsBotSpeaking(), "the turn is not over until its EndOfTurn")
 
-	input <- stage.NewEndOfTurnElement()
-	<-output
+	r.send(t, stage.NewEndOfTurnElement())
+	require.True(t, r.next(t).EndOfTurn)
 	assert.False(t, h.IsBotSpeaking(), "the EndOfTurn ends the reply")
-	close(input)
+	r.finish(t)
 }
 
 // A turn that fails produces no EndOfTurn, only an error; the reply ends there.
@@ -191,15 +183,12 @@ func TestTTSStageWithInterruption_ErrorEndsResponse(t *testing.T) {
 	h.BeginResponse()
 	s := ttsWithHandler(pcmTTS(2), h)
 
-	input := make(chan stage.StreamElement, 1)
-	output := make(chan stage.StreamElement, 2)
-	go func() { _ = s.Process(context.Background(), input, output) }()
+	r := startReplyRun(t, s)
 
-	input <- stage.NewErrorElement(errors.New("provider failed"))
-	elem := <-output
-	require.Error(t, elem.Error)
+	r.send(t, stage.NewErrorElement(errors.New("provider failed")))
+	require.Error(t, r.next(t).Error)
 	assert.False(t, h.IsBotSpeaking(), "no reply follows a failed turn")
-	close(input)
+	r.finish(t)
 }
 
 // A user turn that transcribes to nothing gets no reply, so the reply the

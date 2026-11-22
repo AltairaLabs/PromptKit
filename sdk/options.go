@@ -1593,6 +1593,11 @@ func WithCompactionRules(rules ...stage.CompactionRule) Option {
 // completes, so they survive process crashes without waiting for the pipeline's
 // save stage. The save stage skips message append when a MessageLog is active.
 //
+// A duplex session does not write through: the save stage persists each turn
+// as it completes. In a realtime (ASM) session the provider stage has no
+// per-round write. In a VAD session a reply is stored as the caller heard
+// it, which only the stages after its TTS stage know.
+//
 // The store must implement [statestore.MessageLog]. MemoryStore implements it
 // by default. Pass nil to disable.
 func WithMessageLog(log statestore.MessageLog) Option {
@@ -3412,6 +3417,22 @@ type VADModeConfig struct {
 	// If nil, an AdaptiveVAD tuned for general microphone input is used.
 	// Also settable via the WithVAD option.
 	VAD audio.VADAnalyzer
+
+	// NoPlaybackPacing is for a caller that does not play the reply audio in
+	// real time as it arrives: a text UI, a selfplay or test client.
+	//
+	// By default the session assumes the caller plays each audio chunk as it
+	// arrives. It synthesizes a reply one sentence ahead of the one playing,
+	// and ends the reply's turn once its audio would have played. When the
+	// caller barges in or the session closes, it stores the reply as heard by
+	// then. A caller that plays audio later or slower than it arrives is
+	// taken to have heard more than it has.
+	//
+	// With NoPlaybackPacing the reply is synthesized as fast as the TTS
+	// service allows, and its turn ends as soon as it is synthesized. All
+	// audio handed on counts as heard.
+	// Default: false
+	NoPlaybackPacing bool
 }
 
 // DefaultVADModeConfig returns sensible defaults for VAD mode.
@@ -3535,6 +3556,7 @@ func (v *VADModeConfig) toTTSStageConfig(ih *audio.InterruptionHandler) stage.TT
 		cfg.OutputSampleRate = v.OutputSampleRate
 	}
 	cfg.InterruptionHandler = ih
+	cfg.NoPlaybackPacing = v.NoPlaybackPacing
 	return cfg
 }
 
