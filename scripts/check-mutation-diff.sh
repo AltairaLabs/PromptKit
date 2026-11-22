@@ -152,7 +152,7 @@ fi
 write_results() {
   [ -n "${MUTATION_RESULTS:-}" ] || return 0
   cp "${tmp}/mutants.tsv" "${MUTATION_RESULTS}"
-  echo "Shard ${SHARD}: $(wc -l < "${tmp}/mutants.tsv" | tr -d ' ') mutants written to ${MUTATION_RESULTS}; scored by --score."
+  echo "Shard ${SHARD}: mutant list written to ${MUTATION_RESULTS}; scored by --score."
   exit 0
 }
 : > "${tmp}/mutants.tsv"
@@ -331,7 +331,7 @@ for pkg in ${pkgs}; do
   }
 done
 elapsed=$(($(date +%s) - start))
-echo "Shard ${SHARD}: $(wc -l < "${tmp}/mutants.tsv" | tr -d ' ') mutants in ${elapsed}s."
+echo "Shard ${SHARD}: $(awk -F'\t' '$1 == "KILLED" || $1 == "LIVED" || $1 == "TIMED OUT"' "${tmp}/mutants.tsv" | wc -l | tr -d ' ') mutants tested in ${elapsed}s."
 
 write_results
 score "${tmp}/mutants.tsv" "packages: $(echo "${pkgs}" | wc -l | tr -d ' ')"
