@@ -1321,7 +1321,7 @@ func (r *BroadcastRouter) RegisterOutput(name string, output chan<- StreamElemen
 RegisterOutput registers an output channel with a name.
 
 <a name="ByOriginalIndex"></a>
-## type [ByOriginalIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L66>)
+## type [ByOriginalIndex](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L67>)
 
 ByOriginalIndex sorts ScoredMessages by their original index \(ascending\).
 
@@ -1330,7 +1330,7 @@ type ByOriginalIndex []ScoredMessage
 ```
 
 <a name="ByOriginalIndex.Len"></a>
-### func \(ByOriginalIndex\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L68>)
+### func \(ByOriginalIndex\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L69>)
 
 ```go
 func (s ByOriginalIndex) Len() int
@@ -1339,7 +1339,7 @@ func (s ByOriginalIndex) Len() int
 
 
 <a name="ByOriginalIndex.Less"></a>
-### func \(ByOriginalIndex\) [Less](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L70>)
+### func \(ByOriginalIndex\) [Less](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L71>)
 
 ```go
 func (s ByOriginalIndex) Less(i, j int) bool
@@ -1348,7 +1348,7 @@ func (s ByOriginalIndex) Less(i, j int) bool
 
 
 <a name="ByOriginalIndex.Swap"></a>
-### func \(ByOriginalIndex\) [Swap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L69>)
+### func \(ByOriginalIndex\) [Swap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L70>)
 
 ```go
 func (s ByOriginalIndex) Swap(i, j int)
@@ -5632,7 +5632,7 @@ func DefaultSTTStageConfig() STTStageConfig
 DefaultSTTStageConfig returns sensible defaults.
 
 <a name="ScoredMessage"></a>
-## type [ScoredMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L40-L56>)
+## type [ScoredMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L41-L57>)
 
 ScoredMessage pairs a message with its relevance score and metadata. Used during relevance\-based truncation to track which messages to keep.
 
@@ -5657,7 +5657,7 @@ type ScoredMessage struct {
 ```
 
 <a name="ScoredMessages"></a>
-## type [ScoredMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L59>)
+## type [ScoredMessages](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L60>)
 
 ScoredMessages is a sortable slice of ScoredMessage.
 
@@ -5666,7 +5666,7 @@ type ScoredMessages []ScoredMessage
 ```
 
 <a name="ScoredMessages.Len"></a>
-### func \(ScoredMessages\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L61>)
+### func \(ScoredMessages\) [Len](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L62>)
 
 ```go
 func (s ScoredMessages) Len() int
@@ -5675,7 +5675,7 @@ func (s ScoredMessages) Len() int
 
 
 <a name="ScoredMessages.Less"></a>
-### func \(ScoredMessages\) [Less](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L63>)
+### func \(ScoredMessages\) [Less](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L64>)
 
 ```go
 func (s ScoredMessages) Less(i, j int) bool
@@ -5684,7 +5684,7 @@ func (s ScoredMessages) Less(i, j int) bool
 
 
 <a name="ScoredMessages.Swap"></a>
-### func \(ScoredMessages\) [Swap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L62>)
+### func \(ScoredMessages\) [Swap](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/compaction/similarity.go#L63>)
 
 ```go
 func (s ScoredMessages) Swap(i, j int)
