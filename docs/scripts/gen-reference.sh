@@ -45,10 +45,38 @@ MAP=(
   "./memory/corpus|memory-corpus|Memory Corpus|19"
 )
 
+# Facade packages: their page also renders the types they re-export as aliases
+# of their internal/ packages' types, with those types' fields and methods
+# (splice-aliases.py). pipeline/stage is split into stage/internal/<name>
+# behind aliases (#2876); gomarkdoc alone would show each moved type as its
+# one-line `type X = core.X`.
+SPLICE=("./pipeline/stage")
+
+# internal_dirs <pkg> prints, as ./-relative dirs gomarkdoc accepts, every
+# package under <pkg>/internal/. A pattern matching no packages is a warning,
+# not an error, and lists none.
+internal_dirs() {
+  local mod
+  mod="$(go -C "$ROOT/runtime" list -m)"
+  go -C "$ROOT/runtime" list "$1/internal/..." 2>/dev/null | sed "s#^$mod/#./#"
+}
+
 mkdir -p "$OUT"
 for row in "${MAP[@]}"; do
   IFS='|' read -r pkg file title order <<<"$row"
   go -C "$ROOT/runtime" run "$GOMARKDOC" "${REPO_FLAGS[@]}" --output "$TMP/$file.md" "$pkg"
+  if [[ " ${SPLICE[*]} " == *" $pkg "* ]]; then
+    pages=()
+    for dir in $(internal_dirs "$pkg"); do
+      page="$TMP/internal-${#pages[@]}.md"
+      go -C "$ROOT/runtime" run "$GOMARKDOC" "${REPO_FLAGS[@]}" --output "$page" "$dir"
+      pages+=("$page")
+    done
+    if [ ${#pages[@]} -gt 0 ]; then
+      python3 -I "$ROOT/docs/scripts/splice-aliases.py" "$TMP/$file.md" "${pages[@]}" > "$TMP/$file.spliced.md"
+      mv "$TMP/$file.spliced.md" "$TMP/$file.md"
+    fi
+  fi
   {
     printf -- '---\ntitle: %s\nsidebar:\n  order: %s\n---\n' "$title" "$order"
     cat "$TMP/$file.md"

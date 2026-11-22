@@ -274,6 +274,9 @@ modules-standalone-check: ## Build every module with GOWORK=off, as a consumer g
 api-compat-check: ## Check the API changes fit a claimed version (usage: make api-compat-check VERSION=v1.8.1)
 	@./scripts/check-api-compatibility.sh "$(VERSION)"
 
+stage-api-check: ## Check pipeline/stage's API against a base, as CI does on PRs (usage: make stage-api-check [BASE=origin/main])
+	@./scripts/check-stage-api.sh "$(or $(BASE),origin/main)"
+
 spec-version-check: ## Check the README's spec badge matches the embedded schema (for CI)
 	@./scripts/check-spec-version.sh
 

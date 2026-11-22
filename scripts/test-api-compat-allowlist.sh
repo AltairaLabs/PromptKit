@@ -75,6 +75,69 @@ Content: old is comparable, new is not
 ## incompatible changes
 Registry.Register: changed from func(*ToolDescriptor) error to func(*ToolDescriptor)' "Registry.Register"
 
+# What apidiff reported for a real alias move (#2876): similarity.go moved to
+# stage/internal/compaction with `type X = compaction.X` and wrapper funcs in
+# stage, plus a const, a struct field, a func and an interface method that
+# mention the moved types.
+Q='github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/compaction'
+expect "a type moved behind a same-named alias passes" 0 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+ByOriginalIndex: changed from ByOriginalIndex to $Q.ByOriginalIndex
+ScoreKindA: changed from ScoreKind to $Q.ScoreKind
+ScoredMessage: changed from ScoredMessage to $Q.ScoredMessage
+ScratchHolder.Top: changed from ScoredMessage to $Q.ScoredMessage
+ScratchSorter.Sort: changed from func(ByOriginalIndex) *ScoredMessage to func(ByOriginalIndex) *ScoredMessage
+ScratchTop: changed from func(ScoredMessages) ScoredMessage to func(ScoredMessages) ScoredMessage
+ScratchVar: changed from []ScoredMessage to []ScoredMessage" "ScoredMessage: changed from ScoredMessage"
+
+# A type moving between two internal packages is still the same stage alias.
+expect "a type moved between internal packages passes" 0 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+Cue: changed from github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core.Cue to $Q.Cue" "Cue: changed from"
+
+# Catches: an alias rule that ignores what is left after stripping, so any
+# change to a moved type's line passes.
+expect "a moved type that was also renamed fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+ScoredMessage: changed from ScoredMessage to $Q.Scored" "ScoredMessage: changed from ScoredMessage to $Q.Scored"
+
+# Catches: stripping the qualifier and then comparing loosely, so a real
+# signature change that also mentions a moved type passes.
+expect "a re-typed signature that mentions a moved type fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+ScoredMessage: changed from ScoredMessage to $Q.ScoredMessage
+NewScored: changed from func(int) ScoredMessage to func(int64) $Q.ScoredMessage" "changed from func(int) ScoredMessage to func(int64)"
+
+# Catches: stripping qualifiers of any internal package, not only stage's.
+expect "a move into another package's internal fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+Cue: changed from Cue to github.com/AltairaLabs/PromptKit/runtime/v2/internal/cue.Cue" "runtime/v2/internal/cue.Cue"
+
+# Catches: stripping the stage-internal qualifier but leaving a dangling
+# prefix match, e.g. a package named stage/internalfoo.
+expect "a move into a sibling of stage/internal fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+Cue: changed from Cue to github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internalx.Cue" "internalx.Cue"
+
+# A generic alias prints its type parameters without their constraints on the
+# new side (seen in the same experiment), so it cannot be told apart from a
+# constraint change and stays a manual decision.
+expect "a moved generic type fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+Pair: changed from Pair[T any] to $Q.Pair[T]" "Pair: changed from Pair[T any]"
+
+# Catches: a "changed from" line with no " to " split being accepted because
+# both halves happened to be empty.
+expect "a malformed changed-from line fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+X: changed from  to " "X: changed from"
+
+# Catches: a moved type whose stage alias was dropped — apidiff says removed.
+expect "a moved type without its alias fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+ScratchHolder.Top: changed from ScoredMessage to $Q.ScoredMessage
+ScoredMessage: removed" "ScoredMessage: removed"
+
 # Catches: waving through an incompatible verdict the script cannot explain.
 expect "a verdict with no listed changes fails" 1 '# summary
 v2.10.0 is not a valid semantic version for this release.' "unexplained"

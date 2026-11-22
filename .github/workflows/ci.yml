@@ -345,6 +345,48 @@ jobs:
     - name: Check runtime is a leaf module (issue #1713)
       run: ./scripts/check-runtime-is-leaf.sh
 
+  # pipeline/stage is moving into stage/internal/<name> packages behind
+  # aliases, one move per PR (#2876). The release gate compares the API only
+  # once per release, by which time several moves sit on top of a broken one,
+  # so this runs the same apidiff + allowlist judgment on every PR that touches
+  # the package.
+  stage-api:
+    name: Stage API Compatibility
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        # The base side is exported from the merge base, so it needs history.
+        fetch-depth: 0
+
+    - name: Detect pipeline/stage changes
+      id: scope
+      env:
+        BASE: ${{ github.event.pull_request.base.sha }}
+      run: |
+        if git diff --name-only "$BASE" HEAD | grep -qE '^runtime/pipeline/stage/|^runtime/go\.(mod|sum)$|^scripts/(check-stage-api|api-compat-allowlist)\.sh$'; then
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "runtime/pipeline/stage is unchanged; nothing to compare."
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set up Go
+      if: steps.scope.outputs.changed == 'true'
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: '1.26.0'
+        cache-dependency-path: runtime/go.sum
+
+    - name: Compare the pipeline/stage API with the merge base
+      if: steps.scope.outputs.changed == 'true'
+      run: ./scripts/check-stage-api.sh "${{ github.event.pull_request.base.sha }}"
+
   perf-regression:
     name: Performance Regression Check
     runs-on: ubuntu-latest
