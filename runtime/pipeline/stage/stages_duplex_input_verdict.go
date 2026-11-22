@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -110,8 +111,8 @@ func (s *DuplexProviderStage) applyVerdict(ctx context.Context, v *spokenVerdict
 		return s.cutReply(ctx, output)
 	}
 	if s.applySpokenInputDecision(ctx, v.req, v.d, v.dur, v.inputID, v.late) {
-		markBlockedInput(v.late.user)
-		v.late.user.Meta[blockedReplyBeforeMetaKey] = true
+		history.MarkBlockedInput(v.late.user)
+		v.late.user.Meta[history.BlockedReplyBeforeMetaKey] = true
 	}
 	if err := s.emitLateUser(ctx, v.late.user, output); err != nil {
 		return err

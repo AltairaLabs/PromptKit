@@ -1,4 +1,4 @@
-package stage
+package compaction
 
 import (
 	"encoding/json"
@@ -31,7 +31,7 @@ func (r *collapsePairsRule) CanFold(msg *types.Message, idx int, ctx *Compaction
 	if msg.ToolResult.Error != "" {
 		return false
 	}
-	if strings.Contains(msg.GetContent(), compactedMarker) {
+	if strings.Contains(msg.GetContent(), CompactedMarker) {
 		return false
 	}
 	return isSuperseded(msg, idx, ctx)
@@ -49,7 +49,7 @@ func (r *collapsePairsRule) Fold(
 		name = fallbackToolName
 	}
 	summary := fmt.Sprintf("[%s: superseded — %d bytes %s]",
-		name, len(msg.GetContent()), compactedMarker)
+		name, len(msg.GetContent()), CompactedMarker)
 
 	// Also collapse the preceding assistant message if it only contains
 	// the tool call that produced this result.

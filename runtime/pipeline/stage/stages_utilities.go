@@ -11,7 +11,9 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/compaction"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -797,7 +799,7 @@ type ContextBuilderStage struct {
 	turnState *TurnState
 	// embedCache holds relevance-truncation embeddings between calls when
 	// RelevanceConfig.CacheEmbeddings is set.
-	embedCache embeddingCache
+	embedCache compaction.EmbeddingCache
 }
 
 // NewContextBuilderStage creates a context builder stage with no TurnState
@@ -877,7 +879,7 @@ func (s *ContextBuilderStage) Process(
 	// blocked user message and drop the canned reply that marks it, and the
 	// model would then be sent the blocked request. A summary is model context
 	// too, so it is never built from one either.
-	truncated, err := s.truncateMessages(ctx, excludeBlockedInputTurns(messages), available)
+	truncated, err := s.truncateMessages(ctx, history.ExcludeBlockedInputTurns(messages), available)
 	if err != nil {
 		return fmt.Errorf("context builder: %w", err)
 	}
@@ -1329,6 +1331,21 @@ func (s *ContextBuilderStage) truncateByRelevance(
 
 	// Select messages to keep based on relevance and budget
 	return s.selectByRelevance(scored, budget, cfg.SimilarityThreshold), nil
+}
+
+// embedTexts returns one vector per text, in order. Without caching it makes a
+// single Embed call for every text. With caching it embeds only the texts
+// whose vectors the previous call did not already hold, then keeps this
+// call's vectors for the next one.
+func (s *ContextBuilderStage) embedTexts(
+	ctx context.Context,
+	cfg *RelevanceConfig,
+	texts []string,
+) ([][]float32, error) {
+	if !cfg.CacheEmbeddings {
+		return compaction.EmbedAll(ctx, cfg.EmbeddingProvider, texts)
+	}
+	return s.embedCache.Embed(ctx, cfg.EmbeddingProvider, texts)
 }
 
 // buildRelevanceQuery constructs the query text for relevance comparison.

@@ -46,9 +46,10 @@ else
   diff -u "${DATA}/want-typed.md" "${tmp}/typed.md" | sed 's/^/      /' || true
 fi
 
-# Catches: re-exported vars rendered as the name they re-export
-# ("ErrX = core.ErrX") instead of their value; a const (iota means nothing out
-# of its group), a multi-line initializer and stage's own var left alone.
+# Catches: re-exported vars, and consts declared as one literal, rendered as
+# the name they re-export ("ErrX = core.ErrX") instead of their value; a const
+# declared as iota or as an expression (they mean nothing out of their group),
+# a multi-line initializer and stage's own var left alone.
 "${SPLICE[@]}" "${DATA}/stage-vars.md" "${DATA}/core-vars.md" >"${tmp}/vars.md"
 if cmp -s "${DATA}/want-vars.md" "${tmp}/vars.md"; then
   ok "re-exported vars show the internal initializer"

@@ -224,12 +224,12 @@ func TestRelevanceCache_KeepsOnlyTheLastCallsVectors(t *testing.T) {
 	s := cachingRelevanceStage(emb, true)
 
 	runRelevance(t, s, conversation())
-	assert.Len(t, s.embedCache.vectors, 4)
+	assert.Equal(t, 4, s.embedCache.Len())
 
 	// A hot window that has moved on: the first two messages are gone.
 	window := append(conversation()[2:], longMsg("user", "golf"), longMsg("assistant", "hotel"))
 	runRelevance(t, s, window)
-	assert.Len(t, s.embedCache.vectors, 4, "vectors for messages no longer in the input are released")
+	assert.Equal(t, 4, s.embedCache.Len(), "vectors for messages no longer in the input are released")
 }
 
 func TestRelevanceCache_EmbedErrorFallsBackAndKeepsCache(t *testing.T) {
@@ -240,7 +240,7 @@ func TestRelevanceCache_EmbedErrorFallsBackAndKeepsCache(t *testing.T) {
 	emb.fail = true
 	more := append(conversation(), longMsg("user", "india"))
 	runRelevance(t, s, more) // falls back to oldest, still truncates
-	assert.Len(t, s.embedCache.vectors, 4)
+	assert.Equal(t, 4, s.embedCache.Len())
 
 	emb.fail = false
 	runRelevance(t, s, more)

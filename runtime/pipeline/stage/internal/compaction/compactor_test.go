@@ -1,4 +1,4 @@
-package stage
+package compaction
 
 import (
 	"encoding/json"
@@ -273,7 +273,7 @@ func TestFoldToolResult_MultimodalParts(t *testing.T) {
 	folded := foldToolResult(&msg)
 	assert.Contains(t, folded, "screenshot")
 	assert.Contains(t, folded, "2 parts")
-	assert.Contains(t, folded, compactedMarker)
+	assert.Contains(t, folded, CompactedMarker)
 }
 
 func TestFoldToolResult_NoToolResultName(t *testing.T) {
@@ -284,7 +284,7 @@ func TestFoldToolResult_NoToolResultName(t *testing.T) {
 
 	folded := foldToolResult(&msg)
 	assert.Contains(t, folded, "tool:")
-	assert.Contains(t, folded, compactedMarker)
+	assert.Contains(t, folded, CompactedMarker)
 }
 
 func TestFoldToolResult_ShortContent(t *testing.T) {
@@ -294,7 +294,7 @@ func TestFoldToolResult_ShortContent(t *testing.T) {
 	// Short content — no "..." truncation
 	assert.Contains(t, folded, "brief result here")
 	assert.NotContains(t, folded, "...")
-	assert.Contains(t, folded, compactedMarker)
+	assert.Contains(t, folded, CompactedMarker)
 }
 
 func TestCompactor_LastInputTokensTriggersCompaction(t *testing.T) {
@@ -505,7 +505,7 @@ func TestCompactor_DefaultRuleWhenNoRulesSet(t *testing.T) {
 	assert.Greater(t, result.MessagesFolded, 0)
 	// Should use default FoldToolResults format
 	for _, msg := range result.Messages {
-		if msg.Role == core.RoleTool && strings.Contains(msg.Content, compactedMarker) {
+		if msg.Role == core.RoleTool && strings.Contains(msg.Content, CompactedMarker) {
 			assert.Contains(t, msg.Content, "file_read")
 			break
 		}
@@ -620,3 +620,30 @@ func TestCollapsePairs_AlreadyCompactedSkipped(t *testing.T) {
 }
 
 func stringPtr(s string) *string { return &s }
+
+// A superseded pair whose call opens the history collapses whole: the call at
+// index 0 is removed with it, and reported.
+func TestCollapsePairs_PairAtTheStartRemovesItsCall(t *testing.T) {
+	c := &ContextCompactor{
+		BudgetTokens:   100,
+		Threshold:      0.50,
+		PinRecentCount: 2,
+		Rules:          []CompactionRule{CollapsePairs()},
+	}
+	first := strings.Repeat("package main\n", 200)
+	msgs := []types.Message{
+		assistantToolCallMsg("call-1", "file_read", `{"path":"main.go"}`),
+		toolResultMsgWithID("call-1", "file_read", first),
+		assistantToolCallMsg("call-2", "file_read", `{"path":"main.go"}`),
+		toolResultMsgWithID("call-2", "file_read", strings.Repeat("package main\nfunc main() {}\n", 200)),
+		{Role: "assistant", Content: "done"},
+		{Role: "user", Content: "next"},
+	}
+
+	result := c.Compact(msgs, 0)
+
+	assert.Equal(t, []int{0}, result.RemovedIndices)
+	require.Len(t, result.Messages, 5)
+	assert.Equal(t, fmt.Sprintf("[file_read: superseded — %d bytes compacted]", len(first)), result.Messages[0].Content)
+	assert.Equal(t, 2, result.MessagesFolded, "the folded result and its removed call")
+}

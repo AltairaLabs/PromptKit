@@ -24,6 +24,18 @@ const (
 )
 ```
 
+<a name="KindLimit"></a>The limits.
+
+```go
+const (
+    // KindLimit is a literal.
+    KindLimit = 64 // the most there are
+
+    // KindNext names another const.
+    KindNext = KindLimit + 1
+)
+```
+
 ## Variables
 
 <a name="ErrGone"></a>Common errors.

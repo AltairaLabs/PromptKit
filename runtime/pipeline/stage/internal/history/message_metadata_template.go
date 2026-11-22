@@ -1,4 +1,4 @@
-package stage
+package history
 
 import (
 	"encoding/json"
@@ -16,22 +16,22 @@ var metadataPlaceholder = regexp.MustCompile(`{{\s*([^{}\s]+)\s*}}`)
 // rendered from its metadata.
 const messageMetadataSeparator = "\n\n"
 
-// messageMetadataTemplate returns the provider's message-metadata template, or
+// MessageMetadataTemplate returns the provider's message-metadata template, or
 // "" when it has none.
-func messageMetadataTemplate(p providers.Provider) string {
+func MessageMetadataTemplate(p providers.Provider) string {
 	if t, ok := p.(providers.MessageMetadataTemplater); ok {
 		return t.MessageMetadataTemplate()
 	}
 	return ""
 }
 
-// withRenderedMessageMetadata returns messages with tmpl rendered from each
+// WithRenderedMessageMetadata returns messages with tmpl rendered from each
 // message's application metadata (types.Message.Metadata) and appended to that
 // message's text. It is applied to the request only: messages that change are
 // copies, with their own Parts, so the conversation's stored history is never
 // modified. An empty template, or a message whose rendering is empty, leaves
 // the message as it was.
-func withRenderedMessageMetadata(messages []types.Message, tmpl string) []types.Message {
+func WithRenderedMessageMetadata(messages []types.Message, tmpl string) []types.Message {
 	if tmpl == "" {
 		return messages
 	}

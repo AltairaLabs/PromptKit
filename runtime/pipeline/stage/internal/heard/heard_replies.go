@@ -1,4 +1,4 @@
-package stage
+package heard
 
 import (
 	"context"
@@ -9,12 +9,12 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// heardSettleTimeout bounds how long the provider stage waits, before the
+// SettleTimeout bounds how long the provider stage waits, before the
 // turn after a barge-in, for the speech-out stage to report what the caller
 // heard of the reply it cut. The speech-out stage reports it as it handles the
 // barge-in's Interrupt, milliseconds after the provider stage passed it on; a
 // variable so tests need not wait it out.
-var heardSettleTimeout = time.Second
+var SettleTimeout = time.Second
 
 // HeardReplies carries what the caller heard of a cut reply from a cascaded
 // voice pipeline's speech-out stage (TTSStageWithInterruption) back to its
@@ -50,8 +50,8 @@ func NewHeardReplies() *HeardReplies {
 	return &HeardReplies{changed: make(chan struct{})}
 }
 
-// record notes that the reply written as written was heard as heard.
-func (h *HeardReplies) record(written string, heard *types.Message) {
+// Record notes, on h, that the reply written as written was heard as heard.
+func Record(h *HeardReplies, written string, heard *types.Message) {
 	if h == nil || heard == nil {
 		return
 	}
@@ -60,8 +60,8 @@ func (h *HeardReplies) record(written string, heard *types.Message) {
 	h.cuts = append(h.cuts, heardCut{written: written, heard: *heard})
 }
 
-// expect notes an Interrupt the provider stage passed on.
-func (h *HeardReplies) expect() {
+// Expect notes, on h, an Interrupt the provider stage passed on.
+func Expect(h *HeardReplies) {
 	if h == nil {
 		return
 	}
@@ -70,9 +70,9 @@ func (h *HeardReplies) expect() {
 	h.expected++
 }
 
-// settle notes an Interrupt the speech-out stage handled: what it cut before
-// it is recorded.
-func (h *HeardReplies) settle() {
+// Settle notes, on h, an Interrupt the speech-out stage handled: what it cut
+// before it is recorded.
+func Settle(h *HeardReplies) {
 	if h == nil {
 		return
 	}
@@ -83,13 +83,13 @@ func (h *HeardReplies) settle() {
 	h.changed = make(chan struct{})
 }
 
-// await waits until every Interrupt passed on has been handled downstream, at
-// most heardSettleTimeout, or ctx ends.
-func (h *HeardReplies) await(ctx context.Context) {
+// Await waits until every Interrupt passed on h has been handled downstream, at
+// most SettleTimeout, or ctx ends.
+func Await(ctx context.Context, h *HeardReplies) {
 	if h == nil {
 		return
 	}
-	timeout := time.NewTimer(heardSettleTimeout)
+	timeout := time.NewTimer(SettleTimeout)
 	defer timeout.Stop()
 	for {
 		h.mu.Lock()
@@ -108,11 +108,11 @@ func (h *HeardReplies) await(ctx context.Context) {
 	}
 }
 
-// apply returns history with each reply recorded as cut replaced by what was
+// Apply returns history with each reply recorded on h as cut replaced by what was
 // heard of it, the latest match for each, on a copy (the messages history
 // holds are shared with elements already handed on); history itself when
 // nothing was cut.
-func (h *HeardReplies) apply(history []types.Message) []types.Message {
+func Apply(h *HeardReplies, history []types.Message) []types.Message {
 	if h == nil {
 		return history
 	}

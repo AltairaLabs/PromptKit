@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -222,7 +223,7 @@ func (s *TranscriptReorderStage) handleUserTurn(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
 ) error {
 	switch {
-	case elem.Meta.LateTranscript && !s.holding && isBlockedRequestAnsweredBefore(elem.Message) && !s.userEmitted:
+	case elem.Meta.LateTranscript && !s.holding && history.IsBlockedRequestAnsweredBefore(elem.Message) && !s.userEmitted:
 		// A late transcript an input guardrail blocked, for a finished turn
 		// the hold already resolved: nothing of a later turn has been sent,
 		// so the turn's reply is the last message out. Sending the request
@@ -273,12 +274,12 @@ func (s *TranscriptReorderStage) takeTranscript(
 // stage emitted them) and the transcript loses its reply-before flag.
 func (s *TranscriptReorderStage) moveBlockedReplyMark(elem *StreamElement) {
 	user := elem.Message
-	if !isBlockedRequestAnsweredBefore(user) {
+	if !history.IsBlockedRequestAnsweredBefore(user) {
 		return
 	}
 	moved := *user
-	moved.Meta = mergeMeta(user.Meta, nil)
-	delete(moved.Meta, blockedReplyBeforeMetaKey)
+	moved.Meta = history.MergeMeta(user.Meta, nil)
+	delete(moved.Meta, history.BlockedReplyBeforeMetaKey)
 	elem.Message = &moved
 	for i := range s.buffered {
 		held := s.buffered[i].Message
@@ -286,16 +287,9 @@ func (s *TranscriptReorderStage) moveBlockedReplyMark(elem *StreamElement) {
 			continue
 		}
 		marked := *held
-		markBlockedInput(&marked)
+		history.MarkBlockedInput(&marked)
 		s.buffered[i].Message = &marked
 	}
-}
-
-// isBlockedRequestAnsweredBefore reports whether m is a blocked request marked
-// as answered by the reply right before it.
-func isBlockedRequestAnsweredBefore(m *types.Message) bool {
-	before, _ := m.Meta[blockedReplyBeforeMetaKey].(bool)
-	return before
 }
 
 // handleTurnEnd forwards the turn-end when the user turn was already shown, or

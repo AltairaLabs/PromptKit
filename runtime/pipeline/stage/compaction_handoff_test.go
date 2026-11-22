@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/compaction"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -41,7 +42,7 @@ func (p *windowedProvider) PredictStreamWithTools(
 
 func transcriptCompacted(msgs []types.Message) bool {
 	for i := range msgs {
-		if strings.Contains(msgs[i].GetContent(), compactedMarker) {
+		if strings.Contains(msgs[i].GetContent(), compaction.CompactedMarker) {
 			return true
 		}
 	}
@@ -199,7 +200,7 @@ func TestCompactBeforeRound_ReservesTheSystemPromptAndTools(t *testing.T) {
 		loop.compactBeforeRound(2)
 		n := 0
 		for i := range loop.messages {
-			if strings.Contains(loop.messages[i].GetContent(), compactedMarker) {
+			if strings.Contains(loop.messages[i].GetContent(), compaction.CompactedMarker) {
 				n++
 			}
 		}

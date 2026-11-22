@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -50,169 +51,6 @@ func roleLines(msgs []types.Message) []string {
 		out = append(out, msgs[i].Role+":"+msgs[i].GetContent())
 	}
 	return out
-}
-
-func TestExcludeBlockedInputTurns(t *testing.T) {
-	tests := []struct {
-		name string
-		msgs []types.Message
-		want []string
-	}{
-		{
-			name: "drops the blocked user message and its canned reply",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"}, {Role: core.RoleAssistant, Content: "a1"},
-				{Role: core.RoleUser, Content: "forbidden"}, blockedInputReply("refused"),
-				{Role: core.RoleUser, Content: "q2"},
-			},
-			want: []string{"user:q1", "assistant:a1", "user:q2"},
-		},
-		{
-			name: "drops a marked reply that records no validation",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "forbidden"}, markedReply("refused"),
-				{Role: core.RoleUser, Content: "q2"},
-			},
-			want: []string{"user:q2"},
-		},
-		{
-			name: "keeps a reply whose mark is not true",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"},
-				func() types.Message {
-					m := markedReply("a1")
-					m.Meta[types.MetaBlockedInput] = false
-					return m
-				}(),
-			},
-			want: []string{"user:q1", "assistant:a1"},
-		},
-		{
-			name: "keeps a marked message that is neither a reply nor a request",
-			msgs: []types.Message{func() types.Message {
-				m := markedReply("r1")
-				m.Role = core.RoleTool
-				return m
-			}()},
-			want: []string{"tool:r1"},
-		},
-		{
-			name: "drops a marked user message alone, keeping the reply before it",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"}, {Role: core.RoleAssistant, Content: "sure"},
-				{Role: core.RoleUser, Content: "forbidden", Meta: map[string]interface{}{types.MetaBlockedInput: true}},
-				{Role: core.RoleUser, Content: "q2"},
-			},
-			want: []string{"user:q1", "assistant:sure", "user:q2"},
-		},
-		{
-			name: "a request answered by the reply before it takes that reply",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"}, {Role: core.RoleAssistant, Content: "a1"},
-				{Role: core.RoleAssistant, Content: "sure"},
-				{Role: core.RoleUser, Content: "forbidden", Meta: map[string]interface{}{
-					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
-				}},
-			},
-			want: []string{"user:q1", "assistant:a1"},
-		},
-		{
-			name: "a request answered by the reply before it never takes a tool call or a user message",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"},
-				{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "t"}}},
-				{Role: core.RoleUser, Content: "forbidden", Meta: map[string]interface{}{
-					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
-				}},
-				{Role: core.RoleUser, Content: "forbidden again", Meta: map[string]interface{}{
-					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
-				}},
-			},
-			want: []string{"user:q1", "assistant:"},
-		},
-		{
-			name: "a marked user message never takes the user message before it",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"},
-				{Role: core.RoleUser, Content: "forbidden", Meta: map[string]interface{}{
-					types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
-				}},
-			},
-			want: []string{"user:q1"},
-		},
-		{
-			name: "keeps an output block's replacement",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"}, guardedReply("withheld", hooks.DirectionOutput),
-				{Role: core.RoleUser, Content: "q2"},
-			},
-			want: []string{"user:q1", "assistant:withheld", "user:q2"},
-		},
-		{
-			name: "keeps a safety reply without a validation",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"},
-				{Role: core.RoleAssistant, Content: "filtered", FinishReason: types.FinishReasonSafety},
-			},
-			want: []string{"user:q1", "assistant:filtered"},
-		},
-		{
-			name: "keeps an input validation on a reply that did not stop for safety",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"},
-				func() types.Message { m := blockedInputReply("a1"); m.FinishReason = "stop"; return m }(),
-			},
-			want: []string{"user:q1", "assistant:a1"},
-		},
-		{
-			name: "only an assistant message is a canned reply",
-			msgs: []types.Message{func() types.Message {
-				m := blockedInputReply("q1")
-				m.Role = core.RoleUser
-				return m
-			}()},
-			want: []string{"user:q1"},
-		},
-		{
-			name: "drops only the reply when no user message precedes it",
-			msgs: []types.Message{
-				{Role: core.RoleUser, Content: "q1"},
-				{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "t"}}},
-				turnResult("c1", "r"),
-				blockedInputReply("refused"),
-				{Role: core.RoleUser, Content: "q2"},
-			},
-			want: []string{"user:q1", "assistant:", "tool:r", "user:q2"},
-		},
-		{
-			name: "a blocked reply that opens the history drops alone",
-			msgs: []types.Message{blockedInputReply("refused"), {Role: core.RoleUser, Content: "q2"}},
-			want: []string{"user:q2"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, roleLines(excludeBlockedInputTurns(tt.msgs)))
-		})
-	}
-}
-
-func TestExcludeBlockedInputTurns_KeepsAReplyWithToolCalls(t *testing.T) {
-	reply := blockedInputReply("calling")
-	reply.ToolCalls = []types.MessageToolCall{{ID: "c1", Name: "t"}}
-	msgs := []types.Message{{Role: core.RoleUser, Content: "q1"}, reply}
-	got := excludeBlockedInputTurns(msgs)
-	require.Len(t, got, 2, "a reply carrying tool calls is not a canned turn; dropping it would orphan its results")
-	assert.Equal(t, "c1", got[1].ToolCalls[0].ID)
-}
-
-func TestExcludeFromModelContext_DropsBothInterruptedAndBlocked(t *testing.T) {
-	msgs := []types.Message{
-		{Role: core.RoleUser, Content: "q1"}, interruptedReply("half"),
-		{Role: core.RoleUser, Content: "forbidden"}, blockedInputReply("refused"),
-		{Role: core.RoleUser, Content: "q2"},
-	}
-	assert.Equal(t, []string{"user:q1", "user:q2"}, roleLines(ExcludeFromModelContext(msgs)))
 }
 
 func TestIncrementalSaveStage_IndexSkipsBlockedInputTurn(t *testing.T) {
@@ -398,7 +236,7 @@ func TestProviderStage_BlockedInputIsMarkedWithoutValidation(t *testing.T) {
 	require.Equal(t, []string{"user:forbidden", "assistant:Not here."}, roleLines(msgs))
 	assert.Empty(t, msgs[1].Validations)
 	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
-	assert.Empty(t, excludeBlockedInputTurns(msgs), "the pair is left out of model context")
+	assert.Empty(t, history.ExcludeBlockedInputTurns(msgs), "the pair is left out of model context")
 }
 
 // emittedMessages returns the messages of the emitted elements.
@@ -430,7 +268,7 @@ func TestDuplexHooks_SpokenBlockedInputIsMarked(t *testing.T) {
 	require.Equal(t, []string{"user:a wire transfer please", "assistant:I can't help with transfers."},
 		roleLines(msgs))
 	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
-	assert.Empty(t, excludeBlockedInputTurns(msgs))
+	assert.Empty(t, history.ExcludeBlockedInputTurns(msgs))
 }
 
 // A typed duplex turn an input hook blocks, without naming a validator, is
@@ -460,7 +298,7 @@ func TestDuplexHooks_TypedBlockedInputIsMarked(t *testing.T) {
 		roleLines(msgs))
 	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
 	assert.Equal(t, true, msgs[2].Meta[types.MetaBlockedInput])
-	assert.Equal(t, []string{"assistant:half a reply"}, roleLines(excludeBlockedInputTurns(msgs)))
+	assert.Equal(t, []string{"assistant:half a reply"}, roleLines(history.ExcludeBlockedInputTurns(msgs)))
 }
 
 // A spoken input blocked after its reply completed cannot replace the reply,
@@ -480,9 +318,9 @@ func TestDuplexHooks_LateSpokenBlockedInputIsMarked(t *testing.T) {
 	msgs := emittedMessages(elems)
 	require.Equal(t, []string{"assistant:Sure", "user:a wire transfer please"}, roleLines(msgs))
 	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
-	assert.Equal(t, true, msgs[1].Meta[blockedReplyBeforeMetaKey])
+	assert.Equal(t, true, msgs[1].Meta[history.BlockedReplyBeforeMetaKey])
 	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput], "the emitted reply is not written after the fact")
-	assert.Empty(t, excludeBlockedInputTurns(msgs))
+	assert.Empty(t, history.ExcludeBlockedInputTurns(msgs))
 }
 
 // With a TranscriptReorderStage the late blocked request is placed ahead of
@@ -497,7 +335,7 @@ func TestTranscriptReorderStage_LateBlockedRequestMarksTheHeldReply(t *testing.T
 	prevReply := asstEndElem("Hi!")
 	reply := asstEndElem("Sure")
 	late := lateUserElem("a wire transfer please")
-	late.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true}
+	late.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, history.BlockedReplyBeforeMetaKey: true}
 	original := reply.Message
 	in <- prevUser
 	in <- prevReply
@@ -514,11 +352,11 @@ func TestTranscriptReorderStage_LateBlockedRequestMarksTheHeldReply(t *testing.T
 	}
 	require.Equal(t, []string{"user:hello", "assistant:Hi!", "user:a wire transfer please", "assistant:Sure"},
 		roleLines(msgs))
-	assert.Nil(t, msgs[2].Meta[blockedReplyBeforeMetaKey], "the reply is no longer before it")
+	assert.Nil(t, msgs[2].Meta[history.BlockedReplyBeforeMetaKey], "the reply is no longer before it")
 	assert.Equal(t, true, msgs[3].Meta[types.MetaBlockedInput])
 	assert.Nil(t, msgs[1].Meta[types.MetaBlockedInput])
 	assert.Nil(t, original.Meta[types.MetaBlockedInput], "the duplex stage's message is not written")
-	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(excludeBlockedInputTurns(msgs)))
+	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(history.ExcludeBlockedInputTurns(msgs)))
 }
 
 // A late blocked request of a tool turn moves ahead of the held tool round;
@@ -528,7 +366,7 @@ func TestTranscriptReorderStage_LateBlockedRequestNeverMarksAToolRound(t *testin
 	in := make(chan StreamElement, 8)
 	out := make(chan StreamElement, 16)
 	late := lateUserElem("a wire transfer please")
-	late.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true}
+	late.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, history.BlockedReplyBeforeMetaKey: true}
 	in <- toolCallEndElem("c1")
 	in <- toolResultElem("c1")
 	in <- late
@@ -551,7 +389,7 @@ func TestTranscriptReorderStage_LateBlockedRequestNeverMarksAToolRound(t *testin
 // its reply completed, as DuplexProviderStage marks it.
 func blockedLateUserElem(content string) StreamElement {
 	e := lateUserElem(content)
-	e.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true}
+	e.Message.Meta = map[string]interface{}{types.MetaBlockedInput: true, history.BlockedReplyBeforeMetaKey: true}
 	return e
 }
 
@@ -582,7 +420,7 @@ func TestTranscriptReorderStage_BlockedLateTranscriptAfterTimeoutFollowsItsReply
 
 	assert.Equal(t, []string{"user:[none]", "assistant:A1", "user:a wire transfer please", "user:q2", "assistant:A2"},
 		roleLines(msgs), "the transcript keeps the request")
-	assert.Equal(t, []string{"user:[none]", "user:q2", "assistant:A2"}, roleLines(excludeBlockedInputTurns(msgs)))
+	assert.Equal(t, []string{"user:[none]", "user:q2", "assistant:A2"}, roleLines(history.ExcludeBlockedInputTurns(msgs)))
 }
 
 // Once a later turn's user message is out, a blocked late transcript can no
@@ -627,7 +465,7 @@ func TestProviderStage_LateBlockedRequestAndItsReplyAreNotSent(t *testing.T) {
 		{Role: core.RoleAssistant, Content: "Hi!"},
 		{Role: core.RoleAssistant, Content: "Sure"},
 		{Role: core.RoleUser, Content: "a wire transfer please", Meta: map[string]interface{}{
-			types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+			types.MetaBlockedInput: true, history.BlockedReplyBeforeMetaKey: true,
 		}},
 		{Role: core.RoleUser, Content: "what time is it"},
 	}
@@ -650,16 +488,9 @@ func cutThenLateBlocked(next ...types.Message) []types.Message {
 		{Role: core.RoleAssistant, Content: "Hi!"},
 		interruptedReply("Sure, I'll"),
 		{Role: core.RoleUser, Content: "a wire transfer please", Meta: map[string]interface{}{
-			types.MetaBlockedInput: true, blockedReplyBeforeMetaKey: true,
+			types.MetaBlockedInput: true, history.BlockedReplyBeforeMetaKey: true,
 		}},
 	}, next...)
-}
-
-// The blocked turn is found before interrupted replies are taken out: done
-// the other way round, the reply before the blocked request becomes the
-// previous turn's answer, and that is dropped instead.
-func TestExcludeFromModelContext_FindsBlockedTurnsBeforeDroppingInterrupted(t *testing.T) {
-	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(ExcludeFromModelContext(cutThenLateBlocked())))
 }
 
 func TestProviderStage_CutReplyBeforeLateBlockedRequestKeepsThePreviousAnswer(t *testing.T) {
@@ -754,8 +585,8 @@ func TestDuplexForget_BlockedSpokenInputIsForgottenAndMarked(t *testing.T) {
 		msgs := emittedMessages(elems)
 		require.Equal(t, []string{"assistant:Sure", "user:a wire transfer please"}, roleLines(msgs))
 		assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
-		assert.Equal(t, true, msgs[1].Meta[blockedReplyBeforeMetaKey])
-		assert.Empty(t, excludeBlockedInputTurns(msgs))
+		assert.Equal(t, true, msgs[1].Meta[history.BlockedReplyBeforeMetaKey])
+		assert.Empty(t, history.ExcludeBlockedInputTurns(msgs))
 	})
 	t.Run("mid-reply", func(t *testing.T) {
 		s, sess := forgetStage(t, hooks.NewRegistry(hooks.WithProviderHook(inputBannedWords(t, "wire"))))
@@ -772,7 +603,7 @@ func TestDuplexForget_BlockedSpokenInputIsForgottenAndMarked(t *testing.T) {
 		last := msgs[len(msgs)-1]
 		assert.Equal(t, core.RoleAssistant, last.Role)
 		assert.Equal(t, true, last.Meta[types.MetaBlockedInput])
-		assert.Empty(t, excludeBlockedInputTurns(msgs))
+		assert.Empty(t, history.ExcludeBlockedInputTurns(msgs))
 	})
 }
 
@@ -790,7 +621,7 @@ func TestDuplexHooks_LateSpokenAllowedInputIsNotMarked(t *testing.T) {
 	msgs := emittedMessages(elems)
 	require.Equal(t, []string{"assistant:Sure", "user:what time is it"}, roleLines(msgs))
 	assert.Nil(t, msgs[1].Meta[types.MetaBlockedInput])
-	assert.Len(t, excludeBlockedInputTurns(msgs), 2)
+	assert.Len(t, history.ExcludeBlockedInputTurns(msgs), 2)
 }
 
 // A spoken input block and an output block on the same turn: the reply's
@@ -813,7 +644,7 @@ func TestDuplexHooks_SpokenInputMarkSurvivesALaterOutputBlock(t *testing.T) {
 	require.Len(t, msgs, 2)
 	assert.Equal(t, types.FinishReasonSafety, msgs[1].FinishReason)
 	assert.Equal(t, true, msgs[1].Meta[types.MetaBlockedInput])
-	assert.Empty(t, excludeBlockedInputTurns(msgs))
+	assert.Empty(t, history.ExcludeBlockedInputTurns(msgs))
 }
 
 // A second block on a turn adds its metadata to the first's rather than
@@ -825,7 +656,7 @@ func TestDuplexHooks_BlockTurnWithMergesMeta(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"only": "c"}, s.turnGuard.blockedMeta,
 		"a first block's metadata is taken as is")
 
-	s.turnGuard.blockedMeta = withBlockedInputMark(map[string]interface{}{"first": "a"})
+	s.turnGuard.blockedMeta = history.WithBlockedInputMark(map[string]interface{}{"first": "a"})
 	second := hooks.DenyWithMetadata("no", map[string]any{"second": "b"})
 	s.blockTurnWith(context.Background(), nil, &second, hooks.DirectionOutput)
 	assert.Equal(t, map[string]interface{}{
@@ -857,5 +688,5 @@ func TestDuplexHooks_OutputDenyIsNotMarked(t *testing.T) {
 	require.Len(t, msgs, 1)
 	assert.Equal(t, types.FinishReasonSafety, msgs[0].FinishReason)
 	assert.Nil(t, msgs[0].Meta[types.MetaBlockedInput])
-	assert.Len(t, excludeBlockedInputTurns(msgs), 1)
+	assert.Len(t, history.ExcludeBlockedInputTurns(msgs), 1)
 }

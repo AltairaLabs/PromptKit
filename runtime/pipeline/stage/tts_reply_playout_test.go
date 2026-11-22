@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/heard"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -268,11 +269,11 @@ func TestTTSStageWithInterruption_BargeInOnAToolRoundKeepsItsCalls(t *testing.T)
 	assert.Equal(t, types.PlayoutCutBargeIn, msg.Meta[types.MetaPlayoutCut])
 	assert.False(t, msg.LeavesModelContext())
 
-	p.heard.expect()
-	within(t, "await", func() bool { p.heard.await(context.Background()); return true })
+	heard.Expect(p.heard)
+	within(t, "await", func() bool { heard.Await(context.Background(), p.heard); return true })
 	history := []types.Message{{Role: core.RoleUser, Content: "weather?"}, *round,
 		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "c1", Name: "get_weather"}}}
-	got := ExcludeFromModelContext(p.heard.apply(history))
+	got := ExcludeFromModelContext(heard.Apply(p.heard, history))
 	require.Len(t, got, 3, "the call and its result go back to the model together")
 	assert.Equal(t, round.ToolCalls, got[1].ToolCalls)
 	assert.Equal(t, "Let me look", got[1].Content)
@@ -486,13 +487,13 @@ func TestTTSStageWithInterruption_BargeInStoresWhatWasHeard(t *testing.T) {
 
 	// The provider stage's history gets the reply as heard, once the stage
 	// has handled the Interrupt.
-	old := heardSettleTimeout
-	heardSettleTimeout = time.Minute // only the stage's settle ends the wait
-	t.Cleanup(func() { heardSettleTimeout = old })
-	p.heard.expect() // the provider stage passed the Interrupt on
-	within(t, "await", func() bool { p.heard.await(context.Background()); return true })
+	old := heard.SettleTimeout
+	heard.SettleTimeout = time.Minute // only the stage's settle ends the wait
+	t.Cleanup(func() { heard.SettleTimeout = old })
+	heard.Expect(p.heard) // the provider stage passed the Interrupt on
+	within(t, "await", func() bool { heard.Await(context.Background(), p.heard); return true })
 	history := []types.Message{{Role: core.RoleAssistant, Content: "The fox woke early. It ran to the river. Then it slept."}}
-	got := p.heard.apply(history)
+	got := heard.Apply(p.heard, history)
 	assert.Equal(t, "The fox woke early. It ran", got[0].Content)
 	assert.Equal(t, types.FinishReasonInterrupted, got[0].FinishReason)
 }

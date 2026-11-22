@@ -1,4 +1,4 @@
-package stage
+package compaction
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -12,7 +12,8 @@ const (
 	defaultPinRecentCount   = 4
 	// DefaultBudgetTokens is the default context window budget for compaction.
 	DefaultBudgetTokens = 128000 // sensible default for modern models
-	compactedMarker     = "compacted"
+	// CompactedMarker tags a folded message, so no rule folds it again.
+	CompactedMarker = "compacted"
 )
 
 // CompactResult contains the output of a compaction pass.
