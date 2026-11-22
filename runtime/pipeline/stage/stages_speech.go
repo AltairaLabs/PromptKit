@@ -1026,7 +1026,7 @@ func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig {
 // synthesis is stopped and pending output is discarded.
 //
 // A reply that streams is spoken as it streams: its released text deltas are
-// split into sentences (speechSegmenter), each synthesized as soon as it is
+// split into sentences (segment.Speech), each synthesized as soon as it is
 // complete, its audio handed on as the service delivers it (replySpeech). A
 // text or Message that did not stream is synthesized whole, into one audio
 // element.

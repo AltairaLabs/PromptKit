@@ -5068,7 +5068,7 @@ type RealtimeChainConfig struct {
 ```
 
 <a name="RealtimeHold"></a>
-## type [RealtimeHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L60>)
+## type [RealtimeHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L61>)
 
 RealtimeHold is how a realtime session holds a spoken reply for the output guardrails that hold it \(StreamHoldConfig.Realtime\).
 
@@ -5095,7 +5095,7 @@ const (
 ```
 
 <a name="RealtimeHold.Valid"></a>
-### func \(RealtimeHold\) [Valid](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L77>)
+### func \(RealtimeHold\) [Valid](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L78>)
 
 ```go
 func (h RealtimeHold) Valid() bool
@@ -6394,7 +6394,7 @@ func (e *StreamExecution) Output() <-chan StreamElement
 Output returns the execution's output, as Execute returns it.
 
 <a name="StreamHoldConfig"></a>
-## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L21-L56>)
+## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L22-L57>)
 
 StreamHoldConfig sizes the segments a stream\_hold: segment output guardrail judges a streamed reply in, and bounds its judging. It is per conversation, not per guardrail: every segment guardrail judges the same segments. Zero fields take the defaults.
 
@@ -6628,7 +6628,7 @@ Process implements the Stage interface. Synthesizes audio for each text element 
 
 TTSStageWithInterruption synthesizes text to audio with interruption support. When the user starts speaking \(detected via shared InterruptionHandler\), synthesis is stopped and pending output is discarded.
 
-A reply that streams is spoken as it streams: its released text deltas are split into sentences \(speechSegmenter\), each synthesized as soon as it is complete, its audio handed on as the service delivers it \(replySpeech\). A text or Message that did not stream is synthesized whole, into one audio element.
+A reply that streams is spoken as it streams: its released text deltas are split into sentences \(segment.Speech\), each synthesized as soon as it is complete, its audio handed on as the service delivers it \(replySpeech\). A text or Message that did not stream is synthesized whole, into one audio element.
 
 ```go
 type TTSStageWithInterruption struct {

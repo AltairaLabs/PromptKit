@@ -1,4 +1,7 @@
-package stage
+// Package segment splits a reply still being written into segments, for the
+// pipeline stages that work on a reply a segment at a time. It is internal to
+// pipeline/stage (#2876) and must not import it.
+package segment
 
 import (
 	"strings"
@@ -12,15 +15,15 @@ import (
 // stream_hold (segments judged before release) and speech output (segments
 // synthesized as they complete). Use a segmenter per reply:
 //
-//	seg := newSegmenter(defaultSegmentConfig())
+//	seg := New(cfg)
 //	for delta := range deltas {
-//		for _, end := range seg.feed(delta) {
-//			use(seg.text()[start:end]) // a complete segment
+//		for _, end := range seg.Feed(delta) {
+//			use(seg.Text()[start:end]) // a complete segment
 //			start = end
 //		}
 //	}
-//	if start < len(seg.text()) {
-//		use(seg.text()[start:]) // the reply ended: the rest is the last segment
+//	if start < len(seg.Text()) {
+//		use(seg.Text()[start:]) // the reply ended: the rest is the last segment
 //	}
 //
 // Boundaries are a sentence terminator (. ! ? …) followed by whitespace, a CJK
@@ -32,43 +35,34 @@ import (
 // A boundary is declared only once the text after it shows that it is one, so
 // a segment never ends on text the next delta could continue.
 
-// segmentConfig sizes a segmenter's segments, in characters (runes) of reply
+// Config sizes a segmenter's segments, in characters (runes) of reply
 // text.
-type segmentConfig struct {
-	// minChars is the size sentences are merged up to before a segment ends.
-	minChars int
-	// firstMinChars is minChars for a round's first segment, smaller because
+type Config struct {
+	// MinChars is the size sentences are merged up to before a segment ends.
+	MinChars int
+	// FirstMinChars is MinChars for a round's first segment, smaller because
 	// the first release is the latency a caller notices most.
-	firstMinChars int
-	// maxChars is the cap: a segment with no boundary by then is cut at the
+	FirstMinChars int
+	// MaxChars is the cap: a segment with no boundary by then is cut at the
 	// last whitespace (the last line end inside a code fence) before it.
-	maxChars int
+	MaxChars int
 }
 
 const codeFence = "```"
 
-// defaultSegmentConfig is the segment sizing stream_hold uses by default.
-func defaultSegmentConfig() segmentConfig {
-	return segmentConfig{
-		minChars:      defaultStreamHoldMinChars,
-		firstMinChars: defaultStreamHoldFirstMinChars,
-		maxChars:      defaultStreamHoldMaxChars,
-	}
-}
-
-// segmenter finds the segment boundaries of a reply as its text arrives.
-type segmenter struct {
-	cfg  segmentConfig
+// Segmenter finds the segment boundaries of a reply as its text arrives.
+type Segmenter struct {
+	cfg  Config
 	buf  strings.Builder
 	ends []int // the end offsets of the segments found so far
 }
 
-// newSegmenter returns a segmenter for one reply.
-func newSegmenter(cfg segmentConfig) *segmenter { return &segmenter{cfg: cfg} }
+// New returns a segmenter for one reply.
+func New(cfg Config) *Segmenter { return &Segmenter{cfg: cfg} }
 
-// feed adds delta to the reply and returns the end offsets, into text(), of
+// Feed adds delta to the reply and returns the end offsets, into Text(), of
 // the segments it completed, in order. Most deltas complete none.
-func (g *segmenter) feed(delta string) []int {
+func (g *Segmenter) Feed(delta string) []int {
 	g.buf.WriteString(delta)
 	text := g.buf.String()
 	var found []int
@@ -82,22 +76,22 @@ func (g *segmenter) feed(delta string) []int {
 	}
 }
 
-// text is the reply so far.
-func (g *segmenter) text() string { return g.buf.String() }
+// Text is the reply so far.
+func (g *Segmenter) Text() string { return g.buf.String() }
 
-// segments is the end offsets of the segments found so far.
-func (g *segmenter) segments() []int { return g.ends }
+// Segments is the end offsets of the segments found so far.
+func (g *Segmenter) Segments() []int { return g.ends }
 
 // last is the end of the last segment found, where the next one starts.
-func (g *segmenter) last() int {
+func (g *Segmenter) last() int {
 	if len(g.ends) == 0 {
 		return 0
 	}
 	return g.ends[len(g.ends)-1]
 }
 
-// reset discards the reply, for a reply that restarts.
-func (g *segmenter) reset() {
+// Reset discards the reply, for a reply that restarts.
+func (g *Segmenter) Reset() {
 	g.buf.Reset()
 	g.ends = nil
 }
@@ -113,10 +107,10 @@ func (g *segmenter) reset() {
 // without a boundary by maxChars the segment is cut at the cap. The segmenter
 // only affects latency and cost: every byte is judged before it is released,
 // whatever the boundaries.
-func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, bool) {
-	minLen := cfg.minChars
+func nextSegmentEnd(text string, from int, first bool, cfg Config) (int, bool) {
+	minLen := cfg.MinChars
 	if first {
-		minLen = cfg.firstMinChars
+		minLen = cfg.FirstMinChars
 	}
 	sc := segmentScanner{text: text, inFence: strings.Count(text[:from], codeFence)%2 == 1}
 	fenceOpen := sc.inFence
@@ -124,7 +118,7 @@ func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, 
 		end, size := sc.step(i)
 		if end > 0 {
 			n := utf8.RuneCountInString(text[from:end])
-			if cfg.maxChars > 0 && n > cfg.maxChars {
+			if cfg.MaxChars > 0 && n > cfg.MaxChars {
 				// The sentence runs past the cap, though it arrived whole:
 				// cut it at the cap, as if it were still arriving.
 				break
@@ -135,7 +129,7 @@ func nextSegmentEnd(text string, from int, first bool, cfg segmentConfig) (int, 
 		}
 		i += size
 	}
-	return capSegmentEnd(text, from, fenceOpen, cfg.maxChars)
+	return capSegmentEnd(text, from, fenceOpen, cfg.MaxChars)
 }
 
 // segmentScanner tracks the markdown context a boundary is suppressed in.

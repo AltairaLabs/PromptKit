@@ -1,4 +1,4 @@
-package stage
+package segment
 
 import (
 	"strings"
@@ -18,18 +18,18 @@ func segmentAll(maxRunes int, deltas ...string) (completed []string, rest string
 	}
 	done := make(chan result, 1)
 	go func() {
-		g := speechSegmenter{maxRunes: maxRunes}
+		g := Speech{MaxRunes: maxRunes}
 		var r result
 		for _, d := range deltas {
-			r.completed = append(r.completed, g.add(d)...)
+			r.completed = append(r.completed, g.Add(d)...)
 		}
-		r.rest = g.flush()
+		r.rest = g.Flush()
 		done <- r
 	}()
 	select {
 	case r := <-done:
 		return r.completed, r.rest
-	case <-time.After(holdTestDeadline):
+	case <-time.After(segmentTestDeadline):
 		panic("the speech segmenter made no progress")
 	}
 }
@@ -73,10 +73,12 @@ func TestSpeechSegmenter_CapsAnUnbrokenRun(t *testing.T) {
 }
 
 func TestSpeechSegmenter_FlushAndResetDropText(t *testing.T) {
-	g := speechSegmenter{}
-	assert.Empty(t, g.add("Half a sente"))
-	g.reset()
-	assert.Empty(t, g.flush(), "reset drops what was not yet spoken")
-	assert.Empty(t, g.add("   "))
-	assert.Empty(t, g.flush(), "whitespace alone is not a segment")
+	g := Speech{}
+	assert.Empty(t, g.Add("Half a sente"))
+	assert.Equal(t, "Half a sente", g.Pending(), "the text not yet a segment is pending")
+	g.Reset()
+	assert.Empty(t, g.Pending())
+	assert.Empty(t, g.Flush(), "reset drops what was not yet spoken")
+	assert.Empty(t, g.Add("   "))
+	assert.Empty(t, g.Flush(), "whitespace alone is not a segment")
 }
