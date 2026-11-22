@@ -41,20 +41,29 @@ func (c *playoutClock) set(t time.Time) {
 	c.t = t
 }
 
-// playoutServer is a fake realtime server. It delivers one reply of
-// replyAudio (one second per delta), ending it with response.done unless
-// speechMidReply, then waits for speak, sends speech_started, and finishes
-// with a second reply R2. It records the client events it reads until
-// input_audio_buffer.commit, which the test sends once it has read R2.
+// playoutServer is a fake realtime server. Once reply is closed (a real
+// server replies only to the client's input, so the client has set its
+// session up, HoldPlayout included, before any reply arrives), it delivers
+// one reply of replyAudio (one second per delta), ending it with
+// response.done unless speechMidReply, then waits for speak, sends
+// speech_started, and finishes with a second reply R2. It records the
+// client events it reads until input_audio_buffer.commit, which the test
+// sends once it has read R2.
 type playoutServer struct {
 	srv    *httptest.Server
+	reply  chan struct{}
 	speak  chan struct{}
 	client chan []map[string]any
 }
 
+// newPlayoutServerState is a playoutServer's channels, before its server.
+func newPlayoutServerState() *playoutServer {
+	return &playoutServer{reply: make(chan struct{}), speak: make(chan struct{}), client: make(chan []map[string]any, 1)}
+}
+
 func newPlayoutServer(t *testing.T, items []int, speechMidReply bool) *playoutServer {
 	t.Helper()
-	ps := &playoutServer{speak: make(chan struct{}), client: make(chan []map[string]any, 1)}
+	ps := newPlayoutServerState()
 	second := base64.StdEncoding.EncodeToString(make([]byte, 2*DefaultRealtimeSampleRate))
 	ps.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
@@ -68,6 +77,7 @@ func newPlayoutServer(t *testing.T, items []int, speechMidReply bool) *playoutSe
 			return
 		}
 		go ps.recordClient(conn)
+		<-ps.reply
 
 		write(map[string]any{"type": "response.created", "response": map[string]any{"id": "R1", "status": "in_progress"}})
 		for n, seconds := range items {
@@ -147,6 +157,7 @@ func runPlayout(t *testing.T, items []int, speakAfter time.Duration, speechMidRe
 		realtimeSessionOpts{endpoint: bargeInWSURL(ps.srv), now: clock.now})
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
+	close(ps.reply)
 
 	var run playoutRun
 	next := func() providers.StreamChunk {

@@ -48,6 +48,7 @@ func runHeldPlayout(t *testing.T, r heldRun) playoutRun {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 	session.HoldPlayout()
+	close(ps.reply) // the reply arrives only once playout is held
 
 	next := func() providers.StreamChunk {
 		select {
@@ -221,12 +222,12 @@ func TestRealtimeHeldPlayout_ReleasingNoAudioPlaysNothing(t *testing.T) {
 	assert.True(t, s.playoutEstimate().Playing())
 }
 
-// newSupersedeServer is a fake realtime server that delivers a second of
-// reply R1 and completes it, then starts R2 with a second of its own audio,
-// completing R2 only once speak is closed.
+// newSupersedeServer is a fake realtime server that, once reply is closed,
+// delivers a second of reply R1 and completes it, then starts R2 with a
+// second of its own audio, completing R2 only once speak is closed.
 func newSupersedeServer(t *testing.T) *playoutServer {
 	t.Helper()
-	ps := &playoutServer{speak: make(chan struct{}), client: make(chan []map[string]any, 1)}
+	ps := newPlayoutServerState()
 	second := base64.StdEncoding.EncodeToString(make([]byte, 2*DefaultRealtimeSampleRate))
 	ps.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := bargeInUpgrader.Upgrade(w, r, nil)
@@ -240,6 +241,7 @@ func newSupersedeServer(t *testing.T) *playoutServer {
 			return
 		}
 		go ps.recordClient(conn)
+		<-ps.reply
 		for _, id := range []string{"R1", "R2"} {
 			write(map[string]any{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress"}})
 			write(map[string]any{"type": "response.output_audio.delta", "item_id": "item_" + id,
@@ -267,6 +269,7 @@ func TestRealtimeHeldPlayout_DroppingASupersededReplyCutsItAtOnce(t *testing.T) 
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 	session.HoldPlayout()
+	close(ps.reply) // the replies arrive only once playout is held
 	next := func() providers.StreamChunk {
 		select {
 		case c, ok := <-session.Response():
@@ -335,6 +338,7 @@ func TestRealtimeHeldPlayout_DroppingAReplyCutsOnlyItsOwnAudio(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = session.Close() }()
 	session.HoldPlayout()
+	close(ps.reply) // the replies arrive only once playout is held
 	next := func() providers.StreamChunk {
 		select {
 		case c, ok := <-session.Response():
