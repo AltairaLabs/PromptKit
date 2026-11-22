@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -157,7 +158,7 @@ func TestDuplexInputVerdict_BargeInWaitsForTheVerdict(t *testing.T) {
 func verdictTrace(elems []StreamElement) []string {
 	var out []string
 	for _, e := range elems {
-		if e.Meta.Interrupted && e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Meta.Interrupted && e.Message != nil && e.Message.Role == core.RoleAssistant {
 			out = append(out, "partial:"+e.Message.Content+"|"+e.Message.FinishReason)
 			continue
 		}

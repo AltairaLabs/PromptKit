@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
@@ -119,7 +120,7 @@ func TestCompositionStage_ForwardsNonMessageElements(t *testing.T) {
 		t.Errorf("first element: want text='some text', got %+v", elems[0])
 	}
 	// Second element should be the assistant result from the composition.
-	if elems[1].Message == nil || elems[1].Message.Role != roleAssistant {
+	if elems[1].Message == nil || elems[1].Message.Role != core.RoleAssistant {
 		t.Errorf("second element: want assistant message, got %+v", elems[1])
 	}
 }
@@ -223,7 +224,7 @@ func TestCompositionStage_SkipsHistoryMessages(t *testing.T) {
 		t.Errorf("first element: want FromHistory=true, got false")
 	}
 	// Second element should be the assistant result from the live message.
-	if elems[1].Message == nil || elems[1].Message.Role != roleAssistant {
+	if elems[1].Message == nil || elems[1].Message.Role != core.RoleAssistant {
 		t.Errorf("second element: want assistant message, got %+v", elems[1])
 	}
 }
@@ -297,7 +298,7 @@ func TestCompositionStage_AttachesSnapshotMeta(t *testing.T) {
 	// Find the assistant message element.
 	var assistantMsg *types.Message
 	for _, e := range elems {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			assistantMsg = e.Message
 			break
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
@@ -228,7 +229,7 @@ func (s *AudioTurnStage) Process(
 	// A live session's input closes only when the session does, so the stage
 	// must also stop when its context ends (the idle timeout), or the pipeline
 	// would not end until the caller sent more audio (#2823).
-	input = inputUntilDone(ctx, input)
+	input = core.InputUntilDone(ctx, input)
 
 	state := newAudioTurnState()
 
@@ -836,7 +837,7 @@ func (s *STTStage) Process(
 func (s *STTStage) processElement(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
 	// Pass through non-audio elements
 	if elem.Audio == nil || len(elem.Audio.Samples) == 0 {
-		return sendStreamElement(ctx, elem, output)
+		return core.SendStreamElement(ctx, elem, output)
 	}
 
 	// Skip if too small
@@ -852,7 +853,7 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 		logger.Error("STTStage: transcription failed", "error", err)
 		s.endResponse()
 		elem.Error = err
-		return sendStreamElement(ctx, elem, output)
+		return core.SendStreamElement(ctx, elem, output)
 	}
 
 	// Skip empty transcriptions
@@ -880,7 +881,7 @@ func (s *STTStage) processElement(ctx context.Context, elem StreamElement, outpu
 		s.emitter.AudioTranscription(text, s.config.Language, s.service.Name(), true)
 	}
 
-	return sendStreamElement(ctx, transcriptElement(text, elem.Meta, sttResp.Cost), output)
+	return core.SendStreamElement(ctx, transcriptElement(text, elem.Meta, sttResp.Cost), output)
 }
 
 // bargeIn interrupts the reply the bot is engaged in, for a turn that
@@ -895,7 +896,7 @@ func (s *STTStage) bargeIn(ctx context.Context, output chan<- StreamElement) err
 	if h := s.config.InterruptionHandler; h != nil && !h.BargeIn() {
 		return nil
 	}
-	return sendStreamElement(ctx, NewInterruptElement(), output)
+	return core.SendStreamElement(ctx, NewInterruptElement(), output)
 }
 
 // endResponse ends the reply AudioTurnStage marked as owed for a turn that
@@ -912,9 +913,9 @@ func (s *STTStage) sttRequest(a *AudioData) base.STTRequest {
 		Audio:    a.Samples,
 		MIMEType: "audio/pcm",
 		Hints: map[string]string{
-			metaKeySampleRate: itoa(a.SampleRate),
-			"channels":        itoa(a.Channels),
-			"language":        s.config.Language,
+			core.MetaKeySampleRate: itoa(a.SampleRate),
+			"channels":             itoa(a.Channels),
+			"language":             s.config.Language,
 		},
 	}
 }
@@ -933,7 +934,7 @@ func (s *STTStage) sttRequest(a *AudioData) base.STTRequest {
 // The role is "user" because this stage transcribes inbound speech. A
 // pipeline transcribing something else should map the role downstream.
 func transcriptElement(text string, meta ElementMetadata, cost *types.CostInfo) StreamElement {
-	msg := types.Message{Role: roleUser}
+	msg := types.Message{Role: core.RoleUser}
 	msg.AddTextPart(text)
 
 	outElem := StreamElement{
@@ -1038,9 +1039,9 @@ type TTSStageWithInterruption struct {
 	// serviceRate is the rate the service returns tts.FormatPCM16 audio at.
 	serviceRate int
 	// clock times a streamed reply's playout; tests replace it.
-	clock holdClock
+	clock core.HoldClock
 	// fwd hands elements on once the session is closing (forwardElement).
-	fwd cancelForwarder
+	fwd core.CancelForwarder
 }
 
 // NewTTSStageWithInterruption creates a new TTS stage with interruption support.
@@ -1054,7 +1055,7 @@ func NewTTSStageWithInterruption(
 		config:       config,
 		interruption: config.InterruptionHandler,
 		serviceRate:  pcmSampleRate(service),
-		clock:        realHoldClock,
+		clock:        core.RealHoldClock,
 	}
 }
 
@@ -1086,17 +1087,17 @@ func (s *TTSStageWithInterruption) Process(
 ) error {
 	defer close(output)
 
-	canceller := newTurnCanceller(ctx)
-	defer canceller.stop()
+	canceller := core.NewTurnCanceller(ctx)
+	defer canceller.Stop()
 
 	work := make(chan StreamElement)
 	ended := make(chan struct{})
 	stopped := make(chan struct{})
 	defer close(stopped)
-	go queueCancelingOnInterrupt(ctx, input, work, canceller, s.clock.now, ended, stopped)
-	s.fwd = cancelForwarder{}
+	go queueCancelingOnInterrupt(ctx, input, work, canceller, s.clock.Now, ended, stopped)
+	s.fwd = core.CancelForwarder{}
 
-	reply := &replySpeech{cutAt: canceller.interruptedAt, ended: ended}
+	reply := &replySpeech{cutAt: canceller.InterruptedAt, ended: ended}
 	for elem := range work {
 		if elem.Interrupt {
 			// In-flight synthesis was already canceled out of band by the
@@ -1105,7 +1106,7 @@ func (s *TTSStageWithInterruption) Process(
 			// interrupted flag does not carry over and block the next turn's
 			// synthesis, then forward the Interrupt downstream so playback
 			// can flush too.
-			canceller.refresh()
+			canceller.Refresh()
 			reply.interrupted()
 			s.config.HeardReplies.settle()
 			if s.interruption != nil {
@@ -1116,7 +1117,7 @@ func (s *TTSStageWithInterruption) Process(
 			}
 			continue
 		}
-		if err := s.processTurnElement(ctx, canceller.context(), reply, &elem, output); err != nil {
+		if err := s.processTurnElement(ctx, canceller.Context(), reply, &elem, output); err != nil {
 			return err
 		}
 	}
@@ -1222,7 +1223,7 @@ func (s *TTSStageWithInterruption) shouldSkipText(text string) bool {
 // forwardElement forwards an element to output.
 //
 // Once ctx has ended (the session is closing) the hand-off is bounded
-// (cancelForwarder): a consumer still collecting the turn, the save stage
+// (CancelForwarder): a consumer still collecting the turn, the save stage
 // among them, gets what was in flight, and one that has gone away does not
 // block the stage. It never fails then.
 func (s *TTSStageWithInterruption) forwardElement(
@@ -1230,7 +1231,7 @@ func (s *TTSStageWithInterruption) forwardElement(
 	elem StreamElement,
 	output chan<- StreamElement,
 ) error {
-	s.fwd.forward(ctx, output, elem)
+	s.fwd.Forward(ctx, output, elem)
 	return nil
 }
 
@@ -1246,7 +1247,7 @@ func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
 
 // synthesizeAndEmit performs TTS synthesis and emits the audio element.
 // Interruption is handled exclusively by the in-channel Interrupt element and
-// the per-turn synthCtx (canceled by turnCanceller on barge-in), so there is
+// the per-turn synthCtx (canceled by TurnCanceller on barge-in), so there is
 // no need to poll the shared handler here.
 //
 // The audio element carries the input's assistant message, stamped with the
@@ -1436,7 +1437,7 @@ func (s *TTSStageWithInterruption) synthesisConfig() tts.SynthesisConfig {
 
 // isAssistantMessage reports whether elem carries an assistant Message.
 func isAssistantMessage(elem *StreamElement) bool {
-	return elem.Message != nil && elem.Message.Role == roleAssistant
+	return elem.Message != nil && elem.Message.Role == core.RoleAssistant
 }
 
 // extractText extracts text content from an element.
@@ -1458,7 +1459,7 @@ func (s *TTSStageWithInterruption) extractText(elem *StreamElement) string {
 	// hears their own question read back before it is answered. Tool results are
 	// likewise data for later stages, not lines to read aloud. A bare Text
 	// element carries no role and stays an explicit "speak this" instruction.
-	if elem.Message != nil && elem.Message.Role == roleAssistant {
+	if elem.Message != nil && elem.Message.Role == core.RoleAssistant {
 		if elem.Message.Content != "" {
 			return elem.Message.Content
 		}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -206,7 +207,7 @@ func (s *TranscriptReorderStage) handle(
 		return s.handleTurnEnd(ctx, elem, output)
 	case elem.Text != nil:
 		return false, s.handleText(ctx, elem, output)
-	case elem.Message != nil && elem.Message.Role == roleTool:
+	case elem.Message != nil && elem.Message.Role == core.RoleTool:
 		return false, s.handleToolResult(ctx, elem, output)
 	default:
 		return false, s.handleOther(ctx, elem, output)
@@ -281,7 +282,7 @@ func (s *TranscriptReorderStage) moveBlockedReplyMark(elem *StreamElement) {
 	elem.Message = &moved
 	for i := range s.buffered {
 		held := s.buffered[i].Message
-		if held == nil || held.Role != roleAssistant || len(held.ToolCalls) > 0 {
+		if held == nil || held.Role != core.RoleAssistant || len(held.ToolCalls) > 0 {
 			continue
 		}
 		marked := *held
@@ -447,7 +448,7 @@ func (s *TranscriptReorderStage) resolveFinishedTurn(ctx context.Context, output
 // (when no user turn was shown), then everything held.
 func (s *TranscriptReorderStage) resolvePending(ctx context.Context, output chan<- StreamElement) error {
 	if !s.userEmitted && s.placeholder != "" {
-		ph := StreamElement{Message: &types.Message{Role: roleUser, Content: s.placeholder}}
+		ph := StreamElement{Message: &types.Message{Role: core.RoleUser, Content: s.placeholder}}
 		if err := s.send(ctx, output, ph); err != nil {
 			return err
 		}
@@ -513,5 +514,5 @@ func makesToolCalls(elem *StreamElement) bool {
 // user-role Message). The turn-boundary EndOfStream element carries an
 // assistant Message and is handled separately.
 func isUserTurnElement(elem *StreamElement) bool {
-	return elem.Message != nil && elem.Message.Role == roleUser && !elem.EndOfStream
+	return elem.Message != nil && elem.Message.Role == core.RoleUser && !elem.EndOfStream
 }

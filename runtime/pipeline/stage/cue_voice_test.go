@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -574,7 +575,7 @@ func TestCueVoice_SessionStartDoesNotDelayTheFirstReply(t *testing.T) {
 	require.NoError(t, err)
 	var replies []string
 	for _, e := range out {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			replies = append(replies, e.Message.Content)
 		}
 	}

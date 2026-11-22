@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -70,7 +71,7 @@ func replyAudio(d time.Duration) StreamElement {
 
 // replyEnd is a completed reply's turn-end.
 func replyEnd(text string) StreamElement {
-	return StreamElement{EndOfStream: true, Message: &types.Message{Role: roleAssistant, Content: text,
+	return StreamElement{EndOfStream: true, Message: &types.Message{Role: core.RoleAssistant, Content: text,
 		FinishReason: "stop", Meta: map[string]interface{}{finishReasonMetaKey: "stop"}}}
 }
 
@@ -93,7 +94,7 @@ func startHold(t *testing.T) *holdRun {
 	t.Helper()
 	fc := &fakeHoldClock{t: holdT0}
 	s := NewPlayoutHoldStage()
-	s.clock = holdClock{now: fc.now, until: fc.until}
+	s.clock = core.HoldClock{Now: fc.now, Until: fc.until}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	r := &holdRun{clock: fc, in: make(chan StreamElement, 16), out: make(chan StreamElement, 64),
@@ -171,7 +172,7 @@ func TestPlayoutHold_FullyPlayedReplyReleasedUnchanged(t *testing.T) {
 	assert.False(t, rel.EndOfStream, "the release is not a second turn end")
 	assert.True(t, rel.Meta.PlayoutTurnEnd, "it records that the held element was one")
 	assert.Equal(t, holdT0, rel.Timestamp, "the release keeps the held time")
-	assert.Equal(t, types.Message{Role: roleAssistant, Content: "All done.", FinishReason: "stop",
+	assert.Equal(t, types.Message{Role: core.RoleAssistant, Content: "All done.", FinishReason: "stop",
 		Meta: map[string]interface{}{finishReasonMetaKey: "stop"}}, *rel.Message)
 	close(r.in)
 	require.NoError(t, <-r.done)
@@ -202,7 +203,7 @@ func TestPlayoutHold_BargeInRecordsWhatWasHeard(t *testing.T) {
 func TestPlayoutHold_BargedInPartialReplyIsATurnEnd(t *testing.T) {
 	r := startHold(t)
 	partial := bargeInElem()
-	partial.Message = &types.Message{Role: roleAssistant, Content: "Once upon", FinishReason: "interrupted"}
+	partial.Message = &types.Message{Role: core.RoleAssistant, Content: "Once upon", FinishReason: "interrupted"}
 	got := r.pass(t, replyAudio(time.Second), partial)
 	assert.True(t, got[1].Meta.PlayoutHeld, "the partial reply goes on at once, its Message held")
 	rel := r.next(t)
@@ -218,7 +219,7 @@ func TestPlayoutHold_BargedInPartialReplyIsATurnEnd(t *testing.T) {
 // is released, so a stage after the hold can tell it answers that reply.
 func TestPlayoutHold_ReleasedLateTranscriptKeepsItsMark(t *testing.T) {
 	r := startHold(t)
-	late := StreamElement{Message: &types.Message{Role: roleUser, Content: "hello"}}
+	late := StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "hello"}}
 	late.Meta.LateTranscript = true
 	got := r.pass(t, replyAudio(150*time.Millisecond), replyEnd("Sure."), late)
 	assert.True(t, got[2].Meta.PlayoutHeld, "held behind the reply")
@@ -282,7 +283,7 @@ func TestPlayoutHold_LaterMessagesKeepTheirPlace(t *testing.T) {
 	r := startHold(t)
 	r.pass(t, replyAudio(50*time.Millisecond), replyEnd("Short."))
 	r.clock.advance(10 * time.Millisecond)
-	r.pass(t, StreamElement{Message: &types.Message{Role: roleUser, Content: "and then?"}},
+	r.pass(t, StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "and then?"}},
 		replyAudio(time.Second), replyEnd("Long."))
 	r.clock.advance(240 * time.Millisecond)
 	r.pass(t, bargeInElem())
@@ -323,7 +324,7 @@ func TestPlayoutHold_ErroredReplyAudioNotCarriedOver(t *testing.T) {
 // The pipeline's completion totals count a held message once: the release
 // repeats it.
 func TestCompletionTotals_CountHeldMessageOnce(t *testing.T) {
-	msg := &types.Message{Role: roleAssistant, Content: "x",
+	msg := &types.Message{Role: core.RoleAssistant, Content: "x",
 		CostInfo: &types.CostInfo{InputTokens: 3, OutputTokens: 4, TotalCost: 0.5}}
 	held := StreamElement{Message: msg, EndOfStream: true}
 	held.Meta.PlayoutHeld = true
@@ -373,7 +374,7 @@ func (c *eosCounter) Process(ctx context.Context, input <-chan StreamElement, ou
 func TestPlayoutHold_OneTurnEndPerReply(t *testing.T) {
 	fc := &fakeHoldClock{t: holdT0}
 	hold := NewPlayoutHoldStage()
-	hold.clock = holdClock{now: fc.now, until: fc.until}
+	hold.clock = core.HoldClock{Now: fc.now, Until: fc.until}
 	rec := NewRecordingStage(&fakeEventStore{}, RecordingStageConfig{Position: RecordingPositionOutput})
 	counter := &eosCounter{BaseStage: NewBaseStage("eos-counter", StageTypeTransform)}
 	p, err := NewPipelineBuilder().Chain(hold, rec, counter, NewPassthroughStage("sink")).Build()
@@ -466,7 +467,7 @@ func TestPlayoutHold_TimeMovingWhileArmingTheWaitStillReleases(t *testing.T) {
 	fc := &fakeHoldClock{t: holdT0}
 	var once sync.Once
 	s := NewPlayoutHoldStage()
-	s.clock = holdClock{now: fc.now, until: func(deadline time.Time) <-chan time.Time {
+	s.clock = core.HoldClock{Now: fc.now, Until: func(deadline time.Time) <-chan time.Time {
 		once.Do(func() { fc.advance(time.Second) }) // the audio ends while the wait is armed
 		return fc.until(deadline)
 	}}

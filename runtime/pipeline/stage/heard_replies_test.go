@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -17,12 +18,12 @@ import (
 func TestHeardReplies_ApplySwapsTheLatestMatchOnACopy(t *testing.T) {
 	h := NewHeardReplies()
 	history := []types.Message{
-		{Role: roleAssistant, Content: "Hello."},
-		{Role: roleUser, Content: "again"},
-		{Role: roleAssistant, Content: "Hello."},
-		{Role: roleUser, Content: "Hello."}, // the caller's words are never swapped
+		{Role: core.RoleAssistant, Content: "Hello."},
+		{Role: core.RoleUser, Content: "again"},
+		{Role: core.RoleAssistant, Content: "Hello."},
+		{Role: core.RoleUser, Content: "Hello."}, // the caller's words are never swapped
 	}
-	heard := types.Message{Role: roleAssistant, Content: "", FinishReason: types.FinishReasonInterrupted}
+	heard := types.Message{Role: core.RoleAssistant, Content: "", FinishReason: types.FinishReasonInterrupted}
 	h.record("Hello.", &heard)
 	h.record("Never written.", &heard)
 
@@ -93,21 +94,21 @@ func TestProviderStage_NextTurnSeesWhatTheCallerHeard(t *testing.T) {
 	go func() { done <- st.Process(context.Background(), input, output) }()
 	send := func(e StreamElement) { within(t, "a send", func() bool { input <- e; return true }) }
 
-	send(NewMessageElement(&types.Message{Role: roleUser, Content: "tell me a story"}))
+	send(NewMessageElement(&types.Message{Role: core.RoleUser, Content: "tell me a story"}))
 	send(NewEndOfTurnElement())
 	for e := recvWithin(t, output); !e.EndOfTurn; e = recvWithin(t, output) {
 	}
 	send(NewInterruptElement()) // the caller barges in on "reply-1"
 	recvWithin(t, output)
 
-	cut := types.Message{Role: roleAssistant, Content: "rep", FinishReason: types.FinishReasonInterrupted,
+	cut := types.Message{Role: core.RoleAssistant, Content: "rep", FinishReason: types.FinishReasonInterrupted,
 		Meta: map[string]interface{}{types.MetaPlayoutCut: types.PlayoutCutBargeIn, types.MetaHeardPrefix: true}}
 	go func() {
 		time.Sleep(20 * time.Millisecond) // the speech-out stage handles the Interrupt
 		heard.record("reply-1", &cut)
 		heard.settle()
 	}()
-	send(NewMessageElement(&types.Message{Role: roleUser, Content: "stop"}))
+	send(NewMessageElement(&types.Message{Role: core.RoleUser, Content: "stop"}))
 	send(NewEndOfTurnElement())
 	close(input)
 	require.NoError(t, recvWithin(t, done))
@@ -115,7 +116,7 @@ func TestProviderStage_NextTurnSeesWhatTheCallerHeard(t *testing.T) {
 	require.Len(t, prov.requests, 2)
 	var assistant []string
 	for _, m := range prov.requests[1] {
-		if m.Role == roleAssistant {
+		if m.Role == core.RoleAssistant {
 			assistant = append(assistant, m.Content)
 		}
 	}
@@ -127,21 +128,21 @@ func TestProviderStage_NextTurnSeesWhatTheCallerHeard(t *testing.T) {
 // first round that did not complete.
 func TestCompletedRounds(t *testing.T) {
 	call := func(ids ...string) types.Message {
-		m := types.Message{Role: roleAssistant, Content: "Let me check."}
+		m := types.Message{Role: core.RoleAssistant, Content: "Let me check."}
 		for _, id := range ids {
 			m.ToolCalls = append(m.ToolCalls, types.MessageToolCall{ID: id, Name: "t"})
 		}
 		return m
 	}
 	result := func(id string) types.Message {
-		return types.Message{Role: roleTool, ToolResult: &types.MessageToolResult{ID: id}}
+		return types.Message{Role: core.RoleTool, ToolResult: &types.MessageToolResult{ID: id}}
 	}
 	// A scan that makes no progress loops forever: every call is bounded.
 	kept := func(msgs []types.Message) []types.Message {
 		return within(t, "completedRounds", func() []types.Message { return completedRounds(msgs) })
 	}
-	fragment := types.Message{Role: roleAssistant, Content: "It is", FinishReason: types.FinishReasonInterrupted}
-	text := types.Message{Role: roleAssistant, Content: "Sure."}
+	fragment := types.Message{Role: core.RoleAssistant, Content: "It is", FinishReason: types.FinishReasonInterrupted}
+	text := types.Message{Role: core.RoleAssistant, Content: "Sure."}
 
 	assert.Nil(t, kept(nil))
 	assert.Nil(t, kept([]types.Message{call("c1")}), "a call with no result is not a completed round")

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -81,7 +82,7 @@ func (h *replyHoldHook) AfterCall(_ context.Context, req *hooks.ProviderRequest,
 	h.mu.Lock()
 	h.callerSaid = ""
 	for _, m := range req.Messages {
-		if m.Role == roleUser {
+		if m.Role == core.RoleUser {
 			h.callerSaid = m.Content
 		}
 	}

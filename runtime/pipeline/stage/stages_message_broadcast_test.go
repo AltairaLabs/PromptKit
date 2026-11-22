@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -83,7 +84,7 @@ func runBroadcast(t *testing.T, elems []StreamElement, want int) []*events.Messa
 // — agree with the code under test and with nothing else, which is how a live
 // route shipped with a blank user turn.
 func realMessage(role, text string) types.Message {
-	if role == roleUser {
+	if role == core.RoleUser {
 		t := text
 		return types.Message{
 			Role:  role,

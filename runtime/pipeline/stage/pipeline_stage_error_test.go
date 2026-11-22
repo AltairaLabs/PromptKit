@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
@@ -259,7 +260,7 @@ func TestExecute_EmittedErrorStillSignaledButDeliveredOnce(t *testing.T) {
 
 	_, inputErrs, _ := probe.observed()
 	require.Len(t, inputErrs, 2)
-	var sig *turnFailureSignal
+	var sig *core.TurnFailureSignal
 	assert.ErrorAs(t, inputErrs[1], &sig, "the last error downstream is the turn-failure signal")
 }
 
@@ -296,7 +297,7 @@ func TestContextBuilder_ForwardsUpstreamErrorWithoutTruncating(t *testing.T) {
 	cb := NewContextBuilderStage(&ContextBuilderPolicy{TokenBudget: 1000})
 	in := make(chan StreamElement, 2)
 	in <- userElement("hi")
-	in <- newTurnFailureSignal(errStageBoom)
+	in <- core.NewTurnFailureSignal(errStageBoom)
 	close(in)
 	out := make(chan StreamElement, 4)
 
@@ -325,7 +326,7 @@ func TestTemplateStage_ForwardsUpstreamErrorWithoutRendering(t *testing.T) {
 	turnState.Template = &prompt.Template{TaskType: "chat", RawTemplate: "Hi {{missing}}."}
 	ts := NewTemplateStageWithTurnState(nil, turnState)
 	in := make(chan StreamElement, 1)
-	in <- newTurnFailureSignal(errStageBoom)
+	in <- core.NewTurnFailureSignal(errStageBoom)
 	close(in)
 	out := make(chan StreamElement, 1)
 
@@ -545,7 +546,7 @@ func TestExecuteSync_BranchUpstreamFailureSignalsEveryReader(t *testing.T) {
 					defer close(out)
 					saw := false
 					for e := range in {
-						if isTurnFailureSignal(&e) {
+						if core.IsTurnFailureSignal(&e) {
 							saw = true
 						}
 					}
@@ -631,7 +632,7 @@ func TestProviderStage_TurnFailureSignalSkipsModel(t *testing.T) {
 	ps := NewProviderStage(provider, nil, nil, nil)
 	in := make(chan StreamElement, 2)
 	in <- userElement("hi")
-	in <- newTurnFailureSignal(NewStageError("template", StageTypeTransform, ErrTemplateUnresolved))
+	in <- core.NewTurnFailureSignal(NewStageError("template", StageTypeTransform, ErrTemplateUnresolved))
 	close(in)
 	out := make(chan StreamElement, 8)
 
@@ -651,7 +652,7 @@ func TestRecordingStage_DoesNotRecordTurnFailureSignal(t *testing.T) {
 		store := &fakeEventStore{}
 		rs := NewRecordingStage(store, RecordingStageConfig{Position: pos, SessionID: "s"})
 		in := make(chan StreamElement, 2)
-		in <- newTurnFailureSignal(NewStageError("template", StageTypeTransform, ErrTemplateUnresolved))
+		in <- core.NewTurnFailureSignal(NewStageError("template", StageTypeTransform, ErrTemplateUnresolved))
 		in <- NewErrorElement(errStageBoom)
 		close(in)
 		out := make(chan StreamElement, 2)

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
 
@@ -85,7 +86,7 @@ func TestExecute_BranchEmittedAndReturnedErrorSignalsEveryReader(t *testing.T) {
 			func(_ context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 				defer close(out)
 				for e := range in {
-					if isTurnFailureSignal(&e) {
+					if core.IsTurnFailureSignal(&e) {
 						signaled <- name
 					}
 					out <- e
@@ -118,13 +119,13 @@ func TestCompletionTotals_FailureReachesCallerOnce(t *testing.T) {
 	other := NewErrorElement(fmt.Errorf("frame 3 could not be decoded"))
 
 	signalFirst := &completionTotals{}
-	sig, plain := newTurnFailureSignal(stageErr), NewErrorElement(errStageBoom)
+	sig, plain := core.NewTurnFailureSignal(stageErr), NewErrorElement(errStageBoom)
 	require.True(t, signalFirst.observe(&sig))
 	assert.False(t, signalFirst.observe(&plain), "the error element after its signal is a repeat")
 	assert.True(t, signalFirst.observe(&other))
 
 	plainFirst := &completionTotals{}
-	sig, plain = newTurnFailureSignal(stageErr), NewErrorElement(errStageBoom)
+	sig, plain = core.NewTurnFailureSignal(stageErr), NewErrorElement(errStageBoom)
 	require.True(t, plainFirst.observe(&plain))
 	assert.False(t, plainFirst.observe(&sig), "the signal after its error element is a repeat")
 	assert.True(t, plainFirst.observe(&other))

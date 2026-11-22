@@ -277,6 +277,13 @@ api-compat-check: ## Check the API changes fit a claimed version (usage: make ap
 stage-api-check: ## Check pipeline/stage's API against a base, as CI does on PRs (usage: make stage-api-check [BASE=origin/main])
 	@./scripts/check-stage-api.sh "$(or $(BASE),origin/main)"
 
+stage-aliases: ## Regenerate stage's re-exports of a stage/internal package (usage: make stage-aliases PKG=core [BASE=origin/main])
+	@./scripts/gen-stage-aliases.sh "$(PKG)" "$(or $(BASE),origin/main)"
+
+stage-aliases-check: ## Fail if a generated stage/*_aliases.go was edited by hand; test the generator
+	@cd tools/stage-aliases-gen && GOWORK=off go test ./...
+	@./scripts/check-stage-aliases.sh
+
 spec-version-check: ## Check the README's spec badge matches the embedded schema (for CI)
 	@./scripts/check-spec-version.sh
 

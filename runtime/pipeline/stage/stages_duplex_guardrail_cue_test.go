@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,11 +204,11 @@ func TestDuplexGuardrailCue_UnstoppableReplyEndsWithoutAnotherCut(t *testing.T) 
 
 // blockedTypedTurn is a typed user turn an input guardrail blocked with text.
 func blockedTypedTurn(text string) *duplexBlockedTurn {
-	msg := types.Message{Role: roleAssistant, Content: text, FinishReason: types.FinishReasonSafety}
+	msg := types.Message{Role: core.RoleAssistant, Content: text, FinishReason: types.FinishReasonSafety}
 	return &duplexBlockedTurn{
 		msg:      msg,
 		decision: hooks.Decision{Allow: false, Reason: "banned", Enforced: true},
-		user:     &types.Message{Role: roleUser, Content: "tell me about Bruno"},
+		user:     &types.Message{Role: core.RoleUser, Content: "tell me about Bruno"},
 	}
 }
 

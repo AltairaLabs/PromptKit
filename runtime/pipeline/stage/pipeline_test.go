@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -64,8 +65,8 @@ func TestPipelineRollup_DoesNotDropBreakdown(t *testing.T) {
 	}
 
 	out := make(chan StreamElement, 2)
-	out <- StreamElement{Message: &types.Message{Role: roleAssistant, CostInfo: m1}}
-	out <- StreamElement{Message: &types.Message{Role: roleAssistant, CostInfo: m2}}
+	out <- StreamElement{Message: &types.Message{Role: core.RoleAssistant, CostInfo: m1}}
+	out <- StreamElement{Message: &types.Message{Role: core.RoleAssistant, CostInfo: m2}}
 	close(out)
 
 	p := &StreamPipeline{}

@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -150,7 +151,7 @@ func (sc *costScenario) userTurn() {
 	}
 	sc.log = append(sc.log, "user")
 	before := len(sc.started())
-	user := types.Message{Role: roleUser, Content: "next"}
+	user := types.Message{Role: core.RoleUser, Content: "next"}
 	sc.h.input <- StreamElement{Message: &user}
 	sc.awaitUserTurn()
 	sc.firstAfterUser = append(sc.firstAfterUser, before)
@@ -192,7 +193,7 @@ func (sc *costScenario) userDuringReply() {
 	sc.emit("reply-streaming", gen(r, []providers.StreamChunk{{Content: tok(r), Delta: tok(r)}}))
 	sc.settle()
 	sc.log = append(sc.log, "user-mid-reply")
-	user := types.Message{Role: roleUser, Content: "actually, Rome"}
+	user := types.Message{Role: core.RoleUser, Content: "actually, Rome"}
 	sc.h.input <- StreamElement{Message: &user}
 	sc.awaitUserTurnDue()
 	stop := "stop"
@@ -237,7 +238,7 @@ func (sc *costScenario) bargeBeforeOutput() {
 	if sc.h.toolTurn() != nil {
 		return
 	}
-	user := types.Message{Role: roleUser, Content: "hello?"}
+	user := types.Message{Role: core.RoleUser, Content: "hello?"}
 	sc.h.input <- StreamElement{Message: &user}
 	sc.awaitUserTurn()
 	if sc.gen > 0 {
@@ -508,7 +509,7 @@ func (sc *costScenario) assertDelivered(elems []StreamElement, ev *callEvents, l
 	for g, want := range sc.expected {
 		n := 0
 		for _, e := range elems {
-			if e.Message != nil && e.Message.Role == roleAssistant && e.Message.Content == want {
+			if e.Message != nil && e.Message.Role == core.RoleAssistant && e.Message.Content == want {
 				n++
 			}
 		}
@@ -576,7 +577,7 @@ func assertOwnContent(t *testing.T, elems []StreamElement, tools []*events.ToolC
 	t.Helper()
 	for _, e := range elems {
 		m := e.Message
-		if m == nil || m.Role != roleAssistant {
+		if m == nil || m.Role != core.RoleAssistant {
 			continue
 		}
 		gens := map[string]bool{}

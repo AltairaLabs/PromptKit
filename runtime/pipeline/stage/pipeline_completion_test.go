@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -37,7 +38,7 @@ func TestPipelineCompleted_ReportsMessageCount(t *testing.T) {
 	pipeline.eventEmitter = emitter
 
 	msg := types.Message{
-		Role:     roleAssistant,
+		Role:     core.RoleAssistant,
 		Content:  "hello",
 		CostInfo: &types.CostInfo{InputTokens: 5, OutputTokens: 7, TotalCost: 0.01},
 	}

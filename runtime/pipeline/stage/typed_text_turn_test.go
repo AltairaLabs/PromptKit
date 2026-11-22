@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,7 +83,7 @@ func assistantContents(out <-chan StreamElement) <-chan string {
 	go func() {
 		defer close(ch)
 		for e := range out {
-			if e.Message != nil && e.Message.Role == roleAssistant {
+			if e.Message != nil && e.Message.Role == core.RoleAssistant {
 				ch <- e.Message.Content
 			}
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -200,7 +201,7 @@ func TestDuplexGuardrail_LiveTextHoldsTheStartOfABannedWord(t *testing.T) {
 func liveTextOf(elems []StreamElement) []string {
 	var out []string
 	for _, e := range elems {
-		if e.Text == nil || (e.Message != nil && e.Message.Role != roleAssistant) {
+		if e.Text == nil || (e.Message != nil && e.Message.Role != core.RoleAssistant) {
 			continue
 		}
 		if e.Meta.ReplacesText {

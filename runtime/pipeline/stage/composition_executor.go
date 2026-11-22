@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition/engine"
@@ -303,7 +304,7 @@ func (deps CompositionExecutorDeps) execLLM(
 		return nil, fmt.Errorf("step %q: building sub-pipeline: %w", step.ID, err)
 	}
 
-	userMsg := types.Message{Role: roleUser, Content: stepInputToText(input)}
+	userMsg := types.Message{Role: core.RoleUser, Content: stepInputToText(input)}
 	res, err := pipe.ExecuteSync(ctx, NewMessageElement(&userMsg))
 	// A caller cancel is silent in the sub-pipeline: it ends with whatever it
 	// produced, which may be nothing or a partial turn. Report the cancel

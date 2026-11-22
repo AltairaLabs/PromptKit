@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
 const (
 	compactedPreviewMaxBytes = 100
-	roleTool                 = "tool"
 	minCompactableBytes      = 50
 )
 
@@ -27,7 +27,7 @@ func (r *foldToolResultsRule) Name() string { return "fold_tool_results" }
 
 // CanFold implements CompactionRule.
 func (r *foldToolResultsRule) CanFold(msg *types.Message, _ int, _ *CompactionContext) bool {
-	if msg.Role != roleTool {
+	if msg.Role != core.RoleTool {
 		return false
 	}
 	if msg.ToolResult != nil && msg.ToolResult.Error != "" {
@@ -52,7 +52,7 @@ func foldToolResult(msg *types.Message) string {
 		name = msg.ToolResult.Name
 	}
 	if name == "" {
-		name = roleTool
+		name = core.RoleTool
 	}
 
 	// Handle multimodal parts

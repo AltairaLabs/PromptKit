@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func TestRunAfterCallHooks_EnforcedKeepsEachValidationOnce(t *testing.T) {
 		&ProviderConfig{}, nil, reg)
 
 	chunkFiring := types.ValidationResult{ValidatorType: "streaming_check"}
-	msg := types.Message{Role: roleAssistant, Content: "original",
+	msg := types.Message{Role: core.RoleAssistant, Content: "original",
 		Validations: []types.ValidationResult{chunkFiring}}
 	var toolCalls []types.MessageToolCall
 
@@ -86,7 +87,7 @@ func TestRunAfterCallHooks_HookValidationsDoNotAliasTheMessage(t *testing.T) {
 		&ProviderConfig{}, nil, hooks.NewRegistry(hooks.WithProviderHook(appendingEnforceHook{})))
 	vs := make([]types.ValidationResult, 1, 8)
 	vs[0] = types.ValidationResult{ValidatorType: "prior"}
-	msg := types.Message{Role: roleAssistant, Validations: vs}
+	msg := types.Message{Role: core.RoleAssistant, Validations: vs}
 	var toolCalls []types.MessageToolCall
 
 	require.NoError(t, s.runAfterCallHooks(context.Background(), &afterCallParams{

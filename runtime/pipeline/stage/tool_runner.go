@@ -18,6 +18,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -246,7 +247,7 @@ func (r *toolRunner) runToolCalls(
 
 	// Running tools is activity, so hold the idle timer open until they finish.
 	// Each tool is still bounded by its own TimeoutMs.
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 
 	resultSlots := make([]toolCallResult, len(toolCalls))
 

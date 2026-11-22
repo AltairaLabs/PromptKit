@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -94,7 +95,7 @@ func (m FrameExtractionMode) String() string {
 	case FrameExtractionFPS:
 		return "fps"
 	default:
-		return unknownType
+		return core.UnknownType
 	}
 }
 
@@ -310,7 +311,7 @@ func (s FrameSelectionStrategy) String() string {
 	case FrameSelectionLast:
 		return "last"
 	default:
-		return unknownType
+		return core.UnknownType
 	}
 }
 
@@ -537,7 +538,7 @@ func (s *FramesToMessageStage) composeMessage(pf *pendingFrames) (*types.Message
 
 	// Create message
 	msg := &types.Message{
-		Role:      roleUser,
+		Role:      core.RoleUser,
 		Timestamp: time.Now(),
 	}
 

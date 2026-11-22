@@ -3,6 +3,7 @@ package stage
 import (
 	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -92,7 +93,7 @@ func resumedCallerTurns(prior []types.Message, userTurns int) int {
 // storedCallerTurn reads the caller turn stored on m, in whatever numeric
 // form the store gave it back.
 func storedCallerTurn(m *types.Message) (int, bool) {
-	if m.Role != roleAssistant {
+	if m.Role != core.RoleAssistant {
 		return 0, false
 	}
 	switch v := m.Meta[types.MetaCallerTurn].(type) {

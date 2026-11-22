@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -410,7 +411,7 @@ type alwaysFoldRule struct {
 func (r *alwaysFoldRule) Name() string { return r.name }
 
 func (r *alwaysFoldRule) CanFold(msg *types.Message, _ int, _ *CompactionContext) bool {
-	return msg.Role == roleTool
+	return msg.Role == core.RoleTool
 }
 
 func (r *alwaysFoldRule) Fold(msg *types.Message, _ int, _ *CompactionContext) (string, []int) {
@@ -478,7 +479,7 @@ type trackingRule struct {
 
 func (r *trackingRule) Name() string { return r.name }
 func (r *trackingRule) CanFold(msg *types.Message, _ int, _ *CompactionContext) bool {
-	return r.canFold && msg.Role == roleTool && len(msg.GetContent()) >= 50
+	return r.canFold && msg.Role == core.RoleTool && len(msg.GetContent()) >= 50
 }
 func (r *trackingRule) Fold(msg *types.Message, _ int, _ *CompactionContext) (string, []int) {
 	(*r.called)[r.name]++
@@ -504,7 +505,7 @@ func TestCompactor_DefaultRuleWhenNoRulesSet(t *testing.T) {
 	assert.Greater(t, result.MessagesFolded, 0)
 	// Should use default FoldToolResults format
 	for _, msg := range result.Messages {
-		if msg.Role == roleTool && strings.Contains(msg.Content, compactedMarker) {
+		if msg.Role == core.RoleTool && strings.Contains(msg.Content, compactedMarker) {
 			assert.Contains(t, msg.Content, "file_read")
 			break
 		}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -257,7 +258,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	// id, so its text, and the end of the call, name that id.
 	rr.messageID = tl.messages[last].ID()
 
-	started := timeNow()
+	started := core.TimeNow()
 	resp, late, held, err := tl.reaskCall(ctx, req, rr)
 	tl.endReask(ctx, rr.messageID, resp.FinishReason, held, err)
 	if err != nil {
@@ -266,7 +267,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 				Provider: prov.ID(),
 				Model:    prov.Model(),
 				Error:    err,
-				Duration: timeNow().Sub(started),
+				Duration: core.TimeNow().Sub(started),
 				Source:   s.config.Source,
 				Labels:   s.config.Labels,
 				Round:    rr.round,
@@ -286,7 +287,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		tl.markSchemaUnapplied("final-turn re-ask failed: " + err.Error())
 		return
 	}
-	duration := timeNow().Sub(started)
+	duration := core.TimeNow().Sub(started)
 
 	if resp.CostInfo != nil {
 		if resp.CostInfo.ProviderName == "" {
@@ -325,11 +326,11 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	tl.stage.reportLateUsage(ctx, late, prov, roundRef{round: rr.round, providerCallID: callID})
 
 	constrained := types.Message{
-		Role:         roleAssistant,
+		Role:         core.RoleAssistant,
 		Content:      resp.Content,
 		Parts:        resp.Parts,
 		Reasoning:    resp.Reasoning,
-		Timestamp:    timeNow(),
+		Timestamp:    core.TimeNow(),
 		LatencyMs:    duration.Milliseconds(),
 		CostInfo:     resp.CostInfo,
 		FinishReason: resp.FinishReason,
@@ -372,7 +373,7 @@ func (tl *toolLoop) endReask(
 	if tl.output == nil {
 		return
 	}
-	var fwd cancelForwarder
+	var fwd core.CancelForwarder
 	if err != nil {
 		// reaskCall holds nothing of a failed re-ask.
 		if text := tl.messages[len(tl.messages)-1].GetContent(); text != "" {
@@ -383,7 +384,7 @@ func (tl *toolLoop) endReask(
 		messageID, finishReason = types.NewMessageID(), types.FinishReasonError
 	}
 	for i := range held {
-		fwd.forward(ctx, tl.output, held[i])
+		fwd.Forward(ctx, tl.output, held[i])
 	}
 	if !tl.reportsRounds {
 		return

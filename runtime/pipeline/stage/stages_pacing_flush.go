@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // pacedElem is an element waiting at a flush-on-cut pacer, tagged with the
@@ -66,7 +68,7 @@ func (q *pacerQueue) read(ctx context.Context, input <-chan StreamElement) {
 // sleep for a preemptible cue's audio.
 func (q *pacerQueue) add(elem StreamElement) {
 	q.mu.Lock()
-	if isCut(&elem) {
+	if core.IsCut(&elem) {
 		q.cuts++
 		if q.stopSleep != nil {
 			q.stopSleep()
@@ -183,7 +185,7 @@ func (s *AudioPacingStage) forwardQueued(
 	ctx context.Context, q *pacerQueue, item pacedElem, output chan<- StreamElement,
 ) error {
 	elem := item.elem
-	if !isCut(&elem) && pacesAudio(&elem) {
+	if !core.IsCut(&elem) && pacesAudio(&elem) {
 		played, err := s.paceQueued(ctx, q, item)
 		if err != nil {
 			return err
@@ -199,7 +201,7 @@ func (s *AudioPacingStage) forwardQueued(
 			}
 		}
 	}
-	if isCut(&elem) || elem.EndOfStream {
+	if core.IsCut(&elem) || elem.EndOfStream {
 		s.resetSequence()
 	}
 	select {

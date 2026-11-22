@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/stagetest"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -96,29 +98,29 @@ func TestDuplexProviderStage_OpenTurnIsNotIdle(t *testing.T) {
 // hold stops and the idle timer fires as normal.
 func TestDuplexProviderStage_OpenTurnHoldEndsAtTurnComplete(t *testing.T) {
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, 40*time.Millisecond)
-	ticker := newFakeTicker()
+	ctx := core.ContextWithIdleReset(context.Background(), func() { resets.Add(1) }, 40*time.Millisecond)
+	ticker := stagetest.NewFakeTicker()
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
-	s.idleHoldTicker = ticker.start
+	s.idleHoldTicker = ticker.Start
 	r := startOpenTurnRig(t, ctx, s, sess)
 
 	r.send(audioChunk())
 	r.send(audioChunk()) // a second chunk of the same turn starts no second hold
 	before := resets.Load()
-	ticker.tick(t)
+	tickHeartbeat(t, ticker)
 	require.Eventually(t, func() bool { return resets.Load() == before+1 }, idleProbeBound, time.Millisecond,
 		"each heartbeat of an open turn resets the idle timer")
 	r.send(turnCompleteChunk())
 
 	select {
-	case <-ticker.stopped:
+	case <-ticker.Stopped:
 	case <-time.After(idleProbeBound):
 		t.Fatal("the open-turn hold kept running after the turn completed")
 	}
-	assert.Equal(t, 20*time.Millisecond, ticker.interval, "the hold ticks every half idle window")
+	assert.Equal(t, 20*time.Millisecond, ticker.Interval, "the hold ticks every half idle window")
 	select {
-	case ticker.ticks <- time.Time{}:
+	case ticker.Ticks <- time.Time{}:
 		t.Fatal("the hold took a tick after the turn completed")
 	default:
 	}
@@ -130,21 +132,21 @@ func TestDuplexProviderStage_OpenTurnHoldEndsAtTurnComplete(t *testing.T) {
 // after openTurnMaxHold so the idle timer can still end it.
 func TestDuplexProviderStage_OpenTurnHoldIsBounded(t *testing.T) {
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, 40*time.Millisecond)
-	ticker := newFakeTicker()
+	ctx := core.ContextWithIdleReset(context.Background(), func() { resets.Add(1) }, 40*time.Millisecond)
+	ticker := stagetest.NewFakeTicker()
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
-	s.idleHoldTicker = ticker.start
+	s.idleHoldTicker = ticker.Start
 	s.openTurnMaxHold = 60 * time.Millisecond // three 20ms heartbeats
 	r := startOpenTurnRig(t, ctx, s, sess)
 
 	r.send(audioChunk())
 	afterChunk := resets.Load()
 	for range 3 {
-		ticker.tick(t)
+		tickHeartbeat(t, ticker)
 	}
 	select {
-	case <-ticker.stopped:
+	case <-ticker.Stopped:
 	case <-time.After(idleProbeBound):
 		t.Fatal("the open-turn hold outlived openTurnMaxHold")
 	}
@@ -156,42 +158,43 @@ func TestDuplexProviderStage_OpenTurnHoldIsBounded(t *testing.T) {
 // transcript is not the provider's reply, so it holds nothing open.
 func TestDuplexProviderStage_UserTranscriptOpensNoTurn(t *testing.T) {
 	var resets atomic.Int64
-	ctx := contextWithIdleReset(context.Background(), func() { resets.Add(1) }, 40*time.Millisecond)
-	ticker := newFakeTicker()
+	ctx := core.ContextWithIdleReset(context.Background(), func() { resets.Add(1) }, 40*time.Millisecond)
+	ticker := stagetest.NewFakeTicker()
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
-	s.idleHoldTicker = ticker.start
+	s.idleHoldTicker = ticker.Start
 	r := startOpenTurnRig(t, ctx, s, sess)
 
 	r.send(providers.StreamChunk{Delta: "hello", Metadata: map[string]interface{}{"type": "input_transcription"}})
 	r.finish()
-	assert.Zero(t, ticker.interval, "an input transcript started an open-turn hold")
+	assert.Zero(t, ticker.Interval, "an input transcript started an open-turn hold")
 }
 
 // TestDuplexProviderStage_OpenTurnHoldEndsWithResponseLoop: a turn still open
 // when the response loop ends leaves no heartbeat running behind it.
 func TestDuplexProviderStage_OpenTurnHoldEndsWithResponseLoop(t *testing.T) {
-	ctx := contextWithIdleReset(context.Background(), func() {}, 40*time.Millisecond)
-	ticker := newFakeTicker()
+	ctx := core.ContextWithIdleReset(context.Background(), func() {}, 40*time.Millisecond)
+	ticker := stagetest.NewFakeTicker()
 	sess := newRecordingSession()
 	s := stageWithSession(sess)
-	s.idleHoldTicker = ticker.start
+	s.idleHoldTicker = ticker.Start
 	r := startOpenTurnRig(t, ctx, s, sess)
 
 	r.send(audioChunk())
 	r.finish()
 	select {
-	case <-ticker.stopped:
+	case <-ticker.Stopped:
 	case <-time.After(idleProbeBound):
 		t.Fatal("the open-turn hold outlived the response loop")
 	}
 }
 
-// tick delivers one heartbeat tick, failing if the heartbeat is not running.
-func (f *fakeTicker) tick(t *testing.T) {
+// tickHeartbeat delivers one heartbeat tick, failing if the heartbeat is not
+// running.
+func tickHeartbeat(t *testing.T, f *stagetest.FakeTicker) {
 	t.Helper()
 	select {
-	case f.ticks <- time.Time{}:
+	case f.Ticks <- time.Time{}:
 	case <-time.After(idleProbeBound):
 		t.Fatal("no heartbeat took the tick")
 	}

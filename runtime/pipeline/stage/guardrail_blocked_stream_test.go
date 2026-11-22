@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -57,7 +58,7 @@ func splitTurnStream(elems []StreamElement) (deltas []string, firstText, firstMs
 			}
 			deltas = append(deltas, *elems[i].Text)
 		}
-		if firstMsg == -1 && elems[i].Message != nil && elems[i].Message.Role == roleAssistant {
+		if firstMsg == -1 && elems[i].Message != nil && elems[i].Message.Role == core.RoleAssistant {
 			firstMsg = i
 		}
 	}

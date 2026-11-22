@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/inference"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -52,9 +53,9 @@ type StreamPipeline struct {
 	config       *PipelineConfig
 	eventEmitter *events.Emitter
 
-	// idleAfterFunc starts the IdleTimeout timer (see withIdleTimer). Nil means
+	// idleAfterFunc starts the IdleTimeout timer (see WithIdleTimer). Nil means
 	// time.AfterFunc; tests set a fake clock.
-	idleAfterFunc func(time.Duration, func()) idleTimer
+	idleAfterFunc func(time.Duration, func()) core.IdleTimer
 	// execTimeoutFunc applies the ExecutionTimeout. Nil means
 	// context.WithTimeoutCause; tests set one whose deadline they end.
 	execTimeoutFunc func(context.Context, time.Duration, error) (context.Context, context.CancelFunc)
@@ -202,11 +203,11 @@ func (p *StreamPipeline) execute(
 		var idleCancel context.CancelFunc
 		var resetIdle func()
 		if p.idleAfterFunc != nil {
-			execCtx, idleCancel, resetIdle = withIdleTimer(execCtx, p.config.IdleTimeout, p.idleAfterFunc)
+			execCtx, idleCancel, resetIdle = core.WithIdleTimer(execCtx, p.config.IdleTimeout, p.idleAfterFunc)
 		} else {
-			execCtx, idleCancel, resetIdle = withIdleTimeout(execCtx, p.config.IdleTimeout)
+			execCtx, idleCancel, resetIdle = core.WithIdleTimeout(execCtx, p.config.IdleTimeout)
 		}
-		execCtx = contextWithIdleReset(execCtx, resetIdle, p.config.IdleTimeout)
+		execCtx = core.ContextWithIdleReset(execCtx, resetIdle, p.config.IdleTimeout)
 		prevCancel := cancel
 		cancel = func() {
 			idleCancel()
@@ -620,7 +621,7 @@ func (p *StreamPipeline) startStages(
 // take a failed upstream's closed output for the end of a complete turn and act
 // on it, such as the provider stage calling the model with no system prompt.
 // With it, a failed upstream's error reaches the downstream stage as the last
-// element of its input, as a turn-failure signal (see isTurnFailureSignal).
+// element of its input, as a turn-failure signal (see IsTurnFailureSignal).
 //
 // ups is in the same order as inputs (both come from findUpstreamStages). A
 // gate stops reading once its own stage has returned. An input from a shared
@@ -668,8 +669,8 @@ func gateInput(in <-chan StreamElement, upstream *stageRun, consumerDone <-chan 
 		defer close(out)
 		signaled := false
 		for elem := range in {
-			signaled = signaled || isTurnFailureSignal(&elem)
-			tagErrorSource(&elem, upstream.name)
+			signaled = signaled || core.IsTurnFailureSignal(&elem)
+			core.TagErrorSource(&elem, upstream.name)
 			select {
 			case out <- elem:
 			case <-consumerDone:
@@ -750,8 +751,8 @@ func (d *distributor) run(in <-chan StreamElement, upstream *stageRun) {
 	// went to one reader only.
 	var forwarded *StreamElement
 	for elem := range in {
-		tagErrorSource(&elem, upstream.name)
-		if forwarded == nil && isTurnFailureSignal(&elem) {
+		core.TagErrorSource(&elem, upstream.name)
+		if forwarded == nil && core.IsTurnFailureSignal(&elem) {
 			sig := elem
 			forwarded = &sig
 		}
@@ -829,7 +830,7 @@ func (d *distributor) send(elem StreamElement) bool {
 // handedTo notes that reader i took elem, and whether it was a turn-failure
 // signal.
 func (d *distributor) handedTo(i int, elem *StreamElement) {
-	if d.signaled != nil && isTurnFailureSignal(elem) {
+	if d.signaled != nil && core.IsTurnFailureSignal(elem) {
 		d.signaled[i] = true
 	}
 }
@@ -856,66 +857,12 @@ func (d *distributor) buildCases() {
 	}
 }
 
-// turnFailureSignal is the error of the element that tells a downstream stage
-// an upstream stage failed the turn. It reads and unwraps as the failure itself
-// (a *StageError); its type is what marks the element as the signal, apart
-// from error elements stages emit as non-fatal reports.
-type turnFailureSignal struct{ err error }
-
-func (e *turnFailureSignal) Error() string { return e.err.Error() }
-func (e *turnFailureSignal) Unwrap() error { return e.err }
-
-func newTurnFailureSignal(err error) StreamElement {
-	return NewErrorElement(&turnFailureSignal{err: err})
-}
-
-// isTurnFailureSignal reports whether elem tells that an upstream stage failed
-// the turn. A stage acting on its input's end (calling a model, say) must not
-// act on a turn that failed.
-func isTurnFailureSignal(elem *StreamElement) bool {
-	var sig *turnFailureSignal
-	return elem.Error != nil && errors.As(elem.Error, &sig)
-}
-
 // upstreamFailureSignal is the turn-failure signal for a failed upstream,
 // tagged with the stage it came from.
 func upstreamFailureSignal(upstream *stageRun) StreamElement {
-	elem := newTurnFailureSignal(upstream.err)
-	tagErrorSource(&elem, upstream.name)
+	elem := core.NewTurnFailureSignal(upstream.err)
+	core.TagErrorSource(&elem, upstream.name)
 	return elem
-}
-
-// tagErrorSource records stage as the source of elem's error when nothing has
-// yet: the first stage whose output carried the error put it there.
-func tagErrorSource(elem *StreamElement, stage string) {
-	if elem.Error == nil || errorSourceOf(elem) != "" {
-		return
-	}
-	elem.errorStage = stage
-	elem.errorTagged = elem.Error
-}
-
-// errorSourceOf is the stage that put elem's error on the stream, or "" when
-// that is not known: never tagged, or the error was replaced after tagging.
-func errorSourceOf(elem *StreamElement) string {
-	if elem.errorStage == "" || !sameErrorValue(elem.errorTagged, elem.Error) {
-		return ""
-	}
-	return elem.errorStage
-}
-
-// sameErrorValue reports whether a and b are the same error value. Unlike ==
-// it does not panic on an error whose dynamic type is not comparable; such an
-// error is never the same value as another.
-func sameErrorValue(a, b error) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	t := reflect.TypeOf(a)
-	if t != reflect.TypeOf(b) || !t.Comparable() {
-		return false
-	}
-	return a == b
 }
 
 // sourcedError is an error and the stage it came from ("" when unknown).
@@ -1012,7 +959,7 @@ func (t *completionTotals) observe(elem *StreamElement) bool {
 		}
 		e := sourcedErrorOf(elem)
 		t.errs = append(t.errs, e)
-		if isTurnFailureSignal(elem) {
+		if core.IsTurnFailureSignal(elem) {
 			t.signals = append(t.signals, e)
 		}
 	}
@@ -1022,7 +969,7 @@ func (t *completionTotals) observe(elem *StreamElement) bool {
 		return true
 	}
 	t.messageCount++
-	if elem.Message.Role == roleAssistant && elem.Message.CostInfo != nil {
+	if elem.Message.Role == core.RoleAssistant && elem.Message.CostInfo != nil {
 		t.inputTokens += elem.Message.CostInfo.InputTokens
 		t.outputTokens += elem.Message.CostInfo.OutputTokens
 		t.totalCost += elem.Message.CostInfo.TotalCost
@@ -1034,8 +981,8 @@ func (t *completionTotals) observe(elem *StreamElement) bool {
 // signal belongs to the stage whose failure it carries, even when a later
 // stage re-created the element and dropped its tag.
 func sourcedErrorOf(elem *StreamElement) sourcedError {
-	e := sourcedError{stage: errorSourceOf(elem), err: elem.Error}
-	if isTurnFailureSignal(elem) {
+	e := sourcedError{stage: core.ErrorSource(elem), err: elem.Error}
+	if core.IsTurnFailureSignal(elem) {
 		if stage, _ := failureSource(elem.Error); stage != "" {
 			e.stage = stage
 		}
@@ -1047,10 +994,10 @@ func sourcedErrorOf(elem *StreamElement) sourcedError {
 // already got: a turn-failure signal whose error was delivered, or an error
 // element whose error a delivered signal carries. Called with t.mu held.
 func (t *completionTotals) repeatsFailure(elem *StreamElement) bool {
-	if isTurnFailureSignal(elem) {
+	if core.IsTurnFailureSignal(elem) {
 		return t.carries(elem.Error)
 	}
-	e := sourcedError{stage: errorSourceOf(elem), err: elem.Error}
+	e := sourcedError{stage: core.ErrorSource(elem), err: elem.Error}
 	for _, sig := range t.signals {
 		if sameFailure(sig.err, e) {
 			return true
@@ -1436,7 +1383,7 @@ func relayCounted(
 func forwardOutput(
 	leaf string, elem StreamElement, output *callerOutput, totals *completionTotals, failure *turnFailure,
 ) {
-	tagErrorSource(&elem, leaf)
+	core.TagErrorSource(&elem, leaf)
 	if !totals.observe(&elem) {
 		return
 	}
@@ -1555,7 +1502,7 @@ type ExecutionTrace struct {
 func collectResultMessage(result *ExecutionResult, msg *types.Message) {
 	result.Messages = append(result.Messages, *msg)
 	// Set response to last assistant message
-	if msg.Role != roleAssistant {
+	if msg.Role != core.RoleAssistant {
 		return
 	}
 	result.Response = &Response{

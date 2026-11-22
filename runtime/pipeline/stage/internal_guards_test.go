@@ -36,8 +36,9 @@ func skipUnderMutationRun(t *testing.T) {
 	}
 }
 
-// stagePackagePath is this package's import path.
-var stagePackagePath = reflect.TypeFor[StageError]().PkgPath()
+// stagePackagePath is this package's import path, read off a type it declares
+// itself: an alias (StageError) names the package its target moved to.
+var stagePackagePath = reflect.TypeFor[StreamPipeline]().PkgPath()
 
 // TestInternalTypesReachableFromAPIHaveAliases fails when the exported API of
 // this package reaches a type declared under stage/internal/ that this package

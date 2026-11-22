@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -211,7 +212,7 @@ func (s *IncrementalSaveStage) collectAndForward(
 	output chan<- StreamElement,
 ) *incrementalCollectedData {
 	collected := &incrementalCollectedData{}
-	var fwd cancelForwarder
+	var fwd core.CancelForwarder
 
 	for elem := range input {
 		newMessage := IsTranscriptMessage(&elem)
@@ -236,11 +237,11 @@ func (s *IncrementalSaveStage) collectAndForward(
 		// reaches it. A caller transcript that arrives after the reply to it
 		// (LateTranscript) completes that turn: it is stored the same way.
 		if newMessage && s.config.FlushEachTurn &&
-			(elem.Message.Role == roleAssistant || elem.Meta.LateTranscript) {
+			(elem.Message.Role == core.RoleAssistant || elem.Meta.LateTranscript) {
 			s.flushTurn(ctx, collected)
 		}
 
-		fwd.forward(ctx, output, elem)
+		fwd.Forward(ctx, output, elem)
 	}
 	return collected
 }

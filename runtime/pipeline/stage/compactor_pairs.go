@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -24,7 +25,7 @@ func (r *collapsePairsRule) Name() string { return "collapse_pairs" }
 
 // CanFold implements CompactionRule.
 func (r *collapsePairsRule) CanFold(msg *types.Message, idx int, ctx *CompactionContext) bool {
-	if msg.Role != roleTool || msg.ToolResult == nil {
+	if msg.Role != core.RoleTool || msg.ToolResult == nil {
 		return false
 	}
 	if msg.ToolResult.Error != "" {
@@ -55,7 +56,7 @@ func (r *collapsePairsRule) Fold(
 	var extra []int
 	if idx > 0 {
 		prev := &ctx.Messages[idx-1]
-		if prev.Role == roleAssistant && isMatchingAssistant(prev, msg) {
+		if prev.Role == core.RoleAssistant && isMatchingAssistant(prev, msg) {
 			extra = []int{idx - 1}
 		}
 	}
@@ -71,7 +72,7 @@ func isSuperseded(msg *types.Message, idx int, ctx *CompactionContext) bool {
 	}
 	for j := idx + 1; j < len(ctx.Messages); j++ {
 		other := &ctx.Messages[j]
-		if other.Role != roleTool || other.ToolResult == nil {
+		if other.Role != core.RoleTool || other.ToolResult == nil {
 			continue
 		}
 		if toolResultKey(other, ctx.Messages) == key {
@@ -103,7 +104,7 @@ func toolResultKey(msg *types.Message, messages []types.Message) string {
 
 	for i := range messages {
 		m := &messages[i]
-		if m.Role != roleAssistant {
+		if m.Role != core.RoleAssistant {
 			continue
 		}
 		for _, tc := range m.ToolCalls {

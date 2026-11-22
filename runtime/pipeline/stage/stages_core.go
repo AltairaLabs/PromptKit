@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -266,7 +267,7 @@ func deriveTurnIndex(ctx context.Context, store statestore.Store, convID string)
 func countUserTurns(messages []types.Message) int {
 	n := 0
 	for i := range messages {
-		if messages[i].Role == roleUser {
+		if messages[i].Role == core.RoleUser {
 			n++
 		}
 	}
@@ -342,7 +343,7 @@ func (s *StateStoreLoadStage) forwardInput(
 		// persisted transcript. Writing before the forward keeps the
 		// happens-before: the next stage observes the turn index by the time
 		// the element reaches it.
-		if elem.Message != nil && elem.Message.Role == roleUser && !elem.Meta.FromHistory {
+		if elem.Message != nil && elem.Message.Role == core.RoleUser && !elem.Meta.FromHistory {
 			s.turnState.AdvanceTurn()
 		}
 		select {

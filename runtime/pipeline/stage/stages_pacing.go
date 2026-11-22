@@ -151,11 +151,6 @@ func (s *AudioPacingStage) resetSequence() {
 	s.chunksThisSequence = 0
 }
 
-// isCut reports whether elem cuts the reply being played.
-func isCut(elem *StreamElement) bool {
-	return elem.Interrupt || elem.Meta.Interrupted
-}
-
 // pacingClock abstracts time access so tests can simulate the wall
 // clock advancing during sleep — needed to exercise the
 // past-the-deadline drift-recovery branch and ctx-cancel-during-sleep

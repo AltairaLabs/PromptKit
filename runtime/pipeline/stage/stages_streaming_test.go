@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
@@ -269,7 +270,7 @@ func TestDuplexProviderStage_ResponseForwarding(t *testing.T) {
 				if elem.Text != nil {
 					streamed += *elem.Text
 				}
-				if elem.Message != nil && elem.Message.Role == roleAssistant {
+				if elem.Message != nil && elem.Message.Role == core.RoleAssistant {
 					reply = elem.Message
 				}
 			case <-ctx.Done():
@@ -1146,11 +1147,11 @@ func assertUserTranscriptBeforeAssistant(
 			continue
 		}
 		switch msg.Role {
-		case roleUser:
+		case core.RoleUser:
 			if msg.Content == transcript {
 				userIdx = i
 			}
-		case roleAssistant:
+		case core.RoleAssistant:
 			if msg.Content == assistantText {
 				assistantIdx = i
 			}
@@ -1245,7 +1246,7 @@ func countUserMessages(elements []StreamElement, transcript string) int {
 	n := 0
 	for i := range elements {
 		msg := elements[i].Message
-		if msg != nil && msg.Role == roleUser && msg.Content == transcript {
+		if msg != nil && msg.Role == core.RoleUser && msg.Content == transcript {
 			n++
 		}
 	}
@@ -1273,7 +1274,7 @@ func TestDuplexProviderStage_StreamingFastPathMaterializesUserTurn(t *testing.T)
 	userIdx, assistantContentIdx := -1, -1
 	for i := range elements {
 		if elements[i].Message != nil &&
-			elements[i].Message.Role == roleUser &&
+			elements[i].Message.Role == core.RoleUser &&
 			elements[i].Message.Content == transcript {
 			userIdx = i
 		}
@@ -1450,9 +1451,9 @@ func TestDuplexProviderStage_FinalTranscriptAfterReplyIsEmitted(t *testing.T) {
 	var order []string
 	for i := range elements {
 		switch m := elements[i].Message; {
-		case m != nil && m.Role == roleUser:
+		case m != nil && m.Role == core.RoleUser:
 			order = append(order, "user:"+m.Content)
-		case m != nil && m.Role == roleAssistant && elements[i].EndOfStream:
+		case m != nil && m.Role == core.RoleAssistant && elements[i].EndOfStream:
 			order = append(order, "assistant:"+m.Content)
 		}
 	}
@@ -1472,7 +1473,7 @@ func TestDuplexProviderStage_IncrementalTranscriptAfterReplyIsDropped(t *testing
 		}})
 	var users []string
 	for i := range elements {
-		if m := elements[i].Message; m != nil && m.Role == roleUser {
+		if m := elements[i].Message; m != nil && m.Role == core.RoleUser {
 			users = append(users, m.Content)
 		}
 	}

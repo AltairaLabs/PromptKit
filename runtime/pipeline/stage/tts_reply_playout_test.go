@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -51,7 +52,7 @@ func startReplyWith(t *testing.T, configure func(*TTSStageWithInterruptionConfig
 	cfg.HeardReplies = p.heard
 	configure(&cfg)
 	s := NewTTSStageWithInterruption(p.svc, cfg)
-	s.clock = holdClock{now: p.clock.now, until: p.clock.until}
+	s.clock = core.HoldClock{Now: p.clock.now, Until: p.clock.until}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	p.cancel = cancel
@@ -144,7 +145,7 @@ func textDelta(text string) StreamElement {
 }
 
 func assistantMessage(text string) StreamElement {
-	return NewMessageElement(&types.Message{Role: roleAssistant, Content: text})
+	return NewMessageElement(&types.Message{Role: core.RoleAssistant, Content: text})
 }
 
 // At most one segment is synthesized ahead of the one playing: the third
@@ -252,7 +253,7 @@ func TestTTSStageWithInterruption_BargeInAfterAReplacementStoresEachSentenceOnce
 // result stay a pair in the history the model is sent, and in the transcript.
 func TestTTSStageWithInterruption_BargeInOnAToolRoundKeepsItsCalls(t *testing.T) {
 	p := startPacedReply(t)
-	round := &types.Message{Role: roleAssistant, Content: "Let me look that up for you.",
+	round := &types.Message{Role: core.RoleAssistant, Content: "Let me look that up for you.",
 		FinishReason: "tool_calls", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "get_weather"}}}
 	p.send(t, textDelta("Let me look that up for you. "), NewMessageElement(round))
 	p.audioUntil(t, 2)
@@ -269,7 +270,7 @@ func TestTTSStageWithInterruption_BargeInOnAToolRoundKeepsItsCalls(t *testing.T)
 
 	p.heard.expect()
 	within(t, "await", func() bool { p.heard.await(context.Background()); return true })
-	history := []types.Message{{Role: roleUser, Content: "weather?"}, *round,
+	history := []types.Message{{Role: core.RoleUser, Content: "weather?"}, *round,
 		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "c1", Name: "get_weather"}}}
 	got := ExcludeFromModelContext(p.heard.apply(history))
 	require.Len(t, got, 3, "the call and its result go back to the model together")
@@ -287,10 +288,10 @@ func TestTTSStageWithInterruption_RoundsAreSpokenAndCutApart(t *testing.T) {
 	round1.Meta.MessageID = "m1"
 	round2 := textDelta("It is sunny in Paris.")
 	round2.Meta.MessageID = "m2"
-	call := &types.Message{Role: roleAssistant, Content: "Let me look that up.", FinishReason: "tool_calls",
+	call := &types.Message{Role: core.RoleAssistant, Content: "Let me look that up.", FinishReason: "tool_calls",
 		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "get_weather"}},
 		Meta:      map[string]interface{}{types.MetaMessageID: "m1"}}
-	answer := &types.Message{Role: roleAssistant, Content: "It is sunny in Paris.", FinishReason: "stop",
+	answer := &types.Message{Role: core.RoleAssistant, Content: "It is sunny in Paris.", FinishReason: "stop",
 		Meta: map[string]interface{}{types.MetaMessageID: "m2"}}
 	p.send(t, round1, round2)
 	p.audioUntil(t, 2)
@@ -320,10 +321,10 @@ func TestTTSStageWithInterruption_BargeInOnTheSecondRound(t *testing.T) {
 	round2.Meta.MessageID = "m2"
 	stop := "stop"
 	round2.Meta.FinishReason = &stop // the turn's last chunk
-	call := &types.Message{Role: roleAssistant, Content: "Let me look that up.", FinishReason: "tool_calls",
+	call := &types.Message{Role: core.RoleAssistant, Content: "Let me look that up.", FinishReason: "tool_calls",
 		ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "get_weather"}},
 		Meta:      map[string]interface{}{types.MetaMessageID: "m1"}}
-	answer := &types.Message{Role: roleAssistant, Content: "It is sunny in Paris.", FinishReason: "stop",
+	answer := &types.Message{Role: core.RoleAssistant, Content: "It is sunny in Paris.", FinishReason: "stop",
 		Meta: map[string]interface{}{types.MetaMessageID: "m2"}}
 	p.send(t, round1, round2, NewMessageElement(call), NewMessageElement(answer), NewEndOfTurnElement())
 	p.audioUntil(t, 4)
@@ -367,7 +368,7 @@ func roundDelta(id, text string, replaces bool) StreamElement {
 
 // roundMessage is round id's completed reply.
 func roundMessage(id, text string, calls ...string) StreamElement {
-	m := &types.Message{Role: roleAssistant, Content: text, Meta: map[string]interface{}{types.MetaMessageID: id}}
+	m := &types.Message{Role: core.RoleAssistant, Content: text, Meta: map[string]interface{}{types.MetaMessageID: id}}
 	for _, c := range calls {
 		m.ToolCalls = append(m.ToolCalls, types.MessageToolCall{ID: c, Name: "get_weather"})
 	}
@@ -490,7 +491,7 @@ func TestTTSStageWithInterruption_BargeInStoresWhatWasHeard(t *testing.T) {
 	t.Cleanup(func() { heardSettleTimeout = old })
 	p.heard.expect() // the provider stage passed the Interrupt on
 	within(t, "await", func() bool { p.heard.await(context.Background()); return true })
-	history := []types.Message{{Role: roleAssistant, Content: "The fox woke early. It ran to the river. Then it slept."}}
+	history := []types.Message{{Role: core.RoleAssistant, Content: "The fox woke early. It ran to the river. Then it slept."}}
 	got := p.heard.apply(history)
 	assert.Equal(t, "The fox woke early. It ran", got[0].Content)
 	assert.Equal(t, types.FinishReasonInterrupted, got[0].FinishReason)

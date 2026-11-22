@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -157,7 +158,7 @@ func (s *ttsClipSource) render(ctx context.Context, text string, format cueclip.
 		return cueClip{}, nil, err
 	}
 	cost := &clipRenderCost{svc: s.svc, text: text, duration: time.Since(start)}
-	if len(pcm)%bytesPerSamplePCM16 != 0 {
+	if len(pcm)%core.BytesPerSamplePCM16 != 0 {
 		pcm = pcm[:len(pcm)-1]
 	}
 	ready := prepareCueAudio(&AudioData{Samples: pcm, SampleRate: s.request.SampleRate, Channels: 1,

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -355,11 +356,11 @@ func TestProviderStage_Streaming_BargeInAfterAToolRoundKeepsIt(t *testing.T) {
 	go func() { done <- st.Process(context.Background(), input, output) }()
 	send := func(e StreamElement) { within(t, "a send", func() bool { input <- e; return true }) }
 
-	send(NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"}))
+	send(NewMessageElement(&types.Message{Role: core.RoleUser, Content: "look it up"}))
 	send(NewEndOfTurnElement())
 	recvWithin(t, prov.answering) // the tool ran; the model has not answered
 	send(NewInterruptElement())
-	send(NewMessageElement(&types.Message{Role: roleUser, Content: "stop"}))
+	send(NewMessageElement(&types.Message{Role: core.RoleUser, Content: "stop"}))
 	send(NewEndOfTurnElement())
 	close(input)
 	require.NoError(t, recvWithin(t, done))
@@ -435,7 +436,7 @@ func TestProviderStage_Streaming_MarksTheEndOfARoundsTextBeforeItsTools(t *testi
 		}
 	})
 	within(t, "a send", func() bool {
-		input <- NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"})
+		input <- NewMessageElement(&types.Message{Role: core.RoleUser, Content: "look it up"})
 		input <- NewEndOfTurnElement()
 		return true
 	})
@@ -469,7 +470,7 @@ func TestProviderStage_UnaryStreamMarksNoRoundTextEnd(t *testing.T) {
 	st := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 1)
-	input <- NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"})
+	input <- NewMessageElement(&types.Message{Role: core.RoleUser, Content: "look it up"})
 	close(input)
 	output := make(chan StreamElement, 64)
 	require.NoError(t, within(t, "Process", func() error { return st.Process(context.Background(), input, output) }))
@@ -495,7 +496,7 @@ func TestProviderStage_Streaming_MarksOnlyToolRounds(t *testing.T) {
 	st := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{Streaming: true}, nil, nil, turnState)
 
 	input := make(chan StreamElement, 2)
-	input <- NewMessageElement(&types.Message{Role: roleUser, Content: "look it up"})
+	input <- NewMessageElement(&types.Message{Role: core.RoleUser, Content: "look it up"})
 	input <- NewEndOfTurnElement()
 	close(input)
 	output := make(chan StreamElement, 64)

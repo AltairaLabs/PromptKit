@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -134,7 +135,7 @@ func TestProviderStage_Streaming_StampsToolsOffered(t *testing.T) {
 
 	var assistant []*types.Message
 	for e := range output {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			assistant = append(assistant, e.Message)
 		}
 	}
@@ -190,7 +191,7 @@ func runTurnOfferedNames(t *testing.T, stage *ProviderStage, text string) []stri
 	var names []string
 	found := false
 	for e := range output {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			names, _ = e.Message.Meta[types.MetaToolsOffered].([]string)
 			found = true
 		}

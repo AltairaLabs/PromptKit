@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -125,7 +126,7 @@ func (h *HeardReplies) apply(history []types.Message) []types.Message {
 	out := append([]types.Message(nil), history...)
 	for c := range cuts {
 		for i := len(out) - 1; i >= 0; i-- {
-			if out[i].Role == roleAssistant && out[i].Content == cuts[c].written {
+			if out[i].Role == core.RoleAssistant && out[i].Content == cuts[c].written {
 				out[i] = cuts[c].heard
 				break
 			}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -222,7 +223,7 @@ func receiveFirst(ctx context.Context, input <-chan StreamElement) (elem StreamE
 // userText returns the text of elem's user message, or "" when it carries none
 // (audio, a tool result, a resumed turn).
 func userText(elem StreamElement) string {
-	if elem.Message == nil || elem.Message.Role != roleUser || elem.Meta.FromHistory {
+	if elem.Message == nil || elem.Message.Role != core.RoleUser || elem.Meta.FromHistory {
 		return ""
 	}
 	return elem.Message.GetContent()
@@ -247,7 +248,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 			content := fmt.Sprintf("[Conversation summary (turns %d-%d)]: %s",
 				summary.StartTurn, summary.EndTurn, summary.Content)
 			assembled = append(assembled, types.Message{
-				Role:    roleSystem,
+				Role:    core.RoleSystem,
 				Content: content,
 				Source:  sourceSummary,
 			})
@@ -294,7 +295,7 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 	// Search with the current input; a turn with no user text of its own (a
 	// resumed turn, audio) falls back to the last stored user message.
 	for i := len(recentMsgs) - 1; query == "" && i >= 0; i-- {
-		if recentMsgs[i].Role == roleUser {
+		if recentMsgs[i].Role == core.RoleUser {
 			// GetContent, not Content: a user message built from a Send keeps
 			// its text in Parts, so Content is empty and retrieval never ran.
 			query = recentMsgs[i].GetContent()
@@ -403,7 +404,7 @@ func (s *ContextAssemblyStage) applyDefaultMessageLimit(messages []types.Message
 	// Separate leading system messages from the rest
 	systemCount := 0
 	for i := range messages {
-		if messages[i].Role == roleSystem {
+		if messages[i].Role == core.RoleSystem {
 			systemCount++
 		} else {
 			break
@@ -460,7 +461,7 @@ func (s *ContextAssemblyStage) forwardInput(
 func (s *ContextAssemblyStage) forwardElement(
 	ctx context.Context, elem StreamElement, output chan<- StreamElement,
 ) error {
-	if elem.Message != nil && elem.Message.Role == roleUser && !elem.Meta.FromHistory {
+	if elem.Message != nil && elem.Message.Role == core.RoleUser && !elem.Meta.FromHistory {
 		s.turnState.AdvanceTurn()
 	}
 	select {

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -39,7 +40,7 @@ func TestDuplexGuardrailCut_CutReplyEndIsNotASecondCut(t *testing.T) {
 
 			var cuts int
 			for _, e := range elems {
-				if isCut(&e) {
+				if core.IsCut(&e) {
 					cuts++
 				}
 			}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -143,7 +144,7 @@ func TestDuplexToolExchange_UserTurnDuringRoundFollowsTheResults(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	awaitRunning(t, exec, 1)
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "and in Rome?"}
+	user := types.Message{Role: core.RoleUser, Content: "and in Rome?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	close(exec.gate)
@@ -177,7 +178,7 @@ func TestDuplexToolExchange_ApprovedCallIsStoredBeforeTheTurnsAfterIt(t *testing
 	require.Eventually(t, func() bool { return !h.stage.tools.roundOutstanding() }, 2*time.Second, time.Millisecond,
 		"the held round was never delivered")
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "still there?"}
+	user := types.Message{Role: core.RoleUser, Content: "still there?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	approved := types.NewToolResultMessage(types.NewTextToolResult("c1", "weather", weatherResult))
@@ -205,7 +206,7 @@ func TestDuplexToolExchange_HeldCallUnansweredAtCloseIsRefused(t *testing.T) {
 	require.Eventually(t, func() bool { return !h.stage.tools.roundOutstanding() }, 2*time.Second, time.Millisecond,
 		"the held round was never delivered")
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "still there?"}
+	user := types.Message{Role: core.RoleUser, Content: "still there?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	elems := h.finish()
@@ -224,7 +225,7 @@ func TestDuplexToolExchange_TurnEndIsHeldBehindAHeldMessage(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	awaitRunning(t, exec, 1)
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "and in Rome?"}
+	user := types.Message{Role: core.RoleUser, Content: "and in Rome?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	stop := "stop"
@@ -259,7 +260,7 @@ func TestDuplexToolExchange_CallOfACompletedGenerationHoldsNothing(t *testing.T)
 	late[0].Generation = 1
 	h.emit(late)
 	h.settle()
-	user := types.Message{Role: roleUser, Content: "hello?"}
+	user := types.Message{Role: core.RoleUser, Content: "hello?"}
 	h.input <- StreamElement{Message: &user}
 	require.Eventually(t, func() bool { return len(h.output) >= 3 }, 2*time.Second, time.Millisecond,
 		"the user turn was held") // the partial reply, its interruption, the user turn
@@ -327,7 +328,7 @@ func TestDuplexToolExchange_HooksHistoryFollowsTheEmittedOrder(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	awaitRunning(t, exec, 1)
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "and in Rome?"}
+	user := types.Message{Role: core.RoleUser, Content: "and in Rome?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	close(exec.gate)
@@ -403,12 +404,12 @@ func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
 	o := toolExchangeOrder{sendTimeout: testSendTimeout}
 	out := make(chan StreamElement, 1)
 	ctx, cancel := context.WithCancel(context.Background())
-	first := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+	first := StreamElement{Message: &types.Message{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
 	first.Meta.ToolCallsRunning = true
 	require.NoError(t, o.send(ctx, first, out, sendMode{}))
 	<-out
 	for i := 0; i < 10; i++ {
-		later := StreamElement{Message: &types.Message{Role: roleAssistant,
+		later := StreamElement{Message: &types.Message{Role: core.RoleAssistant,
 			ToolCalls: []types.MessageToolCall{weatherCall("c" + string(rune('2'+i)))}}}
 		later.Meta.ToolCallsRunning = true
 		require.NoError(t, o.send(ctx, later, out, sendMode{}))
@@ -445,13 +446,13 @@ func TestToolExchangeOrder_CloseOutStopsAtTheFirstElementNotTaken(t *testing.T) 
 		o := toolExchangeOrder{sendTimeout: testSendTimeout}
 		ctx, cancel := context.WithCancel(context.Background())
 		sink := make(chan StreamElement, 1)
-		first := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+		first := StreamElement{Message: &types.Message{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
 		first.Meta.ToolCallsRunning = true
 		require.NoError(t, o.send(ctx, first, sink, sendMode{}))
 		for i := 2; i <= 6; i++ {
 			id := "c" + string(rune('0'+i))
-			require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u" + id}}, sink, sendMode{}))
-			call := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall(id)}}}
+			require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "u" + id}}, sink, sendMode{}))
+			call := StreamElement{Message: &types.Message{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{weatherCall(id)}}}
 			call.Meta.ToolCallsRunning = true
 			require.NoError(t, o.send(ctx, call, sink, sendMode{}))
 		}
@@ -502,7 +503,7 @@ func TestToolExchangeOrder_RecordedSendGetsTheOrdersTimeout(t *testing.T) {
 	cancel()
 	full := make(chan StreamElement) // never read
 	start := time.Now()
-	err := o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u"}}, full,
+	err := o.send(ctx, StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "u"}}, full,
 		sendMode{recorded: true})
 	elapsed := time.Since(start)
 	require.ErrorIs(t, err, context.Canceled)
@@ -516,12 +517,12 @@ func TestToolExchangeOrder_CloseOutDeadlineIsShared(t *testing.T) {
 	o := toolExchangeOrder{sendTimeout: testSendTimeout}
 	out := make(chan StreamElement)
 	ctx, cancel := context.WithCancel(context.Background())
-	call := StreamElement{Message: &types.Message{Role: roleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
+	call := StreamElement{Message: &types.Message{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{weatherCall("c1")}}}
 	call.Meta.ToolCallsRunning = true
 	go func() { <-out }()
 	require.NoError(t, o.send(ctx, call, out, sendMode{}))
 	for i := 0; i < 6; i++ {
-		require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: roleUser, Content: "u"}}, out, sendMode{}))
+		require.NoError(t, o.send(ctx, StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "u"}}, out, sendMode{}))
 	}
 	cancel()
 	taken := make(chan int)

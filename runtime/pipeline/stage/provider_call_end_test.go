@@ -14,6 +14,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -144,7 +145,7 @@ func describeCallEnds(elems []StreamElement) []string {
 				ids = append(ids, tc.ID)
 			}
 			out = append(out, fmt.Sprintf("end %s %s [%s]", label(end.MessageID), end.FinishReason, strings.Join(ids, " ")))
-		case e.Message != nil && e.Message.Role == roleAssistant:
+		case e.Message != nil && e.Message.Role == core.RoleAssistant:
 			out = append(out, "stored "+label(e.Message.ID())+" "+e.Message.FinishReason)
 		case e.Error != nil:
 			out = append(out, "error")
@@ -291,7 +292,7 @@ func TestProviderCallEnd_InterruptedCallReportsNoToolCalls(t *testing.T) {
 	}, describeCallEnds(elems))
 	var kept *types.Message
 	for i := range elems {
-		if m := elems[i].Message; m != nil && m.Role == roleAssistant {
+		if m := elems[i].Message; m != nil && m.Role == core.RoleAssistant {
 			kept = m
 		}
 	}
@@ -338,7 +339,7 @@ func TestProviderCallEnd_BlockedTurnIsNotReasked(t *testing.T) {
 
 			var reply *types.Message
 			for i := range elems {
-				if m := elems[i].Message; m != nil && m.Role == roleAssistant {
+				if m := elems[i].Message; m != nil && m.Role == core.RoleAssistant {
 					reply = m
 				}
 			}

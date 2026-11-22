@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -127,7 +128,9 @@ func (s *DuplexProviderStage) bindGeneration(ctx context.Context, gen int64) {
 	if ct.open != nil {
 		old := ct.open
 		superseded = &completion{round: old, turn: old.turn, dur: time.Since(old.start),
-			reported: types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: old.pending}}
+			reported: types.Message{
+				Role: core.RoleAssistant, FinishReason: types.FinishReasonInterrupted, CostInfo: old.pending,
+			}}
 		ct.open = nil
 		delete(s.parked, old.gen)
 		if s.accGen == old.gen { // what it accumulated is not anyone's message
@@ -199,7 +202,7 @@ func (s *DuplexProviderStage) forwardStaleInterruption(
 	elem := StreamElement{}
 	elem.Meta.Interrupted = true
 	elem.Meta.FinishReason = &reason
-	if err := sendStreamElement(ctx, elem, output); err != nil {
+	if err := core.SendStreamElement(ctx, elem, output); err != nil {
 		return err
 	}
 	return s.reportStaleCost(ctx, chunk)
@@ -401,7 +404,7 @@ func (s *DuplexProviderStage) completeOpenCall(ctx context.Context, msg *types.M
 		return
 	}
 	s.tools.clearReplyDue()
-	reported := types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
+	reported := types.Message{Role: core.RoleAssistant, FinishReason: types.FinishReasonInterrupted}
 	if msg != nil {
 		reported = *msg
 	}
@@ -429,7 +432,7 @@ func (s *DuplexProviderStage) placeCarriedCost(chunk *providers.StreamChunk, ele
 		s.carriedCost = addCost(s.carriedCost, chunk.CostInfo)
 		return
 	}
-	if elem.Message != nil && elem.Message.Role == roleAssistant {
+	if elem.Message != nil && elem.Message.Role == core.RoleAssistant {
 		s.takeCarriedCost(elem.Message)
 	}
 }

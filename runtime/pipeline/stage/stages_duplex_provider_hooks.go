@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -175,7 +176,7 @@ func (h *duplexHistory) fillUserTranscript(text string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for i := len(h.msgs) - 1; i >= 0; i-- {
-		if h.msgs[i].Role != roleUser {
+		if h.msgs[i].Role != core.RoleUser {
 			continue
 		}
 		if h.msgs[i].GetContent() == "" {
@@ -252,13 +253,13 @@ func (s *DuplexProviderStage) hookTurnIndex() int {
 // completeAssistantTurn counts a completed assistant turn in the session's
 // turns (TurnState.SessionTurns, which counts replies).
 func (s *DuplexProviderStage) completeAssistantTurn() {
-	s.turnState.completeSessionTurn()
+	core.CompleteSessionTurn(s.turnState)
 }
 
 // completeBlockedTurn counts an emitted blocked turn as a completed assistant
 // turn.
 func (s *DuplexProviderStage) completeBlockedTurn() {
-	s.turnState.completeSessionTurn()
+	core.CompleteSessionTurn(s.turnState)
 }
 
 // beginReplyTurn places the reply chunk belongs to against the caller's
@@ -283,29 +284,15 @@ func (s *DuplexProviderStage) stampCallerTurn(elem *StreamElement) {
 		index := turn.index
 		elem.Meta.CallerTurn = &index
 		elem.Meta.AwaitsTranscript = turn.heard && !turn.transcribed
-		s.turnState.setCallerTurn(index)
+		core.SetCallerTurn(s.turnState, index)
 	}
-	storeCallerTurn(elem.Message, *elem.Meta.CallerTurn)
-}
-
-// storeCallerTurn records caller turn index on reply m (types.MetaCallerTurn),
-// for the transcript, on a Meta of its own. Nil-safe.
-func storeCallerTurn(m *types.Message, index int) {
-	if m == nil || m.Role != roleAssistant {
-		return
-	}
-	meta := make(map[string]interface{}, len(m.Meta)+1)
-	for k, v := range m.Meta {
-		meta[k] = v
-	}
-	meta[types.MetaCallerTurn] = index
-	m.Meta = meta
+	core.StoreCallerTurn(elem.Message, *elem.Meta.CallerTurn)
 }
 
 // endsReply reports whether elem ends a reply: an assistant Message on a turn
 // end, or on the element of a reply barge-in cut short.
 func endsReply(elem *StreamElement) bool {
-	return elem.Message != nil && elem.Message.Role == roleAssistant && (elem.EndOfStream || elem.Meta.Interrupted)
+	return elem.Message != nil && elem.Message.Role == core.RoleAssistant && (elem.EndOfStream || elem.Meta.Interrupted)
 }
 
 // hookRequest builds the ProviderRequest for one hook call.
@@ -342,14 +329,14 @@ func (s *DuplexProviderStage) guardInputText(
 	if !s.hooksActive() || text == "" {
 		return false, nil
 	}
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 
 	// A user Message on the element is already in the history
 	// (forwardInputMessages); bare text is the user's turn as sent. Either way
 	// the user's turn enters the history when it is sent, blocked or not, so
 	// user turns keep the order the user sent them in.
-	user := &types.Message{Role: roleUser, Content: text}
-	userInHistory := elem.Message != nil && elem.Message.Role == roleUser
+	user := &types.Message{Role: core.RoleUser, Content: text}
+	userInHistory := elem.Message != nil && elem.Message.Role == core.RoleUser
 	messages := s.history.snapshot()
 	if !userInHistory {
 		messages = append(messages, *user)
@@ -556,17 +543,17 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 	s.completeBlockedTurn()
 	// The blocked message answers the blocked input's turn, not a reply.
 	s.callers.answer(turn.turn)
-	s.turnState.setCallerTurn(turn.turn)
+	core.SetCallerTurn(s.turnState, turn.turn)
 
 	fr := blocked.FinishReason
 	text := blocked.Content
-	textElem := StreamElement{Text: &text, Timestamp: timeNow(), Cue: s.guardrailCue(text)}
+	textElem := StreamElement{Text: &text, Timestamp: core.TimeNow(), Cue: s.guardrailCue(text)}
 	textElem.Meta.FinishReason = &fr
-	if err := sendStreamElement(ctx, textElem, output); err != nil {
+	if err := core.SendStreamElement(ctx, textElem, output); err != nil {
 		return err
 	}
 	s.takeCarriedCost(blocked)
-	end := StreamElement{Message: blocked, EndOfStream: true, Timestamp: timeNow()}
+	end := StreamElement{Message: blocked, EndOfStream: true, Timestamp: core.TimeNow()}
 	end.Meta.FinishReason = &fr
 	callerTurn := turn.turn
 	end.Meta.CallerTurn = &callerTurn
@@ -785,7 +772,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 				logger.Warn("DuplexProviderStage: the provider did not stop the blocked reply", "error", err)
 			}
 		}
-		if err := sendStreamElement(ctx, interruptElement(types.FinishReasonSafety), output); err != nil {
+		if err := core.SendStreamElement(ctx, interruptElement(types.FinishReasonSafety), output); err != nil {
 			return err
 		}
 	}
@@ -797,13 +784,13 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 	}
 	s.blockedLive = nil
 	fr := types.FinishReasonSafety
-	elem := StreamElement{Text: text, Timestamp: timeNow()}
+	elem := StreamElement{Text: text, Timestamp: core.TimeNow()}
 	elem.Meta.FinishReason = &fr
 	elem.Meta.ReplacesText = s.blockedLiveReplaces
 	if s.blockedLiveSpoken {
 		elem.Cue = s.guardrailCue(*text)
 	}
-	return sendStreamElement(ctx, elem, output)
+	return core.SendStreamElement(ctx, elem, output)
 }
 
 // guardrailCue is the cue that has the cue stage after s speak a guardrail's
@@ -865,7 +852,7 @@ func (s *DuplexProviderStage) guardSpokenInput(ctx context.Context, messages []t
 	if !s.hooksActive() {
 		return
 	}
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 
 	req := s.hookRequest(messages)
 	start := time.Now()
@@ -985,7 +972,7 @@ func dropAssistantOutput(chunk *providers.StreamChunk, isOutputTranscription boo
 // session evals report.
 func (s *DuplexProviderStage) guardCompletedTurn(ctx context.Context, elem *StreamElement) {
 	msg := elem.Message
-	assistant := msg != nil && msg.Role == roleAssistant
+	assistant := msg != nil && msg.Role == core.RoleAssistant
 	turn := assistant && s.hooksActive()
 	if tr := elem.Meta.Transcription; turn && tr != nil && tr.Text != "" {
 		s.history.fillUserTranscript(tr.Text)
@@ -1087,7 +1074,7 @@ func markBlockedTurn(msg *types.Message, elem *StreamElement, guard *duplexTurnG
 func (s *DuplexProviderStage) runTurnAfterCallHooks(
 	ctx context.Context, msg *types.Message, elem *StreamElement,
 ) bool {
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 
 	req := s.hookRequest(s.history.snapshot())
 	v := s.guardrailOutcomeAt(req.TurnIndex).judgeResponse(ctx, req, msg, 0, msg.LatencyMs, false)

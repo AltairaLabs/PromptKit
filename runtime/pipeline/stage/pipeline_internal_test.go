@@ -11,6 +11,8 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/stagetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -473,8 +475,8 @@ func TestExecute_IdleTimeoutCancelsWhenIdle(t *testing.T) {
 		Chain(&blockingStage{name: "block"}).
 		Build()
 	require.NoError(t, err)
-	clock := &fakeIdleTimer{}
-	p.idleAfterFunc = clock.afterFunc
+	clock := &stagetest.FakeIdleTimer{}
+	p.idleAfterFunc = clock.AfterFunc
 
 	// Input that never sends: the stage blocks until the idle timeout fires.
 	input := make(chan StreamElement)
@@ -483,7 +485,7 @@ func TestExecute_IdleTimeoutCancelsWhenIdle(t *testing.T) {
 	output, err := p.Execute(context.Background(), input)
 	require.NoError(t, err)
 
-	clock.advance(idle)
+	clock.Advance(idle)
 	errs := outputErrors(t, output)
 	require.Len(t, errs, 1)
 	assert.ErrorIs(t, errs[0], ErrIdleTimeout)
@@ -525,8 +527,8 @@ func TestExecute_BothTimeoutsCoexist(t *testing.T) {
 			Chain(&blockingStage{name: "block"}).
 			Build()
 		require.NoError(t, err)
-		clock, deadline := &fakeIdleTimer{}, &fakeExecDeadline{}
-		p.idleAfterFunc = clock.afterFunc
+		clock, deadline := &stagetest.FakeIdleTimer{}, &fakeExecDeadline{}
+		p.idleAfterFunc = clock.AfterFunc
 		p.execTimeoutFunc = deadline.withTimeoutCause
 
 		input := make(chan StreamElement)
@@ -537,7 +539,7 @@ func TestExecute_BothTimeoutsCoexist(t *testing.T) {
 			"the execution's deadline is ExecutionTimeout")
 
 		if idleFirst {
-			clock.advance(config.IdleTimeout)
+			clock.Advance(config.IdleTimeout)
 		} else {
 			require.True(t, deadline.expire(), "the pipeline never applied its ExecutionTimeout")
 		}
@@ -565,7 +567,7 @@ func (s *resetDetectorStage) Type() StageType { return StageTypeTransform }
 func (s *resetDetectorStage) Process(ctx context.Context, in <-chan StreamElement, out chan<- StreamElement) error {
 	defer close(out)
 	// Check if idle reset func is in context
-	if c, ok := ctx.Value(idleResetKey{}).(idleControl); ok && c.reset != nil {
+	if c, ok := ctx.Value(core.IdleResetKey{}).(core.IdleControl); ok && c.Reset != nil {
 		s.found = true
 	}
 	for elem := range in {

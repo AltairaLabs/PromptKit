@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -78,7 +79,7 @@ func toolNamesOf(defs []providers.StreamingToolDefinition) []string {
 func realtimeAssistantMessages(elems []StreamElement) []*types.Message {
 	var out []*types.Message
 	for _, e := range elems {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			out = append(out, e.Message)
 		}
 	}
@@ -420,7 +421,7 @@ func TestDuplexToolOffer_ToolsOfferedIsPerTurn(t *testing.T) {
 	// update) would wait for a reply this test sends only after it.
 	h.awaitToolTurnEnded()
 	exec.revoke()
-	user := types.Message{Role: roleUser, Content: "next"}
+	user := types.Message{Role: core.RoleUser, Content: "next"}
 	h.input <- StreamElement{Message: &user}
 	require.Eventually(t, func() bool {
 		updates, _ := h.sess().toolUpdates()
@@ -473,7 +474,7 @@ func TestDuplexToolOffer_EarlierTurnsRoundDoesNotChangeTheNewTurnsOffer(t *testi
 	h.emit(toolCallTurn(namedCall("c1", "activate")))
 	<-exec.started
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "never mind"}
+	user := types.Message{Role: core.RoleUser, Content: "never mind"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	// The round finishes once the new turn owns the offer: the turn is
@@ -559,7 +560,7 @@ func TestDuplexToolOffer_SpentBudgetKeepsTheSessionsTools(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	h.awaitSent(2)
 	h.awaitToolTurnEnded() // by "I cannot check again"
-	user := types.Message{Role: roleUser, Content: "and now?"}
+	user := types.Message{Role: core.RoleUser, Content: "and now?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	h.emit(toolCallTurn(weatherCall("c3")))

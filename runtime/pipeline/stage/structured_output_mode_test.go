@@ -14,6 +14,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -471,7 +472,7 @@ func TestFinalTurn_ReaskCarriesWorkflowAttribution(t *testing.T) {
 
 	var last types.Message
 	for elem := range output {
-		if elem.Message != nil && elem.Message.Role == roleAssistant {
+		if elem.Message != nil && elem.Message.Role == core.RoleAssistant {
 			last = *elem.Message
 		}
 	}
@@ -496,7 +497,7 @@ func TestFinalTurn_ReaskCostIsCounted(t *testing.T) {
 
 	var last types.Message
 	for _, m := range msgs {
-		if m.Role == roleAssistant && m.Content != "" {
+		if m.Role == core.RoleAssistant && m.Content != "" {
 			last = m
 		}
 	}
@@ -530,7 +531,7 @@ func TestFinalTurn_ToolFreeTranscriptUsesPlainPredict(t *testing.T) {
 
 	var last types.Message
 	for _, m := range msgs {
-		if m.Role == roleAssistant && m.Content != "" {
+		if m.Role == core.RoleAssistant && m.Content != "" {
 			last = m
 		}
 	}
@@ -624,9 +625,9 @@ func TestFinalTurn_ReaskEmitsItsOwnProviderCall(t *testing.T) {
 
 	// The bus dispatches through a worker pool, so wait on the count rather
 	// than assuming delivery order.
-	deadline := timeNow().Add(2 * time.Second)
+	deadline := core.TimeNow().Add(2 * time.Second)
 	var completed []*events.Event
-	for timeNow().Before(deadline) {
+	for core.TimeNow().Before(deadline) {
 		completed = nil
 		for _, e := range snapshot() {
 			if e.Type == events.EventProviderCallCompleted {

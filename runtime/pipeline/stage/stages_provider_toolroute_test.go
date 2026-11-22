@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -65,7 +66,7 @@ func historyWithToolLinkage() []types.Message {
 	denial.Error = "denied by policy"
 	return []types.Message{
 		{Role: "user", Content: "approve the refund"},
-		{Role: roleAssistant, ToolCalls: []types.MessageToolCall{
+		{Role: core.RoleAssistant, ToolCalls: []types.MessageToolCall{
 			{ID: "call_A", Name: "approve", Args: json.RawMessage(`{}`)},
 		}},
 		types.NewToolResultMessage(denial),

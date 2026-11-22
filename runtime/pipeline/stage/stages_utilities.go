@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
@@ -64,10 +65,6 @@ func (s *DebugStage) Process(
 const (
 	// debugTextPreviewLen caps the text preview DebugStage logs.
 	debugTextPreviewLen = 100
-	// metaKeySampleRate is the snapshot/metadata key for an audio sample rate.
-	metaKeySampleRate = "sample_rate"
-	// metaKeyMIMEType is the metadata key for a media MIME type.
-	metaKeyMIMEType = "mime_type"
 	// bytesPerKiB converts byte counts to KiB.
 	bytesPerKiB = 1024
 )
@@ -98,9 +95,9 @@ func (s *DebugStage) logElement(elem *StreamElement, timing string) {
 
 	if elem.Audio != nil {
 		snapshot["audio"] = map[string]interface{}{
-			metaKeySampleRate: elem.Audio.SampleRate,
-			"samples_len":     len(elem.Audio.Samples),
-			"format":          elem.Audio.Format,
+			core.MetaKeySampleRate: elem.Audio.SampleRate,
+			"samples_len":          len(elem.Audio.Samples),
+			"format":               elem.Audio.Format,
 		}
 	}
 
@@ -216,7 +213,7 @@ func (s *TemplateStage) Process(
 	for elem := range input {
 		// An upstream failure's error element passes through: rendering for a
 		// turn that already failed would only report a second, derived error.
-		if !isTurnFailureSignal(&elem) {
+		if !core.IsTurnFailureSignal(&elem) {
 			if err := s.renderTurnPrompt(); err != nil {
 				return err
 			}
@@ -849,7 +846,7 @@ func (s *ContextBuilderStage) Process(
 		if err := s.emitMessages(ctx, messages, fromHistory, firstElem, output, false); err != nil {
 			return err
 		}
-		return forwardUpstreamErrors(ctx, errorSignals, output)
+		return core.ForwardUpstreamErrors(ctx, errorSignals, output)
 	}
 
 	systemPrompt := ""
@@ -915,7 +912,7 @@ func collectContextMessages(
 	input <-chan StreamElement,
 ) (messages []types.Message, fromHistory []bool, firstElem *StreamElement, errorSignals []StreamElement) {
 	for elem := range input {
-		if isTurnFailureSignal(&elem) {
+		if core.IsTurnFailureSignal(&elem) {
 			errorSignals = append(errorSignals, elem)
 			continue
 		}
@@ -1072,7 +1069,7 @@ func budgetTooSmallForTurn(budget int) error {
 // hasConversationMessage reports whether any message is not a system message.
 func hasConversationMessage(messages []types.Message) bool {
 	for i := range messages {
-		if messages[i].Role != roleSystem {
+		if messages[i].Role != core.RoleSystem {
 			return true
 		}
 	}
@@ -1109,7 +1106,7 @@ func wellFormedHistory(messages []types.Message) []types.Message {
 	seenUser := false
 	for i := range messages {
 		m := &messages[i]
-		if !seenUser && m.Role != roleSystem && !isUserTurn(m) {
+		if !seenUser && m.Role != core.RoleSystem && !isUserTurn(m) {
 			continue
 		}
 		seenUser = seenUser || isUserTurn(m)
@@ -1159,7 +1156,7 @@ func dropUnansweredCalls(messages []types.Message) (kept []types.Message, callID
 // isUserTurn reports whether m opens a turn. Tool results carry the "tool"
 // role, so a user message is always the start of one.
 func isUserTurn(m *types.Message) bool {
-	return m.Role == roleUser
+	return m.Role == core.RoleUser
 }
 
 // allCallsAnswered reports whether every call has a result in resultIDs.
@@ -1258,7 +1255,7 @@ func (s *ContextBuilderStage) truncateBySummarization(
 
 	// Build result: summary message + kept recent messages
 	summaryMsg := types.Message{
-		Role:    roleSystem,
+		Role:    core.RoleSystem,
 		Content: fmt.Sprintf("[Summary of %d earlier messages]: %s", len(toSummarize), summaryContent),
 		Source:  sourceSummary,
 	}
@@ -1361,7 +1358,7 @@ func (s *ContextBuilderStage) buildRelevanceQuery(
 	case QuerySourceLastUser, "":
 		// Use last user message as query (the default)
 		for i := len(messages) - 1; i >= 0; i-- {
-			if messages[i].Role == roleUser {
+			if messages[i].Role == core.RoleUser {
 				return s.extractMessageText(&messages[i])
 			}
 		}
@@ -1389,7 +1386,7 @@ func (s *ContextBuilderStage) buildScoredMessages(
 		}
 
 		// Mark as protected if system role and keepSystemRole is true
-		if keepSystemRole && messages[i].Role == roleSystem {
+		if keepSystemRole && messages[i].Role == core.RoleSystem {
 			scored[i].IsProtected = true
 		}
 

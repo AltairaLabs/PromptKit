@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -287,7 +288,7 @@ func TestCueStage_CutDropsTheClip(t *testing.T) {
 			got := c.finish(t)
 
 			require.Len(t, got, 2, "the clip's other chunks are dropped")
-			assert.True(t, isCut(&got[0]))
+			assert.True(t, core.IsCut(&got[0]))
 			require.NotNil(t, got[1].Audio)
 			assert.Nil(t, got[1].Meta.CueAudio)
 			assert.Len(t, got[1].Audio.Samples, 4800, "the next reply's audio plays")
@@ -343,7 +344,7 @@ func TestCueStage_PendingClipHoldsReplyOutput(t *testing.T) {
 	c := startChain(t, cue, outputPacer(newFakeClock()))
 
 	reply := cueRamp(2400)
-	user := StreamElement{Message: &types.Message{Role: roleUser, Content: "Tell me about Bruno."}}
+	user := StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "Tell me about Bruno."}}
 	c.in <- guardrailCueElem(brunoText)
 	c.in <- user
 	c.in <- replyAudioOf(reply)
@@ -373,7 +374,7 @@ func TestCueStage_PendingClipKeepsReplyPlayout(t *testing.T) {
 	cue.render = pendingRender(pcmClip(cueRamp(12000), cueTestRate), release) // 500 ms
 	fc := &fakeHoldClock{t: holdT0}
 	hold := NewPlayoutHoldStage()
-	hold.clock = holdClock{now: fc.now, until: fc.until}
+	hold.clock = core.HoldClock{Now: fc.now, Until: fc.until}
 	c := startChain(t, cue, hold)
 
 	c.in <- guardrailCueElem(brunoText)
@@ -700,7 +701,7 @@ func TestCueStage_RecordingTagsCueAudio(t *testing.T) {
 	c.in <- StreamElement{Audio: &AudioData{Samples: reply, SampleRate: cueTestRate, Channels: 1,
 		Format: AudioFormatPCM16}, Timestamp: time.Now()}
 	c.in <- guardrailCueElem(brunoText)
-	end := StreamElement{EndOfStream: true, Message: &types.Message{Role: roleAssistant, Content: brunoText,
+	end := StreamElement{EndOfStream: true, Message: &types.Message{Role: core.RoleAssistant, Content: brunoText,
 		FinishReason: types.FinishReasonSafety}}
 	c.in <- end
 	c.finish(t)

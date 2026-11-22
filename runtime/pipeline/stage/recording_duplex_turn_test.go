@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func TestRecordingStage_RecordsDuplexAssistantTurn(t *testing.T) {
 	require.Len(t, created, 1, "the assistant turn must be recorded")
 	data, ok := created[0].Data.(*events.MessageCreatedData)
 	require.True(t, ok)
-	assert.Equal(t, roleAssistant, data.Role)
+	assert.Equal(t, core.RoleAssistant, data.Role)
 	assert.Equal(t, "Hello there", data.Content)
 
 	// The turn's last audio chunk rides on the same element and must be

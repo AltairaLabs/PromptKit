@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // The earcon is a short neutral tone: a sine with a linear attack and release,
@@ -25,7 +26,7 @@ func earconPCM(rate int) []byte {
 	n := int(int64(rate) * int64(earconDuration) / int64(time.Second))
 	attack := float64(int64(rate) * int64(earconAttack) / int64(time.Second))
 	release := float64(int64(rate) * int64(earconRelease) / int64(time.Second))
-	out := make([]byte, bytesPerSamplePCM16*n)
+	out := make([]byte, core.BytesPerSamplePCM16*n)
 	for i := 0; i < n; i++ {
 		env := 1.0
 		if pos := float64(i); pos < attack {
@@ -34,7 +35,7 @@ func earconPCM(rate int) []byte {
 			env = left / release
 		}
 		v := math.Round(earconAmplitude * env * math.Sin(2*math.Pi*earconFrequency*float64(i)/float64(rate)))
-		binary.LittleEndian.PutUint16(out[bytesPerSamplePCM16*i:], uint16(int16(v))) //nolint:gosec // |v| <= amplitude
+		binary.LittleEndian.PutUint16(out[core.BytesPerSamplePCM16*i:], uint16(int16(v))) //nolint:gosec // |v| <= amplitude
 	}
 	return out
 }
