@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -122,11 +123,16 @@ func (c *stageChain) finish(t *testing.T) []StreamElement {
 	}
 }
 
+// testPacingClock is a fake clock an output pacer can run on.
+type testPacingClock interface {
+	now() time.Time
+	sleep(ctx context.Context, d time.Duration) error
+}
+
 // outputPacer is a flush-on-cut output pacer on clock, without preroll.
-func outputPacer(clock pacingClock) *AudioPacingStage {
+func outputPacer(clock testPacingClock) *AudioPacingStage {
 	p := NewNamedAudioPacingStage("audio-pacing-output").WithFlushOnCut()
-	p.clock = clock
-	p.prerollChunks = 0
+	voice.SetPacingClock(p, clock.now, clock.sleep, 0)
 	return p
 }
 

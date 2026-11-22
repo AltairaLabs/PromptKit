@@ -7,7 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 )
 
-// ResponseVADStage's params, mirrored from runtime/pipeline/stage/stages_speech.go.
+// ResponseVADStage's params, mirrored from runtime/pipeline/stage/internal/voice/stages_speech.go.
 // They differ substantially from the microphone defaults: a lower confidence
 // bar and min volume, much faster start, faster stop, and a 24kHz rate.
 func responseVADParams() audio.VADParams {

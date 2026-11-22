@@ -1,0 +1,1738 @@
+package voice
+
+import (
+	"context"
+	"errors"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/heard"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+// AudioTurnConfig configures the AudioTurnStage.
+type AudioTurnConfig struct {
+	// VAD is the voice activity detector.
+	// If nil, an AdaptiveVAD with default params is created. It tracks the
+	// noise floor rather than holding a fixed threshold, so it follows a speaker
+	// down through the quiet parts of an utterance.
+	VAD audio.VADAnalyzer
+
+	// TurnDetector determines when user has finished speaking.
+	// If nil, VAD state transitions are used for turn detection.
+	TurnDetector audio.TurnDetector
+
+	// InterruptionHandler detects when user interrupts TTS output.
+	// This should be shared with TTSStageWithInterruption.
+	// If nil, interruption detection is disabled.
+	InterruptionHandler *audio.InterruptionHandler
+
+	// SilenceDuration is how long silence must persist to trigger turn complete.
+	// Default: 800ms
+	SilenceDuration time.Duration
+
+	// MinSpeechDuration is minimum speech before turn can complete.
+	// Default: 200ms
+	MinSpeechDuration time.Duration
+
+	// MaxTurnDuration is maximum turn length before forcing completion.
+	// Default: 30s
+	MaxTurnDuration time.Duration
+
+	// SampleRate is the audio sample rate for output AudioData.
+	// Default: 16000
+	SampleRate int
+
+	// EmitEndOfTurn, when true, emits an EndOfTurn control element after each
+	// completed turn's audio. The streaming (continuous multi-turn) composed-VAD
+	// pipeline sets this so the streaming provider stage fires once per turn.
+	// Default false preserves single-shot behavior for every other consumer.
+	EmitEndOfTurn bool
+}
+
+const (
+	defaultAudioTurnSilence     = 800 * time.Millisecond
+	defaultAudioTurnMinSpeech   = 200 * time.Millisecond
+	defaultAudioTurnMaxDuration = 30 * time.Second
+	defaultAudioTurnSampleRate  = 16000
+	// defaultAudioTurnPreRoll is the audio kept ahead of VAD's speech-onset marker.
+	// VAD reports speech only once it has accumulated enough confident frames
+	// (DefaultVADStartSecs is 0.2s, and chunk granularity pushes the marker later
+	// still), so trimming flush at the marker cuts into the utterance.
+	//
+	// Deliberately generous. The costs are asymmetric: an extra second of retained
+	// silence is a rounding error against the many seconds of dead air removed,
+	// whereas too small a pre-roll corrupts the transcript by clipping the
+	// caller's first word. Bias toward keeping audio.
+	defaultAudioTurnPreRoll = time.Second
+	bytesPerSample16Bit     = 2    // 16-bit audio = 2 bytes per sample
+	defaultMinAudioBytes    = 1600 // 50ms at 16kHz 16-bit mono
+	msPerSecond             = 1000
+
+	// ResponseVAD default params - tuned for TTS audio detection
+	defaultResponseVADConfidence = 0.3   // Lower threshold for TTS audio
+	defaultResponseVADStartSecs  = 0.05  // Quick start detection (50ms)
+	defaultResponseVADStopSecs   = 0.3   // 300ms silence to confirm stop
+	defaultResponseVADMinVolume  = 0.005 // Lower min volume for TTS
+)
+
+// DefaultAudioTurnConfig returns sensible defaults for AudioTurnStage.
+func DefaultAudioTurnConfig() AudioTurnConfig {
+	return AudioTurnConfig{
+		SilenceDuration:   defaultAudioTurnSilence,
+		MinSpeechDuration: defaultAudioTurnMinSpeech,
+		MaxTurnDuration:   defaultAudioTurnMaxDuration,
+		SampleRate:        defaultAudioTurnSampleRate,
+	}
+}
+
+// AudioTurnStage detects voice activity and accumulates audio into complete turns.
+// It outputs complete audio utterances when the user stops speaking.
+//
+// This stage consolidates:
+// - Voice Activity Detection (VAD)
+// - Turn boundary detection
+// - Audio accumulation
+// - Interruption detection (shared with TTSStageWithInterruption)
+//
+// This is an Accumulate stage: N audio chunks → 1 audio utterance
+type AudioTurnStage struct {
+	core.BaseStage
+	config       AudioTurnConfig
+	vad          audio.VADAnalyzer
+	turnDetector audio.TurnDetector
+	interruption *audio.InterruptionHandler
+}
+
+// NewAudioTurnStage creates a new audio turn stage.
+func NewAudioTurnStage(config AudioTurnConfig) (*AudioTurnStage, error) {
+	// Turn boundaries are measured in audio time (sample counts), so a zero
+	// sample rate would collapse every duration to 0 and no turn would ever
+	// complete. Fall back to the default rather than stalling silently.
+	if config.SampleRate <= 0 {
+		config.SampleRate = defaultAudioTurnSampleRate
+	}
+
+	// Create default VAD if not provided.
+	//
+	// AdaptiveVAD, not SimpleVAD. SimpleVAD maps RMS to probability linearly
+	// between MinVolume (0.01) and maxExpectedRMS (0.1) against a 0.5 Confidence
+	// threshold, so it only calls audio speech above ~0.055 RMS. Conversational
+	// speech averages ~0.10 RMS but ranges far below that within one utterance,
+	// and a trailing word measured at 0.021 read as silence — closing the turn
+	// mid-sentence and orphaning the word.
+	//
+	// Measured across conditions, AdaptiveVAD dominates: it detects quiet speech
+	// (0.04 RMS) that SimpleVAD misses, reaches Speaking sooner on normal speech
+	// (300ms vs 500ms), and holds through quiet tails, with identical
+	// false-positive behavior on digital silence and room noise up to 0.02 RMS.
+	// Its one trade is reaching Quiet more slowly after speech ends, because its
+	// smoothed estimate decays from a higher level — which does not affect this
+	// stage (Stopping already counts as silence for turn completion) but does
+	// delay a TurnDetector that keys on Quiet.
+	//
+	// SimpleVAD remains exported for callers that want a fixed threshold.
+	//
+	// The params must carry the configured sample rate, not the default. VAD
+	// state transitions are scaled by it — it is how a chunk's byte count becomes
+	// a duration — so leaving it at 16kHz makes the VAD and this stage disagree
+	// about how long a chunk lasts at any other rate: 8kHz telephony would see
+	// every threshold at twice its intended length, 48kHz at a third.
+	vad := config.VAD
+	if vad == nil {
+		params := audio.DefaultVADParams()
+		params.SampleRate = config.SampleRate
+		var err error
+		vad, err = audio.NewAdaptiveVAD(params)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &AudioTurnStage{
+		BaseStage:    core.NewBaseStage("audio_turn", core.StageTypeAccumulate),
+		config:       config,
+		vad:          vad,
+		turnDetector: config.TurnDetector,
+		interruption: config.InterruptionHandler,
+	}, nil
+}
+
+// audioTurnState holds the state for turn processing.
+//
+// Turn boundaries are timed in AUDIO time (accumulated PCM sample counts), not
+// wall-clock: a live pipeline stalls (a blocking STT call on the previous turn,
+// a GC pause) or delivers a burst after a stall, so wall-clock diverges from the
+// audio's own duration. Timing silence by wall-clock mis-cut turns and dropped
+// the tail of an utterance. Sample counts make segmentation independent of how
+// fast audio arrives.
+type audioTurnState struct {
+	audioBuffer    []byte
+	speechDetected bool
+	speechSamples  int // samples since speech first detected (~ time since speech start)
+	silenceSamples int // consecutive silence samples since the last speech (0 while speaking)
+	turnSamples    int // total samples accumulated this turn
+	// speechStartOffset is the byte offset in audioBuffer of the chunk where VAD
+	// first reported speech, or -1 while no speech has been detected. Leading
+	// silence before this point (less a pre-roll) is trimmed at emit time.
+	speechStartOffset int
+	// bufStart is the offset at which live audio begins. Bounding retention
+	// advances this rather than moving bytes; see capSilenceRetention.
+	bufStart int
+	// emittedTurn records whether any turn has been emitted for this stream.
+	// Deliberately NOT cleared by resetState: it is a property of the stream,
+	// not of the current turn, and it is what distinguishes "the VAD has never
+	// fired, so forward everything" from "the VAD is working and this is just
+	// trailing silence".
+	emittedTurn bool
+	// bargeInIfTranscribed is set on a turn that ends while the bot is engaged
+	// in a reply, for its audio to carry to the STT stage.
+	bargeInIfTranscribed bool
+}
+
+// liveAudio returns the audio currently retained, excluding any dead prefix
+// dropped by the retention bound.
+func (s *audioTurnState) liveAudio() []byte {
+	return s.audioBuffer[s.bufStart:]
+}
+
+// newAudioTurnState returns turn state with no speech onset recorded yet.
+func newAudioTurnState() *audioTurnState {
+	return &audioTurnState{speechStartOffset: -1}
+}
+
+// samplesToDuration converts a PCM16-mono sample count to a wall-clock-equivalent
+// duration at the given sample rate. Returns 0 for a non-positive rate.
+func samplesToDuration(samples, sampleRate int) time.Duration {
+	if sampleRate <= 0 {
+		return 0
+	}
+	return time.Duration(samples) * time.Second / time.Duration(sampleRate)
+}
+
+// Process implements the Stage interface.
+// Accumulates audio chunks until turn complete, then emits audio utterance.
+func (s *AudioTurnStage) Process(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	defer close(output)
+	// A live session's input closes only when the session does, so the stage
+	// must also stop when its context ends (the idle timeout), or the pipeline
+	// would not end until the caller sent more audio (#2823).
+	input = core.InputUntilDone(ctx, input)
+
+	state := newAudioTurnState()
+
+	for elem := range input {
+		if err := s.handleElement(ctx, &elem, state, output); err != nil {
+			return err
+		}
+	}
+
+	// Stream closed - emit any remaining audio
+	return s.emitRemainingAudio(ctx, state, output)
+}
+
+// handleElement routes one input element: EndOfStream flushes the turn, a
+// non-audio or passthrough element is forwarded, and audio accumulates.
+func (s *AudioTurnStage) handleElement(
+	ctx context.Context,
+	elem *core.StreamElement,
+	state *audioTurnState,
+	output chan<- core.StreamElement,
+) error {
+	// Inbound audio is activity, silence included: an open microphone is a
+	// live session. Without this a VAD session's idle timer sees only the
+	// model's calls, so a caller who listens to a reply, or thinks, for
+	// longer than the idle timeout loses the session. DuplexProviderStage
+	// does the same for ASM mode.
+	if elem.Audio != nil {
+		core.ResetIdleFromContext(ctx)
+	}
+
+	// Handle EndOfStream specially - emit any accumulated audio first
+	// This prevents EndOfStream from racing ahead of buffered audio
+	if elem.EndOfStream {
+		return s.handleEndOfStream(ctx, elem, state, output)
+	}
+
+	// Pass through other non-audio elements immediately.
+	// Passthrough mode forwards audio immediately without accumulation too:
+	// this is used for selfplay/TTS audio that needs real-time streaming to
+	// the provider.
+	if elem.Audio == nil || elem.Meta.Passthrough {
+		return s.forwardElement(ctx, elem, output)
+	}
+
+	// Process audio chunk and handle turn completion
+	return s.processAudioElement(ctx, elem, state, output)
+}
+
+// handleEndOfStream emits any accumulated audio, resets the turn state, then
+// forwards the EndOfStream after the audio so it never races ahead of
+// buffered audio.
+func (s *AudioTurnStage) handleEndOfStream(
+	ctx context.Context,
+	elem *core.StreamElement,
+	state *audioTurnState,
+	output chan<- core.StreamElement,
+) error {
+	logger.Debug("AudioTurnStage: EndOfStream received, emitting accumulated audio")
+	if err := s.emitRemainingAudio(ctx, state, output); err != nil {
+		return err
+	}
+	// Reset state for next turn
+	s.resetState(state)
+	// Forward the EndOfStream after the audio
+	return s.forwardElement(ctx, elem, output)
+}
+
+// forwardElement forwards a non-audio element to output.
+func (s *AudioTurnStage) forwardElement(
+	ctx context.Context,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	select {
+	case output <- *elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// processAudioElement processes an audio element and handles turn completion.
+func (s *AudioTurnStage) processAudioElement(
+	ctx context.Context,
+	elem *core.StreamElement,
+	state *audioTurnState,
+	output chan<- core.StreamElement,
+) error {
+	if err := s.processAudio(ctx, elem, state); err != nil {
+		logger.Error("AudioTurnStage: processing failed", "error", err)
+		output <- core.NewErrorElement(err)
+		return err
+	}
+
+	// Check for interruption (barge-in): user spoke while the bot was replying.
+	// Emit an Interrupt control element so the provider and TTS stages cancel
+	// in-flight generation/playback. The speech that triggered it is the start
+	// of the caller's next turn, so it stays buffered and the turn carries on.
+	if s.checkInterruption(ctx) {
+		if err := s.emitInterrupt(ctx, output); err != nil {
+			return err
+		}
+	}
+
+	if s.shouldCompleteTurn(state) {
+		return s.completeTurn(ctx, state, output)
+	}
+	return nil
+}
+
+// completeTurn emits the turn the caller has finished: its audio, then its
+// EndOfTurn boundary.
+func (s *AudioTurnStage) completeTurn(
+	ctx context.Context, state *audioTurnState, output chan<- core.StreamElement,
+) error {
+	// A turn the caller completes while the bot is engaged in a reply barges
+	// in on it, even when the VAD never called the utterance Speaking: a
+	// short one ("That's that.") can end while the VAD still reports
+	// Starting, and it used to be queued as the next turn and answered only
+	// after the whole reply had played. Speech the VAD did call Speaking
+	// barged in as it started (checkInterruption). This turn might instead be
+	// a cough or a door, so it does not interrupt here: its audio carries the
+	// barge-in to the STT stage, which interrupts once it transcribes to words.
+	state.bargeInIfTranscribed = s.bargesInOnTranscript()
+	// The bot owes this turn a reply from now until that reply ends, and
+	// speech in that window interrupts it. Marked before the audio leaves,
+	// so a downstream stage that finds there will be no reply (the STT
+	// stage, on an empty transcript) always ends it after it began.
+	s.beginResponse()
+	if err := s.emitTurnAudio(ctx, state, output); err != nil {
+		return err
+	}
+	s.resetState(state)
+	// Mark the conversational turn boundary so the streaming provider stage
+	// fires this turn. The trailing turn at stream close is fired by the
+	// EndOfStream that follows, so it is not marked here.
+	if s.config.EmitEndOfTurn {
+		return s.emitEndOfTurn(ctx, output)
+	}
+	return nil
+}
+
+// emitEndOfTurn sends an EndOfTurn control element downstream, marking the end
+// of one conversational turn's input within the still-open session.
+func (s *AudioTurnStage) emitEndOfTurn(ctx context.Context, output chan<- core.StreamElement) error {
+	select {
+	case output <- core.NewEndOfTurnElement():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// emitInterrupt sends an Interrupt control element downstream so the provider
+// and TTS stages can cancel in-flight generation and playback on barge-in.
+func (s *AudioTurnStage) emitInterrupt(ctx context.Context, output chan<- core.StreamElement) error {
+	logger.Debug("AudioTurnStage: barge-in detected, emitting Interrupt")
+	select {
+	case output <- core.NewInterruptElement():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// checkInterruption reports whether the user's speech interrupts the bot.
+//
+// The turn state is deliberately left alone. The audio buffered so far holds the
+// onset of the speech that triggered the barge-in, and the VAD is mid-utterance;
+// resetting either would make the interrupting turn start after the caller had
+// already begun speaking, and its transcript would lose the first word(s).
+func (s *AudioTurnStage) checkInterruption(ctx context.Context) bool {
+	if s.interruption == nil {
+		return false
+	}
+	interrupted, _ := s.interruption.ProcessVADState(ctx, s.vad.State())
+	if interrupted {
+		logger.Debug("AudioTurnStage: user interrupted the bot")
+	}
+	return interrupted
+}
+
+// bargesInOnTranscript reports whether a turn completing now barges in on a
+// reply once it transcribes to words: the stage is turn-based (a reply per
+// turn) and the handler would interrupt now (engaged, immediate strategy, no
+// barge-in already fired for this utterance).
+func (s *AudioTurnStage) bargesInOnTranscript() bool {
+	return s.interruption != nil && s.config.EmitEndOfTurn && s.interruption.WouldInterrupt()
+}
+
+// beginResponse marks, on the shared interruption handler, that the bot owes
+// the turn being emitted a reply. Only a turn-based stage (EmitEndOfTurn) has a
+// reply per turn; the TTS stage ends it when the reply's turn ends.
+func (s *AudioTurnStage) beginResponse() {
+	if s.interruption != nil && s.config.EmitEndOfTurn {
+		s.interruption.BeginResponse()
+	}
+}
+
+// emitRemainingAudio emits any buffered audio when the stream closes or EndOfStream is received.
+// When force=false (default), only emits if speech was detected.
+// When the stream is ending, we always emit buffered audio to ensure nothing is lost.
+func (s *AudioTurnStage) emitRemainingAudio(
+	ctx context.Context,
+	state *audioTurnState,
+	output chan<- core.StreamElement,
+) error {
+	live := state.liveAudio()
+	if len(live) == 0 {
+		return nil
+	}
+	// Emit if this turn contains speech.
+	//
+	// Failing that, emit on size alone only when no turn has been emitted for
+	// this stream at all. That is the degrade-open case: a pre-recorded file
+	// whose VAD never fires must still be forwarded rather than silently
+	// dropped, since the audio may well contain speech the VAD misread.
+	//
+	// Once a turn HAS been emitted, the VAD has demonstrably been working, so a
+	// speechless remainder is just the tail of silence that completed the last
+	// turn. Forwarding it costs an STT call on pure silence — billed, slow, and
+	// a standing invitation for Whisper to hallucinate text that then flows
+	// downstream as if it had been spoken. It produced a phantom duplicate
+	// transcript in the voice-sales-assist example.
+	if state.speechDetected || (!state.emittedTurn && len(live) > defaultMinAudioBytes) {
+		logger.Debug("AudioTurnStage: emitting remaining audio",
+			"speechDetected", state.speechDetected,
+			"bufferSize", len(live))
+		return s.emitTurnAudio(ctx, state, output)
+	}
+
+	logger.Debug("AudioTurnStage: dropping speechless remainder",
+		"bufferSize", len(live))
+	return nil
+}
+
+// updateSpeechTallies updates the speech/silence sample tallies based on VAD.
+// n is the chunk's sample count and chunkBytes its byte length (the chunk is
+// already appended to state.audioBuffer).
+func updateSpeechTallies(state *audioTurnState, vadState audio.VADState, n, chunkBytes int) {
+	switch vadState {
+	case audio.VADStateSpeaking, audio.VADStateStarting:
+		if !state.speechDetected {
+			state.speechDetected = true
+			// Record where this chunk starts so the dead air before it can be trimmed.
+			state.speechStartOffset = len(state.audioBuffer) - chunkBytes
+			logger.Debug("AudioTurnStage: speech started")
+		}
+		state.silenceSamples = 0 // speech resumed; reset the silence run
+
+	case audio.VADStateStopping, audio.VADStateQuiet:
+		if state.speechDetected {
+			if state.silenceSamples == 0 {
+				logger.Debug("AudioTurnStage: silence started")
+			}
+			state.silenceSamples += n
+		}
+	}
+}
+
+// feedTurnDetector passes a chunk's audio and the VAD state to the turn
+// detector (see processAudio for why both calls are required).
+func (s *AudioTurnStage) feedTurnDetector(ctx context.Context, samples []byte, vadState audio.VADState) error {
+	if _, err := s.turnDetector.ProcessAudio(ctx, samples); err != nil {
+		return err
+	}
+	_, err := s.turnDetector.ProcessVADState(ctx, vadState)
+	return err
+}
+
+// processAudio processes a single audio element.
+// Always buffers audio for forwarding - VAD is only used for turn detection, not filtering.
+func (s *AudioTurnStage) processAudio(
+	ctx context.Context,
+	elem *core.StreamElement,
+	state *audioTurnState,
+) error {
+	if elem.Audio == nil || len(elem.Audio.Samples) == 0 {
+		return nil
+	}
+
+	// Always buffer audio - VAD only determines turn boundaries, not what to forward
+	// This is important for pre-recorded audio files where VAD may not detect speech
+	state.audioBuffer = append(state.audioBuffer, elem.Audio.Samples...)
+
+	// Account for this chunk in AUDIO time (sample count), never wall-clock.
+	n := len(elem.Audio.Samples) / bytesPerSample16Bit
+	state.turnSamples += n
+
+	s.capSilenceRetention(state)
+
+	// Run VAD analysis for turn detection
+	_, err := s.vad.Analyze(ctx, elem.Audio.Samples)
+	if err != nil {
+		return err
+	}
+
+	vadState := s.vad.State()
+
+	updateSpeechTallies(state, vadState, n, len(elem.Audio.Samples))
+
+	// Time-since-speech-start (incl. intra-utterance pauses), for MinSpeechDuration.
+	if state.speechDetected {
+		state.speechSamples += n
+	}
+
+	// Also use TurnDetector if available.
+	//
+	// Both calls are required. Detectors split the work: ProcessAudio accumulates
+	// the turn's audio, while speaking/silence tracking — and therefore
+	// IsUserSpeaking, which shouldCompleteTurn votes on — is driven entirely by
+	// ProcessVADState. Feeding only the audio leaves a detector permanently
+	// reporting not-speaking, so its vote ends the turn on every evaluation and
+	// continuous speech is shattered into MinSpeechDuration fragments.
+	if s.turnDetector != nil {
+		return s.feedTurnDetector(ctx, elem.Audio.Samples, vadState)
+	}
+
+	return nil
+}
+
+// shouldCompleteTurn checks if the current turn should be completed.
+func (s *AudioTurnStage) shouldCompleteTurn(state *audioTurnState) bool {
+	// Need speech to have been detected
+	if !state.speechDetected {
+		return false
+	}
+
+	sr := s.config.SampleRate
+
+	// Check minimum speech duration
+	if samplesToDuration(state.speechSamples, sr) < s.config.MinSpeechDuration {
+		return false
+	}
+
+	// Check silence duration (audio time, not wall-clock)
+	if state.silenceSamples > 0 && samplesToDuration(state.silenceSamples, sr) >= s.config.SilenceDuration {
+		logger.Debug("AudioTurnStage: turn complete - silence duration exceeded")
+		return true
+	}
+
+	// Check max turn duration
+	if samplesToDuration(state.turnSamples, sr) >= s.config.MaxTurnDuration {
+		logger.Debug("AudioTurnStage: turn complete - max duration exceeded")
+		return true
+	}
+
+	// Check TurnDetector if available
+	if s.turnDetector != nil && !s.turnDetector.IsUserSpeaking() {
+		logger.Debug("AudioTurnStage: turn complete - turn detector")
+		return true
+	}
+
+	return false
+}
+
+// emitTurnAudio emits the accumulated audio as a complete turn.
+func (s *AudioTurnStage) emitTurnAudio(
+	ctx context.Context,
+	state *audioTurnState,
+	output chan<- core.StreamElement,
+) error {
+	if len(state.liveAudio()) == 0 {
+		return nil
+	}
+
+	samples := s.trimLeadingSilence(state)
+
+	logger.Debug("AudioTurnStage: emitting turn audio",
+		"bytes", len(samples),
+		"trimmed_bytes", len(state.liveAudio())-len(samples),
+		"duration_ms", len(samples)*msPerSecond/(s.config.SampleRate*bytesPerSample16Bit))
+
+	elem := core.StreamElement{
+		Audio: &core.AudioData{
+			Samples:    samples,
+			SampleRate: s.config.SampleRate,
+			Channels:   1,
+			Format:     core.AudioFormatPCM16,
+		},
+		Timestamp: time.Now(),
+	}
+	elem.Meta.BargeInIfTranscribed = state.bargeInIfTranscribed
+
+	select {
+	case output <- elem:
+		// Records that the VAD has demonstrably produced a turn on this stream,
+		// which is what lets emitRemainingAudio drop a speechless tail without
+		// weakening the degrade-open path.
+		state.emittedTurn = true
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// capSilenceRetention bounds audio retained before any speech is detected.
+//
+// shouldCompleteTurn returns early while speechDetected is false, so the
+// MaxTurnDuration bound never applies on that path and the buffer grows for as
+// long as a participant stays quiet — measured at ~2.2 MB/min with a flat
+// per-minute rate across a 60x range, i.e. linear with no ceiling. A listener on
+// a long call, a hot mic below the VAD threshold, or a VAD misconfigured for the
+// sample rate all hit this.
+//
+// The bound is MaxTurnDuration because that is already the stage's declared
+// maximum extent for any turn: retaining more than one turn's worth of audio
+// that no turn will ever contain cannot help. Once speech is detected this stops
+// applying and the normal turn machinery takes over.
+//
+// Like SilenceDetector, this advances an offset rather than moving bytes, so
+// bounding costs O(1) amortized per byte instead of a memmove per chunk.
+//
+// Ordering matters: this must run BEFORE the VAD analysis that sets
+// speechStartOffset. That offset is an absolute index into audioBuffer, and a
+// compaction here rewrites those indices. Running before means the offset is
+// always computed against the post-compaction buffer, and this function returns
+// early once speech is detected, so it can never invalidate one already set.
+//
+// This narrows the degrade-open guarantee: when VAD never fires, the stage
+// forwards the most recent MaxTurnDuration rather than everything. It keeps the
+// newest audio, which is the audio a late-firing or broken VAD is most likely to
+// have been wrong about.
+func (s *AudioTurnStage) capSilenceRetention(state *audioTurnState) {
+	if state.speechDetected {
+		return
+	}
+
+	// Compute in nanosecond space, not float seconds. int(Duration.Seconds())
+	// truncates: any MaxTurnDuration below 1s would yield zero and read as "no
+	// bound", silently disabling the cap, and 1.5s would bound at 1s.
+	maxSamples := int(s.config.MaxTurnDuration * time.Duration(s.config.SampleRate) / time.Second)
+	maxBytes := maxSamples * bytesPerSample16Bit
+	if maxBytes <= 0 {
+		return
+	}
+
+	live := len(state.audioBuffer) - state.bufStart
+	if live <= maxBytes {
+		return
+	}
+
+	state.bufStart += live - maxBytes
+
+	// Silence before anyone speaks must not consume the turn's duration budget.
+	// shouldCompleteTurn measures turnSamples against MaxTurnDuration, so a pause
+	// longer than the bound would spend the entire budget before the utterance
+	// began and force-complete the turn the moment MinSpeechDuration was met,
+	// splitting it into a short fragment plus the remainder.
+	//
+	// Zero, not maxSamples: the retained window is exactly the bound, so carrying
+	// it forward would still read as "budget exhausted". While no speech has been
+	// detected the turn has not started, so it has spent nothing. Once speech is
+	// detected this function returns early and the budget accrues normally from
+	// there.
+	state.turnSamples = 0
+
+	// Reclaim the dead prefix only once it is worth a copy.
+	if state.bufStart >= maxBytes {
+		copy(state.audioBuffer, state.liveAudio())
+		state.audioBuffer = state.audioBuffer[:maxBytes]
+		state.bufStart = 0
+	}
+}
+
+// trimLeadingSilence drops the dead air preceding speech onset, keeping a
+// pre-roll margin. STT is billed per second and Whisper is prone to emitting
+// hallucinated text over long near-silent input, so shipping a caller's several
+// seconds of pause with their utterance costs money and invites phantom
+// transcripts.
+//
+// When VAD never reported speech the buffer is returned whole. That is
+// deliberate: the stage buffers unconditionally so a VAD misread mis-cuts a turn
+// instead of deleting audio, and trimming must not turn a misread into silent
+// data loss.
+func (s *AudioTurnStage) trimLeadingSilence(state *audioTurnState) []byte {
+	live := state.liveAudio()
+	if !state.speechDetected || state.speechStartOffset <= 0 {
+		return live
+	}
+
+	preRoll := int(defaultAudioTurnPreRoll.Seconds() * float64(s.config.SampleRate) * bytesPerSample16Bit)
+	start := state.speechStartOffset - preRoll
+	// speechStartOffset indexes audioBuffer, so rebase it onto the live window.
+	// The retention bound may already have dropped audio ahead of the onset.
+	start -= state.bufStart
+	if start <= 0 {
+		return live
+	}
+	return live[start:]
+}
+
+// resetState resets the turn state for a new turn.
+func (s *AudioTurnStage) resetState(state *audioTurnState) {
+	state.audioBuffer = nil
+	state.bufStart = 0
+	state.speechDetected = false
+	state.speechSamples = 0
+	state.silenceSamples = 0
+	state.turnSamples = 0
+	state.speechStartOffset = -1
+	state.bargeInIfTranscribed = false
+	s.vad.Reset()
+	if s.turnDetector != nil {
+		s.turnDetector.Reset()
+	}
+}
+
+// STTStageConfig configures the STTStage.
+type STTStageConfig struct {
+	// Language hint for transcription (e.g., "en")
+	Language string
+
+	// SkipEmpty skips transcription for empty audio
+	SkipEmpty bool
+
+	// MinAudioBytes is minimum audio size to transcribe
+	MinAudioBytes int
+
+	// Retry configures bounded retry on transient transcription errors.
+	// Zero value uses stt.DefaultRetryConfig (3 attempts, 250ms initial).
+	Retry stt.RetryConfig
+
+	// InterruptionHandler, when set, is the handler shared with AudioTurnStage
+	// and TTSStageWithInterruption. AudioTurnStage marks a reply as owed when it
+	// ends a turn; a turn that yields no transcript (too short, empty, or failed)
+	// gets no reply, so this stage ends it. Optional.
+	InterruptionHandler *audio.InterruptionHandler
+}
+
+// DefaultSTTStageConfig returns sensible defaults.
+func DefaultSTTStageConfig() STTStageConfig {
+	return STTStageConfig{
+		Language:      "en",
+		SkipEmpty:     true,
+		MinAudioBytes: defaultMinAudioBytes,
+		Retry:         stt.DefaultRetryConfig(),
+	}
+}
+
+// STTStage transcribes audio to text using a speech-to-text service.
+//
+// This is a Transform stage: audio element → text element (1:1)
+type STTStage struct {
+	core.BaseStage
+	service base.STTProvider
+	config  STTStageConfig
+	// emitter is optional. When set, each completed transcription publishes an
+	// EventAudioTranscription so subscribers and session export can see it.
+	emitter *events.Emitter
+}
+
+// NewSTTStage creates a new STT stage.
+// The service parameter accepts any base.STTProvider implementation.
+// The legacy stt.Service interface embeds base.STTProvider, so existing callers
+// that pass an stt.Service remain compatible without changes.
+func NewSTTStage(service base.STTProvider, config STTStageConfig) *STTStage {
+	return &STTStage{
+		BaseStage: core.NewBaseStage("stt", core.StageTypeTransform),
+		service:   service,
+		config:    config,
+	}
+}
+
+// NewSTTStageWithEmitter creates an STT stage that publishes an
+// EventAudioTranscription for each completed transcription.
+//
+// The event type and its payload (events.AudioTranscriptionData) were declared
+// and already consumed (session export writes transcriptions out as subtitles,
+// and annotated sessions query them by type), but nothing produced them, so
+// subscribers waited forever and both consumers saw an empty set. Applications
+// wanting a live transcript had to thread their own callback through the stage
+// graph instead.
+//
+// The emitter is optional; NewSTTStage remains the no-events constructor.
+func NewSTTStageWithEmitter(
+	service base.STTProvider,
+	config STTStageConfig,
+	emitter *events.Emitter,
+) *STTStage {
+	s := NewSTTStage(service, config)
+	s.emitter = emitter
+	return s
+}
+
+// Process implements the Stage interface.
+// Transcribes audio elements to text.
+func (s *STTStage) Process(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	defer close(output)
+
+	for elem := range input {
+		if err := s.processElement(ctx, elem, output); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// processElement handles one input element: non-audio elements pass through,
+// audio is transcribed and emitted as a text element. Returns non-nil only on
+// cancellation.
+func (s *STTStage) processElement(
+	ctx context.Context, elem core.StreamElement, output chan<- core.StreamElement,
+) error {
+	// Pass through non-audio elements
+	if elem.Audio == nil || len(elem.Audio.Samples) == 0 {
+		return core.SendStreamElement(ctx, elem, output)
+	}
+
+	// Skip if too small
+	if s.config.SkipEmpty && len(elem.Audio.Samples) < s.config.MinAudioBytes {
+		logger.Debug("STTStage: skipping small audio", "bytes", len(elem.Audio.Samples))
+		s.endResponse()
+		return nil
+	}
+
+	// Transcribe (with retry on transient errors)
+	sttResp, err := stt.TranscribeWithRetry(ctx, s.service, s.sttRequest(elem.Audio), s.config.Retry)
+	if err != nil {
+		logger.Error("STTStage: transcription failed", "error", err)
+		s.endResponse()
+		elem.Error = err
+		return core.SendStreamElement(ctx, elem, output)
+	}
+
+	// Skip empty transcriptions
+	text := strings.TrimSpace(sttResp.Text)
+	if text == "" {
+		logger.Debug("STTStage: empty transcription, skipping")
+		s.endResponse()
+		return nil
+	}
+
+	logger.Debug("STTStage: transcribed", "textLength", len(text))
+
+	// The turn ended while the bot was engaged in a reply, and it is words,
+	// not noise: it barges in on the reply now, ahead of its transcript.
+	if elem.Meta.BargeInIfTranscribed {
+		if err := s.bargeIn(ctx, output); err != nil {
+			return err
+		}
+		elem.Meta.BargeInIfTranscribed = false
+	}
+
+	// Publish the transcription so subscribers and session export can see it.
+	// Optional: a stage built without an emitter behaves exactly as before.
+	if s.emitter != nil {
+		s.emitter.AudioTranscription(text, s.config.Language, s.service.Name(), true)
+	}
+
+	return core.SendStreamElement(ctx, transcriptElement(text, elem.Meta, sttResp.Cost), output)
+}
+
+// bargeIn interrupts the reply the bot is engaged in, for a turn that
+// AudioTurnStage could not tell from noise until it was transcribed: it fires
+// the interruption on the shared handler (keeping the reply this turn is
+// owed) and sends the Interrupt the provider and TTS stages cancel the reply
+// on.
+//
+// The reply may have ended while the turn was transcribed: then there is
+// nothing to interrupt, and no Interrupt goes on.
+func (s *STTStage) bargeIn(ctx context.Context, output chan<- core.StreamElement) error {
+	if h := s.config.InterruptionHandler; h != nil && !h.BargeIn() {
+		return nil
+	}
+	return core.SendStreamElement(ctx, core.NewInterruptElement(), output)
+}
+
+// endResponse ends the reply AudioTurnStage marked as owed for a turn that
+// produced no transcript: nothing downstream will answer it.
+func (s *STTStage) endResponse() {
+	if s.config.InterruptionHandler != nil {
+		s.config.InterruptionHandler.EndResponse()
+	}
+}
+
+// sttRequest builds the base.STTRequest for an audio element.
+func (s *STTStage) sttRequest(a *core.AudioData) base.STTRequest {
+	return base.STTRequest{
+		Audio:    a.Samples,
+		MIMEType: "audio/pcm",
+		Hints: map[string]string{
+			core.MetaKeySampleRate: itoa(a.SampleRate),
+			"channels":             itoa(a.Channels),
+			"language":             s.config.Language,
+		},
+	}
+}
+
+// transcriptElement creates the text element for a transcription, preserving
+// the source element's metadata.
+//
+// Message is populated as well as Text. The shipped VAD topology wires this
+// stage straight into ProviderStage (sdk/internal/pipeline/builder_vad.go:
+// Audio -> VAD -> STT -> LLM -> TTS), which reads the turn from the Message:
+// it carries the role and the cost, which bare text cannot.
+//
+// Text is kept alongside it: consumers that read the raw transcript
+// (UI mirrors, logging) continue to work unchanged.
+//
+// The role is "user" because this stage transcribes inbound speech. A
+// pipeline transcribing something else should map the role downstream.
+func transcriptElement(text string, meta core.ElementMetadata, cost *types.CostInfo) core.StreamElement {
+	msg := types.Message{Role: core.RoleUser}
+	msg.AddTextPart(text)
+
+	outElem := core.StreamElement{
+		Text:      &text,
+		Message:   &msg,
+		Timestamp: time.Now(),
+		Meta:      meta,
+	}
+
+	// Stamp STT cost onto a message element when present.
+	// The arena's cost rollup reads Message.Meta["stt_cost"] via ancillaryMetaCostKeys.
+	if outElem.Message != nil && cost != nil {
+		if outElem.Message.Meta == nil {
+			outElem.Message.Meta = make(map[string]interface{})
+		}
+		outElem.Message.Meta[sttCostMetaKey] = base.CostInfoToMetaMap(cost)
+	}
+	return outElem
+}
+
+// sttCostMetaKey is the Message.Meta key for STT ancillary cost.
+// Mirrors the constant in PromptArena's engine/cost_aggregation.go.
+const sttCostMetaKey = "stt_cost"
+
+// itoa converts an int to its decimal string representation.
+// Inlined here to avoid importing strconv in a hot path.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	return strconv.Itoa(n)
+}
+
+// TTSStageWithInterruptionConfig configures TTSStageWithInterruption.
+type TTSStageWithInterruptionConfig struct {
+	// Voice is the voice ID to use
+	Voice string
+
+	// Speed is the speech rate (0.5-2.0)
+	Speed float64
+
+	// InterruptionHandler for detecting user interrupts during TTS output.
+	// Should be shared with AudioTurnStage.
+	InterruptionHandler *audio.InterruptionHandler
+
+	// SkipEmpty skips synthesis for empty text
+	SkipEmpty bool
+
+	// MinTextLength is minimum text length to synthesize
+	MinTextLength int
+
+	// Retry configures bounded retry on transient synthesis errors.
+	// Zero value uses tts.DefaultRetryConfig (3 attempts, 250ms initial).
+	Retry tts.RetryConfig
+
+	// OutputSampleRate is the sample rate of the emitted audio, in Hz. When it
+	// differs from the rate the service synthesizes PCM at, the audio is
+	// resampled. Zero emits the service's own rate unchanged.
+	OutputSampleRate int
+
+	// HeardReplies, shared with the pipeline's provider stage, reports each
+	// reply the caller cut off as what they heard of it, for the model's next
+	// turn. Optional.
+	HeardReplies *heard.HeardReplies
+
+	// NoPlaybackPacing is for a caller that does not play the audio in real
+	// time as it arrives (a text UI, a selfplay or test client). By default
+	// the stage assumes it does: it synthesizes a streamed reply one segment
+	// ahead of the one playing, hands the reply's Message on once its audio
+	// would have played, and records a reply cut short as what had played by
+	// then. With NoPlaybackPacing it synthesizes as fast as the service
+	// allows, hands the Message on at once, and counts all audio handed on as
+	// heard.
+	NoPlaybackPacing bool
+}
+
+// DefaultTTSStageWithInterruptionConfig returns sensible defaults.
+func DefaultTTSStageWithInterruptionConfig() TTSStageWithInterruptionConfig {
+	return TTSStageWithInterruptionConfig{
+		Voice:         "alloy",
+		Speed:         1.0,
+		SkipEmpty:     true,
+		MinTextLength: 1,
+		Retry:         tts.DefaultRetryConfig(),
+	}
+}
+
+// TTSStageWithInterruption synthesizes text to audio with interruption support.
+// When the user starts speaking (detected via shared InterruptionHandler),
+// synthesis is stopped and pending output is discarded.
+//
+// A reply that streams is spoken as it streams: its released text deltas are
+// split into sentences (segment.Speech), each synthesized as soon as it is
+// complete, its audio handed on as the service delivers it (replySpeech). A
+// text or Message that did not stream is synthesized whole, into one audio
+// element.
+type TTSStageWithInterruption struct {
+	core.BaseStage
+	service      tts.Service
+	config       TTSStageWithInterruptionConfig
+	interruption *audio.InterruptionHandler
+	// serviceRate is the rate the service returns tts.FormatPCM16 audio at.
+	serviceRate int
+	// clock times a streamed reply's playout; tests replace it.
+	clock core.HoldClock
+	// fwd hands elements on once the session is closing (forwardElement).
+	fwd core.CancelForwarder
+}
+
+// NewTTSStageWithInterruption creates a new TTS stage with interruption support.
+func NewTTSStageWithInterruption(
+	service tts.Service,
+	config TTSStageWithInterruptionConfig,
+) *TTSStageWithInterruption {
+	return &TTSStageWithInterruption{
+		BaseStage:    core.NewBaseStage("tts_interruptible", core.StageTypeTransform),
+		service:      service,
+		config:       config,
+		interruption: config.InterruptionHandler,
+		serviceRate:  pcmSampleRate(service),
+		clock:        core.RealHoldClock,
+	}
+}
+
+// pcmSampleRate returns the rate a service synthesizes tts.FormatPCM16 at: the
+// rate its SupportedFormats entry for PCM declares, else the format's default.
+func pcmSampleRate(service tts.Service) int {
+	if service != nil {
+		for _, f := range service.SupportedFormats() {
+			if f.Name == tts.FormatPCM16.Name && f.SampleRate > 0 {
+				return f.SampleRate
+			}
+		}
+	}
+	return tts.FormatPCM16.SampleRate
+}
+
+// Process implements the Stage interface.
+// Synthesizes audio for text elements with interruption support. A reply that
+// streams (the provider stage's text deltas) is spoken a segment at a time as
+// it arrives (replySpeech); a complete text or Message that did not stream is
+// spoken whole. A concurrent reader cancels in-flight synthesis the instant a
+// barge-in Interrupt arrives, so a long synthesis call cannot swallow the
+// interrupt; queued text behind the interrupt is dropped too, and synthesis
+// resumes on the next turn.
+func (s *TTSStageWithInterruption) Process(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	defer close(output)
+
+	canceller := core.NewTurnCanceller(ctx)
+	defer canceller.Stop()
+
+	work := make(chan core.StreamElement)
+	ended := make(chan struct{})
+	stopped := make(chan struct{})
+	defer close(stopped)
+	go queueCancelingOnInterrupt(ctx, input, work, canceller, s.clock.Now, ended, stopped)
+	s.fwd = core.CancelForwarder{}
+
+	reply := &replySpeech{cutAt: canceller.InterruptedAt, ended: ended}
+	for elem := range work {
+		if elem.Interrupt {
+			// In-flight synthesis was already canceled out of band by the
+			// reader. Roll a fresh context for the next turn, drop what was
+			// left of the interrupted reply, reset the shared handler so its
+			// interrupted flag does not carry over and block the next turn's
+			// synthesis, then forward the Interrupt downstream so playback
+			// can flush too.
+			canceller.Refresh()
+			reply.interrupted()
+			heard.Settle(s.config.HeardReplies)
+			if s.interruption != nil {
+				s.interruption.Reset()
+			}
+			if err := s.forwardElement(ctx, elem, output); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := s.processTurnElement(ctx, canceller.Context(), reply, &elem, output); err != nil {
+			return err
+		}
+	}
+
+	return ctx.Err()
+}
+
+// processTurnElement handles one non-interrupt element and ends the reply at
+// the right point. A turn boundary first speaks what is left of a streamed
+// reply. A turn boundary or a failed turn ends the reply before it is passed
+// on, so the caller never sees the boundary while the bot still counts as
+// responding. An EndOfStream may still carry text to speak, so it ends the
+// reply once that is done.
+func (s *TTSStageWithInterruption) processTurnElement(
+	forwardCtx, synthCtx context.Context,
+	reply *replySpeech,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	if elem.EndOfTurn || elem.EndOfStream {
+		if reply.stopped && elem.EndOfTurn {
+			// The reply was cut short: its turn ends interrupted, as its
+			// Message does.
+			fr := types.FinishReasonInterrupted
+			elem.Meta.FinishReason = &fr
+		}
+		if err := s.endReply(forwardCtx, synthCtx, reply, output); err != nil {
+			return err
+		}
+	}
+	if elem.Error != nil {
+		reply.reset()
+	}
+	if elem.EndOfTurn || elem.Error != nil {
+		s.endResponse()
+	}
+	if err := s.processElement(forwardCtx, synthCtx, reply, elem, output); err != nil {
+		return err
+	}
+	if elem.EndOfStream {
+		s.endResponse()
+	}
+	return nil
+}
+
+// processElement handles a single element in the TTS pipeline: a streaming
+// delta and, once a reply has streamed, its completed Message go to the
+// segment path (replySpeech); anything else with text is spoken whole. forwardCtx (the
+// pipeline context) carries pass-through of non-synthesizable elements; synthCtx
+// (cancelable per turn) governs synthesis so a barge-in can abort it. They
+// differ only in the window after an interrupt cancels synthCtx but before the
+// loop refreshes it — forwarding a queued control element must not fail then.
+func (s *TTSStageWithInterruption) processElement(
+	forwardCtx, synthCtx context.Context,
+	reply *replySpeech,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	if elem.Meta.StreamingDelta {
+		return s.speakDelta(forwardCtx, synthCtx, reply, elem, output)
+	}
+	if elem.Meta.RoundTextEnd {
+		// The round's text is complete: what is left of it is spoken now,
+		// while its tools run. The marker is this stage's; it goes no
+		// further.
+		return s.speakSegments(forwardCtx, synthCtx, reply, reply.roundTextEnd(elem.Meta.MessageID), output)
+	}
+	if reply.active && isAssistantMessage(elem) {
+		return s.speakStreamedMessage(forwardCtx, synthCtx, reply, elem, output)
+	}
+
+	text := s.extractText(elem)
+	if text == "" {
+		return s.forwardElement(forwardCtx, *elem, output)
+	}
+
+	if s.shouldSkipText(text) {
+		return s.forwardUnspoken(forwardCtx, elem, output)
+	}
+
+	return s.synthesizeAndEmit(forwardCtx, synthCtx, text, elem, output)
+}
+
+// forwardUnspoken passes on an element whose text produced no audio, so the
+// assistant message it carries still reaches the save and broadcast stages.
+// A bare Text element is dropped: it was only an instruction to speak.
+func (s *TTSStageWithInterruption) forwardUnspoken(
+	ctx context.Context,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	if elem.Message == nil {
+		return nil
+	}
+	return s.forwardElement(ctx, *elem, output)
+}
+
+// shouldSkipText checks if text should be skipped based on config.
+func (s *TTSStageWithInterruption) shouldSkipText(text string) bool {
+	return s.config.SkipEmpty && len(strings.TrimSpace(text)) < s.config.MinTextLength
+}
+
+// forwardElement forwards an element to output.
+//
+// Once ctx has ended (the session is closing) the hand-off is bounded
+// (CancelForwarder): a consumer still collecting the turn, the save stage
+// among them, gets what was in flight, and one that has gone away does not
+// block the stage. It never fails then.
+func (s *TTSStageWithInterruption) forwardElement(
+	ctx context.Context,
+	elem core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	s.fwd.Forward(ctx, output, elem)
+	return nil
+}
+
+// setBotSpeaking safely sets bot speaking state if handler exists.
+// It covers synthesis only. The rest of the barge-in window is the reply
+// AudioTurnStage began (ended by endResponse) and the playback of emitted audio
+// (ExtendPlayback in emitAudioElement).
+func (s *TTSStageWithInterruption) setBotSpeaking(speaking bool) {
+	if s.interruption != nil {
+		s.interruption.SetBotSpeaking(speaking)
+	}
+}
+
+// synthesizeAndEmit performs TTS synthesis and emits the audio element.
+// Interruption is handled exclusively by the in-channel Interrupt element and
+// the per-turn synthCtx (canceled by TurnCanceller on barge-in), so there is
+// no need to poll the shared handler here.
+//
+// The audio element carries the input's assistant message, stamped with the
+// synthesis cost under Message.Meta["tts_cost"]. When no audio is produced (a
+// barge-in canceled synthesis, or reading the audio failed) the message is
+// still forwarded, without a cost: the model's history holds the reply whether
+// or not it was heard, and a canceled request is not priced. A synthesis error
+// forwards the element once, with the error attached.
+func (s *TTSStageWithInterruption) synthesizeAndEmit(
+	forwardCtx, synthCtx context.Context,
+	text string,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	s.setBotSpeaking(true)
+
+	start := time.Now()
+	audioData, err := s.performSynthesis(synthCtx, text)
+	if err != nil {
+		// handleSynthesisError forwards the element itself; returning here keeps
+		// it from being forwarded a second time below.
+		return s.handleSynthesisError(forwardCtx, err, elem, output)
+	}
+	if audioData == nil {
+		s.setBotSpeaking(false)
+		return s.forwardUnspoken(forwardCtx, elem, output)
+	}
+	cost := tts.ComputeTTSCost(s.service, text, time.Since(start))
+	if synthCtx.Err() != nil {
+		// A barge-in landed after the audio was fully read: the audio is
+		// dropped, but the completed request was billed, so it is priced.
+		s.setBotSpeaking(false)
+		unspoken := *elem
+		unspoken.Message = withTTSCost(elem.Message, cost)
+		return s.forwardUnspoken(forwardCtx, &unspoken, output)
+	}
+
+	return s.emitAudioElement(forwardCtx, text, audioData, elem, cost, output)
+}
+
+// performSynthesis executes the TTS synthesis and returns audio data. It
+// returns (nil, nil) when synthesis was canceled or reading the audio failed,
+// and a non-nil error only for a synthesis failure the caller must surface.
+func (s *TTSStageWithInterruption) performSynthesis(ctx context.Context, text string) ([]byte, error) {
+	reader, err := tts.SynthesizeWithRetry(ctx, s.service, text, s.synthesisConfig(), s.config.Retry)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Debug("TTSStageWithInterruption: synthesis canceled (barge-in/shutdown), dropping output")
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	audioData, err := io.ReadAll(reader)
+	if closeErr := reader.Close(); closeErr != nil {
+		logger.Warn("TTSStageWithInterruption: failed to close reader", "error", closeErr)
+	}
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			logger.Error("TTSStageWithInterruption: failed to read audio", "error", err)
+		}
+		return nil, nil // Not a fatal error: the message goes on without audio
+	}
+
+	return audioData, nil
+}
+
+// handleSynthesisError emits the element with the synthesis error attached.
+// A context cancellation is not an error: performSynthesis handles it before
+// this is reached.
+func (s *TTSStageWithInterruption) handleSynthesisError(
+	ctx context.Context,
+	err error,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	s.setBotSpeaking(false)
+	logger.Error("TTSStageWithInterruption: synthesis failed", "error", err)
+	elem.Error = err
+	return s.forwardElement(ctx, *elem, output)
+}
+
+// emitAudioElement creates and emits the audio output element. The element
+// keeps the input's message, with the synthesis cost stamped on a copy of it.
+func (s *TTSStageWithInterruption) emitAudioElement(
+	ctx context.Context,
+	text string,
+	audioData []byte,
+	in *core.StreamElement,
+	cost *types.CostInfo,
+	output chan<- core.StreamElement,
+) error {
+	logger.Debug("TTSStageWithInterruption: synthesized",
+		"text_len", len(text), "audio_bytes", len(audioData))
+
+	samples, sampleRate := s.toOutputRate(audioData)
+	outElem := core.StreamElement{
+		Text: &text,
+		Audio: &core.AudioData{
+			Samples:    samples,
+			SampleRate: sampleRate,
+			Channels:   1,
+			Format:     core.AudioFormatPCM16,
+		},
+		Message: withTTSCost(in.Message, cost),
+		Meta:    in.Meta,
+		// This element replaces the one it synthesized, so it carries that
+		// element's end-of-stream boundary on, or the boundary is lost.
+		EndOfStream: in.EndOfStream,
+		Timestamp:   time.Now(),
+	}
+	// The reply text already streamed as deltas; this element's Text is a
+	// reference copy of what was submitted for synthesis. Mark it so a consumer
+	// does not re-present that text as new model output (see
+	// ElementMetadata.SynthesizedSpeech). Set after the meta copy so it wins.
+	outElem.Meta.SynthesizedSpeech = true
+	outElem.Meta.StreamingDelta = false
+	// Attach the faithful spoken text (post markup-lowering) when the provider can
+	// report it, so a consumer can caption exactly what was said. Uses the
+	// same config as synthesis; empty when the provider doesn't implement it.
+	if reporter, ok := s.service.(tts.SpokenTextReporter); ok {
+		outElem.Meta.SpokenText = reporter.SpokenText(text, s.synthesisConfig())
+	}
+
+	// The caller plays this audio after it is handed over, so the bot is still
+	// speaking — and interruptible — until it would have finished. Extended
+	// before the synthesis flag drops, so there is no gap between the two. A
+	// caller that does not play audio in real time (NoPlaybackPacing) opens
+	// no such window.
+	if s.interruption != nil && !s.config.NoPlaybackPacing {
+		s.interruption.ExtendPlayback(audio.PCM16Duration(len(samples), sampleRate, 1))
+	}
+	s.setBotSpeaking(false)
+	return s.forwardElement(ctx, outElem, output)
+}
+
+// endResponse ends the reply AudioTurnStage began for the user's turn: its turn
+// is over (EndOfTurn/EndOfStream) or failed (an error element; a failed turn
+// emits no EndOfTurn). Audio already delivered keeps playing, and the handler
+// keeps the bot interruptible until it would have finished.
+func (s *TTSStageWithInterruption) endResponse() {
+	if s.interruption != nil {
+		s.interruption.EndResponse()
+	}
+}
+
+// toOutputRate resamples synthesized PCM to the configured output rate and
+// returns the samples with the rate they are at. Without a configured rate, or
+// if resampling fails, the audio keeps the service's rate.
+func (s *TTSStageWithInterruption) toOutputRate(pcm []byte) (samples []byte, sampleRate int) {
+	want := s.config.OutputSampleRate
+	if want <= 0 || want == s.serviceRate {
+		return pcm, s.serviceRate
+	}
+	resampled, err := audio.ResamplePCM16(pcm, s.serviceRate, want)
+	if err != nil {
+		logger.Warn("TTSStageWithInterruption: resample failed, emitting service rate",
+			"from", s.serviceRate, "to", want, "error", err)
+		return pcm, s.serviceRate
+	}
+	return resampled, want
+}
+
+// withTTSCost returns a copy of msg with cost stamped under
+// Meta["tts_cost"]. The copy and its fresh Meta map keep the stamp off the
+// message the provider stage holds in its history. A nil message, or a nil
+// cost (an unpriced service), returns msg unchanged.
+func withTTSCost(msg *types.Message, cost *types.CostInfo) *types.Message {
+	costMeta := base.CostInfoToMetaMap(cost)
+	if msg == nil || costMeta == nil {
+		return msg
+	}
+	stamped := *msg
+	stamped.Meta = make(map[string]interface{}, len(msg.Meta)+1)
+	for k, v := range msg.Meta {
+		stamped.Meta[k] = v
+	}
+	stamped.Meta[ttsCostMetaKey] = costMeta
+	return &stamped
+}
+
+// synthesisConfig is the request every synthesis call makes: the configured
+// voice and speed, as 16-bit PCM.
+func (s *TTSStageWithInterruption) synthesisConfig() tts.SynthesisConfig {
+	return tts.SynthesisConfig{Voice: s.config.Voice, Speed: s.config.Speed, Format: tts.FormatPCM16}
+}
+
+// isAssistantMessage reports whether elem carries an assistant Message.
+func isAssistantMessage(elem *core.StreamElement) bool {
+	return elem.Message != nil && elem.Message.Role == core.RoleAssistant
+}
+
+// extractText extracts text content from an element.
+func (s *TTSStageWithInterruption) extractText(elem *core.StreamElement) string {
+	// Streaming deltas are spoken a segment at a time (speakDelta), never
+	// whole here.
+	if elem.Meta.StreamingDelta {
+		return ""
+	}
+
+	if elem.Text != nil && *elem.Text != "" {
+		return *elem.Text
+	}
+
+	// Only the assistant is spoken. The continuous multi-turn ProviderStage
+	// re-emits each turn's user transcript downstream before generating (so the
+	// UI and save stages see it immediately), and in the VAD voice topology this
+	// stage sits directly downstream of it — without the role check the caller
+	// hears their own question read back before it is answered. Tool results are
+	// likewise data for later stages, not lines to read aloud. A bare Text
+	// element carries no role and stays an explicit "speak this" instruction.
+	if elem.Message != nil && elem.Message.Role == core.RoleAssistant {
+		if elem.Message.Content != "" {
+			return elem.Message.Content
+		}
+		for _, part := range elem.Message.Parts {
+			if part.Text != nil && *part.Text != "" {
+				return *part.Text
+			}
+		}
+	}
+
+	return ""
+}
+
+// ResponseVADConfig configures the ResponseVADStage.
+type ResponseVADConfig struct {
+	// VAD is the voice activity detector.
+	// If nil, a SimpleVAD with default params is created.
+	VAD audio.VADAnalyzer
+
+	// SilenceDuration is how long silence must persist after EndOfStream
+	// to confirm turn completion.
+	// Default: 500ms
+	SilenceDuration time.Duration
+
+	// MaxWaitDuration is the maximum time to wait for silence after EndOfStream.
+	// If silence is not detected within this time, EndOfStream is emitted anyway.
+	// Default: 3s
+	MaxWaitDuration time.Duration
+
+	// SampleRate is the expected audio sample rate.
+	// Default: 24000 (Gemini output)
+	SampleRate int
+}
+
+const (
+	defaultResponseVADSilence    = 500 * time.Millisecond
+	defaultResponseVADMaxWait    = 3 * time.Second
+	defaultResponseVADSampleRate = 24000
+	// responseVADCheckInterval is how long the stage sleeps between checks of
+	// a held EndOfStream while no input arrives.
+	responseVADCheckInterval = 50 * time.Millisecond
+)
+
+// DefaultResponseVADConfig returns sensible defaults for ResponseVADStage.
+func DefaultResponseVADConfig() ResponseVADConfig {
+	return ResponseVADConfig{
+		SilenceDuration: defaultResponseVADSilence,
+		MaxWaitDuration: defaultResponseVADMaxWait,
+		SampleRate:      defaultResponseVADSampleRate,
+	}
+}
+
+// ResponseVADStage monitors response audio for silence and delays EndOfStream
+// until actual silence is detected. This decouples turn completion from provider
+// signaling (e.g., Gemini's turnComplete) which may arrive before all audio
+// chunks have been received.
+//
+// This stage:
+// 1. Passes through all elements immediately (audio, text, messages)
+// 2. When EndOfStream is received from upstream, starts monitoring for silence
+// 3. Only emits EndOfStream downstream when VAD confirms sustained silence
+// 4. Has a max wait timeout to prevent indefinite blocking
+//
+// This is a Transform stage with buffering: it may hold EndOfStream temporarily.
+type ResponseVADStage struct {
+	core.BaseStage
+	config ResponseVADConfig
+	vad    audio.VADAnalyzer
+	// checkInterval is how long the stage sleeps between checks:
+	// responseVADCheckInterval; tests shorten it.
+	checkInterval time.Duration
+}
+
+// NewResponseVADStage creates a new response VAD stage.
+func NewResponseVADStage(config ResponseVADConfig) (*ResponseVADStage, error) {
+	// Create default VAD if not provided
+	vad := config.VAD
+	if vad == nil {
+		// Use params tuned for response audio detection
+		params := audio.VADParams{
+			Confidence: defaultResponseVADConfidence,
+			StartSecs:  defaultResponseVADStartSecs,
+			StopSecs:   defaultResponseVADStopSecs,
+			MinVolume:  defaultResponseVADMinVolume,
+			SampleRate: config.SampleRate,
+		}
+		if config.SampleRate == 0 {
+			params.SampleRate = defaultResponseVADSampleRate
+		}
+
+		// AdaptiveVAD here too. TTS output was assumed predictable enough for a
+		// fixed threshold, but measured against these very params it is not:
+		// SimpleVAD does not detect 0.02 RMS playback at all, and is slower at
+		// every level it does detect (0.05 RMS at 500ms vs 200ms). Undetected
+		// playback starts the silence window immediately, releasing EndOfStream
+		// while the assistant is still speaking.
+		var err error
+		vad, err = audio.NewAdaptiveVAD(params)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &ResponseVADStage{
+		BaseStage:     core.NewBaseStage("response_vad", core.StageTypeTransform),
+		config:        config,
+		vad:           vad,
+		checkInterval: responseVADCheckInterval,
+	}, nil
+}
+
+// responseVADState holds the state for response VAD processing.
+type responseVADState struct {
+	// endOfStreamReceived indicates upstream signaled turn complete
+	endOfStreamReceived bool
+	// endOfStreamElem holds the EndOfStream element to emit after silence confirmed
+	endOfStreamElem *core.StreamElement
+	// silenceStartTime is when silence was first detected after EndOfStream
+	silenceStartTime time.Time
+	// endOfStreamTime is when EndOfStream was received
+	endOfStreamTime time.Time
+	// lastAudioTime is when the last audio chunk was received
+	lastAudioTime time.Time
+}
+
+// Process implements the Stage interface.
+// Monitors response audio for silence and delays EndOfStream until confirmed.
+//
+//nolint:gocognit // Complex state machine for audio stream processing - refactoring would hurt readability
+func (s *ResponseVADStage) Process(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	defer close(output)
+
+	state := &responseVADState{}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case elem, ok := <-input:
+			if !ok {
+				// Input channel closed - emit any held EndOfStream
+				if state.endOfStreamElem != nil {
+					logger.Debug("ResponseVADStage: input closed, emitting held EndOfStream")
+					if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+
+			// Handle EndOfStream - hold it and start monitoring for silence
+			if elem.EndOfStream {
+				logger.Debug("ResponseVADStage: EndOfStream received, starting silence monitoring")
+				state.endOfStreamReceived = true
+				state.endOfStreamElem = &elem
+				state.endOfStreamTime = time.Now()
+				// Initialize silence tracking based on current VAD state
+				if s.vad.State() == audio.VADStateQuiet || s.vad.State() == audio.VADStateStopping {
+					state.silenceStartTime = time.Now()
+				}
+				continue
+			}
+
+			// Process audio through VAD
+			if elem.Audio != nil && len(elem.Audio.Samples) > 0 {
+				state.lastAudioTime = time.Now()
+				_, err := s.vad.Analyze(ctx, elem.Audio.Samples)
+				if err != nil {
+					logger.Error("ResponseVADStage: VAD analysis failed", "error", err)
+				}
+
+				// Update silence tracking
+				vadState := s.vad.State()
+				if vadState == audio.VADStateQuiet || vadState == audio.VADStateStopping {
+					if state.silenceStartTime.IsZero() {
+						state.silenceStartTime = time.Now()
+					}
+				} else {
+					// Audio detected - reset silence timer
+					state.silenceStartTime = time.Time{}
+				}
+			}
+
+			// Forward all elements immediately
+			if err := s.emitElement(ctx, &elem, output); err != nil {
+				return err
+			}
+
+			// Check if we should emit held EndOfStream
+			if state.endOfStreamReceived && s.shouldEmitEndOfStream(state) {
+				logger.Debug("ResponseVADStage: silence confirmed, emitting EndOfStream",
+					"silenceDuration", time.Since(state.silenceStartTime))
+				if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+					return err
+				}
+				// Reset state for next turn
+				s.vad.Reset()
+				state.endOfStreamReceived = false
+				state.endOfStreamElem = nil
+				state.silenceStartTime = time.Time{}
+			}
+
+		default:
+			// No input available - check if we should emit held EndOfStream
+			if state.endOfStreamReceived && s.shouldEmitEndOfStream(state) {
+				logger.Debug("ResponseVADStage: silence confirmed (no more audio), emitting EndOfStream")
+				if err := s.emitElement(ctx, state.endOfStreamElem, output); err != nil {
+					return err
+				}
+				// Reset state for next turn
+				s.vad.Reset()
+				state.endOfStreamReceived = false
+				state.endOfStreamElem = nil
+				state.silenceStartTime = time.Time{}
+			}
+
+			// Small sleep to prevent busy-waiting
+			time.Sleep(s.checkInterval)
+		}
+	}
+}
+
+// shouldEmitEndOfStream determines if the held EndOfStream should be emitted.
+func (s *ResponseVADStage) shouldEmitEndOfStream(state *responseVADState) bool {
+	if !state.endOfStreamReceived {
+		return false
+	}
+
+	silenceDuration := s.config.SilenceDuration
+	if silenceDuration == 0 {
+		silenceDuration = defaultResponseVADSilence
+	}
+
+	maxWait := s.config.MaxWaitDuration
+	if maxWait == 0 {
+		maxWait = defaultResponseVADMaxWait
+	}
+
+	// Check max wait timeout
+	if time.Since(state.endOfStreamTime) >= maxWait {
+		logger.Debug("ResponseVADStage: max wait exceeded, emitting EndOfStream",
+			"maxWait", maxWait)
+		return true
+	}
+
+	// Check if silence duration is met
+	if !state.silenceStartTime.IsZero() && time.Since(state.silenceStartTime) >= silenceDuration {
+		return true
+	}
+
+	return false
+}
+
+// emitElement sends an element to the output channel.
+func (s *ResponseVADStage) emitElement(
+	ctx context.Context,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	select {
+	case output <- *elem:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

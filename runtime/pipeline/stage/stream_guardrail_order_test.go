@@ -69,3 +69,65 @@ func TestProviderStage_CutStreamIsSpokenOnceAsTheGuardrailMessage(t *testing.T) 
 	defer mu.Unlock()
 	assert.Equal(t, []string{msg}, spoken)
 }
+
+// The helpers below are copies of internal/voice's speech test helpers, which
+// a stage test cannot use.
+
+// mockTTSService implements tts.Service with synthesizeFunc.
+type mockTTSService struct {
+	synthesizeFunc func(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error)
+}
+
+func (m *mockTTSService) Name() string { return "mock-tts" }
+func (m *mockTTSService) SupportedVoices() []tts.Voice {
+	return []tts.Voice{{ID: "test", Name: "Test Voice"}}
+}
+func (m *mockTTSService) SupportedFormats() []tts.AudioFormat {
+	return []tts.AudioFormat{tts.FormatPCM16}
+}
+func (m *mockTTSService) Synthesize(ctx context.Context, text string, config tts.SynthesisConfig) (io.ReadCloser, error) {
+	return m.synthesizeFunc(ctx, text, config)
+}
+
+// generateTestPCM is length bytes of test PCM audio, as a string.
+func generateTestPCM(length int) string {
+	data := make([]byte, length)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+	return string(data)
+}
+
+// runStage sends inputs through a stage's Process, collects all output
+// elements, and returns them. It returns once the output channel is closed
+// or the timeout elapses.
+func runStage(t *testing.T, s stage.Stage, inputs []stage.StreamElement, timeout time.Duration) []stage.StreamElement {
+	t.Helper()
+
+	input := make(chan stage.StreamElement, len(inputs))
+	output := make(chan stage.StreamElement, len(inputs)+10)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	go func() { _ = s.Process(ctx, input, output) }()
+
+	for _, elem := range inputs {
+		input <- elem
+	}
+	close(input)
+
+	var results []stage.StreamElement
+	deadline := time.After(timeout)
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				return results
+			}
+			results = append(results, elem)
+		case <-deadline:
+			return results
+		}
+	}
+}
