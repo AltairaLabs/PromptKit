@@ -59,11 +59,20 @@ jobs:
       if: steps.scope.outputs.go == 'true'
       run: ./scripts/check-weak-assertions.sh "${{ github.event.pull_request.base.sha }}"
 
-  mutation:
-    # Job name must match the required status check context in the ruleset.
-    name: Mutation Gate
+  # Each mutant recompiles its package with the package's tests and reruns
+  # them: 23 CPU-seconds for one runtime/pipeline/stage mutant on this 4-vCPU
+  # runner, so one runner gets through ~250 mutants in 30 minutes however many
+  # workers it runs. The shards split the changed files between them (see
+  # "Sharding" in scripts/check-mutation-diff.sh); the Mutation Gate job below
+  # scores their mutants together.
+  mutation-shard:
+    name: Mutation Gate shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ 1, 2, 3, 4 ]
     env:
       PROMPTKIT_SCHEMA_SOURCE: local
 
@@ -101,10 +110,55 @@ jobs:
       if: steps.scope.outputs.go == 'true'
       run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
 
-    # Mutates the conditions and arithmetic on the lines this PR changes in
-    # runtime/sdk/pkg/server-a2a, reruns each changed package's tests per
-    # mutant, and fails when fewer than 75% of the mutants are caught. See
-    # scripts/check-mutation-diff.sh for the scope and the score.
+    - name: Mutate this shard's changed lines
+      env:
+        MUTATION_SHARD: ${{ matrix.shard }}/4
+        MUTATION_RESULTS: mutants-${{ matrix.shard }}.tsv
+      run: |
+        if [ "${{ steps.scope.outputs.go }}" = "true" ]; then
+          ./scripts/check-mutation-diff.sh "${{ github.event.pull_request.base.sha }}"
+        else
+          : > "${MUTATION_RESULTS}"
+        fi
+
+    - name: Upload this shard's mutants
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: mutants-${{ matrix.shard }}
+        path: mutants-${{ matrix.shard }}.tsv
+        if-no-files-found: error
+        retention-days: 1
+
+  mutation:
+    # Job name must match the required status check context in the ruleset.
+    name: Mutation Gate
+    needs: mutation-shard
+    # Runs when a shard fails too, so the required check reports a failure
+    # instead of being skipped.
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - name: Require every shard to have finished
+      if: needs.mutation-shard.result != 'success'
+      run: |
+        echo "FAIL: a mutation shard ended ${{ needs.mutation-shard.result }}; its log says why."
+        exit 1
+
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Download the shards' mutants
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: mutants-*
+        path: mutants
+        merge-multiple: true
+
+    # The shards mutated the conditions and arithmetic on the lines this PR
+    # changes in runtime/sdk/pkg/server-a2a and reran each changed package's
+    # tests per mutant; this fails when fewer than 75% of all their mutants
+    # were caught. See scripts/check-mutation-diff.sh for the scope and score.
     - name: Check that tests catch the changed lines
-      if: steps.scope.outputs.go == 'true'
-      run: ./scripts/check-mutation-diff.sh "${{ github.event.pull_request.base.sha }}"
+      run: ./scripts/check-mutation-diff.sh --score mutants/mutants-1.tsv mutants/mutants-2.tsv mutants/mutants-3.tsv mutants/mutants-4.tsv
