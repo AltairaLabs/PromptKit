@@ -1,0 +1,39 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_060621785cba5912006b02e1cb230487d29a3f8fe4afe4f542","object":"response","created_at":1795350987,"status":"in_progress","access_programs":null,"background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"image":{"context_compression":"disabled"},"incomplete_details":null,"input_transformations":[],"instructions":"You help with orders. Always use the lookup tool before answering about an order.","max_output_tokens":null,"max_tool_calls":null,"model":"gpt-5-mini-2025-08-07","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"in_memory","reasoning":{"context":"current_turn","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Look up an order's status by id","name":"lookup","output_schema":null,"parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":0}
+
+event: response.in_progress
+data: {"type":"response.in_progress","response":{"id":"resp_060621785cba5912006b02e1cb230487d29a3f8fe4afe4f542","object":"response","created_at":1795350987,"status":"in_progress","access_programs":null,"background":false,"completed_at":null,"error":null,"frequency_penalty":0.0,"image":{"context_compression":"disabled"},"incomplete_details":null,"input_transformations":[],"instructions":"You help with orders. Always use the lookup tool before answering about an order.","max_output_tokens":null,"max_tool_calls":null,"model":"gpt-5-mini-2025-08-07","moderation":null,"output":[],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"in_memory","reasoning":{"context":"current_turn","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"auto","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Look up an order's status by id","name":"lookup","output_schema":null,"parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":null,"user":null,"metadata":{}},"sequence_number":1}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"rs_060621785cba5912006b02e1cb96fc87d2af503c370d6f7040","type":"reasoning","content":[],"encrypted_content":"<redacted>","summary":[]},"output_index":0,"sequence_number":2}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"rs_060621785cba5912006b02e1cb96fc87d2af503c370d6f7040","type":"reasoning","content":[],"encrypted_content":"<redacted>","summary":[]},"output_index":0,"sequence_number":3}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","type":"function_call","status":"in_progress","arguments":"","call_id":"call_H5o9EabW9GFqKe7Htw2s4IQq","name":"lookup"},"output_index":1,"sequence_number":4}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"{\"","item_id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","output_index":1,"sequence_number":5}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"id","item_id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","output_index":1,"sequence_number":6}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"\":\"","item_id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","output_index":1,"sequence_number":7}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"42","item_id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","output_index":1,"sequence_number":8}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","delta":"\"}","item_id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","output_index":1,"sequence_number":9}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","arguments":"{\"id\":\"42\"}","item_id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","output_index":1,"sequence_number":10}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","type":"function_call","status":"completed","arguments":"{\"id\":\"42\"}","call_id":"call_H5o9EabW9GFqKe7Htw2s4IQq","name":"lookup"},"output_index":1,"sequence_number":11}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_060621785cba5912006b02e1cb230487d29a3f8fe4afe4f542","object":"response","created_at":1795350987,"status":"completed","access_programs":null,"background":false,"completed_at":1795350988,"error":null,"frequency_penalty":0.0,"image":{"context_compression":"disabled"},"incomplete_details":null,"input_transformations":[],"instructions":"You help with orders. Always use the lookup tool before answering about an order.","max_output_tokens":null,"max_tool_calls":null,"model":"gpt-5-mini-2025-08-07","moderation":null,"output":[{"id":"rs_060621785cba5912006b02e1cb96fc87d2af503c370d6f7040","type":"reasoning","content":[],"encrypted_content":"<redacted>","summary":[]},{"id":"fc_060621785cba5912006b02e1cc357c87d2b0af2e8984e45e2e","type":"function_call","status":"completed","arguments":"{\"id\":\"42\"}","call_id":"call_H5o9EabW9GFqKe7Htw2s4IQq","name":"lookup"}],"parallel_tool_calls":true,"presence_penalty":0.0,"previous_response_id":null,"prompt_cache_key":null,"prompt_cache_retention":"in_memory","reasoning":{"context":"current_turn","effort":"medium","mode":"standard","summary":null},"safety_identifier":null,"service_tier":"default","store":true,"temperature":1.0,"text":{"format":{"type":"text"},"verbosity":"medium"},"tool_choice":"auto","tool_usage":{"image_gen":{"input_tokens":0,"input_tokens_details":{"image_tokens":0,"text_tokens":0},"output_tokens":0,"output_tokens_details":{"image_tokens":0,"text_tokens":0},"total_tokens":0},"web_search":{"num_requests":0}},"tools":[{"type":"function","description":"Look up an order's status by id","name":"lookup","output_schema":null,"parameters":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"],"additionalProperties":false},"strict":true}],"top_logprobs":0,"top_p":1.0,"truncation":"disabled","usage":{"input_tokens":79,"input_tokens_details":{"cache_write_tokens":0,"cache_write_tokens_details":{"ttl_12h_tokens":0,"ttl_30m_tokens":0},"cached_tokens":0},"output_tokens":80,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":159},"user":null,"metadata":{}},"sequence_number":12}
+
