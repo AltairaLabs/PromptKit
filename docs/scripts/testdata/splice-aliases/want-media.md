@@ -12,6 +12,7 @@ Package stage is the fixture's facade.
 
 - [type Limiter](<#Limiter>)
   - [func \(l \*Limiter\) Process\(in \<\-chan Scored\) core.Kind](<#Limiter.Process>)
+- [type LimiterConfig](<#LimiterConfig>)
 - [type Scored](<#Scored>)
   - [func \(s \*Scored\) Reset\(\)](<#Scored.Reset>)
   - [func \(s Scored\) Weight\(\) float64](<#Scored.Weight>)
@@ -37,6 +38,15 @@ func (l *Limiter) Process(in <-chan Scored) core.Kind
 ```
 
 Process keeps each Scored above the limit.
+
+<a name="LimiterConfig"></a>
+## type [LimiterConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L9>)
+
+LimiterConfig is internal/media's own config, which shares its name with the media library's.
+
+```go
+type LimiterConfig = media.LimiterConfig
+```
 
 <a name="Scored"></a>
 ## type [Scored](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/core/core.go#L5-L10>)

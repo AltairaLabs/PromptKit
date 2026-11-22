@@ -3253,7 +3253,7 @@ Process implements the Stage interface. Resizes images in each element to fit wi
 <a name="ImageResizeStageConfig"></a>
 ## type [ImageResizeStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_resize.go#L14>)
 
-ImageResizeStageConfig is an alias for media.ImageResizeConfig. This provides stage\-specific naming while avoiding code duplication.
+ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig. This provides stage\-specific naming while avoiding code duplication.
 
 ```go
 type ImageResizeStageConfig = media.ImageResizeConfig

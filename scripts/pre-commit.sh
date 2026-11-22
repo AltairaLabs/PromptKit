@@ -430,7 +430,7 @@ else
 runtime/credentials/azure_integration.go
 runtime/credentials/gcp_integration.go
 runtime/media/audio_converter_integration.go
-runtime/pipeline/stage/stages_video_frames_integration.go
+runtime/pipeline/stage/internal/media/stages_video_frames_integration.go
 runtime/providers/gemini/stream_session_integration.go
 runtime/providers/gemini/stream_session_protocol_integration.go
 runtime/providers/gemini/stream_session_tools_integration.go

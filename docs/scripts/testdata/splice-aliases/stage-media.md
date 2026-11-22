@@ -11,6 +11,7 @@ Package stage is the fixture's facade.
 ## Index
 
 - [type Limiter](<#Limiter>)
+- [type LimiterConfig](<#LimiterConfig>)
 - [type Scored](<#Scored>)
 
 
@@ -21,6 +22,15 @@ Limiter drops what scores too low.
 
 ```go
 type Limiter = media.Limiter
+```
+
+<a name="LimiterConfig"></a>
+## type [LimiterConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L9>)
+
+LimiterConfig is internal/media's own config, which shares its name with the media library's.
+
+```go
+type LimiterConfig = media.LimiterConfig
 ```
 
 <a name="Scored"></a>

@@ -131,7 +131,7 @@ func (s *ImagePreprocessStage) readImageFromFile(media *types.MediaContent) ([]b
 }
 
 // buildResizeConfig returns the resize config directly.
-// Since ImageResizeStageConfig is an alias for media.ImageResizeConfig, no conversion needed.
+// Since ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig, no conversion needed.
 func (s *ImagePreprocessStage) buildResizeConfig() medialib.ImageResizeConfig {
 	return s.config.Resize
 }

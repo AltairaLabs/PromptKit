@@ -65,7 +65,7 @@ func NewImagePreprocessStage(config ImagePreprocessConfig) *ImagePreprocessStage
 	return media.NewImagePreprocessStage(config)
 }
 
-// ImageResizeStageConfig is an alias for media.ImageResizeConfig.
+// ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig.
 // This provides stage-specific naming while avoiding code duplication.
 type ImageResizeStageConfig = media.ImageResizeStageConfig
 

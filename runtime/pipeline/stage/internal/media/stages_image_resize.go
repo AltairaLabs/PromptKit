@@ -9,7 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
-// ImageResizeStageConfig is an alias for media.ImageResizeConfig.
+// ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig.
 // This provides stage-specific naming while avoiding code duplication.
 type ImageResizeStageConfig = media.ImageResizeConfig
 

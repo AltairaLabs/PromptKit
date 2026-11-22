@@ -268,12 +268,15 @@ def reexports(facade, internal_pkgs):
     return out
 
 
-def unqualify(lines, reexported):
+def unqualify(lines, reexported, own_pkg):
     """Writes each name the facade re-exports from an internal package
     ("core.StreamElement" in a moved method's signature) as the facade's own
-    name, since that is the name a facade user writes."""
+    name, since that is the name a facade user writes. A package never
+    qualifies its own names, so on own_pkg's page "own_pkg.X" is an imported
+    package of the same name (runtime/media on internal/media's) and stays."""
     def repl(m):
-        return m.group(2) if (m.group(1), m.group(2)) in reexported else m.group(0)
+        pkg, name = m.group(1), m.group(2)
+        return name if pkg != own_pkg and (pkg, name) in reexported else m.group(0)
     return [QUALIFIED.sub(repl, line) for line in lines]
 
 
@@ -309,7 +312,7 @@ def splice_types(facade, internals, reexported):
         head.lines = without_anchors(head.lines, taken - here)
         taken |= {m.group(1) for m in map(ANY_ANCHOR.match, head.lines) if m}
         # Examples live in the facade's tests, so only its page has them.
-        head.lines = unqualify(head.lines, reexported) + examples(s.lines)
+        head.lines = unqualify(head.lines, reexported, src.pkg) + examples(s.lines)
         own = facade.sections[i + 1 : f_end]
         own_anchors = {o.anchor for o in own}
         methods = [
@@ -317,7 +320,7 @@ def splice_types(facade, internals, reexported):
             if m.anchor.startswith(name + ".") and m.anchor not in own_anchors
         ]
         for m in methods:
-            m.lines = unqualify(m.lines, reexported)
+            m.lines = unqualify(m.lines, reexported, src.pkg)
         new = [head] + own + methods
         facade.sections[i:f_end] = new
         i += len(new)
@@ -326,7 +329,7 @@ def splice_types(facade, internals, reexported):
         if at < 0:
             continue
         _, src_children = index_children(src.preamble, name)
-        add = [c for c in unqualify(src_children, reexported)
+        add = [c for c in unqualify(src_children, reexported, src.pkg)
                if "(<#%s." % name in c and c not in children]
         facade.preamble[at:at] = add
 
