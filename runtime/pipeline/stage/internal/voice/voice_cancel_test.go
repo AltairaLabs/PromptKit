@@ -165,8 +165,9 @@ func TestTTSStageWithInterruption_AudioArrivingAfterABargeInIsDropped(t *testing
 // A ResponseVADStage whose input closes while it holds an EndOfStream, and
 // whose context has ended with no one reading its output, returns the
 // context's error. Which of the two it sees first is the runtime's choice, so
-// the run is repeated until it has taken the path through the held
-// EndOfStream; either way the error is the context's and nothing is emitted.
+// the run is repeated 100 times, which takes the path through the held
+// EndOfStream all but certainly; either way the error is the context's and
+// nothing is emitted.
 func TestResponseVADStage_ContextEndedWhenTheInputClosesOnAHeldEndOfStream(t *testing.T) {
 	config := voice.DefaultResponseVADConfig()
 	config.SilenceDuration = time.Minute
