@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/segment"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -83,9 +84,18 @@ func (h RealtimeHold) Valid() bool {
 }
 
 // segmentConfig is the segment sizing c sets, defaults applied.
-func (c StreamHoldConfig) segmentConfig() segmentConfig {
+func (c StreamHoldConfig) segmentConfig() segment.Config {
 	c = c.withDefaults()
-	return segmentConfig{minChars: c.MinChars, firstMinChars: c.firstMinChars, maxChars: c.maxChars}
+	return segment.Config{MinChars: c.MinChars, FirstMinChars: c.firstMinChars, MaxChars: c.maxChars}
+}
+
+// defaultSegmentConfig is the segment sizing stream_hold uses by default.
+func defaultSegmentConfig() segment.Config {
+	return segment.Config{
+		MinChars:      defaultStreamHoldMinChars,
+		FirstMinChars: defaultStreamHoldFirstMinChars,
+		MaxChars:      defaultStreamHoldMaxChars,
+	}
 }
 
 // Defaults for StreamHoldConfig.
@@ -104,13 +114,13 @@ const maxCharsPerMinChar = 10
 func (c StreamHoldConfig) withDefaults() StreamHoldConfig {
 	seg := defaultSegmentConfig()
 	if c.MinChars <= 0 {
-		c.MinChars = seg.minChars
+		c.MinChars = seg.MinChars
 	}
 	if c.firstMinChars <= 0 {
-		c.firstMinChars = min(seg.firstMinChars, c.MinChars)
+		c.firstMinChars = min(seg.FirstMinChars, c.MinChars)
 	}
 	if c.maxChars <= 0 {
-		c.maxChars = max(seg.maxChars, maxCharsPerMinChar*c.MinChars)
+		c.maxChars = max(seg.MaxChars, maxCharsPerMinChar*c.MinChars)
 	}
 	if c.MaxSegmentJudges <= 0 {
 		c.MaxSegmentJudges = defaultStreamHoldMaxSegmentJudges
@@ -140,7 +150,7 @@ type streamHold struct {
 	cancel  context.CancelFunc
 	results chan partialVerdict
 
-	seg *segmenter // the round's segments
+	seg *segment.Segmenter // the round's segments
 
 	arrivals []textArrival // when each chunk's text arrived
 }
@@ -197,7 +207,7 @@ func newHeldGuardrails(
 	ctx context.Context, holders []hooks.StreamHolder, req *hooks.ProviderRequest, cfg StreamHoldConfig,
 ) *streamHold {
 	cfg = cfg.withDefaults()
-	h := &streamHold{req: req, cfg: cfg, judging: true, seg: newSegmenter(cfg.segmentConfig())}
+	h := &streamHold{req: req, cfg: cfg, judging: true, seg: segment.New(cfg.segmentConfig())}
 	for i, hook := range holders {
 		g := &heldGuardrail{hook: hook, index: i, segment: hook.StreamHold() == hooks.StreamHoldSegment}
 		if !g.segment {
@@ -238,7 +248,7 @@ func (h *streamHold) restart() {
 	h.cancel()
 	h.ctx, h.cancel = context.WithCancel(h.parent)
 	h.results = make(chan partialVerdict, len(h.holders))
-	h.seg.reset()
+	h.seg.Reset()
 	h.arrivals = nil
 	for _, g := range h.holders {
 		g.busy, g.calls, g.judged = false, 0, 0
@@ -266,7 +276,7 @@ func (h *streamHold) heldSince(offset int) time.Time {
 // segments it completes, and starts a judgment for each idle segment
 // guardrail with a segment it has not judged.
 func (h *streamHold) segmentAndJudge(delta string) {
-	h.seg.feed(delta)
+	h.seg.Feed(delta)
 	if !h.judging {
 		return
 	}
@@ -278,7 +288,7 @@ func (h *streamHold) segmentAndJudge(delta string) {
 // judge starts g's judgment of every segment ready since its last one,
 // unless it is busy, has none new, or has made its round's last judgment.
 func (h *streamHold) judge(g *heldGuardrail) {
-	bounds := h.seg.segments()
+	bounds := h.seg.Segments()
 	n := len(bounds)
 	if !g.segment || g.busy || n == g.judged || g.calls >= h.cfg.MaxSegmentJudges {
 		return
@@ -294,7 +304,7 @@ func (h *streamHold) judge(g *heldGuardrail) {
 		logger.Debug("stream_hold: last partial-reply judgment this round; the rest is judged with the reply",
 			"guardrail", g.hook.(hooks.ProviderHook).Name(), "judgments", g.calls)
 	}
-	judged := h.seg.text()[:bounds[n-1]]
+	judged := h.seg.Text()[:bounds[n-1]]
 	ctx, results, req := h.ctx, h.results, h.req
 	reply := hooks.PartialReply{Text: judged, SegmentIndex: n, Timeout: h.cfg.SegmentTimeout}
 	go func() {
@@ -464,7 +474,7 @@ func (s *ProviderStage) releaseHeld(ctx context.Context, rs *roundStream, finish
 	text := rs.text.release()
 	if text != "" && !rs.suppressText {
 		elem := textDeltaElement(text, finish)
-		elem.Meta.SegmentEnd = last || slices.Contains(rs.hold.seg.segments(), rs.text.sent.Len())
+		elem.Meta.SegmentEnd = last || slices.Contains(rs.hold.seg.Segments(), rs.text.sent.Len())
 		elem.Meta.MessageID = rs.rr.messageID
 		if err := sendStreamElement(ctx, elem, rs.output); err != nil {
 			return err

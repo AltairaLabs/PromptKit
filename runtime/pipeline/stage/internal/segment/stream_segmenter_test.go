@@ -1,11 +1,34 @@
-package stage
+package segment
 
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
+
+// segmentTestDeadline bounds every scan in these tests. A segmenter loop that
+// makes no progress spins forever, and must fail here, not at the test
+// binary's timeout.
+const segmentTestDeadline = 5 * time.Second
+
+// within returns what f returns, failing the test when f has not returned by
+// segmentTestDeadline. f runs on its own goroutine, so a call that spins
+// forever still fails the test.
+func within[T any](t *testing.T, what string, f func() T) T {
+	t.Helper()
+	done := make(chan T, 1)
+	go func() { done <- f() }()
+	select {
+	case v := <-done:
+		return v
+	case <-time.After(segmentTestDeadline):
+		t.Fatalf("%s did not return within %v", what, segmentTestDeadline)
+		var zero T
+		return zero
+	}
+}
 
 // segmentEnd is what nextSegmentEnd returned.
 type segmentEnd struct {
@@ -13,24 +36,24 @@ type segmentEnd struct {
 	ok  bool
 }
 
-// feedWithin is seg.feed(delta), failing the test when it does not return:
+// feedWithin is seg.Feed(delta), failing the test when it does not return:
 // a scan that makes no progress loops forever.
-func feedWithin(t *testing.T, seg *segmenter, delta string) []int {
+func feedWithin(t *testing.T, seg *Segmenter, delta string) []int {
 	t.Helper()
-	return within(t, "segmenter.feed", func() []int { return seg.feed(delta) })
+	return within(t, "segmenter.feed", func() []int { return seg.Feed(delta) })
 }
 
 // The segmenter splits a reply still being written into the segments a
 // stream_hold: segment guardrail judges. A boundary is only declared once the
 // text after it shows it is one, so every case gives the text so far.
 func TestNextSegmentEnd(t *testing.T) {
-	small := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600}
+	small := Config{MinChars: 1, FirstMinChars: 1, MaxChars: 600}
 	cases := []struct {
 		name   string
 		text   string
 		from   int
 		first  bool
-		cfg    segmentConfig
+		cfg    Config
 		want   int
 		wantOK bool
 	}{
@@ -74,63 +97,63 @@ func TestNextSegmentEnd(t *testing.T) {
 			want: len("It was 1999."), wantOK: true},
 		{name: "scan starts at from", text: "One. Two. Three", from: 4, cfg: small, want: 9, wantOK: true},
 		{name: "a segment of exactly min_chars ends", text: "Hello. More",
-			cfg: segmentConfig{minChars: 6, firstMinChars: 6, maxChars: 600}, want: 6, wantOK: true},
+			cfg: Config{MinChars: 6, FirstMinChars: 6, MaxChars: 600}, want: 6, wantOK: true},
 		{name: "min_chars counts from the segment start", text: "One. Two. Three. Four", from: 4,
-			cfg: segmentConfig{minChars: 6, firstMinChars: 6, maxChars: 600}, want: 16, wantOK: true},
+			cfg: Config{MinChars: 6, FirstMinChars: 6, MaxChars: 600}, want: 16, wantOK: true},
 		{name: "a line starting with a dot is not a list item", text: "Intro:\n. dot",
-			cfg: segmentConfig{minChars: 7, firstMinChars: 7, maxChars: 600}, want: 8, wantOK: true},
+			cfg: Config{MinChars: 7, FirstMinChars: 7, MaxChars: 600}, want: 8, wantOK: true},
 		{
 			name: "cap at exactly max_chars", text: "aaaa bbbb cc",
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12}, want: 10, wantOK: true,
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 12}, want: 10, wantOK: true,
 		},
 		{
 			name: "cap counts from the segment start", text: "xxxx aaaa bb", from: 5,
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12},
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 12},
 		},
 		{
 			name: "cap inside a fence opened before the segment", text: "```\nab cd\nef gh ij kl", from: 4,
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12}, want: 10, wantOK: true,
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 12}, want: 10, wantOK: true,
 		},
 		{
 			name: "cap with only leading whitespace cuts at the cap", text: " aaaaaaaaaaaaa",
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12}, want: 12, wantOK: true,
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 12}, want: 12, wantOK: true,
 		},
 		{
 			name: "short sentences merge up to min_chars", text: "Hi. Yes. Okay then. More",
-			cfg: segmentConfig{minChars: 10, firstMinChars: 10, maxChars: 600}, want: len("Hi. Yes. Okay then."), wantOK: true,
+			cfg: Config{MinChars: 10, FirstMinChars: 10, MaxChars: 600}, want: len("Hi. Yes. Okay then."), wantOK: true,
 		},
 		{
 			name: "first segment uses the smaller minimum", text: "Hi there. And then some more.",
-			first: true, cfg: segmentConfig{minChars: 60, firstMinChars: 5, maxChars: 600},
+			first: true, cfg: Config{MinChars: 60, FirstMinChars: 5, MaxChars: 600},
 			want: len("Hi there."), wantOK: true,
 		},
 		{
 			name: "later segment waits for min_chars", text: "Hi there. And then",
-			cfg: segmentConfig{minChars: 60, firstMinChars: 5, maxChars: 600},
+			cfg: Config{MinChars: 60, FirstMinChars: 5, MaxChars: 600},
 		},
 		{
 			name: "cap cuts at the last space", text: "aaaa bbbb cccc dddd",
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12}, want: len("aaaa bbbb "), wantOK: true,
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 12}, want: len("aaaa bbbb "), wantOK: true,
 		},
 		{
 			name: "cap counts characters, not bytes", text: strings.Repeat("中", 12),
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10}, want: len(strings.Repeat("中", 10)), wantOK: true,
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 10}, want: len(strings.Repeat("中", 10)), wantOK: true,
 		},
 		{
 			name: "under the cap in characters waits", text: strings.Repeat("中", 9),
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10},
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 10},
 		},
 		{
 			name: "min_chars counts characters", text: "Ça été. Fini. Encore",
-			cfg: segmentConfig{minChars: 9, firstMinChars: 9, maxChars: 600}, want: len("Ça été. Fini."), wantOK: true,
+			cfg: Config{MinChars: 9, FirstMinChars: 9, MaxChars: 600}, want: len("Ça été. Fini."), wantOK: true,
 		},
 		{
 			name: "cap inside a code fence cuts at a line end", text: "```\nab cd\nef gh ij",
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 14}, want: len("```\nab cd\n"), wantOK: true,
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 14}, want: len("```\nab cd\n"), wantOK: true,
 		},
 		{
 			name: "under the cap without a boundary waits", text: "aaaa bbbb",
-			cfg: segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 12},
+			cfg: Config{MinChars: 1, FirstMinChars: 1, MaxChars: 12},
 		},
 	}
 	for _, tc := range cases {
@@ -151,7 +174,7 @@ func TestNextSegmentEnd(t *testing.T) {
 // a line joins the item's text, so speech does not say "one." and pause, and a
 // judge is never given a segment that is only the marker.
 func TestNextSegmentEnd_ListMarkerJoinsItsItem(t *testing.T) {
-	small := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600}
+	small := Config{MinChars: 1, FirstMinChars: 1, MaxChars: 600}
 	cases := []struct {
 		name   string
 		text   string
@@ -181,30 +204,33 @@ func TestNextSegmentEnd_ListMarkerJoinsItsItem(t *testing.T) {
 }
 
 func TestSegmenter_Feed(t *testing.T) {
-	seg := newSegmenter(segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 600})
+	seg := New(Config{MinChars: 1, FirstMinChars: 1, MaxChars: 600})
 	assert.Empty(t, feedWithin(t, seg, "Hello there."))
 	assert.Equal(t, []int{12, 25}, feedWithin(t, seg, " How are you? I am"))
-	assert.Equal(t, []int{12, 25}, seg.segments())
+	assert.Equal(t, []int{12, 25}, seg.Segments())
 	assert.Empty(t, feedWithin(t, seg, " fine"))
-	assert.Equal(t, "Hello there. How are you? I am fine", seg.text())
+	assert.Equal(t, "Hello there. How are you? I am fine", seg.Text())
 	assert.Equal(t, 25, seg.last())
 
-	seg.reset()
-	assert.Empty(t, seg.text())
-	assert.Empty(t, seg.segments())
+	seg.Reset()
+	assert.Empty(t, seg.Text())
+	assert.Empty(t, seg.Segments())
 	assert.Equal(t, 0, seg.last())
 }
 
-// The default sizing is stream_hold's.
-func TestDefaultSegmentConfig(t *testing.T) {
-	assert.Equal(t, segmentConfig{minChars: 60, firstMinChars: 24, maxChars: 600}, defaultSegmentConfig())
+// A segmenter sizes only a reply's first segment by FirstMinChars; every later
+// one merges up to MinChars.
+func TestSegmenter_FeedSizesOnlyTheFirstSegmentSmaller(t *testing.T) {
+	seg := New(Config{MinChars: 20, FirstMinChars: 1, MaxChars: 600})
+	text := "Hi. Yes. Okay then, more words. Next"
+	assert.Equal(t, []int{len("Hi."), len("Hi. Yes. Okay then, more words.")}, feedWithin(t, seg, text))
 }
 
 // segmentsOf feeds text to a segmenter in one delta and returns its segments,
 // the rest included.
-func segmentsOf(t *testing.T, cfg segmentConfig, text string) []string {
+func segmentsOf(t *testing.T, cfg Config, text string) []string {
 	t.Helper()
-	seg := newSegmenter(cfg)
+	seg := New(cfg)
 	start := 0
 	var out []string
 	for _, end := range feedWithin(t, seg, text) {
@@ -220,7 +246,7 @@ func segmentsOf(t *testing.T, cfg segmentConfig, text string) []string {
 // The cap holds when a sentence longer than it arrives whole: the boundary
 // past the cap is not taken, the sentence is cut at the cap.
 func TestNextSegmentEnd_CapsASentenceThatArrivesWhole(t *testing.T) {
-	cfg := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 20}
+	cfg := Config{MinChars: 1, FirstMinChars: 1, MaxChars: 20}
 	text := "one two three four five six seven. Next."
 	got := within(t, "nextSegmentEnd", func() segmentEnd {
 		end, ok := nextSegmentEnd(text, 0, true, cfg)
@@ -233,7 +259,7 @@ func TestNextSegmentEnd_CapsASentenceThatArrivesWhole(t *testing.T) {
 // A cap cut never splits a code fence marker, so the text after the fence is
 // still segmented as prose.
 func TestNextSegmentEnd_CapCutKeepsTheFenceMarkerWhole(t *testing.T) {
-	cfg := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: 10}
+	cfg := Config{MinChars: 1, FirstMinChars: 1, MaxChars: 10}
 	text := "```\n" + strings.Repeat("y", 8) + "```" + " After. More. Done."
 	got := segmentsOf(t, cfg, text)
 	assert.Equal(t, text, strings.Join(got, ""), "every byte is in a segment, once")
@@ -249,7 +275,7 @@ func TestNextSegmentEnd_CapCutKeepsTheFenceMarkerWhole(t *testing.T) {
 func TestNextSegmentEnd_SentenceAtTheCapIsWhole(t *testing.T) {
 	text := "abcd efgh. Next"
 	for _, maxChars := range []int{len("abcd efgh."), 0} {
-		cfg := segmentConfig{minChars: 1, firstMinChars: 1, maxChars: maxChars}
+		cfg := Config{MinChars: 1, FirstMinChars: 1, MaxChars: maxChars}
 		got := within(t, "nextSegmentEnd", func() segmentEnd {
 			end, ok := nextSegmentEnd(text, 0, true, cfg)
 			return segmentEnd{end: end, ok: ok}

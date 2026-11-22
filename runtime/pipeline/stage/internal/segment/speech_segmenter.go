@@ -1,4 +1,4 @@
-package stage
+package segment
 
 import (
 	"strings"
@@ -9,23 +9,23 @@ import (
 // first audio never waits for the whole of it.
 const defaultSegmentMaxRunes = 250
 
-// speechSegmenter splits a reply's streamed text into the segments a speech-out
-// stage synthesizes one at a time. Text is spoken once: every segment add
-// returns, plus what flush returns at the end, is the text it was given, in
+// Speech splits a reply's streamed text into the segments a speech-out
+// stage synthesizes one at a time. Text is spoken once: every segment Add
+// returns, plus what Flush returns at the end, is the text it was given, in
 // order, less the whitespace between segments.
 //
 // Where a segment ends is speechSegmentEnd's to decide; the segmenter only
 // keeps the text not yet returned.
-type speechSegmenter struct {
-	// maxRunes is the size cap; zero means defaultSegmentMaxRunes.
-	maxRunes int
+type Speech struct {
+	// MaxRunes is the size cap; zero means defaultSegmentMaxRunes.
+	MaxRunes int
 	pending  string
 	// started is set once a segment has been returned since the last reset.
 	started bool
 }
 
-// add takes the next text of the reply and returns the segments it completes.
-func (g *speechSegmenter) add(text string) []string {
+// Add takes the next text of the reply and returns the segments it completes.
+func (g *Speech) Add(text string) []string {
 	g.pending += text
 	var out []string
 	for {
@@ -42,23 +42,26 @@ func (g *speechSegmenter) add(text string) []string {
 	}
 }
 
-// flush returns what is left of the reply as its last segment ("" when only
+// Flush returns what is left of the reply as its last segment ("" when only
 // whitespace is left), and empties the segmenter.
-func (g *speechSegmenter) flush() string {
+func (g *Speech) Flush() string {
 	rest := strings.TrimSpace(g.pending)
-	g.reset()
+	g.Reset()
 	return rest
 }
 
-// reset drops the text not yet returned as a segment.
-func (g *speechSegmenter) reset() {
+// Reset drops the text not yet returned as a segment.
+func (g *Speech) Reset() {
 	g.pending = ""
 	g.started = false
 }
 
-func (g *speechSegmenter) cap() int {
-	if g.maxRunes > 0 {
-		return g.maxRunes
+// Pending is the text given to Add not yet returned as a segment.
+func (g *Speech) Pending() string { return g.pending }
+
+func (g *Speech) cap() int {
+	if g.MaxRunes > 0 {
+		return g.MaxRunes
 	}
 	return defaultSegmentMaxRunes
 }
@@ -69,5 +72,5 @@ func (g *speechSegmenter) cap() int {
 // segment of its own (speech starts as soon as one is complete) and a cap of
 // maxRunes.
 func speechSegmentEnd(text string, from int, first bool, maxRunes int) (int, bool) {
-	return nextSegmentEnd(text, from, first, segmentConfig{minChars: 1, firstMinChars: 1, maxChars: maxRunes})
+	return nextSegmentEnd(text, from, first, Config{MinChars: 1, FirstMinChars: 1, MaxChars: maxRunes})
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/segment"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
@@ -289,8 +290,13 @@ func TestStreamHoldConfig_WithDefaults(t *testing.T) {
 	assert.Equal(t, StreamHoldConfig{
 		MinChars: 10, firstMinChars: 10, maxChars: 600, MaxSegmentJudges: 2, SegmentTimeout: time.Second,
 	}, StreamHoldConfig{MinChars: 10, MaxSegmentJudges: 2, SegmentTimeout: time.Second}.withDefaults())
-	assert.Equal(t, segmentConfig{minChars: 100, firstMinChars: 24, maxChars: 1000},
+	assert.Equal(t, segment.Config{MinChars: 100, FirstMinChars: 24, MaxChars: 1000},
 		StreamHoldConfig{MinChars: 100}.segmentConfig(), "the cap grows with a large minimum")
+}
+
+// The default sizing is stream_hold's.
+func TestDefaultSegmentConfig(t *testing.T) {
+	assert.Equal(t, segment.Config{MinChars: 60, FirstMinChars: 24, MaxChars: 600}, defaultSegmentConfig())
 }
 
 // liveHoldRun is a stage reading a stream the test feeds chunk by chunk, its
