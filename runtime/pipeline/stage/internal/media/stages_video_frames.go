@@ -585,8 +585,13 @@ func (s *FramesToMessageStage) selectFrames(frames map[int]*core.ImageData) []*c
 		selectedIndices = indices[len(indices)-maxFrames:]
 
 	case FrameSelectionUniform:
-		// Uniform distribution
-		step := float64(len(indices)-1) / float64(maxFrames-1)
+		// Uniform distribution from the first frame to the last. A single
+		// frame is the first: with maxFrames 1 the step would divide by zero,
+		// and int(0 * +Inf) is int(NaN), which is MinInt64 on amd64.
+		step := 0.0
+		if maxFrames > 1 {
+			step = float64(len(indices)-1) / float64(maxFrames-1)
+		}
 		for i := 0; i < maxFrames; i++ {
 			idx := int(float64(i) * step)
 			if idx >= len(indices) {

@@ -2960,7 +2960,7 @@ func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
 NewFramesToMessageStage creates a new frame composition stage.
 
 <a name="FramesToMessageStage.GetConfig"></a>
-### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L717>)
+### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L722>)
 
 ```go
 func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig

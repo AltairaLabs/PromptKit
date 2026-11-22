@@ -102,6 +102,20 @@ func TestFramesToMessageStage_UniformSelectionSpansTheVideo(t *testing.T) {
 	assert.Equal(t, []byte{0, 3, 6}, partTags(t, out[0].Message))
 }
 
+// With a limit of one frame, uniform selection keeps the first frame, the
+// frame it always starts from, as it does for any larger limit.
+func TestFramesToMessageStage_UniformSelectionOfOneFrame(t *testing.T) {
+	t.Parallel()
+	config := DefaultFramesToMessageConfig()
+	config.MaxFramesPerMessage = 1
+	config.FrameSelectionStrategy = FrameSelectionUniform
+
+	out := composeFrames(t, config, taggedFrame(0, 3, 'a'), taggedFrame(1, 3, 'b'), taggedFrame(2, 3, 'c'))
+	require.Len(t, out, 1)
+	require.NotNil(t, out[0].Message)
+	assert.Equal(t, []byte{'a'}, partTags(t, out[0].Message))
+}
+
 // The message for a video is emitted as soon as its last frame arrives, not
 // when the input closes.
 func TestFramesToMessageStage_EmitsWhenTheLastFrameArrives(t *testing.T) {
