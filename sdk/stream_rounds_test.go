@@ -74,8 +74,8 @@ func TestStream_ReportsEachToolRound(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"text Let me ", "text look.",
-		`call 1 call_0_lookup {"id":"1"}`, "result 1 call_0_lookup 1",
-		`call 2 call_0_lookup {"id":"2"}`, "result 2 call_0_lookup 2",
+		`call 0 call_0_lookup {"id":"1"}`, "result 0 call_0_lookup 1",
+		`call 1 call_0_lookup {"id":"2"}`, "result 1 call_0_lookup 2",
 		"text Both ", "text shipped.",
 		"done",
 	}, got)
@@ -101,7 +101,7 @@ func TestStream_HoldsForApprovalAsSendDoes(t *testing.T) {
 
 	got, resp := summarizeStream(t, conv.Stream(context.Background(), "send hi"))
 
-	assert.Equal(t, []string{"text Sending.", `call 1 call_0_send_message {"body":"hi"}`, "done"}, got)
+	assert.Equal(t, []string{"text Sending.", `call 0 call_0_send_message {"body":"hi"}`, "done"}, got)
 	require.NotNil(t, resp)
 	assert.Empty(t, resp.ClientTools())
 	require.Len(t, resp.PendingTools(), 1)

@@ -77,6 +77,11 @@ const (
 	// runtime, never by a provider, and the message is kept in the transcript
 	// but never sent back to the model. Meta[MetaInterruptedCause] says why.
 	FinishReasonInterrupted = "interrupted"
+	// FinishReasonError marks a provider call that failed and left nothing
+	// to keep. It is set by the runtime, never by a provider, and only on
+	// the end of a streamed provider call (providers.ProviderCallEnd): no
+	// message is stored for such a call.
+	FinishReasonError = "error"
 )
 
 // MetaInterruptedCause is the Message.Meta key holding why an interrupted

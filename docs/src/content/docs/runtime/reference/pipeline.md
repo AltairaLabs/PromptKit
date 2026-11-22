@@ -2469,7 +2469,7 @@ type DuplexToolConfig struct {
 ```
 
 <a name="ElementMetadata"></a>
-## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L423>)
+## type [ElementMetadata](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L218-L431>)
 
 ElementMetadata is the typed schema for per\-element coordination data. Unlike TurnState \(which is per\-Turn\-invariant\), fields here genuinely differ between elements within the same Turn.
 
@@ -2621,6 +2621,14 @@ type ElementMetadata struct {
     // turn ends, so a stage that records the transcript ignores it. It is for a
     // caller that shows the turn while it runs (providers.StreamChunk).
     RoundMessages []types.Message
+
+    // ProviderCallEnd marks the end of one provider call's stream in a
+    // per-turn streamed execution: it follows the call's last delta and comes
+    // before its tool calls run, and every call of the turn sends one, the
+    // last included. Like RoundMessages, the element carries no Message and
+    // is for a caller that shows the turn while it runs. The continuous
+    // (duplex) mode does not send it.
+    ProviderCallEnd *providers.ProviderCallEnd
 
     // SynthesizedSpeech marks an element produced by a TTS stage: it carries the
     // spoken audio plus, for reference, the text that was submitted for synthesis.
@@ -3769,7 +3777,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig
 DefaultMediaExtractConfig returns sensible defaults for media extraction.
 
 <a name="MediaExtractInfo"></a>
-## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L426-L437>)
+## type [MediaExtractInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L434-L445>)
 
 MediaExtractInfo is the typed payload for media\-extraction correlation.
 
@@ -4884,7 +4892,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L393-L398>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L396-L401>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4893,7 +4901,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L405-L411>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L408-L414>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4902,7 +4910,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L418-L425>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L421-L428>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4911,7 +4919,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L432-L440>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L435-L443>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4920,7 +4928,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L699-L703>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L702-L706>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4929,7 +4937,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L390>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L393>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -6283,7 +6291,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3268>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3305>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6918,7 +6926,7 @@ func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan Strea
 Process implements the Stage interface.
 
 <a name="Transcription"></a>
-## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L453-L456>)
+## type [Transcription](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L461-L464>)
 
 Transcription is the typed payload for duplex\-provider input transcription attached to an element via ElementMetadata.
 
@@ -7222,7 +7230,7 @@ func (d *VideoData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized video data from storage.
 
 <a name="VideoFramesInfo"></a>
-## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L440-L449>)
+## type [VideoFramesInfo](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/turn_state.go#L448-L457>)
 
 VideoFramesInfo is the typed payload for video\-frame extraction correlation.
 

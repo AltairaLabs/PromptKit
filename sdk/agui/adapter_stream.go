@@ -18,7 +18,8 @@ var errStreamIncomplete = errors.New("agui: the turn's stream ended without a re
 // its text message, its tool calls and the results answering them.
 type liveRound struct {
 	msgID    string
-	round    int             // the stream's round number (sdk.StreamChunk.Round), once its calls arrive
+	round    int             // the stream's round number (sdk.StreamChunk.Round), once its calls or end arrive
+	ended    bool            // the round's provider call ended (sdk.ChunkProviderCallEnd)
 	text     strings.Builder // the text streamed into the open or last text message
 	textOpen bool            // a text message is open
 	texted   bool            // a text message was emitted for the round
@@ -52,6 +53,8 @@ func (st *runState) consume(chunks <-chan sdk.StreamChunk) (*sdk.Response, error
 			st.liveReasoning(chunk.Reasoning, chunk.MessageID)
 		case chunk.Type == sdk.ChunkText:
 			st.liveText(chunk.Text, chunk.ReplacesText, chunk.MessageID)
+		case chunk.Type == sdk.ChunkProviderCallEnd:
+			st.liveEnd(chunk.Round, chunk.MessageID)
 		case chunk.Type == sdk.ChunkToolCall && chunk.ToolCall != nil:
 			st.liveCall(chunk.ToolCall, chunk.Round, chunk.MessageID)
 		case chunk.Type == sdk.ChunkToolResult && chunk.ToolResult != nil:
@@ -93,18 +96,44 @@ func (st *runState) lastRound() *liveRound {
 	return st.rounds[len(st.rounds)-1]
 }
 
-// liveText emits a text delta. Text after a round's tool calls is the next
-// round's. A delta that replaces the text streamed before it (an output
+// streamingRound returns the round a delta naming messageID belongs to: the
+// last round, unless that one's calls were emitted or its provider call
+// ended, when the delta starts the next round. A structured-output re-ask
+// streams the answer that replaces its round's reply, under the reply's id,
+// so it continues that round. Starting the next round closes what the last
+// one left open.
+func (st *runState) streamingRound(messageID string) *liveRound {
+	r := st.lastRound()
+	if r == nil || r.called || (r.ended && (messageID == "" || messageID != r.msgID)) {
+		if r != nil {
+			st.closeReasoning(r)
+			st.closeText(r)
+		}
+		r = st.newRound(messageID)
+	}
+	return r
+}
+
+// liveEnd ends the round of a provider call that ended: its reasoning closes,
+// and what streams next is the next round's. Its text message stays open
+// until then, so the turn's response can still complete the reply's text
+// (settleText). A call that streamed nothing still gets its round, so the
+// rounds stay one per call, as the turn's assistant messages are.
+func (st *runState) liveEnd(round int, messageID string) {
+	r := st.streamingRound(messageID)
+	st.closeReasoning(r)
+	r.ended, r.round = true, round
+}
+
+// liveText emits a text delta. Text after a round's tool calls, or after its
+// provider call ended, is the next round's. A delta that replaces the text streamed before it (an output
 // guardrail cut the reply) closes the streamed message and starts a new one,
 // since AG-UI cannot take back text the client has shown.
 func (st *runState) liveText(delta string, replaces bool, messageID string) {
 	if delta == "" {
 		return
 	}
-	r := st.lastRound()
-	if r == nil || r.called {
-		r = st.newRound(messageID)
-	}
+	r := st.streamingRound(messageID)
 	st.closeReasoning(r)
 	if replaces && r.texted {
 		st.closeText(r)
@@ -120,11 +149,12 @@ func (st *runState) liveText(delta string, replaces bool, messageID string) {
 }
 
 // liveCall emits a tool call once its round's reply has streamed. A call of
-// another round than the current round's calls starts the next round, whether
-// or not results came between them; so does a call after the round's results.
+// another round than the current round's (the round its calls or its
+// provider call's end named) starts the next round, whether or not results
+// came between them; so does a call after the round's results.
 func (st *runState) liveCall(tc *types.MessageToolCall, round int, messageID string) {
 	r := st.lastRound()
-	if r == nil || (r.called && (r.round != round || r.resulted)) {
+	if r == nil || ((r.called || r.ended) && (r.round != round || r.resulted)) {
 		r = st.newRound(messageID)
 	}
 	st.closeReasoning(r)

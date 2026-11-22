@@ -236,8 +236,13 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		})
 	}
 
+	// The re-ask's answer replaces the last message and is stored under its
+	// id, so its text, and the end of the call, name that id.
+	rr.messageID = tl.messages[last].ID()
+
 	started := timeNow()
 	resp, late, err := tl.reaskCall(ctx, req, rr)
+	tl.endReask(ctx, rr.messageID, resp.FinishReason, err)
 	if err != nil {
 		if tl.stage.emitter != nil {
 			tl.stage.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
@@ -312,6 +317,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		CostInfo:     resp.CostInfo,
 		FinishReason: resp.FinishReason,
 	}
+	withStableID(&constrained, rr.messageID)
 	// Carry the workflow attribution of the answer being replaced. The re-ask
 	// is the same logical turn, produced by the same state; re-deriving it
 	// would read whatever state a mid-loop handoff has since moved to.
@@ -333,6 +339,20 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 		tl.cumulativeCost += constrained.CostInfo.TotalCost
 	}
 	tl.messages[last] = constrained
+}
+
+// endReask ends a streamed re-ask with its ProviderCallEnd element, as every
+// streamed provider call of a per-turn execution ends: finishReason is the
+// answer's, or types.FinishReasonError when the re-ask failed, which keeps
+// the unconstrained answer and nothing of the re-ask.
+func (tl *toolLoop) endReask(ctx context.Context, messageID, finishReason string, err error) {
+	if tl.output == nil || !tl.reportsRounds {
+		return
+	}
+	if err != nil {
+		finishReason = types.FinishReasonError
+	}
+	sendProviderCallEnd(ctx, &providers.ProviderCallEnd{MessageID: messageID, FinishReason: finishReason}, tl.output)
 }
 
 // SchemaUnappliedMetaKey marks an assistant message that a configured

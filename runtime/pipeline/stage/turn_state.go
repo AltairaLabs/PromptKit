@@ -361,6 +361,14 @@ type ElementMetadata struct {
 	// caller that shows the turn while it runs (providers.StreamChunk).
 	RoundMessages []types.Message
 
+	// ProviderCallEnd marks the end of one provider call's stream in a
+	// per-turn streamed execution: it follows the call's last delta and comes
+	// before its tool calls run, and every call of the turn sends one, the
+	// last included. Like RoundMessages, the element carries no Message and
+	// is for a caller that shows the turn while it runs. The continuous
+	// (duplex) mode does not send it.
+	ProviderCallEnd *providers.ProviderCallEnd
+
 	// SynthesizedSpeech marks an element produced by a TTS stage: it carries the
 	// spoken audio plus, for reference, the text that was submitted for synthesis.
 	// That text is the same reply already delivered as streaming Text deltas, so a

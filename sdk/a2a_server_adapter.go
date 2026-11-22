@@ -130,8 +130,8 @@ func (a *streamConvAdapter) Stream(ctx context.Context, message any) <-chan a2as
 // input-required, as it does on the SendMessage path.
 func forwardChunks(chunks <-chan StreamChunk, out chan<- a2aserver.StreamEvent) {
 	for chunk := range chunks {
-		if chunk.Type == ChunkReasoning && chunk.Error == nil {
-			continue // reasoning is not part of an A2A agent's reply
+		if (chunk.Type == ChunkReasoning || chunk.Type == ChunkProviderCallEnd) && chunk.Error == nil {
+			continue // reasoning and provider call ends are not part of an A2A agent's reply
 		}
 		if chunk.Type == ChunkDone && chunk.Error == nil && chunk.Message != nil && len(chunk.Message.PendingTools()) > 0 {
 			out <- a2aserver.StreamEvent{Kind: a2aserver.EventPending}
@@ -178,7 +178,7 @@ func chunkToEvent(c StreamChunk) a2aserver.StreamEvent {
 		}
 	case ChunkDone:
 		return a2aserver.StreamEvent{Kind: a2aserver.EventDone}
-	case ChunkReasoning:
+	case ChunkReasoning, ChunkProviderCallEnd:
 		// Not part of the reply: forwardChunks drops it before it gets here.
 		return a2aserver.StreamEvent{}
 	default:

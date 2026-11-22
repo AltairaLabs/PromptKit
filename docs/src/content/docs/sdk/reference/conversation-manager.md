@@ -1442,7 +1442,7 @@ type CapabilityContext struct {
 ```
 
 <a name="ChunkType"></a>
-## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L76>)
+## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L91>)
 
 ChunkType identifies the type of a streaming chunk.
 
@@ -1486,11 +1486,24 @@ const (
     // conversation opened with [WithStreamReasoning]; the reasoning is always
     // on the Response's Message().Reasoning.
     ChunkReasoning
+
+    // ChunkProviderCallEnd ends one provider call of the turn, in stream
+    // order: it follows the call's last ChunkText, ChunkReasoning and
+    // ChunkMedia, and comes before the call's ChunkToolCall chunks (and so
+    // before its tools run and before any ChunkClientTool it suspends on).
+    // Every provider call of the turn ends with exactly one, the last call
+    // included, carrying Round, MessageID, FinishReason and ToolCalls. A
+    // call that fails still sends one, after its partial text and before
+    // the error chunk, with FinishReason types.FinishReasonInterrupted or
+    // types.FinishReasonError. A turn an input guardrail blocks makes no
+    // provider call and sends none, and neither does a provider that does
+    // not stream. StreamRaw and StreamWithCallback do not report it.
+    ChunkProviderCallEnd
 )
 ```
 
 <a name="ChunkType.String"></a>
-### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L114>)
+### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L142>)
 
 ```go
 func (t ChunkType) String() string
@@ -2004,7 +2017,7 @@ conv.EventBus().Subscribe(events.EventToolCallStarted, func(e *events.Event) {
 For convenience methods, see the \[hooks\] package.
 
 <a name="Conversation.FailClientTool"></a>
-### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L952>)
+### func \(\*Conversation\) [FailClientTool](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/client_tools.go#L979>)
 
 ```go
 func (c *Conversation) FailClientTool(ctx context.Context, callID string, partial any, err error) error
@@ -3188,7 +3201,7 @@ Start runs the bound audio session: it feeds every microphone source into the pi
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
 <a name="Conversation.Stream"></a>
-### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L183>)
+### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L218>)
 
 ```go
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
@@ -3298,7 +3311,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.StreamRaw"></a>
-### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L709>)
+### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L755>)
 
 ```go
 func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error)
@@ -7714,7 +7727,7 @@ func (r *StaticMCPEndpointResolver) Resolve(_ string) MCPEndpoint
 Resolve returns the static endpoint for any server name.
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L73>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L88>)
 
 StreamChunk represents a single chunk in a streaming response.
 
@@ -7740,10 +7753,10 @@ type StreamChunk struct {
 
     // MessageID is the stable id (types.MetaMessageID) of the assistant
     // message a ChunkText's text, a ChunkReasoning's reasoning or a
-    // ChunkToolCall's call belongs to: the id
-    // the conversation stores the message under, so a client streaming the
-    // reply names it as the history does. Empty when the pipeline does not
-    // know it, as for a provider that does not stream.
+    // ChunkToolCall's call belongs to, or that a ChunkProviderCallEnd ends:
+    // the id the conversation stores the message under, so a client
+    // streaming the reply names it as the history does. Empty when the
+    // pipeline does not know it, as for a provider that does not stream.
     MessageID string
 
     // Tool call (for ChunkToolCall type)
@@ -7753,11 +7766,26 @@ type StreamChunk struct {
     // ChunkToolResult type).
     ToolResult *types.MessageToolResult
 
-    // Round is the tool round of the turn a ChunkToolCall or ChunkToolResult
-    // belongs to, counted from 1 within one Stream or ResumeStream. Calls with
-    // the same Round were made by one model reply; a new Round is a new reply,
-    // even when no result came between them.
+    // Round is the provider call of the turn a ChunkProviderCallEnd ends, or
+    // a ChunkToolCall or ChunkToolResult belongs to: 0 for the turn's first
+    // call to the model, 1 for the next, and so on. It is counted per turn,
+    // as the turn index is, and a ResumeStream continues it from where the
+    // suspended turn left off. Calls with the same Round were made by one
+    // model reply; a new Round is a new reply, even when no result came
+    // between them.
     Round int
+
+    // FinishReason is why the provider call a ChunkProviderCallEnd ends
+    // stopped: the reply's own finish reason (types.FinishReasonStop,
+    // types.FinishReasonToolUse, types.FinishReasonSafety, ...), or, for a
+    // call that failed, types.FinishReasonInterrupted when its partial reply
+    // is kept and types.FinishReasonError when nothing of it is.
+    FinishReason string
+
+    // ToolCalls are the calls the reply a ChunkProviderCallEnd ends made, as
+    // its stored message holds them. Each also arrives as a ChunkToolCall,
+    // after the ChunkProviderCallEnd.
+    ToolCalls []types.MessageToolCall
 
     // Media content (for ChunkMedia type)
     Media *providers.StreamMediaData

@@ -645,9 +645,9 @@ func TestRunSend_RoundWithoutResultsStillEndsAtTheNextRound(t *testing.T) {
 	second := types.MessageToolCall{ID: "c2", Name: "lookup", Args: []byte(`{"id":"2"}`)}
 	sender := &chunkSender{mockSender: &mockSender{}, chunks: []sdk.StreamChunk{
 		{Type: sdk.ChunkText, Text: "A"},
-		{Type: sdk.ChunkToolCall, ToolCall: &first, Round: 1},
-		{Type: sdk.ChunkToolCall, ToolCall: &also, Round: 1},
-		{Type: sdk.ChunkToolCall, ToolCall: &second, Round: 2},
+		{Type: sdk.ChunkToolCall, ToolCall: &first, Round: 0},
+		{Type: sdk.ChunkToolCall, ToolCall: &also, Round: 0},
+		{Type: sdk.ChunkToolCall, ToolCall: &second, Round: 1},
 		{Type: sdk.ChunkText, Text: "B"},
 		{Type: sdk.ChunkDone, Message: sdk.NewResponseForTest("B", nil, sdk.WithTurnMessagesForTest([]types.Message{
 			{Role: roleAssistant, Content: "A", ToolCalls: []types.MessageToolCall{first, also}},
@@ -670,8 +670,8 @@ func TestRunSend_RoundWithoutResultsStillEndsAtTheNextRound(t *testing.T) {
 	}, describeRun(evts))
 }
 
-// A stream that does not number its rounds (Round 0) still splits them where
-// a round's results end.
+// Calls that all carry one Round (here 0, as a stream that does not number
+// its rounds leaves them) still split into rounds where a round's results end.
 func TestRunSend_UnnumberedRoundsSplitAtTheirResults(t *testing.T) {
 	call := types.MessageToolCall{ID: "c1", Name: "lookup", Args: []byte(`{}`)}
 	result := types.MessageToolResult{ID: "c1", Parts: []types.ContentPart{types.NewTextPart("ok")}}
@@ -699,4 +699,83 @@ func TestRunSend_UnnumberedRoundsSplitAtTheirResults(t *testing.T) {
 		"TEXT_MESSAGE_START m3", "TEXT_MESSAGE_CONTENT m3 done", "TEXT_MESSAGE_END m3",
 		"RUN_FINISHED",
 	}, describeRun(evts))
+}
+
+// A structured-output turn's re-ask streams the answer that replaces the
+// closing reply, under that reply's id: the client gets it as one message,
+// the stored one, whose text is the answer, once. (The tool round's text,
+// withheld while the schema is, follows from the turn's messages.)
+func TestRunSend_StructuredOutputReaskIsTheClosingMessage(t *testing.T) {
+	conv := openConv(t, streamingProvider(
+		streamedCall("lookup", map[string]any{"id": "1"}, "Checking."),
+		streamedText("It shipped."),
+		streamedText(`{"shipped":`, `true}`),
+	), sdk.WithResponseFormat(&providers.ResponseFormat{
+		Type: providers.ResponseFormatJSONSchema, SchemaName: "status",
+		JSONSchema: []byte(`{"type":"object","properties":{"shipped":{"type":"boolean"}}}`),
+	}))
+	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "did 1 ship?")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		`TOOL_CALL_START call_0_lookup lookup parent=m1`, `TOOL_CALL_ARGS call_0_lookup {"id":"1"}`,
+		"TOOL_CALL_END call_0_lookup",
+		"TOOL_CALL_RESULT call_0_lookup shipped",
+		"TEXT_MESSAGE_START m2", `TEXT_MESSAGE_CONTENT m2 {"shipped":`, "TEXT_MESSAGE_CONTENT m2 true}",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Checking.", "TEXT_MESSAGE_END m1",
+		"TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	var stored []types.Message
+	for _, m := range conv.Messages(context.Background()) {
+		if m.Role == roleAssistant {
+			stored = append(stored, m)
+		}
+	}
+	require.Len(t, stored, 2)
+	first, last := stored[0], stored[1]
+	assert.Equal(t, `{"shipped":true}`, last.GetContent())
+	var textIDs []string
+	for _, ev := range evts {
+		if start, ok := ev.(*aguievents.TextMessageStartEvent); ok {
+			textIDs = append(textIDs, start.MessageID)
+		}
+	}
+	assert.Equal(t, []string{last.ID(), first.ID()}, textIDs, "each message is named as it is stored")
+}
+
+// Text after a provider call ended is the next call's message, even when no
+// tool call came between them: each call's text is its own message, under
+// the id its chunks carry.
+func TestRunSend_TextAfterAProviderCallEndedIsTheNextMessage(t *testing.T) {
+	first := types.Message{Role: roleAssistant, Content: "A", Meta: map[string]any{types.MetaMessageID: "id-a"}}
+	second := types.Message{Role: roleAssistant, Content: "B", Meta: map[string]any{types.MetaMessageID: "id-b"}}
+	sender := &chunkSender{mockSender: &mockSender{}, chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkText, Text: "A", MessageID: "id-a"},
+		{Type: sdk.ChunkProviderCallEnd, Round: 0, MessageID: "id-a", FinishReason: types.FinishReasonStop},
+		{Type: sdk.ChunkText, Text: "B", MessageID: "id-b"},
+		{Type: sdk.ChunkProviderCallEnd, Round: 1, MessageID: "id-b", FinishReason: types.FinishReasonStop},
+		{Type: sdk.ChunkDone, Message: sdk.NewResponseForTest("B", nil,
+			sdk.WithTurnMessagesForTest([]types.Message{first, second}))},
+	}}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{}), "hi")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 A", "TEXT_MESSAGE_END m1",
+		"TEXT_MESSAGE_START m2", "TEXT_MESSAGE_CONTENT m2 B", "TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	var ids []string
+	for _, ev := range evts {
+		if start, ok := ev.(*aguievents.TextMessageStartEvent); ok {
+			ids = append(ids, start.MessageID)
+		}
+	}
+	assert.Equal(t, []string{"id-a", "id-b"}, ids)
 }

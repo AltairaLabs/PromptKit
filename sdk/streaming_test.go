@@ -736,8 +736,17 @@ func TestStreamingError(t *testing.T) {
 	require.NoError(t, err)
 	conv.unarySession = unarySession
 
-	// Stream should return error
-	chunks := conv.Stream(ctx, "test")
-	chunk := <-chunks
-	assert.Error(t, chunk.Error)
+	// The failed call ends with its boundary, then the stream reports the
+	// error.
+	var got []string
+	for chunk := range conv.Stream(ctx, "test") {
+		if chunk.Error != nil {
+			got = append(got, "error "+chunk.Error.Error())
+			continue
+		}
+		got = append(got, chunk.Type.String()+" "+chunk.FinishReason)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "provider_call_end "+types.FinishReasonError, got[0])
+	assert.Contains(t, got[1], "streaming failed")
 }

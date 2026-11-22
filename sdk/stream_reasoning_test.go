@@ -78,6 +78,7 @@ func TestStream_WithStreamReasoningStreamsTheReasoning(t *testing.T) {
 		{Type: ChunkReasoning, Reasoning: "Think"},
 		{Type: ChunkReasoning, Reasoning: "ing."},
 		{Type: ChunkText, Text: "Hi."},
+		{Type: ChunkProviderCallEnd},
 		{Type: ChunkDone},
 	}, got)
 	require.NotNil(t, done)
@@ -92,7 +93,9 @@ func TestStream_ReasoningIsNotStreamedByDefault(t *testing.T) {
 
 	got, done := collectStreamed(t, conv.Stream(context.Background(), "hi"))
 
-	assert.Equal(t, []streamedChunk{{Type: ChunkText, Text: "Hi."}, {Type: ChunkDone}}, got)
+	assert.Equal(t, []streamedChunk{
+		{Type: ChunkText, Text: "Hi."}, {Type: ChunkProviderCallEnd}, {Type: ChunkDone},
+	}, got)
 	require.NotNil(t, done)
 	assert.Equal(t, &types.ReasoningTrace{Text: "Thinking."}, done.Message().Reasoning)
 }

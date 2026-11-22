@@ -159,9 +159,36 @@ type StreamChunk struct {
 	// the pipeline does (stage.ElementMetadata.RoundMessages).
 	RoundMessages []types.Message `json:"round_messages,omitempty"`
 
+	// ProviderCallEnd marks the end of one provider call's stream in a
+	// pipeline's streamed turn. A provider never sets it; the pipeline does
+	// (stage.ElementMetadata.ProviderCallEnd).
+	ProviderCallEnd *ProviderCallEnd `json:"provider_call_end,omitempty"`
+
 	// Source labels the input track/speaker for fan-out routing (e.g. "caller",
 	// "agent"). Copied onto StreamElement.Source at the session boundary.
 	Source string `json:"source,omitempty"`
+}
+
+// ProviderCallEnd ends one provider call of a pipeline's streamed turn: it
+// follows the call's last text, reasoning and media, and comes before the
+// call's tool calls run. Every provider call of the turn ends with one,
+// the last call included, in stream order.
+type ProviderCallEnd struct {
+	// MessageID is the stable id (types.MetaMessageID) the call's assistant
+	// message is stored under, the id its text and reasoning deltas carried.
+	// When the call failed and kept nothing (FinishReason
+	// types.FinishReasonError), no message is stored under it.
+	MessageID string `json:"message_id,omitempty"`
+
+	// FinishReason is why the call ended: the reply's own finish reason
+	// (types.FinishReasonStop, types.FinishReasonToolUse, ...), or, for a
+	// call that failed, types.FinishReasonInterrupted when its partial reply
+	// is kept and types.FinishReasonError when nothing of it is.
+	FinishReason string `json:"finish_reason,omitempty"`
+
+	// ToolCalls are the calls the reply made, as the stored message holds
+	// them; empty for a call that failed with nothing kept.
+	ToolCalls []types.MessageToolCall `json:"tool_calls,omitempty"`
 }
 
 // StreamEvent types.

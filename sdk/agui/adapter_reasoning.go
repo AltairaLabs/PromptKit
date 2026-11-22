@@ -15,16 +15,13 @@ import (
 // REASONING_ENCRYPTED_VALUE, since the adapter would never read it back.
 
 // liveReasoning sends a delta of the current round's reasoning, opening the
-// round's reasoning when none is open. Reasoning after the round's calls is
-// the next round's.
+// round's reasoning when none is open. Reasoning after the round's calls, or
+// after its provider call ended, is the next round's.
 func (st *runState) liveReasoning(delta, messageID string) {
 	if delta == "" || !st.a.cfg.showReasoning {
 		return
 	}
-	r := st.lastRound()
-	if r == nil || r.called {
-		r = st.newRound(messageID)
-	}
+	r := st.streamingRound(messageID)
 	st.openReasoning(r)
 	st.emit(aguievents.NewReasoningMessageContentEvent(r.reasoningMsgID, delta))
 }

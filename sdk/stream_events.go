@@ -144,7 +144,7 @@ func dispatchStreamEvents(handler StreamEventHandler, chunk *StreamChunk) {
 			}
 		}
 		handler(StreamDoneEvent{Response: chunk.Message})
-	case ChunkToolCall, ChunkToolResult, ChunkMedia, ChunkReasoning:
+	case ChunkToolCall, ChunkToolResult, ChunkMedia, ChunkReasoning, ChunkProviderCallEnd:
 		// No event type defined yet.
 	}
 }
