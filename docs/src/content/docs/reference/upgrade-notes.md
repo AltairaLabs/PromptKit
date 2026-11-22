@@ -328,6 +328,25 @@ With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that tak
 | Render AG-UI text an output guardrail cut | the streamed message ends, and the guardrail's message follows as a new text message | nothing |
 | Read `stage.ElementMetadata` or `providers.StreamChunk` from a pipeline yourself | elements and chunks carrying only `RoundMessages` during a tool loop with a streaming provider, on the `ExecuteSync` / `Send` path as well as the streamed one (`StreamPipeline.ExecuteSync` ignores them) | skip them, or use them to report the rounds |
 
+#### A streamed turn marks the end of each provider call, and `Round` counts from 0
+
+`Stream` and `ResumeStream` now send a new `ChunkProviderCallEnd` chunk when each provider call of the turn ends, the last call included. It comes after the call's text, reasoning and media and before its `ChunkToolCall` chunks, so before its tools run and before any `ChunkClientTool` it suspends on. It carries the call's `Round`, the `MessageID` its assistant message is stored under, the new `StreamChunk.FinishReason` and the new `StreamChunk.ToolCalls`. A call that fails sends one too, after its partial text and before the error chunk: `FinishReason` is `interrupted` when its partial reply is kept, and the new `types.FinishReasonError` (`error`) when nothing is. The pipeline sends it as the new `stage.ElementMetadata.ProviderCallEnd`, forwarded on the new `providers.StreamChunk.ProviderCallEnd`.
+
+`StreamChunk.Round`, added after v2.21.0 and in no release yet, now numbers a turn's provider calls from 0, as turn indexes count, where it counted tool rounds from 1. A `ResumeStream` goes on from the suspended turn's count.
+
+| If you | You will see | Change |
+|---|---|---|
+| Switch on `StreamChunk.Type` | `ChunkProviderCallEnd` chunks, with no `Text` | handle or skip them; `StreamRaw`, `StreamWithCallback` and the A2A server skip them |
+| Built against `main` and read `Round` on `ChunkToolCall` or `ChunkToolResult` | the first call's round is 0, not 1; after `ResumeStream` it continues the turn's count, where it restarted at 1 | drop any `-1` |
+| Close a streamed message when its provider call ends | one boundary per call, in stream order, naming the stored message; a round a `BeforeCall` hook blocks, or whose request is refused before it is sent, makes no call and sends none | close it on `ChunkProviderCallEnd` |
+| Cancel a stream and go on draining it | the canceled call's boundary, `interrupted` or `error`, before the error chunk | nothing |
+| Stream a structured-output turn (a `ResponseFormat` with tools) | the final-turn re-ask is a provider call with its own boundary, and its answer is stored under the id of the reply it replaces, so its text chunks and both calls' boundaries name that id. The re-ask's text arrives once the re-ask has completed, where it streamed as the model produced it | nothing |
+| Stream a structured-output turn whose re-ask fails | none of the re-ask's answer, where its partial answer streamed; the kept unconstrained reply's text under its stored id, then the re-ask's boundary with `error` under an id of its own | nothing |
+| Have a `BeforeCall` hook or input guardrail block a structured-output turn | the blocked message stays the reply, and nothing it blocked reaches the model, where the re-ask sent the blocked input to the model and replaced the blocked message with its answer | nothing |
+| Read `stage.ElementMetadata` or `providers.StreamChunk` from a per-turn streaming pipeline yourself | elements and chunks carrying only `ProviderCallEnd`; the duplex pipeline sends none | skip them, or use them to delimit provider calls |
+| Run an AG-UI adapter over `Stream` | one round per provider call: text after a call ended belongs to the next round | nothing |
+| Run an AG-UI adapter over a structured-output turn | each tool round's withheld text as its calls' parent message, before the calls, where it came after the answer, inside the answer's open message | nothing |
+
 #### AG-UI runs carry state deltas, usage and pending calls, and reasoning on request
 
 The AG-UI adapter now sends state changes as `STATE_DELTA`, the run's token usage on `RUN_FINISHED` and `RUN_ERROR`, and the frontend tool calls a run left unanswered as `pendingToolCallIds` on a `success` outcome. With `agui.WithReasoning(true)` it sends the model's reasoning as `REASONING_*` events; `agui.WithMessagesSnapshot(true)` adds a `MESSAGES_SNAPSHOT` before `RUN_FINISHED`. `sdk.WithStreamReasoning()` makes `Stream` and `ResumeStream` send the model's reasoning as new `ChunkReasoning` chunks, which the adapter streams from. A reply an output guardrail blocks now keeps no reasoning, on every path. The AG-UI Go SDK is bumped to a newer `main` pseudo-version that carries `pendingToolCallIds` and `cacheWriteInputTokens`.

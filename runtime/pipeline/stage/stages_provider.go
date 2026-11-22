@@ -360,6 +360,9 @@ type streamingRoundParams struct {
 	// providerCallID identifies this round's provider call, stamped on its
 	// provider events and on every tool event the round produces.
 	providerCallID string
+	// reportsEnd sends the call's ProviderCallEnd element when its stream
+	// ends (toolLoop.reportsRounds).
+	reportsEnd bool
 }
 
 // roundRef names the model turn that requested a set of tool calls: the 1-based
@@ -1798,6 +1801,7 @@ func (s *ProviderStage) executeStreamingMultiRound(
 			round:          round,
 			metadata:       acc.metadata,
 			providerCallID: rr.providerCallID,
+			reportsEnd:     loop.reportsRounds,
 		}
 		response, hasToolCalls, err := s.executeStreamingRound(ctx, params, output)
 		if err != nil {
@@ -1942,7 +1946,9 @@ func (tl *toolLoop) afterRound(
 		// knowable, so a withheld schema is applied here — the answer that
 		// revealed the ending is regenerated under it. Before persistMessages,
 		// so the log holds the constrained answer rather than the discarded one.
-		if tl.schemaWithheld {
+		// A turn a guardrail blocked is not: its reply is the guardrail's
+		// message, and a re-ask would send what it blocked to the model.
+		if tl.schemaWithheld && !isMarkedBlockedInput(response) {
 			tl.reaskUnderSchema(ctx, rr)
 		}
 		tl.persistMessages(ctx, round)
@@ -2448,6 +2454,7 @@ func (s *ProviderStage) executeStreamingRound(
 		duration := time.Since(startTime)
 		// Emit provider call failed event
 		s.emitProviderCallFailed(ctx, prov, err, duration, rr)
+		s.endProviderCall(ctx, params, rr, nil, output)
 		return types.Message{}, false, err
 	}
 
@@ -2466,6 +2473,7 @@ func (s *ProviderStage) executeStreamingRound(
 		s.emitProviderCallFailed(ctx, prov, err, duration, rr)
 		kept := s.keptInterruptedReply(ctx, params, &got, duration, err)
 		withStableID(&kept, rr.messageID)
+		s.endProviderCall(ctx, params, rr, &kept, output)
 		return kept, false, err
 	}
 
@@ -2521,12 +2529,15 @@ func (s *ProviderStage) executeStreamingRound(
 			responseMsg:  &responseMsg,
 			toolCalls:    &toolCalls,
 		}); err != nil {
+			s.endProviderCall(ctx, params, rr, nil, output)
 			return responseMsg, false, err
 		}
 	}
 	if err := s.finishStreamedText(ctx, &got, &responseMsg, output, suppressText); err != nil {
+		s.endProviderCall(ctx, params, rr, nil, output)
 		return responseMsg, false, err
 	}
+	s.endProviderCall(ctx, params, rr, &responseMsg, output)
 
 	logger.Debug("Provider streaming round completed",
 		"round", params.round,
@@ -2535,6 +2546,38 @@ func (s *ProviderStage) executeStreamingRound(
 		"tool_calls", len(toolCalls))
 
 	return responseMsg, len(toolCalls) > 0, nil
+}
+
+// endProviderCall sends the ProviderCallEnd element that ends a streamed
+// provider call, when the round reports it (streamingRoundParams.reportsEnd):
+// after the call's last delta, before its tool calls run. msg is the reply
+// the call leaves, stored under rr.messageID; nil, or an empty interrupted
+// reply, for a call that failed and kept nothing. Only a completed reply's
+// tool calls are reported: an interrupted reply's never run. The turn's
+// context may be the thing that ended the call, so the send goes through
+// cancelForwarder.
+func (s *ProviderStage) endProviderCall(
+	ctx context.Context, params *streamingRoundParams, rr roundRef, msg *types.Message, output chan<- StreamElement,
+) {
+	if !params.reportsEnd || output == nil {
+		return
+	}
+	end := &providers.ProviderCallEnd{MessageID: rr.messageID, FinishReason: types.FinishReasonError}
+	if msg != nil && msg.Role == roleAssistant {
+		end.FinishReason = msg.FinishReason
+		if msg.FinishReason != types.FinishReasonInterrupted {
+			end.ToolCalls = append([]types.MessageToolCall(nil), msg.ToolCalls...)
+		}
+	}
+	sendProviderCallEnd(ctx, end, output)
+}
+
+// sendProviderCallEnd sends end downstream as its own element.
+func sendProviderCallEnd(ctx context.Context, end *providers.ProviderCallEnd, output chan<- StreamElement) {
+	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem.Meta.ProviderCallEnd = end
+	var fwd cancelForwarder
+	fwd.forward(ctx, output, elem)
 }
 
 // validateRequestContent fails a round whose input messages carry a media part

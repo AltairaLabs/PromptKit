@@ -433,6 +433,10 @@ func (p *streamProcessor) processElement(elem *stage.StreamElement) {
 		})
 	}
 
+	if elem.Meta.ProviderCallEnd != nil {
+		p.sendChunk(&providers.StreamChunk{ProviderCallEnd: elem.Meta.ProviderCallEnd})
+	}
+
 	if len(elem.Meta.RoundMessages) > 0 {
 		p.sendChunk(&providers.StreamChunk{RoundMessages: elem.Meta.RoundMessages})
 	}

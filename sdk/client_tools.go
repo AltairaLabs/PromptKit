@@ -468,7 +468,12 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 			return
 		}
 
-		toolMsgs, err := c.buildToolResultMessages(ctx)
+		history, err := c.settlementHistory(ctx)
+		if err != nil {
+			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: err})
+			return
+		}
+		toolMsgs, err := c.buildToolResultMessagesFrom(ctx, history)
 		if err != nil {
 			sendFinalErrorChunk(ctx, ch, StreamChunk{Error: err})
 			return
@@ -480,7 +485,9 @@ func (c *Conversation) ResumeStream(ctx context.Context) <-chan StreamChunk {
 			return
 		}
 
-		state := &streamState{}
+		// The resumed turn's provider calls count on from those it made
+		// before it suspended.
+		state := &streamState{round: turnProviderCalls(history)}
 		if err := c.processAndFinalizeStreamWithState(ctx, streamCh, ch, startTime, state); err != nil {
 			sendFinalErrorChunk(ctx, ch, errorChunk(err))
 			return
@@ -505,6 +512,14 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	if err != nil {
 		return nil, err
 	}
+	return c.buildToolResultMessagesFrom(ctx, history)
+}
+
+// buildToolResultMessagesFrom is buildToolResultMessages for the conversation
+// history it has read.
+func (c *Conversation) buildToolResultMessagesFrom(
+	ctx context.Context, history []types.Message,
+) ([]types.Message, error) {
 	resolutions := c.takeSettlement(history)
 	if len(resolutions) == 0 {
 		return nil, fmt.Errorf("no resolved tool results to resume with")
@@ -523,6 +538,18 @@ func (c *Conversation) buildToolResultMessages(ctx context.Context) ([]types.Mes
 	c.emitClientToolResolvedEvents(resolutions)
 
 	return toolMsgs, nil
+}
+
+// turnProviderCalls counts the provider calls the last turn in history has
+// made: its assistant messages, one per call, after its user message.
+func turnProviderCalls(history []types.Message) int {
+	calls := 0
+	for i := len(history) - 1; i >= 0 && history[i].Role != roleUser; i-- {
+		if history[i].Role == roleAssistant {
+			calls++
+		}
+	}
+	return calls
 }
 
 // callNamesOf maps each call calls returns to the name of the tool it called,

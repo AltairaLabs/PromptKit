@@ -645,9 +645,9 @@ func TestRunSend_RoundWithoutResultsStillEndsAtTheNextRound(t *testing.T) {
 	second := types.MessageToolCall{ID: "c2", Name: "lookup", Args: []byte(`{"id":"2"}`)}
 	sender := &chunkSender{mockSender: &mockSender{}, chunks: []sdk.StreamChunk{
 		{Type: sdk.ChunkText, Text: "A"},
-		{Type: sdk.ChunkToolCall, ToolCall: &first, Round: 1},
-		{Type: sdk.ChunkToolCall, ToolCall: &also, Round: 1},
-		{Type: sdk.ChunkToolCall, ToolCall: &second, Round: 2},
+		{Type: sdk.ChunkToolCall, ToolCall: &first, Round: 0},
+		{Type: sdk.ChunkToolCall, ToolCall: &also, Round: 0},
+		{Type: sdk.ChunkToolCall, ToolCall: &second, Round: 1},
 		{Type: sdk.ChunkText, Text: "B"},
 		{Type: sdk.ChunkDone, Message: sdk.NewResponseForTest("B", nil, sdk.WithTurnMessagesForTest([]types.Message{
 			{Role: roleAssistant, Content: "A", ToolCalls: []types.MessageToolCall{first, also}},
@@ -670,8 +670,8 @@ func TestRunSend_RoundWithoutResultsStillEndsAtTheNextRound(t *testing.T) {
 	}, describeRun(evts))
 }
 
-// A stream that does not number its rounds (Round 0) still splits them where
-// a round's results end.
+// Calls that all carry one Round (here 0, as a stream that does not number
+// its rounds leaves them) still split into rounds where a round's results end.
 func TestRunSend_UnnumberedRoundsSplitAtTheirResults(t *testing.T) {
 	call := types.MessageToolCall{ID: "c1", Name: "lookup", Args: []byte(`{}`)}
 	result := types.MessageToolResult{ID: "c1", Parts: []types.ContentPart{types.NewTextPart("ok")}}
@@ -699,4 +699,156 @@ func TestRunSend_UnnumberedRoundsSplitAtTheirResults(t *testing.T) {
 		"TEXT_MESSAGE_START m3", "TEXT_MESSAGE_CONTENT m3 done", "TEXT_MESSAGE_END m3",
 		"RUN_FINISHED",
 	}, describeRun(evts))
+}
+
+func structuredConv(t *testing.T, provider providers.Provider) *sdk.Conversation {
+	t.Helper()
+	conv := openConv(t, provider, sdk.WithResponseFormat(&providers.ResponseFormat{
+		Type: providers.ResponseFormatJSONSchema, SchemaName: "status",
+		JSONSchema: []byte(`{"type":"object","properties":{"shipped":{"type":"boolean"}}}`),
+	}))
+	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
+	return conv
+}
+
+func structuredTurns() []mock.Turn {
+	return []mock.Turn{
+		streamedCall("lookup", map[string]any{"id": "1"}, "Checking."),
+		streamedText("It shipped."),
+		streamedText(`{"shipped":`, `true}`),
+	}
+}
+
+// assertTextIDsAreStored asserts each text message the run sent is named by
+// the id of a stored assistant message, in order, and returns those
+// messages.
+func assertTextIDsAreStored(t *testing.T, evts []aguievents.Event, conv *sdk.Conversation) []types.Message {
+	t.Helper()
+	var stored []types.Message
+	var ids []string
+	for _, m := range conv.Messages(context.Background()) {
+		if m.Role == roleAssistant {
+			stored = append(stored, m)
+			ids = append(ids, m.ID())
+		}
+	}
+	var textIDs []string
+	for _, ev := range evts {
+		if start, ok := ev.(*aguievents.TextMessageStartEvent); ok {
+			textIDs = append(textIDs, start.MessageID)
+		}
+	}
+	assert.Equal(t, ids, textIDs, "each message is named as it is stored")
+	return stored
+}
+
+// A structured-output turn's tool round sends its withheld text as the
+// calls' parent message, before the calls; the re-ask streams the answer
+// that replaces the closing reply under that reply's id, so the client gets
+// it as one message, the stored one.
+func TestRunSend_StructuredOutputReaskIsTheClosingMessage(t *testing.T) {
+	conv := structuredConv(t, streamingProvider(structuredTurns()...))
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "did 1 ship?")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Checking.", "TEXT_MESSAGE_END m1",
+		`TOOL_CALL_START call_0_lookup lookup parent=m1`, `TOOL_CALL_ARGS call_0_lookup {"id":"1"}`,
+		"TOOL_CALL_END call_0_lookup",
+		"TOOL_CALL_RESULT call_0_lookup shipped",
+		"TEXT_MESSAGE_START m2", `TEXT_MESSAGE_CONTENT m2 {"shipped":`, "TEXT_MESSAGE_CONTENT m2 true}",
+		"TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	stored := assertTextIDsAreStored(t, evts, conv)
+	require.Len(t, stored, 2)
+	assert.Equal(t, `{"shipped":true}`, stored[1].GetContent())
+}
+
+// failingReask is the streaming mock whose third call, the re-ask, sends
+// one delta and fails.
+type failingReask struct {
+	*mock.ToolProvider
+	calls int
+	mu    sync.Mutex
+}
+
+func (p *failingReask) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools interface{}, choice string,
+) (<-chan providers.StreamChunk, error) {
+	in, err := p.ToolProvider.PredictStreamWithTools(ctx, req, tools, choice)
+	p.mu.Lock()
+	p.calls++
+	n := p.calls
+	p.mu.Unlock()
+	if err != nil || n != 3 {
+		return in, err
+	}
+	out := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
+	go func() {
+		defer close(out)
+		out <- <-in
+		for range in {
+		}
+		out <- providers.StreamChunk{Error: errors.New("stream broke")}
+	}()
+	return out, nil
+}
+
+// A re-ask that fails part-way leaves no message of its own: the client gets
+// the kept unconstrained answer as the closing message, under its stored id,
+// and none of the re-ask's partial answer.
+func TestRunSend_FailedStructuredOutputReaskLeavesNoOrphan(t *testing.T) {
+	conv := structuredConv(t, &failingReask{ToolProvider: streamingProvider(structuredTurns()...)})
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "did 1 ship?")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Checking.", "TEXT_MESSAGE_END m1",
+		`TOOL_CALL_START call_0_lookup lookup parent=m1`, `TOOL_CALL_ARGS call_0_lookup {"id":"1"}`,
+		"TOOL_CALL_END call_0_lookup",
+		"TOOL_CALL_RESULT call_0_lookup shipped",
+		"TEXT_MESSAGE_START m2", "TEXT_MESSAGE_CONTENT m2 It shipped.", "TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	stored := assertTextIDsAreStored(t, evts, conv)
+	require.Len(t, stored, 2)
+	assert.Equal(t, "It shipped.", stored[1].GetContent())
+}
+
+// Text after a provider call ended is the next call's message, even when no
+// tool call came between them: each call's text is its own message, under
+// the id its chunks carry.
+func TestRunSend_TextAfterAProviderCallEndedIsTheNextMessage(t *testing.T) {
+	first := types.Message{Role: roleAssistant, Content: "A", Meta: map[string]any{types.MetaMessageID: "id-a"}}
+	second := types.Message{Role: roleAssistant, Content: "B", Meta: map[string]any{types.MetaMessageID: "id-b"}}
+	sender := &chunkSender{mockSender: &mockSender{}, chunks: []sdk.StreamChunk{
+		{Type: sdk.ChunkText, Text: "A", MessageID: "id-a"},
+		{Type: sdk.ChunkProviderCallEnd, Round: 0, MessageID: "id-a", FinishReason: types.FinishReasonStop},
+		{Type: sdk.ChunkText, Text: "B", MessageID: "id-b"},
+		{Type: sdk.ChunkProviderCallEnd, Round: 1, MessageID: "id-b", FinishReason: types.FinishReasonStop},
+		{Type: sdk.ChunkDone, Message: sdk.NewResponseForTest("B", nil,
+			sdk.WithTurnMessagesForTest([]types.Message{first, second}))},
+	}}
+
+	evts, err := sendAndCollect(t, newTestAdapter(sender, &mockEventBusProvider{}), "hi")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 A", "TEXT_MESSAGE_END m1",
+		"TEXT_MESSAGE_START m2", "TEXT_MESSAGE_CONTENT m2 B", "TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	var ids []string
+	for _, ev := range evts {
+		if start, ok := ev.(*aguievents.TextMessageStartEvent); ok {
+			ids = append(ids, start.MessageID)
+		}
+	}
+	assert.Equal(t, []string{"id-a", "id-b"}, ids)
 }

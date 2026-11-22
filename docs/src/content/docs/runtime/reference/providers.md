@@ -267,6 +267,7 @@ The package provides:
 - [type PrivateNetworkMediaConfigurable](<#PrivateNetworkMediaConfigurable>)
 - [type Provider](<#Provider>)
   - [func CreateProviderFromSpec\(spec ProviderSpec\) \(Provider, error\)](<#CreateProviderFromSpec>)
+- [type ProviderCallEnd](<#ProviderCallEnd>)
 - [type ProviderContractTests](<#ProviderContractTests>)
 - [type ProviderDefaults](<#ProviderDefaults>)
 - [type ProviderFactory](<#ProviderFactory>)
@@ -885,7 +886,7 @@ func IsTransient(err error) bool
 IsTransient returns true if err represents a transient provider failure \(retryable HTTP status or connection\-level error\). Uses errors.As to traverse wrapped error chains. Context cancellation and deadline errors are never transient, and neither is a stream idle timeout.
 
 <a name="IsValidationAbort"></a>
-## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L237>)
+## func [IsValidationAbort](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L267>)
 
 ```go
 func IsValidationAbort(err error) bool
@@ -3343,6 +3344,32 @@ func CreateProviderFromSpec(spec ProviderSpec) (Provider, error)
 
 CreateProviderFromSpec creates a provider implementation from a spec. It fills in spec.BaseURL with the type's default \(OpenAI, Gemini, Claude, Ollama and vLLM have one\) when it is empty, calls the factory registered for spec.Type, then applies the spec's timeouts, stream retry and concurrency settings, stream observer, HTTP transport, rate limit, custom headers, media storage and message metadata template to the provider. It returns an UnsupportedProviderError when no factory is registered for spec.Type.
 
+<a name="ProviderCallEnd"></a>
+## type [ProviderCallEnd](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L178-L195>)
+
+ProviderCallEnd ends one provider call of a pipeline's streamed turn: it follows the call's last text, reasoning and media, and comes before the call's tool calls run. Every provider call of the turn ends with one, the last call included, in stream order. A round that makes no provider call \(a BeforeCall block, a request refused before it is sent\) sends none.
+
+```go
+type ProviderCallEnd struct {
+    // MessageID is the stable id (types.MetaMessageID) the call's assistant
+    // message is stored under, the id its text and reasoning deltas carried.
+    // When the call failed and kept nothing (FinishReason
+    // types.FinishReasonError), no message is stored under it.
+    MessageID string `json:"message_id,omitempty"`
+
+    // FinishReason is why the call ended: the reply's own finish reason
+    // (types.FinishReasonStop, types.FinishReasonToolUse, ...), or, for a
+    // call that failed, types.FinishReasonInterrupted when its partial reply
+    // is kept and types.FinishReasonError when nothing of it is.
+    FinishReason string `json:"finish_reason,omitempty"`
+
+    // ToolCalls are the calls a completed reply made, as the stored message
+    // holds them. A failed call reports none, even when its kept partial
+    // reply holds complete calls: those never run.
+    ToolCalls []types.MessageToolCall `json:"tool_calls,omitempty"`
+}
+```
+
 <a name="ProviderContractTests"></a>
 ## type [ProviderContractTests](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/provider_contract_integration.go#L55-L64>)
 
@@ -4233,7 +4260,7 @@ type SendableContentProvider interface {
 ```
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L54-L165>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L54-L170>)
 
 StreamChunk represents a batch of tokens with metadata
 
@@ -4342,6 +4369,11 @@ type StreamChunk struct {
     // the pipeline does (stage.ElementMetadata.RoundMessages).
     RoundMessages []types.Message `json:"round_messages,omitempty"`
 
+    // ProviderCallEnd marks the end of one provider call's stream in a
+    // pipeline's streamed turn. A provider never sets it; the pipeline does
+    // (stage.ElementMetadata.ProviderCallEnd).
+    ProviderCallEnd *ProviderCallEnd `json:"provider_call_end,omitempty"`
+
     // Source labels the input track/speaker for fan-out routing (e.g. "caller",
     // "agent"). Copied onto StreamElement.Source at the session boundary.
     Source string `json:"source,omitempty"`
@@ -4368,7 +4400,7 @@ type StreamConsumer func(ctx context.Context, body io.ReadCloser, outChan chan<-
 ```
 
 <a name="StreamEvent"></a>
-## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L177-L190>)
+## type [StreamEvent](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L207-L220>)
 
 StreamEvent is one observation of a provider stream, built by the stream relay in BaseProvider.RunStreamingRequest for each StreamObserver callback. An observer that also implements StreamEventObserver receives it.
 
@@ -4390,7 +4422,7 @@ type StreamEvent struct {
 ```
 
 <a name="StreamEventObserver"></a>
-## type [StreamEventObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L217-L219>)
+## type [StreamEventObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L247-L249>)
 
 StreamEventObserver is implemented by a StreamObserver that also wants each observation as a StreamEvent, carrying its timestamp. OnStreamEvent is called before the matching StreamObserver callback.
 
@@ -4842,7 +4874,7 @@ func (m *StreamMetrics) StreamsInFlightInc(provider string)
 StreamsInFlightInc increments the in\-flight stream gauge for a provider. Nil\-safe.
 
 <a name="StreamObserver"></a>
-## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L208-L212>)
+## type [StreamObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L238-L242>)
 
 StreamObserver receives the events of every stream a provider opens through BaseProvider.RunStreamingRequest, for monitoring. Install one with BaseProvider.SetStreamObserver or ProviderSpec.StreamObserver; with none installed, nothing is observed.
 
@@ -5538,7 +5570,7 @@ func (e *UnsupportedProviderPlatformError) Error() string
 Error returns the error message for this unsupported pair.
 
 <a name="ValidationAbortError"></a>
-## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L225-L228>)
+## type [ValidationAbortError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L255-L258>)
 
 ValidationAbortError reports a stream a validator aborted. PromptKit's own stages do not return it: an output guardrail or chunk hook that blocks a streamed reply ends it with the guardrail's message instead. It remains for hosts that return it from their own stages.
 
@@ -5550,7 +5582,7 @@ type ValidationAbortError struct {
 ```
 
 <a name="ValidationAbortError.Error"></a>
-### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L231>)
+### func \(\*ValidationAbortError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/providers/streaming.go#L261>)
 
 ```go
 func (e *ValidationAbortError) Error() string

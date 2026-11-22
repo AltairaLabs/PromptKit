@@ -110,7 +110,29 @@ conv, err := sdk.Open("./chat.pack.json", "assistant",
 
 `StreamRaw` chunks, `TextDeltaEvent` and `stream.CollectText` carry the same marker. Over A2A, the server restarts the text artifact with the message, sending its update with `append: false`. Over AG-UI, the adapter ends the streamed text message and sends the guardrail's message as a new one.
 
-A turn that calls tools streams each round in order. A round's text comes first. Once it has streamed, a `sdk.ChunkToolCall` chunk carries each call the round made (in `ToolCall`), before the calls run. Once they have run, a `sdk.ChunkToolResult` chunk carries each result the model is given (in `ToolResult`). Both carry `Round`, the round's number from 1. Text after them is the next round's reply. A round whose calls end the turn, such as a client tool waiting for an answer or a call held for approval, sends its calls; its results are in the `ChunkDone` response's `TurnMessages`.
+A turn that calls tools makes several provider calls, and streams each in order. A call's text comes first. When the call ends, a `sdk.ChunkProviderCallEnd` chunk says so: it carries `Round`, `MessageID` (the id the call's assistant message is stored under, the id its text chunks carried), `FinishReason` and the calls the reply made in `ToolCalls`. Every provider call of the turn sends one, the last call included, so it is where a client closes the message it is showing. Then a `sdk.ChunkToolCall` chunk carries each call (in `ToolCall`), before the calls run. Once they have run, a `sdk.ChunkToolResult` chunk carries each result the model is given (in `ToolResult`). Both carry the `Round` of the provider call that made them. Text after them is the next call's reply. A call whose tool calls end the turn, such as a client tool waiting for an answer or a call held for approval, sends its boundary and its calls before its `ChunkClientTool` chunks; its results are in the `ChunkDone` response's `TurnMessages`.
+
+`Round` counts the turn's provider calls from 0. After a client tool suspends the turn, `ResumeStream` continues the count, so a turn whose first two calls ran before it suspended streams its next call as round 2.
+
+A provider call that fails still sends its `ChunkProviderCallEnd`, after its partial text and before the chunk with `Error` set. That holds for a call you cancel, as long as you go on draining the channel. Its `FinishReason` is `types.FinishReasonInterrupted` when the partial reply is kept in the history under `MessageID`, and `types.FinishReasonError` when nothing is stored under `MessageID`. A failed call reports no `ToolCalls`, even when the kept partial reply holds complete calls, because those calls never run.
+
+A round that makes no provider call sends no `ChunkProviderCallEnd`. That covers a round a `BeforeCall` hook or input guardrail blocks, on the first round or a later one, and a round whose request the provider would refuse before it is sent, such as media it does not support. A provider that does not stream sends none either.
+
+With a `ResponseFormat` on a turn that offers tools, the tool rounds' text is withheld from the stream and the closing answer is asked again under the schema. That re-ask is a provider call with its own `ChunkProviderCallEnd`. Its text arrives once the re-ask has completed, under the id of the reply it replaces, which is the id its answer is stored under. When the re-ask fails, none of its answer is sent. The kept unconstrained reply's text arrives under the reply's id, and the re-ask ends with `types.FinishReasonError` under an id of its own.
+
+The turn's chunks for a server tool between two model calls look like this:
+
+| Chunk | `Round` | `MessageID` | Carries |
+|---|---|---|---|
+| `ChunkText` | | `m0` | the first call's text |
+| `ChunkProviderCallEnd` | 0 | `m0` | `FinishReason` `tool_use`, the call in `ToolCalls` |
+| `ChunkToolCall` | 0 | `m0` | the call |
+| `ChunkToolResult` | 0 | | the tool's result |
+| `ChunkText` | | `m1` | the second call's text |
+| `ChunkProviderCallEnd` | 1 | `m1` | `FinishReason` `stop` |
+| `ChunkDone` | | | the response |
+
+`StreamRaw`, `StreamWithCallback` and the A2A server do not report `ChunkProviderCallEnd`.
 
 `ChunkToolResult` carries what your server-side tools returned. Drop it before forwarding chunks to a client that must not see tool output.
 

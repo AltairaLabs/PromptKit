@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/streamround"
 	streamPkg "github.com/AltairaLabs/PromptKit/sdk/v2/stream"
 )
 
@@ -37,10 +38,10 @@ type StreamChunk struct {
 
 	// MessageID is the stable id (types.MetaMessageID) of the assistant
 	// message a ChunkText's text, a ChunkReasoning's reasoning or a
-	// ChunkToolCall's call belongs to: the id
-	// the conversation stores the message under, so a client streaming the
-	// reply names it as the history does. Empty when the pipeline does not
-	// know it, as for a provider that does not stream.
+	// ChunkToolCall's call belongs to, or that a ChunkProviderCallEnd ends:
+	// the id the conversation stores the message under, so a client
+	// streaming the reply names it as the history does. Empty when the
+	// pipeline does not know it, as for a provider that does not stream.
 	MessageID string
 
 	// Tool call (for ChunkToolCall type)
@@ -50,11 +51,27 @@ type StreamChunk struct {
 	// ChunkToolResult type).
 	ToolResult *types.MessageToolResult
 
-	// Round is the tool round of the turn a ChunkToolCall or ChunkToolResult
-	// belongs to, counted from 1 within one Stream or ResumeStream. Calls with
-	// the same Round were made by one model reply; a new Round is a new reply,
-	// even when no result came between them.
+	// Round is the provider call of the turn a ChunkProviderCallEnd ends, or
+	// a ChunkToolCall or ChunkToolResult belongs to: 0 for the turn's first
+	// call to the model, 1 for the next, and so on. It is counted per turn,
+	// as the turn index is, and a ResumeStream continues it from where the
+	// suspended turn left off. Calls with the same Round were made by one
+	// model reply; a new Round is a new reply, even when no result came
+	// between them.
 	Round int
+
+	// FinishReason is why the provider call a ChunkProviderCallEnd ends
+	// stopped: the reply's own finish reason (types.FinishReasonStop,
+	// types.FinishReasonToolUse, types.FinishReasonSafety, ...), or, for a
+	// call that failed, types.FinishReasonInterrupted when its partial reply
+	// is kept and types.FinishReasonError when nothing of it is.
+	FinishReason string
+
+	// ToolCalls are the calls the reply a ChunkProviderCallEnd ends made,
+	// for a call that completed: each also arrives as a ChunkToolCall, after
+	// the ChunkProviderCallEnd. A failed call reports none, even when its
+	// kept partial reply holds complete calls: those never run.
+	ToolCalls []types.MessageToolCall
 
 	// Media content (for ChunkMedia type)
 	Media *providers.StreamMediaData
@@ -70,6 +87,23 @@ type StreamChunk struct {
 
 	// Error (if any occurred)
 	Error error
+
+	// replyText is the stored text of the reply a ChunkToolCall's call
+	// belongs to, for the AG-UI adapter (internal/streamround).
+	replyText string
+}
+
+// The AG-UI adapter reads a ChunkToolCall's reply text through
+// streamround.ReplyText, which keeps it off StreamChunk's public fields.
+//
+//nolint:gochecknoinits // registration is how the internal package reaches the chunk's reply text.
+func init() {
+	streamround.Register(func(chunk any) string {
+		if c, ok := chunk.(StreamChunk); ok {
+			return c.replyText
+		}
+		return ""
+	})
 }
 
 // ChunkType identifies the type of a streaming chunk.
@@ -108,6 +142,27 @@ const (
 	// conversation opened with [WithStreamReasoning]; the reasoning is always
 	// on the Response's Message().Reasoning.
 	ChunkReasoning
+
+	// ChunkProviderCallEnd ends one provider call of the turn, in stream
+	// order: it follows the call's last ChunkText, ChunkReasoning and
+	// ChunkMedia, and comes before the call's ChunkToolCall chunks (and so
+	// before its tools run and before any ChunkClientTool it suspends on).
+	// Every provider call of the turn ends with exactly one, the last call
+	// included, carrying Round, MessageID, FinishReason and ToolCalls. A
+	// call that fails, the caller's cancellation included, still sends one,
+	// after its partial text and before the error chunk, with FinishReason
+	// types.FinishReasonInterrupted (its partial reply is stored under
+	// MessageID) or types.FinishReasonError (nothing is stored under
+	// MessageID). A structured-output turn's final re-ask is a provider call
+	// too: its answer is stored under the id of the reply it replaces, and a
+	// re-ask that fails ends with types.FinishReasonError under an id of its
+	// own, its partial answer never sent, while the kept reply's text is
+	// sent under the reply's id. A round that makes no provider call sends
+	// none: one a BeforeCall hook or input guardrail blocks, on any round,
+	// and one whose request a provider refuses before sending it (media it
+	// does not support). Neither does a provider that does not stream.
+	// StreamRaw and StreamWithCallback do not report it.
+	ChunkProviderCallEnd
 )
 
 // String returns the string representation of the chunk type.
@@ -127,6 +182,8 @@ func (t ChunkType) String() string {
 		return "tool_result"
 	case ChunkReasoning:
 		return "reasoning"
+	case ChunkProviderCallEnd:
+		return "provider_call_end"
 	default:
 		return "unknown"
 	}
@@ -135,14 +192,19 @@ func (t ChunkType) String() string {
 // streamState tracks state during stream processing.
 type streamState struct {
 	contentBuilder strings.Builder
-	lastToolCalls  []types.MessageToolCall
-	finalResult    *rtpipeline.ExecutionResult
-	pendingTools   []PendingClientTool
+	// lastCallToolCalls are the calls the stream's last ended provider call
+	// made (ChunkProviderCallEnd), for a response built without a final
+	// result.
+	lastCallToolCalls []types.MessageToolCall
+	finalResult       *rtpipeline.ExecutionResult
+	pendingTools      []PendingClientTool
 	// heldTools are the suspended calls an OnToolAsync check holds for
 	// approval (Response.PendingTools), kept apart from client tools as Send
 	// keeps them.
 	heldTools []PendingTool
-	// round counts the tool rounds the stream has reported (Round).
+	// round is the Round of the provider call now streaming: the turn's
+	// calls ended so far, those of the turn a ResumeStream continues
+	// included.
 	round int
 }
 
@@ -480,6 +542,14 @@ const canceledErrorSendTimeout = 500 * time.Millisecond
 // caller that has stopped reading must not leak this goroutine, so once ctx is
 // done the send waits only briefly.
 func sendFinalErrorChunk(ctx context.Context, ch chan<- StreamChunk, chunk StreamChunk) {
+	sendChunkBounded(ctx, ch, chunk)
+}
+
+// sendChunkBounded sends chunk to a caller that may have canceled ctx and
+// still drain the channel: a normal send while ctx is live, and once it is
+// done one that waits only briefly, so a caller that stopped reading does not
+// leak the goroutine.
+func sendChunkBounded(ctx context.Context, ch chan<- StreamChunk, chunk StreamChunk) {
 	if ctx.Err() == nil {
 		select {
 		case ch <- chunk:
@@ -531,14 +601,11 @@ func (c *Conversation) emitStreamChunk(
 		sendChunk(ctx, outCh, StreamChunk{Type: ChunkMedia, Media: chunk.MediaData})
 	}
 
-	// Emit new tool calls
-	if len(chunk.ToolCalls) > len(state.lastToolCalls) {
-		for i := len(state.lastToolCalls); i < len(chunk.ToolCalls); i++ {
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &chunk.ToolCalls[i]})
-		}
-		// Copy the slice to avoid holding a reference to the provider's internal slice
-		state.lastToolCalls = make([]types.MessageToolCall, len(chunk.ToolCalls))
-		copy(state.lastToolCalls, chunk.ToolCalls)
+	// A call's tool calls are reported once, from the round the pipeline
+	// reports after the call ended (emitRoundMessages), never from the
+	// chunks: those of a pipeline stream carry none.
+	if chunk.ProviderCallEnd != nil {
+		emitProviderCallEnd(ctx, chunk.ProviderCallEnd, outCh, state)
 	}
 
 	emitRoundMessages(ctx, chunk.RoundMessages, outCh, state)
@@ -572,23 +639,41 @@ func (c *Conversation) emitSuspendedTools(
 	}
 }
 
+// emitProviderCallEnd forwards the end of a provider call as a
+// ChunkProviderCallEnd with the call's Round, and moves the stream on to the
+// next call.
+func emitProviderCallEnd(
+	ctx context.Context, end *providers.ProviderCallEnd, outCh chan<- StreamChunk, state *streamState,
+) {
+	calls := append([]types.MessageToolCall(nil), end.ToolCalls...)
+	state.lastCallToolCalls = calls
+	// A canceled call ends too: the caller canceling it usually drains the
+	// stream for the partial reply, and the boundary comes before it.
+	sendChunkBounded(ctx, outCh, StreamChunk{
+		Type: ChunkProviderCallEnd, Round: state.round, MessageID: end.MessageID,
+		FinishReason: end.FinishReason, ToolCalls: calls,
+	})
+	state.round++
+}
+
 // emitRoundMessages forwards a tool round the pipeline reported: a
 // ChunkToolCall for each call an assistant message made, and a
-// ChunkToolResult for each tool result. Each assistant message starts the
-// stream's next round.
+// ChunkToolResult for each tool result. The pipeline reports a call's round
+// after the call ended and before the next one starts, so the round is the
+// last ended call's.
 func emitRoundMessages(ctx context.Context, msgs []types.Message, outCh chan<- StreamChunk, state *streamState) {
+	round := max(state.round-1, 0)
 	for i := range msgs {
 		msg := &msgs[i]
-		if len(msg.ToolCalls) > 0 {
-			state.round++
-		}
 		for j := range msg.ToolCalls {
 			call := msg.ToolCalls[j]
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolCall, ToolCall: &call, Round: state.round, MessageID: msg.ID()})
+			sendChunk(ctx, outCh, StreamChunk{
+				Type: ChunkToolCall, ToolCall: &call, Round: round, MessageID: msg.ID(), replyText: msg.GetContent(),
+			})
 		}
 		if msg.ToolResult != nil {
 			result := *msg.ToolResult
-			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolResult, ToolResult: &result, Round: state.round})
+			sendChunk(ctx, outCh, StreamChunk{Type: ChunkToolResult, ToolResult: &result, Round: round})
 		}
 	}
 }
@@ -664,8 +749,8 @@ func (c *Conversation) buildStreamingResponse(
 			Role:    roleAssistant,
 			Content: state.accumulatedContent(),
 		}
-		if len(state.lastToolCalls) > 0 {
-			resp.toolCalls = state.lastToolCalls
+		if len(state.lastCallToolCalls) > 0 {
+			resp.toolCalls = state.lastCallToolCalls
 		}
 	}
 
@@ -729,9 +814,9 @@ func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan strea
 			case ChunkMedia:
 				chunk.Type = streamPkg.ChunkMedia
 				chunk.Media = sdkChunk.Media
-			case ChunkClientTool, ChunkToolResult, ChunkReasoning:
-				// Client tool requests, tool results and reasoning are
-				// SDK-level; skip in raw stream
+			case ChunkClientTool, ChunkToolResult, ChunkReasoning, ChunkProviderCallEnd:
+				// Client tool requests, tool results, reasoning and provider
+				// call ends are SDK-level; skip in raw stream
 				continue
 			case ChunkDone:
 				chunk.Done = true
