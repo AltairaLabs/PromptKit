@@ -35,6 +35,21 @@ const (
 )
 ```
 
+<a name="KindWait"></a>The waits.
+
+```go
+const (
+    // KindWait is an expression of another package's names.
+    KindWait = 5 * time.Minute
+    // KindCap is another package's const.
+    KindCap = providers.MaxItems
+    // KindAgain names a const of this package, qualified.
+    KindAgain = core.KindAgain
+    // KindSum adds a const of this group.
+    KindSum = core.KindSum
+)
+```
+
 ## Variables
 
 <a name="ErrGone"></a>Common errors.

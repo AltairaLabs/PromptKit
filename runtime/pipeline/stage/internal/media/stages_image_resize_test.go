@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"bytes"
@@ -7,6 +7,8 @@ import (
 	"image/color"
 	"image/jpeg"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // createTestImageData creates test image data with specified dimensions.
@@ -39,7 +41,7 @@ func TestImageResizeStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'image-resize', got '%s'", stage.Name())
 	}
 
-	if stage.Type() != StageTypeTransform {
+	if stage.Type() != core.StageTypeTransform {
 		t.Errorf("Expected type Transform, got %v", stage.Type())
 	}
 }
@@ -58,13 +60,13 @@ func TestImageResizeStage_ProcessImage(t *testing.T) {
 	ctx := context.Background()
 
 	// Create input channel with a large image
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create test image data (1024x1024)
 	testData := createTestImageData(1024, 1024)
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data:     testData,
 			MIMEType: "image/jpeg",
 			Width:    1024,
@@ -110,15 +112,15 @@ func TestImageResizeStage_PassthroughSmallImage(t *testing.T) {
 	stage := NewImageResizeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create small test image (256x256)
 	testData := createTestImageData(256, 256)
 	originalLen := len(testData)
 
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data:     testData,
 			MIMEType: "image/jpeg",
 			Width:    256,
@@ -156,15 +158,15 @@ func TestImageResizeStage_PassthroughNonImageElements(t *testing.T) {
 	stage := NewImageResizeStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 2)
-	output := make(chan StreamElement, 2)
+	input := make(chan core.StreamElement, 2)
+	output := make(chan core.StreamElement, 2)
 
 	// Send a text element
 	text := "Hello world"
-	input <- StreamElement{Text: &text}
+	input <- core.StreamElement{Text: &text}
 
 	// Send an end-of-stream element
-	input <- StreamElement{EndOfStream: true}
+	input <- core.StreamElement{EndOfStream: true}
 	close(input)
 
 	go func() {
@@ -194,12 +196,12 @@ func TestImageResizeStage_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement) // Unbuffered - will block on send
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement) // Unbuffered - will block on send
 
 	testData := createTestImageData(256, 256)
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data:     testData,
 			MIMEType: "image/jpeg",
 			Width:    256,
@@ -241,11 +243,11 @@ func TestDefaultImageResizeStageConfig(t *testing.T) {
 }
 
 // runResizeStage runs one image element through an ImageResizeStage.
-func runResizeStage(t *testing.T, config ImageResizeStageConfig, img *ImageData) StreamElement {
+func runResizeStage(t *testing.T, config ImageResizeStageConfig, img *core.ImageData) core.StreamElement {
 	t.Helper()
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
-	input <- StreamElement{Image: img}
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
+	input <- core.StreamElement{Image: img}
 	close(input)
 	if err := NewImageResizeStage(config).Process(context.Background(), input, output); err != nil {
 		t.Fatalf("Process returned error: %v", err)
@@ -260,7 +262,7 @@ func TestImageResizeStage_ResizesWhenDimensionsUnknown(t *testing.T) {
 	config := ImageResizeStageConfig{MaxWidth: 320, MaxHeight: 240, Quality: 80,
 		PreserveAspectRatio: true, SkipIfSmaller: true}
 
-	result := runResizeStage(t, config, &ImageData{Data: createTestImageData(640, 480), MIMEType: "image/jpeg"})
+	result := runResizeStage(t, config, &core.ImageData{Data: createTestImageData(640, 480), MIMEType: "image/jpeg"})
 	if result.Error != nil {
 		t.Fatalf("Unexpected error: %v", result.Error)
 	}
@@ -281,7 +283,7 @@ func TestImageResizeStage_UnknownDimensionsWithinLimitsUnchanged(t *testing.T) {
 		PreserveAspectRatio: true, SkipIfSmaller: true}
 	data := createTestImageData(64, 48)
 
-	result := runResizeStage(t, config, &ImageData{Data: data, MIMEType: "image/jpeg"})
+	result := runResizeStage(t, config, &core.ImageData{Data: data, MIMEType: "image/jpeg"})
 	if result.Error != nil {
 		t.Fatalf("Unexpected error: %v", result.Error)
 	}

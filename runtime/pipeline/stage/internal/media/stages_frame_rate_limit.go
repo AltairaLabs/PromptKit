@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // Default frame rate limit configuration constants.
@@ -83,7 +84,7 @@ func DefaultFrameRateLimitConfig() FrameRateLimitConfig {
 //
 // This is a Transform stage that may drop elements (N:M where M <= N).
 type FrameRateLimitStage struct {
-	BaseStage
+	core.BaseStage
 	config FrameRateLimitConfig
 
 	// Timing state
@@ -115,7 +116,7 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage {
 	}
 
 	return &FrameRateLimitStage{
-		BaseStage:     NewBaseStage("frame-rate-limit", StageTypeTransform),
+		BaseStage:     core.NewBaseStage("frame-rate-limit", core.StageTypeTransform),
 		config:        config,
 		frameInterval: time.Duration(float64(time.Second) / fps),
 		clock:         systemClock{},
@@ -126,8 +127,8 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage {
 // Drops video/image frames to maintain the target frame rate.
 func (s *FrameRateLimitStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -156,7 +157,7 @@ func (s *FrameRateLimitStage) Process(
 }
 
 // shouldEmitElement determines if an element should be emitted or dropped.
-func (s *FrameRateLimitStage) shouldEmitElement(elem *StreamElement) bool {
+func (s *FrameRateLimitStage) shouldEmitElement(elem *core.StreamElement) bool {
 	// Always passthrough control signals
 	if elem.EndOfStream || elem.Error != nil {
 		return true

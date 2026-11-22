@@ -526,6 +526,36 @@ const (
 )
 ```
 
+<a name="DefaultFrameInterval"></a>Default configuration values.
+
+```go
+const (
+    // DefaultFrameInterval is the default time between extracted frames.
+    DefaultFrameInterval = time.Second
+    // DefaultTargetFPS is the default target frame rate.
+    DefaultTargetFPS = 1.0
+    // DefaultMaxFrames is the default maximum frames to extract.
+    DefaultMaxFrames = 30
+    // DefaultOutputFormat is the default output image format.
+    DefaultOutputFormat = "jpeg"
+    // OutputFormatPNG is the PNG output format.
+    OutputFormatPNG = "png"
+    // DefaultOutputQuality is the default JPEG quality.
+    DefaultOutputQuality = 85
+    // DefaultFFmpegPath is the default path to FFmpeg.
+    DefaultFFmpegPath = "ffmpeg"
+    // DefaultFFmpegTimeout is the default FFmpeg execution timeout.
+    DefaultFFmpegTimeout = 5 * time.Minute
+    // DefaultFramesCompletionTimeout is the default timeout for frame accumulation.
+    DefaultFramesCompletionTimeout = 30 * time.Second
+    // DefaultMaxFramesPerMessage is the default max frames in composed message.
+    // It is providers.MaxMediaItems, the most media parts a provider loads for
+    // one message, so a frames message at the default is never refused for
+    // carrying too many images.
+    DefaultMaxFramesPerMessage = providers.MaxMediaItems
+)
+```
+
 <a name="DefaultMaxMessages"></a>
 
 ```go
@@ -538,45 +568,6 @@ const (
     // DefaultWarningThreshold is the message count above which a warning is
     // logged when no context window or token budget is configured.
     DefaultWarningThreshold = 100
-)
-```
-
-<a name="DefaultFrameInterval"></a>Default configuration values.
-
-```go
-const (
-    // DefaultFrameInterval is the default time between extracted frames.
-    DefaultFrameInterval = time.Second
-
-    // DefaultTargetFPS is the default target frame rate.
-    DefaultTargetFPS = 1.0
-
-    // DefaultMaxFrames is the default maximum frames to extract.
-    DefaultMaxFrames = 30
-
-    // DefaultOutputFormat is the default output image format.
-    DefaultOutputFormat = "jpeg"
-
-    // OutputFormatPNG is the PNG output format.
-    OutputFormatPNG = "png"
-
-    // DefaultOutputQuality is the default JPEG quality.
-    DefaultOutputQuality = 85
-
-    // DefaultFFmpegPath is the default path to FFmpeg.
-    DefaultFFmpegPath = "ffmpeg"
-
-    // DefaultFFmpegTimeout is the default FFmpeg execution timeout.
-    DefaultFFmpegTimeout = 5 * time.Minute
-
-    // DefaultFramesCompletionTimeout is the default timeout for frame accumulation.
-    DefaultFramesCompletionTimeout = 30 * time.Second
-
-    // DefaultMaxFramesPerMessage is the default max frames in composed message.
-    // It is providers.MaxMediaItems, the most media parts a provider loads for
-    // one message, so a frames message at the default is never refused for
-    // carrying too many images.
-    DefaultMaxFramesPerMessage = providers.MaxMediaItems
 )
 ```
 
@@ -2246,7 +2237,7 @@ func (s *DebugStage) Process(ctx context.Context, input <-chan StreamElement, ou
 Process logs each element as it passes through \(passthrough transform\).
 
 <a name="DropStrategy"></a>
-## type [DropStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L24>)
+## type [DropStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L25>)
 
 DropStrategy defines how frames are dropped when rate limiting.
 
@@ -2269,7 +2260,7 @@ const (
 ```
 
 <a name="DropStrategy.String"></a>
-### func \(DropStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L37>)
+### func \(DropStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L38>)
 
 ```go
 func (s DropStrategy) String() string
@@ -2752,7 +2743,7 @@ type FormatCapable interface {
 ```
 
 <a name="FrameExtractionMode"></a>
-## type [FrameExtractionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L75>)
+## type [FrameExtractionMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L75>)
 
 FrameExtractionMode defines how frames are selected from video.
 
@@ -2776,7 +2767,7 @@ const (
 ```
 
 <a name="FrameExtractionMode.String"></a>
-### func \(FrameExtractionMode\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L89>)
+### func \(FrameExtractionMode\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L89>)
 
 ```go
 func (m FrameExtractionMode) String() string
@@ -2785,7 +2776,7 @@ func (m FrameExtractionMode) String() string
 String returns the string representation of the extraction mode.
 
 <a name="FrameRateLimitConfig"></a>
-## type [FrameRateLimitConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L49-L68>)
+## type [FrameRateLimitConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L50-L69>)
 
 FrameRateLimitConfig configures the FrameRateLimitStage behavior.
 
@@ -2813,7 +2804,7 @@ type FrameRateLimitConfig struct {
 ```
 
 <a name="DefaultFrameRateLimitConfig"></a>
-### func [DefaultFrameRateLimitConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L71>)
+### func [DefaultFrameRateLimitConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L32>)
 
 ```go
 func DefaultFrameRateLimitConfig() FrameRateLimitConfig
@@ -2822,7 +2813,7 @@ func DefaultFrameRateLimitConfig() FrameRateLimitConfig
 DefaultFrameRateLimitConfig returns sensible defaults for frame rate limiting.
 
 <a name="FrameRateLimitStage"></a>
-## type [FrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L85-L99>)
+## type [FrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L86-L100>)
 
 FrameRateLimitStage drops frames to maintain a target frame rate. This is useful for high\-FPS video feeds \(e.g., 30fps webcam\) that need to be reduced to a rate suitable for LLM processing \(e.g., 1fps\).
 
@@ -2836,7 +2827,7 @@ type FrameRateLimitStage struct {
 ```
 
 <a name="NewFrameRateLimitStage"></a>
-### func [NewFrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L111>)
+### func [NewFrameRateLimitStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L44>)
 
 ```go
 func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage
@@ -2845,7 +2836,7 @@ func NewFrameRateLimitStage(config FrameRateLimitConfig) *FrameRateLimitStage
 NewFrameRateLimitStage creates a new frame rate limiting stage.
 
 <a name="FrameRateLimitStage.GetConfig"></a>
-### func \(\*FrameRateLimitStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L230>)
+### func \(\*FrameRateLimitStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L231>)
 
 ```go
 func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig
@@ -2854,7 +2845,7 @@ func (s *FrameRateLimitStage) GetConfig() FrameRateLimitConfig
 GetConfig returns the stage configuration.
 
 <a name="FrameRateLimitStage.GetStats"></a>
-### func \(\*FrameRateLimitStage\) [GetStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L235>)
+### func \(\*FrameRateLimitStage\) [GetStats](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L236>)
 
 ```go
 func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64)
@@ -2863,7 +2854,7 @@ func (s *FrameRateLimitStage) GetStats() (emitted, dropped int64)
 GetStats returns the current frame statistics.
 
 <a name="FrameRateLimitStage.Process"></a>
-### func \(\*FrameRateLimitStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_frame_rate_limit.go#L127-L131>)
+### func \(\*FrameRateLimitStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_frame_rate_limit.go#L128-L132>)
 
 ```go
 func (s *FrameRateLimitStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2872,7 +2863,7 @@ func (s *FrameRateLimitStage) Process(ctx context.Context, input <-chan StreamEl
 Process implements the Stage interface. Drops video/image frames to maintain the target frame rate.
 
 <a name="FrameSelectionStrategy"></a>
-## type [FrameSelectionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L291>)
+## type [FrameSelectionStrategy](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L295>)
 
 FrameSelectionStrategy defines how frames are selected when limiting.
 
@@ -2896,7 +2887,7 @@ const (
 ```
 
 <a name="FrameSelectionStrategy.String"></a>
-### func \(FrameSelectionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L305>)
+### func \(FrameSelectionStrategy\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L309>)
 
 ```go
 func (s FrameSelectionStrategy) String() string
@@ -2905,7 +2896,7 @@ func (s FrameSelectionStrategy) String() string
 String returns the string representation of the selection strategy.
 
 <a name="FramesToMessageConfig"></a>
-## type [FramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L319-L338>)
+## type [FramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L323-L342>)
 
 FramesToMessageConfig configures the FramesToMessageStage behavior.
 
@@ -2933,7 +2924,7 @@ type FramesToMessageConfig struct {
 ```
 
 <a name="DefaultFramesToMessageConfig"></a>
-### func [DefaultFramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L341>)
+### func [DefaultFramesToMessageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L239>)
 
 ```go
 func DefaultFramesToMessageConfig() FramesToMessageConfig
@@ -2942,7 +2933,7 @@ func DefaultFramesToMessageConfig() FramesToMessageConfig
 DefaultFramesToMessageConfig returns sensible defaults for frame composition.
 
 <a name="FramesToMessageStage"></a>
-## type [FramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L368-L373>)
+## type [FramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L372-L377>)
 
 FramesToMessageStage collects extracted frames and composes them into Messages. Elements are correlated by video ID from VideoToFramesStage metadata.
 
@@ -2960,7 +2951,7 @@ type FramesToMessageStage struct {
 ```
 
 <a name="NewFramesToMessageStage"></a>
-### func [NewFramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L376>)
+### func [NewFramesToMessageStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L255>)
 
 ```go
 func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
@@ -2969,7 +2960,7 @@ func NewFramesToMessageStage(config FramesToMessageConfig) *FramesToMessageStage
 NewFramesToMessageStage creates a new frame composition stage.
 
 <a name="FramesToMessageStage.GetConfig"></a>
-### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L717>)
+### func \(\*FramesToMessageStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L726>)
 
 ```go
 func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig
@@ -2978,7 +2969,7 @@ func (s *FramesToMessageStage) GetConfig() FramesToMessageConfig
 GetConfig returns the stage configuration.
 
 <a name="FramesToMessageStage.Process"></a>
-### func \(\*FramesToMessageStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L388-L392>)
+### func \(\*FramesToMessageStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L392-L396>)
 
 ```go
 func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3153,7 +3144,7 @@ func (d *ImageData) Load(ctx context.Context, store storage.MediaStorageService)
 Load retrieves externalized image data from storage. Returns immediately if data is already in memory.
 
 <a name="ImagePreprocessConfig"></a>
-## type [ImagePreprocessConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_preprocess.go#L15-L22>)
+## type [ImagePreprocessConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_preprocess.go#L16-L23>)
 
 ImagePreprocessConfig contains configuration for the image preprocessing stage.
 
@@ -3169,7 +3160,7 @@ type ImagePreprocessConfig struct {
 ```
 
 <a name="DefaultImagePreprocessConfig"></a>
-### func [DefaultImagePreprocessConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_preprocess.go#L25>)
+### func [DefaultImagePreprocessConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L52>)
 
 ```go
 func DefaultImagePreprocessConfig() ImagePreprocessConfig
@@ -3178,7 +3169,7 @@ func DefaultImagePreprocessConfig() ImagePreprocessConfig
 DefaultImagePreprocessConfig returns sensible defaults for image preprocessing.
 
 <a name="ImagePreprocessStage"></a>
-## type [ImagePreprocessStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_preprocess.go#L37-L43>)
+## type [ImagePreprocessStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_preprocess.go#L38-L44>)
 
 ImagePreprocessStage preprocesses images in messages before sending to providers. This stage processes images directly within Message.Parts\[\].Media, performing operations like resizing, format conversion, and size optimization.
 
@@ -3192,7 +3183,7 @@ type ImagePreprocessStage struct {
 ```
 
 <a name="NewImagePreprocessStage"></a>
-### func [NewImagePreprocessStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_preprocess.go#L46>)
+### func [NewImagePreprocessStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L64>)
 
 ```go
 func NewImagePreprocessStage(config ImagePreprocessConfig) *ImagePreprocessStage
@@ -3201,7 +3192,7 @@ func NewImagePreprocessStage(config ImagePreprocessConfig) *ImagePreprocessStage
 NewImagePreprocessStage creates a new image preprocessing stage.
 
 <a name="ImagePreprocessStage.GetConfig"></a>
-### func \(\*ImagePreprocessStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_preprocess.go#L215>)
+### func \(\*ImagePreprocessStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_preprocess.go#L216>)
 
 ```go
 func (s *ImagePreprocessStage) GetConfig() ImagePreprocessConfig
@@ -3210,7 +3201,7 @@ func (s *ImagePreprocessStage) GetConfig() ImagePreprocessConfig
 GetConfig returns the stage configuration.
 
 <a name="ImagePreprocessStage.Process"></a>
-### func \(\*ImagePreprocessStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_preprocess.go#L55-L59>)
+### func \(\*ImagePreprocessStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_preprocess.go#L56-L60>)
 
 ```go
 func (s *ImagePreprocessStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3219,7 +3210,7 @@ func (s *ImagePreprocessStage) Process(ctx context.Context, input <-chan StreamE
 Process implements the Stage interface. Preprocesses images in messages that flow through the stage.
 
 <a name="ImageResizeStage"></a>
-## type [ImageResizeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L25-L32>)
+## type [ImageResizeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_resize.go#L26-L33>)
 
 ImageResizeStage resizes images to fit within configured dimensions. This is useful for reducing image sizes before sending to providers or for normalizing images from different sources.
 
@@ -3233,7 +3224,7 @@ type ImageResizeStage struct {
 ```
 
 <a name="NewImageResizeStage"></a>
-### func [NewImageResizeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L35>)
+### func [NewImageResizeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L85>)
 
 ```go
 func NewImageResizeStage(config ImageResizeStageConfig) *ImageResizeStage
@@ -3242,7 +3233,7 @@ func NewImageResizeStage(config ImageResizeStageConfig) *ImageResizeStage
 NewImageResizeStage creates a new image resizing stage.
 
 <a name="ImageResizeStage.GetConfig"></a>
-### func \(\*ImageResizeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L138>)
+### func \(\*ImageResizeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_resize.go#L139>)
 
 ```go
 func (s *ImageResizeStage) GetConfig() ImageResizeStageConfig
@@ -3251,7 +3242,7 @@ func (s *ImageResizeStage) GetConfig() ImageResizeStageConfig
 GetConfig returns the stage configuration.
 
 <a name="ImageResizeStage.Process"></a>
-### func \(\*ImageResizeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L44-L48>)
+### func \(\*ImageResizeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_resize.go#L45-L49>)
 
 ```go
 func (s *ImageResizeStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3260,16 +3251,16 @@ func (s *ImageResizeStage) Process(ctx context.Context, input <-chan StreamEleme
 Process implements the Stage interface. Resizes images in each element to fit within the configured dimensions.
 
 <a name="ImageResizeStageConfig"></a>
-## type [ImageResizeStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L13>)
+## type [ImageResizeStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_image_resize.go#L14>)
 
-ImageResizeStageConfig is an alias for media.ImageResizeConfig. This provides stage\-specific naming while avoiding code duplication.
+ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig. This provides stage\-specific naming while avoiding code duplication.
 
 ```go
 type ImageResizeStageConfig = media.ImageResizeConfig
 ```
 
 <a name="DefaultImageResizeStageConfig"></a>
-### func [DefaultImageResizeStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_image_resize.go#L16>)
+### func [DefaultImageResizeStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L73>)
 
 ```go
 func DefaultImageResizeStageConfig() ImageResizeStageConfig
@@ -3479,7 +3470,7 @@ func (e *MaxRoundsError) Unwrap() error
 Unwrap returns ErrMaxRoundsExceeded.
 
 <a name="MediaComposeConfig"></a>
-## type [MediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L45-L53>)
+## type [MediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_compose.go#L45-L53>)
 
 MediaComposeConfig configures the MediaComposeStage behavior.
 
@@ -3496,7 +3487,7 @@ type MediaComposeConfig struct {
 ```
 
 <a name="DefaultMediaComposeConfig"></a>
-### func [DefaultMediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L56>)
+### func [DefaultMediaComposeConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L99>)
 
 ```go
 func DefaultMediaComposeConfig() MediaComposeConfig
@@ -3505,7 +3496,7 @@ func DefaultMediaComposeConfig() MediaComposeConfig
 DefaultMediaComposeConfig returns sensible defaults for media composition.
 
 <a name="MediaComposeStage"></a>
-## type [MediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L89-L98>)
+## type [MediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_compose.go#L89-L98>)
 
 MediaComposeStage collects processed media and composes back into messages. Elements are correlated by message ID from MediaExtractStage metadata.
 
@@ -3523,7 +3514,7 @@ type MediaComposeStage struct {
 ```
 
 <a name="NewMediaComposeStage"></a>
-### func [NewMediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L101>)
+### func [NewMediaComposeStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L115>)
 
 ```go
 func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage
@@ -3532,7 +3523,7 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage
 NewMediaComposeStage creates a new media composition stage.
 
 <a name="MediaComposeStage.GetConfig"></a>
-### func \(\*MediaComposeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L512>)
+### func \(\*MediaComposeStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_compose.go#L512>)
 
 ```go
 func (s *MediaComposeStage) GetConfig() MediaComposeConfig
@@ -3541,7 +3532,7 @@ func (s *MediaComposeStage) GetConfig() MediaComposeConfig
 GetConfig returns the stage configuration.
 
 <a name="MediaComposeStage.Process"></a>
-### func \(\*MediaComposeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_compose.go#L112-L116>)
+### func \(\*MediaComposeStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_compose.go#L112-L116>)
 
 ```go
 func (s *MediaComposeStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3550,7 +3541,7 @@ func (s *MediaComposeStage) Process(ctx context.Context, input <-chan StreamElem
 Process implements the Stage interface. Collects media elements and composes them back into messages.
 
 <a name="MediaConvertConfig"></a>
-## type [MediaConvertConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L14-L39>)
+## type [MediaConvertConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_convert.go#L16-L41>)
 
 MediaConvertConfig configures the MediaConvertStage behavior.
 
@@ -3584,7 +3575,7 @@ type MediaConvertConfig struct {
 ```
 
 <a name="DefaultMediaConvertConfig"></a>
-### func [DefaultMediaConvertConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L42>)
+### func [DefaultMediaConvertConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L123>)
 
 ```go
 func DefaultMediaConvertConfig() MediaConvertConfig
@@ -3593,7 +3584,7 @@ func DefaultMediaConvertConfig() MediaConvertConfig
 DefaultMediaConvertConfig returns sensible defaults for media conversion.
 
 <a name="MediaConvertStage"></a>
-## type [MediaConvertStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L54-L58>)
+## type [MediaConvertStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_convert.go#L56-L60>)
 
 MediaConvertStage converts media content to match target format requirements. This is useful for normalizing media from various sources to match provider capabilities.
 
@@ -3607,7 +3598,7 @@ type MediaConvertStage struct {
 ```
 
 <a name="NewMediaConvertStage"></a>
-### func [NewMediaConvertStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L61>)
+### func [NewMediaConvertStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L134>)
 
 ```go
 func NewMediaConvertStage(config *MediaConvertConfig) *MediaConvertStage
@@ -3616,7 +3607,7 @@ func NewMediaConvertStage(config *MediaConvertConfig) *MediaConvertStage
 NewMediaConvertStage creates a new media conversion stage.
 
 <a name="MediaConvertStage.GetConfig"></a>
-### func \(\*MediaConvertStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L445>)
+### func \(\*MediaConvertStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_convert.go#L455>)
 
 ```go
 func (s *MediaConvertStage) GetConfig() MediaConvertConfig
@@ -3625,7 +3616,7 @@ func (s *MediaConvertStage) GetConfig() MediaConvertConfig
 GetConfig returns the stage configuration.
 
 <a name="MediaConvertStage.InputCapabilities"></a>
-### func \(\*MediaConvertStage\) [InputCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L401>)
+### func \(\*MediaConvertStage\) [InputCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_convert.go#L407>)
 
 ```go
 func (s *MediaConvertStage) InputCapabilities() Capabilities
@@ -3634,7 +3625,7 @@ func (s *MediaConvertStage) InputCapabilities() Capabilities
 InputCapabilities implements FormatCapable interface.
 
 <a name="MediaConvertStage.OutputCapabilities"></a>
-### func \(\*MediaConvertStage\) [OutputCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L409>)
+### func \(\*MediaConvertStage\) [OutputCapabilities](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_convert.go#L417>)
 
 ```go
 func (s *MediaConvertStage) OutputCapabilities() Capabilities
@@ -3643,7 +3634,7 @@ func (s *MediaConvertStage) OutputCapabilities() Capabilities
 OutputCapabilities implements FormatCapable interface.
 
 <a name="MediaConvertStage.Process"></a>
-### func \(\*MediaConvertStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_convert.go#L71-L75>)
+### func \(\*MediaConvertStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_convert.go#L73-L77>)
 
 ```go
 func (s *MediaConvertStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3717,7 +3708,7 @@ func (s *MediaExternalizerStage) Process(ctx context.Context, input <-chan Strea
 Process externalizes media from messages if they exceed size threshold.
 
 <a name="MediaExtractConfig"></a>
-## type [MediaExtractConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L16-L33>)
+## type [MediaExtractConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_extract.go#L18-L35>)
 
 MediaExtractConfig configures the MediaExtractStage behavior.
 
@@ -3743,7 +3734,7 @@ type MediaExtractConfig struct {
 ```
 
 <a name="DefaultMediaExtractConfig"></a>
-### func [DefaultMediaExtractConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L36>)
+### func [DefaultMediaExtractConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L142>)
 
 ```go
 func DefaultMediaExtractConfig() MediaExtractConfig
@@ -3772,7 +3763,7 @@ type MediaExtractInfo struct {
 ```
 
 <a name="MediaExtractStage"></a>
-## type [MediaExtractStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L53-L57>)
+## type [MediaExtractStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_extract.go#L55-L59>)
 
 MediaExtractStage extracts media from messages into individual StreamElements. This enables batch processing of images/videos through separate pipeline stages.
 
@@ -3790,7 +3781,7 @@ type MediaExtractStage struct {
 ```
 
 <a name="NewMediaExtractStage"></a>
-### func [NewMediaExtractStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L60>)
+### func [NewMediaExtractStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L158>)
 
 ```go
 func NewMediaExtractStage(config MediaExtractConfig) *MediaExtractStage
@@ -3799,7 +3790,7 @@ func NewMediaExtractStage(config MediaExtractConfig) *MediaExtractStage
 NewMediaExtractStage creates a new media extraction stage.
 
 <a name="MediaExtractStage.GetConfig"></a>
-### func \(\*MediaExtractStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L342>)
+### func \(\*MediaExtractStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_extract.go#L344>)
 
 ```go
 func (s *MediaExtractStage) GetConfig() MediaExtractConfig
@@ -3808,7 +3799,7 @@ func (s *MediaExtractStage) GetConfig() MediaExtractConfig
 GetConfig returns the stage configuration.
 
 <a name="MediaExtractStage.Process"></a>
-### func \(\*MediaExtractStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_media_extract.go#L69-L73>)
+### func \(\*MediaExtractStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_media_extract.go#L71-L75>)
 
 ```go
 func (s *MediaExtractStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -7223,7 +7214,7 @@ type VideoFramesInfo struct {
 ```
 
 <a name="VideoToFramesConfig"></a>
-## type [VideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L103-L144>)
+## type [VideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L103-L144>)
 
 VideoToFramesConfig configures the VideoToFramesStage behavior.
 
@@ -7273,7 +7264,7 @@ type VideoToFramesConfig struct {
 ```
 
 <a name="DefaultVideoToFramesConfig"></a>
-### func [DefaultVideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L147>)
+### func [DefaultVideoToFramesConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L205>)
 
 ```go
 func DefaultVideoToFramesConfig() VideoToFramesConfig
@@ -7282,7 +7273,7 @@ func DefaultVideoToFramesConfig() VideoToFramesConfig
 DefaultVideoToFramesConfig returns sensible defaults for frame extraction.
 
 <a name="VideoToFramesStage"></a>
-## type [VideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L168-L172>)
+## type [VideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L168-L172>)
 
 VideoToFramesStage extracts frames from video StreamElements into individual image StreamElements. This is a Transform stage with fan\-out behavior \(1 video → N images\).
 
@@ -7298,7 +7289,7 @@ type VideoToFramesStage struct {
 ```
 
 <a name="NewVideoToFramesStage"></a>
-### func [NewVideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L175>)
+### func [NewVideoToFramesStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/media_aliases.go#L219>)
 
 ```go
 func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage
@@ -7307,7 +7298,7 @@ func NewVideoToFramesStage(config VideoToFramesConfig) *VideoToFramesStage
 NewVideoToFramesStage creates a new video\-to\-frames extraction stage.
 
 <a name="VideoToFramesStage.GetConfig"></a>
-### func \(\*VideoToFramesStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L286>)
+### func \(\*VideoToFramesStage\) [GetConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L290>)
 
 ```go
 func (s *VideoToFramesStage) GetConfig() VideoToFramesConfig
@@ -7316,7 +7307,7 @@ func (s *VideoToFramesStage) GetConfig() VideoToFramesConfig
 GetConfig returns the stage configuration.
 
 <a name="VideoToFramesStage.Process"></a>
-### func \(\*VideoToFramesStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_video_frames.go#L184-L188>)
+### func \(\*VideoToFramesStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/media/stages_video_frames.go#L184-L188>)
 
 ```go
 func (s *VideoToFramesStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

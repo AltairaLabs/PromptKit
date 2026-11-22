@@ -8,7 +8,8 @@
 # a second internal package also named core. want.md is the spliced page.
 # stage-typed.md lists typed constants and an example under its aliases;
 # want-typed.md is it spliced. stage-vars.md re-exports core-vars.md's vars;
-# want-vars.md is it spliced.
+# want-vars.md is it spliced. stage-media.md aliases media.md's Limiter, whose
+# declaration and method name core.md's Scored; want-media.md is it spliced.
 #
 # Run from anywhere: docs/scripts/test-splice-aliases.sh
 set -euo pipefail
@@ -46,16 +47,30 @@ else
   diff -u "${DATA}/want-typed.md" "${tmp}/typed.md" | sed 's/^/      /' || true
 fi
 
-# Catches: re-exported vars, and consts declared as one literal, rendered as
-# the name they re-export ("ErrX = core.ErrX") instead of their value; a const
-# declared as iota or as an expression (they mean nothing out of their group),
-# a multi-line initializer and stage's own var left alone.
+# Catches: re-exported vars, and consts declared as one literal or as an
+# expression of other packages' names ("5 * time.Minute"), rendered as the
+# name they re-export ("ErrX = core.ErrX") instead of their value; a const
+# declared as iota, or naming a const of its group or of an internal package
+# (they mean nothing out of their group), a multi-line initializer and
+# stage's own var left alone.
 "${SPLICE[@]}" "${DATA}/stage-vars.md" "${DATA}/core-vars.md" >"${tmp}/vars.md"
 if cmp -s "${DATA}/want-vars.md" "${tmp}/vars.md"; then
   ok "re-exported vars show the internal initializer"
 else
   bad "re-exported vars show the internal initializer"
   diff -u "${DATA}/want-vars.md" "${tmp}/vars.md" | sed 's/^/      /' || true
+fi
+
+# Catches: a type moved into one internal package (media) whose fields and
+# methods name another's types (core.Scored) rendered with that qualifier,
+# which a facade user cannot write; a name the facade does not re-export
+# (core.Kind, media.LimiterConfig) unqualified.
+"${SPLICE[@]}" "${DATA}/stage-media.md" "${DATA}/core.md" "${DATA}/media.md" >"${tmp}/media.md"
+if cmp -s "${DATA}/want-media.md" "${tmp}/media.md"; then
+  ok "names the facade re-exports are written unqualified"
+else
+  bad "names the facade re-exports are written unqualified"
+  diff -u "${DATA}/want-media.md" "${tmp}/media.md" | sed 's/^/      /' || true
 fi
 
 # Catches: a page with no internal pages to splice being rewritten at all.

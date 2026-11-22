@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -17,7 +18,7 @@ func TestMediaExtractStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'media-extract', got '%s'", stg.Name())
 	}
 
-	if stg.Type() != StageTypeTransform {
+	if stg.Type() != core.StageTypeTransform {
 		t.Errorf("Expected type Transform, got %v", stg.Type())
 	}
 }
@@ -27,8 +28,8 @@ func TestMediaExtractStage_ExtractSingleImage(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with single image
 	testData := createTestImageData(256, 256)
@@ -44,7 +45,7 @@ func TestMediaExtractStage_ExtractSingleImage(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -54,7 +55,7 @@ func TestMediaExtractStage_ExtractSingleImage(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -96,8 +97,8 @@ func TestMediaExtractStage_ExtractMultipleImages(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with 3 images
 	msg := &types.Message{Role: "user"}
@@ -115,7 +116,7 @@ func TestMediaExtractStage_ExtractMultipleImages(t *testing.T) {
 		})
 	}
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -125,7 +126,7 @@ func TestMediaExtractStage_ExtractMultipleImages(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -167,14 +168,14 @@ func TestMediaExtractStage_PassthroughTextOnly(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with only text
 	msg := &types.Message{Role: "user"}
 	msg.AddTextPart("Hello, how are you?")
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -184,7 +185,7 @@ func TestMediaExtractStage_PassthroughTextOnly(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -209,12 +210,12 @@ func TestMediaExtractStage_PassthroughNonMessage(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Send text element (not a message)
 	text := "some text"
-	input <- StreamElement{Text: &text}
+	input <- core.StreamElement{Text: &text}
 	close(input)
 
 	go func() {
@@ -238,8 +239,8 @@ func TestMediaExtractStage_DisableImages(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with image
 	testData := createTestImageData(128, 128)
@@ -254,7 +255,7 @@ func TestMediaExtractStage_DisableImages(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -282,8 +283,8 @@ func TestMediaExtractStage_PreserveStorageRef(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with storage reference
 	storageRef := "storage://bucket/image.jpg"
@@ -296,7 +297,7 @@ func TestMediaExtractStage_PreserveStorageRef(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -325,8 +326,8 @@ func TestMediaExtractStage_ContextCancellation(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement) // Unbuffered to block
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement) // Unbuffered to block
 
 	// Create message with image
 	testData := createTestImageData(128, 128)
@@ -341,7 +342,7 @@ func TestMediaExtractStage_ContextCancellation(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	// Cancel context
@@ -359,8 +360,8 @@ func TestMediaExtractStage_OriginalMessagePreserved(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message
 	testData := createTestImageData(128, 128)
@@ -376,7 +377,7 @@ func TestMediaExtractStage_OriginalMessagePreserved(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -405,8 +406,8 @@ func TestMediaExtractStage_InvalidBase64(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with invalid base64
 	invalidData := "not-valid-base64!@#$"
@@ -419,7 +420,7 @@ func TestMediaExtractStage_InvalidBase64(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -474,8 +475,8 @@ func TestMediaExtractStage_ExtractVideo(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	// Create message with video
 	videoData := []byte{0, 0, 0, 1, 2, 3, 4, 5} // Fake video data
@@ -490,7 +491,7 @@ func TestMediaExtractStage_ExtractVideo(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -499,7 +500,7 @@ func TestMediaExtractStage_ExtractVideo(t *testing.T) {
 		}
 	}()
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -526,8 +527,8 @@ func TestMediaExtractStage_DisableVideos(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	videoData := []byte{0, 0, 0, 1, 2, 3}
 	encodedData := base64.StdEncoding.EncodeToString(videoData)
@@ -541,7 +542,7 @@ func TestMediaExtractStage_DisableVideos(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -569,8 +570,8 @@ func TestMediaExtractStage_VideoWithStorageRef(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	storageRef := "storage://bucket/video.mp4"
 	msg := &types.Message{Role: "user"}
@@ -582,7 +583,7 @@ func TestMediaExtractStage_VideoWithStorageRef(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -607,8 +608,8 @@ func TestMediaExtractStage_VideoWithMetadata(t *testing.T) {
 	stg := NewMediaExtractStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 10)
 
 	videoData := []byte{0, 0, 0, 1, 2, 3}
 	encodedData := base64.StdEncoding.EncodeToString(videoData)
@@ -632,7 +633,7 @@ func TestMediaExtractStage_VideoWithMetadata(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {

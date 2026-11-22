@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -73,8 +73,8 @@ type pendingMessage struct {
 type processedPart struct {
 	index     int
 	mediaType string // "image" or "video"
-	image     *ImageData
-	video     *VideoData
+	image     *core.ImageData
+	video     *core.VideoData
 }
 
 // MediaComposeStage collects processed media and composes back into messages.
@@ -87,7 +87,7 @@ type processedPart struct {
 //
 // This is an Accumulate stage (N:1 fan-in pattern).
 type MediaComposeStage struct {
-	BaseStage
+	core.BaseStage
 	config  MediaComposeConfig
 	pending map[string]*pendingMessage // message_id -> pending
 	mu      sync.Mutex
@@ -100,7 +100,7 @@ type MediaComposeStage struct {
 // NewMediaComposeStage creates a new media composition stage.
 func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage {
 	return &MediaComposeStage{
-		BaseStage:            NewBaseStage("media-compose", StageTypeAccumulate),
+		BaseStage:            core.NewBaseStage("media-compose", core.StageTypeAccumulate),
 		config:               config,
 		pending:              make(map[string]*pendingMessage),
 		timeoutCheckInterval: timeoutCheckIntervalFor(config.CompletionTimeout),
@@ -111,8 +111,8 @@ func NewMediaComposeStage(config MediaComposeConfig) *MediaComposeStage {
 // Collects media elements and composes them back into messages.
 func (s *MediaComposeStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	// Start timeout checker
 	timeoutDone := make(chan struct{})
@@ -140,7 +140,7 @@ func (s *MediaComposeStage) Process(
 			continue
 		}
 
-		outElem := NewMessageElement(composed)
+		outElem := core.NewMessageElement(composed)
 		outElem.Sequence = pm.sequence
 		outElem.Source = pm.source
 
@@ -158,7 +158,7 @@ func (s *MediaComposeStage) Process(
 // through, extracted media parts accumulate, and a completed message is
 // composed and emitted. Returns non-nil only on cancellation.
 func (s *MediaComposeStage) handleComposeInput(
-	ctx context.Context, output chan<- StreamElement, elem StreamElement,
+	ctx context.Context, output chan<- core.StreamElement, elem core.StreamElement,
 ) error {
 	// Check if this is a media element with extract metadata
 	if elem.Meta.MediaExtract == nil {
@@ -184,19 +184,19 @@ func (s *MediaComposeStage) handleComposeInput(
 // emitComposed composes a completed pending message and emits it, or emits an
 // error element when composition fails. Returns non-nil only on cancellation.
 func (s *MediaComposeStage) emitComposed(
-	ctx context.Context, output chan<- StreamElement, complete *pendingMessage,
+	ctx context.Context, output chan<- core.StreamElement, complete *pendingMessage,
 ) error {
 	composed, err := s.composeMessage(complete)
 	if err != nil {
 		logger.Error("Failed to compose message", "error", err)
 		// Emit error element
-		errElem := NewErrorElement(err)
+		errElem := core.NewErrorElement(err)
 		errElem.Sequence = complete.sequence
 		errElem.Source = complete.source
 		return core.SendStreamElement(ctx, errElem, output)
 	}
 
-	outElem := NewMessageElement(composed)
+	outElem := core.NewMessageElement(composed)
 	outElem.Sequence = complete.sequence
 	outElem.Source = complete.source
 	return core.SendStreamElement(ctx, outElem, output)
@@ -216,7 +216,7 @@ func (s *MediaComposeStage) takePending() []*pendingMessage {
 
 // accumulatePart adds a processed part to its pending message.
 // Returns the complete pendingMessage if all parts have been received.
-func (s *MediaComposeStage) accumulatePart(elem *StreamElement) (*pendingMessage, error) {
+func (s *MediaComposeStage) accumulatePart(elem *core.StreamElement) (*pendingMessage, error) {
 	info := elem.Meta.MediaExtract
 	if info == nil {
 		return nil, fmt.Errorf("missing media extract info")
@@ -332,7 +332,7 @@ func (s *MediaComposeStage) rebuildOriginalParts(pm *pendingMessage) ([]types.Co
 // processedPartsInOrder returns the received processed parts in index order.
 func (s *MediaComposeStage) processedPartsInOrder(pm *pendingMessage) ([]types.ContentPart, error) {
 	var newParts []types.ContentPart
-	for i := 0; i < pm.totalParts; i++ {
+	for i := range pm.totalParts {
 		if processed, ok := pm.parts[i]; ok {
 			newPart, err := s.createContentPartFromProcessed(processed)
 			if err != nil {
@@ -373,7 +373,7 @@ func (s *MediaComposeStage) createContentPartFromProcessed(processed *processedP
 }
 
 // imageDataToMediaContent converts ImageData back to MediaContent.
-func imageDataToMediaContent(imageData *ImageData) *types.MediaContent {
+func imageDataToMediaContent(imageData *core.ImageData) *types.MediaContent {
 	media := &types.MediaContent{
 		MIMEType: imageData.MIMEType,
 	}
@@ -402,7 +402,7 @@ func imageDataToMediaContent(imageData *ImageData) *types.MediaContent {
 }
 
 // videoDataToMediaContent converts VideoData back to MediaContent.
-func videoDataToMediaContent(videoData *VideoData) *types.MediaContent {
+func videoDataToMediaContent(videoData *core.VideoData) *types.MediaContent {
 	media := &types.MediaContent{
 		MIMEType: videoData.MIMEType,
 	}
@@ -441,7 +441,7 @@ func videoDataToMediaContent(videoData *VideoData) *types.MediaContent {
 // checkTimeouts periodically checks for timed-out pending messages.
 func (s *MediaComposeStage) checkTimeouts(
 	ctx context.Context,
-	output chan<- StreamElement,
+	output chan<- core.StreamElement,
 	done <-chan struct{},
 	exited chan<- struct{},
 ) {
@@ -465,7 +465,7 @@ func (s *MediaComposeStage) checkTimeouts(
 // processTimeouts handles messages that have exceeded the completion timeout.
 //
 //nolint:dupl // Similar pattern shared with FramesToMessageStage but different data types
-func (s *MediaComposeStage) processTimeouts(ctx context.Context, output chan<- StreamElement) {
+func (s *MediaComposeStage) processTimeouts(ctx context.Context, output chan<- core.StreamElement) {
 	s.mu.Lock()
 	now := time.Now()
 	var timedOut []*pendingMessage
@@ -496,7 +496,7 @@ func (s *MediaComposeStage) processTimeouts(ctx context.Context, output chan<- S
 			continue
 		}
 
-		outElem := NewMessageElement(composed)
+		outElem := core.NewMessageElement(composed)
 		outElem.Sequence = pm.sequence
 		outElem.Source = pm.source
 

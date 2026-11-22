@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -51,7 +53,7 @@ func DefaultMediaExtractConfig() MediaExtractConfig {
 //
 // This is a Transform stage with fan-out behavior (1 message → N media elements).
 type MediaExtractStage struct {
-	BaseStage
+	core.BaseStage
 	config    MediaExtractConfig
 	messageID int64 // atomic counter for unique message IDs
 }
@@ -59,7 +61,7 @@ type MediaExtractStage struct {
 // NewMediaExtractStage creates a new media extraction stage.
 func NewMediaExtractStage(config MediaExtractConfig) *MediaExtractStage {
 	return &MediaExtractStage{
-		BaseStage: NewBaseStage("media-extract", StageTypeTransform),
+		BaseStage: core.NewBaseStage("media-extract", core.StageTypeTransform),
 		config:    config,
 	}
 }
@@ -68,8 +70,8 @@ func NewMediaExtractStage(config MediaExtractConfig) *MediaExtractStage {
 // Extracts media from messages and emits individual elements for each.
 func (s *MediaExtractStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -103,8 +105,8 @@ func (s *MediaExtractStage) Process(
 // extractMediaFromMessage extracts media parts as separate elements.
 func (s *MediaExtractStage) extractMediaFromMessage(
 	ctx context.Context,
-	elem *StreamElement,
-	output chan<- StreamElement,
+	elem *core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	msg := elem.Message
 
@@ -132,7 +134,7 @@ func (s *MediaExtractStage) extractMediaFromMessage(
 		}
 
 		// Set correlation metadata
-		outElem.Meta.MediaExtract = &MediaExtractInfo{
+		outElem.Meta.MediaExtract = &core.MediaExtractInfo{
 			MessageID:       msgID,
 			PartIndex:       partIdx,
 			TotalParts:      len(mediaParts),
@@ -186,8 +188,8 @@ func (s *MediaExtractStage) selectMediaParts(msg *types.Message) []extractedMedi
 }
 
 // mediaPartElement converts one selected media part into its stream element.
-func (s *MediaExtractStage) mediaPartElement(mp extractedMediaPart) (StreamElement, error) {
-	var outElem StreamElement
+func (s *MediaExtractStage) mediaPartElement(mp extractedMediaPart) (core.StreamElement, error) {
+	var outElem core.StreamElement
 
 	switch mp.mediaType {
 	case types.ContentTypeImage:
@@ -195,14 +197,14 @@ func (s *MediaExtractStage) mediaPartElement(mp extractedMediaPart) (StreamEleme
 		if err != nil {
 			return outElem, fmt.Errorf("failed to convert image part %d: %w", mp.index, err)
 		}
-		outElem = NewImageElement(imageData)
+		outElem = core.NewImageElement(imageData)
 
 	case types.ContentTypeVideo:
 		videoData, err := mediaContentToVideoData(mp.part.Media, s.config.PreserveStorageRefs)
 		if err != nil {
 			return outElem, fmt.Errorf("failed to convert video part %d: %w", mp.index, err)
 		}
-		outElem = NewVideoElement(videoData)
+		outElem = core.NewVideoElement(videoData)
 	}
 	return outElem, nil
 }
@@ -215,8 +217,8 @@ func (s *MediaExtractStage) generateMessageID() string {
 
 // mediaContentToImageData converts MediaContent to ImageData.
 // If preserveStorageRef is true, storage references are kept without loading data.
-func mediaContentToImageData(media *types.MediaContent, preserveStorageRef bool) (*ImageData, error) {
-	imageData := &ImageData{
+func mediaContentToImageData(media *types.MediaContent, preserveStorageRef bool) (*core.ImageData, error) {
+	imageData := &core.ImageData{
 		MIMEType: media.MIMEType,
 	}
 
@@ -251,8 +253,8 @@ func mediaContentToImageData(media *types.MediaContent, preserveStorageRef bool)
 
 // mediaContentToVideoData converts MediaContent to VideoData.
 // If preserveStorageRef is true, storage references are kept without loading data.
-func mediaContentToVideoData(media *types.MediaContent, preserveStorageRef bool) (*VideoData, error) {
-	videoData := &VideoData{
+func mediaContentToVideoData(media *types.MediaContent, preserveStorageRef bool) (*core.VideoData, error) {
+	videoData := &core.VideoData{
 		MIMEType:  media.MIMEType,
 		Timestamp: time.Now(),
 	}

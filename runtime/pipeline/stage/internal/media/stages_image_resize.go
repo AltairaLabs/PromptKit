@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -6,9 +6,10 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/media"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
-// ImageResizeStageConfig is an alias for media.ImageResizeConfig.
+// ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig.
 // This provides stage-specific naming while avoiding code duplication.
 type ImageResizeStageConfig = media.ImageResizeConfig
 
@@ -23,7 +24,7 @@ func DefaultImageResizeStageConfig() ImageResizeStageConfig {
 //
 // This is a Transform stage: image element → resized image element (1:1)
 type ImageResizeStage struct {
-	BaseStage
+	core.BaseStage
 	config ImageResizeStageConfig
 
 	// Log deduplication: track what we've logged to avoid flooding
@@ -34,7 +35,7 @@ type ImageResizeStage struct {
 // NewImageResizeStage creates a new image resizing stage.
 func NewImageResizeStage(config ImageResizeStageConfig) *ImageResizeStage {
 	return &ImageResizeStage{
-		BaseStage: NewBaseStage("image-resize", StageTypeTransform),
+		BaseStage: core.NewBaseStage("image-resize", core.StageTypeTransform),
 		config:    config,
 	}
 }
@@ -43,8 +44,8 @@ func NewImageResizeStage(config ImageResizeStageConfig) *ImageResizeStage {
 // Resizes images in each element to fit within the configured dimensions.
 func (s *ImageResizeStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -69,7 +70,7 @@ func (s *ImageResizeStage) Process(
 }
 
 // resizeElement resizes the image in an element if needed.
-func (s *ImageResizeStage) resizeElement(elem *StreamElement) error {
+func (s *ImageResizeStage) resizeElement(elem *core.StreamElement) error {
 	imageData := elem.Image
 	if imageData == nil {
 		return nil
@@ -124,7 +125,7 @@ func (s *ImageResizeStage) resizeElement(elem *StreamElement) error {
 // Width and Height are optional metadata: when either is unknown (0) and a
 // dimension limit is set, the image must be decoded to find out rather than
 // assumed to fit. ResizeImage leaves an image within limits untouched.
-func (s *ImageResizeStage) mayNeedResize(img *ImageData) bool {
+func (s *ImageResizeStage) mayNeedResize(img *core.ImageData) bool {
 	limited := s.config.MaxWidth > 0 || s.config.MaxHeight > 0
 	if limited && (img.Width <= 0 || img.Height <= 0) {
 		return true

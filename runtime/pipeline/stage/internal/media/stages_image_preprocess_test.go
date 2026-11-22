@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/media"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -35,7 +36,7 @@ func TestImagePreprocessStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'image-preprocess', got '%s'", stg.Name())
 	}
 
-	if stg.Type() != StageTypeTransform {
+	if stg.Type() != core.StageTypeTransform {
 		t.Errorf("Expected type Transform, got %v", stg.Type())
 	}
 }
@@ -46,8 +47,8 @@ func TestImagePreprocessStage_ProcessMessageWithImage(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create a message with a large image
 	testData := createTestImageData(1024, 1024)
@@ -63,7 +64,7 @@ func TestImagePreprocessStage_ProcessMessageWithImage(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -107,8 +108,8 @@ func TestImagePreprocessStage_DisabledResize(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	testData := createTestImageData(1024, 1024)
 	encodedData := base64.StdEncoding.EncodeToString(testData)
@@ -122,7 +123,7 @@ func TestImagePreprocessStage_DisabledResize(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -148,14 +149,14 @@ func TestImagePreprocessStage_PassthroughNonImageMessages(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Message without images
 	msg := &types.Message{Role: "user"}
 	msg.AddTextPart("Hello, how are you?")
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -195,13 +196,13 @@ func TestImagePreprocessStage_ProcessStandaloneImageData(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create standalone ImageData
 	testData := createTestImageData(512, 512)
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data:     testData,
 			MIMEType: "image/jpeg",
 			Width:    512,
@@ -274,14 +275,14 @@ func TestImagePreprocessStage_ContextCancellationOnSend(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement) // Unbuffered to block on send
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement) // Unbuffered to block on send
 
 	// Send message without image (so it tries to send to output)
 	msg := &types.Message{Role: "user"}
 	msg.AddTextPart("Hello")
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	// Cancel after the stage starts to block on output send
@@ -302,8 +303,8 @@ func TestImagePreprocessStage_InvalidBase64(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	invalidData := "not-valid-base64!@#$%"
 	msg := &types.Message{Role: "user"}
@@ -315,7 +316,7 @@ func TestImagePreprocessStage_InvalidBase64(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -335,8 +336,8 @@ func TestImagePreprocessStage_NilMedia(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	msg := &types.Message{Role: "user"}
 	msg.Parts = append(msg.Parts, types.ContentPart{
@@ -344,7 +345,7 @@ func TestImagePreprocessStage_NilMedia(t *testing.T) {
 		Media: nil, // Nil media
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -366,8 +367,8 @@ func TestImagePreprocessStage_EmptyData(t *testing.T) {
 	stg := NewImagePreprocessStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	emptyData := ""
 	msg := &types.Message{Role: "user"}
@@ -379,7 +380,7 @@ func TestImagePreprocessStage_EmptyData(t *testing.T) {
 		},
 	})
 
-	input <- StreamElement{Message: msg}
+	input <- core.StreamElement{Message: msg}
 	close(input)
 
 	go func() {
@@ -400,12 +401,12 @@ func TestImagePreprocessStage_NoImageData(t *testing.T) {
 	config := DefaultImagePreprocessConfig()
 	stg := NewImagePreprocessStage(config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Standalone ImageData with empty data
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data: nil, // No data
 		},
 	}

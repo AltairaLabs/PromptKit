@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"bytes"
@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,8 +36,8 @@ func writeFrameFile(t *testing.T, dir, name string, data []byte) {
 }
 
 // drainFrames reads all elements from ch into a slice.
-func drainFrames(ch chan StreamElement) []StreamElement {
-	var out []StreamElement
+func drainFrames(ch chan core.StreamElement) []core.StreamElement {
+	var out []core.StreamElement
 	for {
 		select {
 		case elem := <-ch:
@@ -57,9 +59,9 @@ func TestReadExtractedFrames_HappyPath(t *testing.T) {
 	writeFrameFile(t, dir, "frame_notes.txt", []byte("skip me"))
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "frame_subdir"), 0o750))
 
-	video := &VideoData{Data: []byte("orig"), MIMEType: "video/mp4"}
-	extractInfo := &MediaExtractInfo{MessageID: "msg-1", PartIndex: 2, MediaType: "video"}
-	elem := &StreamElement{
+	video := &core.VideoData{Data: []byte("orig"), MIMEType: "video/mp4"}
+	extractInfo := &core.MediaExtractInfo{MessageID: "msg-1", PartIndex: 2, MediaType: "video"}
+	elem := &core.StreamElement{
 		Sequence: 7,
 		Source:   "cam",
 		Video:    video,
@@ -67,7 +69,7 @@ func TestReadExtractedFrames_HappyPath(t *testing.T) {
 	elem.Meta.MediaExtract = extractInfo
 
 	stg := NewVideoToFramesStage(DefaultVideoToFramesConfig())
-	out := make(chan StreamElement, 10)
+	out := make(chan core.StreamElement, 10)
 	n, err := stg.readExtractedFrames(context.Background(), dir, "vid-42", elem, out)
 	require.NoError(t, err)
 	assert.Equal(t, 3, n)
@@ -109,9 +111,9 @@ func TestReadExtractedFrames_NoMediaExtract(t *testing.T) {
 	dir := t.TempDir()
 	writeFrameFile(t, dir, "frame_0001.jpg", createTestFrameData(8, 8))
 
-	elem := &StreamElement{Video: &VideoData{Data: []byte("v")}}
+	elem := &core.StreamElement{Video: &core.VideoData{Data: []byte("v")}}
 	stg := NewVideoToFramesStage(DefaultVideoToFramesConfig())
-	out := make(chan StreamElement, 4)
+	out := make(chan core.StreamElement, 4)
 	n, err := stg.readExtractedFrames(context.Background(), dir, "vid", elem, out)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
@@ -127,8 +129,8 @@ func TestReadExtractedFrames_EmptyDir(t *testing.T) {
 	writeFrameFile(t, dir, "readme.txt", []byte("hi"))
 
 	stg := NewVideoToFramesStage(DefaultVideoToFramesConfig())
-	out := make(chan StreamElement, 2)
-	n, err := stg.readExtractedFrames(context.Background(), dir, "vid", &StreamElement{}, out)
+	out := make(chan core.StreamElement, 2)
+	n, err := stg.readExtractedFrames(context.Background(), dir, "vid", &core.StreamElement{}, out)
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 	assert.Empty(t, drainFrames(out))
@@ -136,8 +138,8 @@ func TestReadExtractedFrames_EmptyDir(t *testing.T) {
 
 func TestReadExtractedFrames_UnreadableDir(t *testing.T) {
 	stg := NewVideoToFramesStage(DefaultVideoToFramesConfig())
-	out := make(chan StreamElement, 1)
-	n, err := stg.readExtractedFrames(context.Background(), filepath.Join(t.TempDir(), "does-not-exist"), "vid", &StreamElement{}, out)
+	out := make(chan core.StreamElement, 1)
+	n, err := stg.readExtractedFrames(context.Background(), filepath.Join(t.TempDir(), "does-not-exist"), "vid", &core.StreamElement{}, out)
 	require.Error(t, err)
 	assert.Equal(t, 0, n)
 }
@@ -149,8 +151,8 @@ func TestReadExtractedFrames_UndecodableFrameKeepsZeroDims(t *testing.T) {
 	writeFrameFile(t, dir, "frame_0001.jpg", []byte("this is not a jpeg"))
 
 	stg := NewVideoToFramesStage(DefaultVideoToFramesConfig())
-	out := make(chan StreamElement, 2)
-	n, err := stg.readExtractedFrames(context.Background(), dir, "vid", &StreamElement{}, out)
+	out := make(chan core.StreamElement, 2)
+	n, err := stg.readExtractedFrames(context.Background(), dir, "vid", &core.StreamElement{}, out)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 
@@ -169,8 +171,8 @@ func TestReadExtractedFrames_ContextCanceledDuringEmit(t *testing.T) {
 	cancel() // cancel before emitting
 
 	stg := NewVideoToFramesStage(DefaultVideoToFramesConfig())
-	out := make(chan StreamElement) // unbuffered so the send blocks
-	n, err := stg.readExtractedFrames(ctx, dir, "vid", &StreamElement{}, out)
+	out := make(chan core.StreamElement) // unbuffered so the send blocks
+	n, err := stg.readExtractedFrames(ctx, dir, "vid", &core.StreamElement{}, out)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 0, n)
 }

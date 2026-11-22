@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	medialib "github.com/AltairaLabs/PromptKit/runtime/v2/media"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -35,7 +36,7 @@ func DefaultImagePreprocessConfig() ImagePreprocessConfig {
 //
 // This is a Transform stage: message with images → message with processed images (1:1)
 type ImagePreprocessStage struct {
-	BaseStage
+	core.BaseStage
 	config ImagePreprocessConfig
 
 	// Log deduplication
@@ -45,7 +46,7 @@ type ImagePreprocessStage struct {
 // NewImagePreprocessStage creates a new image preprocessing stage.
 func NewImagePreprocessStage(config ImagePreprocessConfig) *ImagePreprocessStage {
 	return &ImagePreprocessStage{
-		BaseStage: NewBaseStage("image-preprocess", StageTypeTransform),
+		BaseStage: core.NewBaseStage("image-preprocess", core.StageTypeTransform),
 		config:    config,
 	}
 }
@@ -54,8 +55,8 @@ func NewImagePreprocessStage(config ImagePreprocessConfig) *ImagePreprocessStage
 // Preprocesses images in messages that flow through the stage.
 func (s *ImagePreprocessStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -130,7 +131,7 @@ func (s *ImagePreprocessStage) readImageFromFile(media *types.MediaContent) ([]b
 }
 
 // buildResizeConfig returns the resize config directly.
-// Since ImageResizeStageConfig is an alias for media.ImageResizeConfig, no conversion needed.
+// Since ImageResizeStageConfig is an alias for runtime/media's ImageResizeConfig, no conversion needed.
 func (s *ImagePreprocessStage) buildResizeConfig() medialib.ImageResizeConfig {
 	return s.config.Resize
 }
@@ -190,7 +191,7 @@ func (s *ImagePreprocessStage) applyResizeResult(media *types.MediaContent, resu
 }
 
 // processImageData processes a standalone ImageData struct.
-func (s *ImagePreprocessStage) processImageData(img *ImageData) error {
+func (s *ImagePreprocessStage) processImageData(img *core.ImageData) error {
 	if !s.config.EnableResize {
 		return nil
 	}

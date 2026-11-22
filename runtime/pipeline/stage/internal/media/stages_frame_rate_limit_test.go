@@ -1,4 +1,4 @@
-package stage
+package media
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,7 +56,7 @@ func TestFrameRateLimitStage_BasicOperation(t *testing.T) {
 		t.Errorf("Expected name 'frame-rate-limit', got '%s'", stage.Name())
 	}
 
-	if stage.Type() != StageTypeTransform {
+	if stage.Type() != core.StageTypeTransform {
 		t.Errorf("Expected type Transform, got %v", stage.Type())
 	}
 }
@@ -64,18 +66,18 @@ func TestFrameRateLimitStage_PassthroughNonMedia(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 3)
-	output := make(chan StreamElement, 3)
+	input := make(chan core.StreamElement, 3)
+	output := make(chan core.StreamElement, 3)
 
 	// Send text element
 	text := "Hello"
-	input <- StreamElement{Text: &text}
+	input <- core.StreamElement{Text: &text}
 
 	// Send message element
-	input <- StreamElement{Message: &types.Message{Role: "user", Content: "Hi"}}
+	input <- core.StreamElement{Message: &types.Message{Role: "user", Content: "Hi"}}
 
 	// Send end-of-stream
-	input <- StreamElement{EndOfStream: true}
+	input <- core.StreamElement{EndOfStream: true}
 	close(input)
 
 	go func() {
@@ -107,11 +109,11 @@ func TestFrameRateLimitStage_PassthroughAudio(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	input <- StreamElement{
-		Audio: &AudioData{
+	input <- core.StreamElement{
+		Audio: &core.AudioData{
 			Samples:  []byte{1, 2, 3},
 			Encoding: "pcm",
 		},
@@ -140,12 +142,12 @@ func TestFrameRateLimitStage_FirstFrameAlwaysPasses(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// First frame should always pass regardless of FPS
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data:     []byte{1, 2, 3},
 			MIMEType: "image/jpeg",
 		},
@@ -182,13 +184,13 @@ func TestFrameRateLimitStage_DropsExcessFrames(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 5)
-	output := make(chan StreamElement, 5)
+	input := make(chan core.StreamElement, 5)
+	output := make(chan core.StreamElement, 5)
 
 	// Send 5 frames immediately - only first should pass
 	for i := range 5 {
-		input <- StreamElement{
-			Image: &ImageData{
+		input <- core.StreamElement{
+			Image: &core.ImageData{
 				Data:     []byte{byte(i)},
 				MIMEType: "image/jpeg",
 			},
@@ -224,13 +226,13 @@ func TestFrameRateLimitStage_VideoFrames(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 3)
-	output := make(chan StreamElement, 3)
+	input := make(chan core.StreamElement, 3)
+	output := make(chan core.StreamElement, 3)
 
 	// Send 3 video frames immediately
 	for i := range 3 {
-		input <- StreamElement{
-			Video: &VideoData{
+		input <- core.StreamElement{
+			Video: &core.VideoData{
 				Data:     []byte{byte(i)},
 				MIMEType: "video/h264",
 			},
@@ -270,10 +272,10 @@ func TestFrameRateLimitStage_HighFPS_PassesMoreFrames(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	stage.clock = &steppingFrameClock{at: time.Unix(0, 0), step: 5 * time.Millisecond}
 
-	input := make(chan StreamElement, 5)
-	output := make(chan StreamElement, 5)
+	input := make(chan core.StreamElement, 5)
+	output := make(chan core.StreamElement, 5)
 	for i := range 5 {
-		input <- StreamElement{Image: &ImageData{Data: []byte{byte(i)}, MIMEType: "image/jpeg"}}
+		input <- core.StreamElement{Image: &core.ImageData{Data: []byte{byte(i)}, MIMEType: "image/jpeg"}}
 	}
 	close(input)
 
@@ -294,11 +296,11 @@ func TestFrameRateLimitStage_ErrorPassthrough(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	testErr := errors.New("test error")
-	input <- StreamElement{Error: testErr}
+	input <- core.StreamElement{Error: testErr}
 	close(input)
 
 	go func() {
@@ -322,11 +324,11 @@ func TestFrameRateLimitStage_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement) // Unbuffered - will block on send
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement) // Unbuffered - will block on send
 
-	input <- StreamElement{
-		Image: &ImageData{
+	input <- core.StreamElement{
+		Image: &core.ImageData{
 			Data:     []byte{1, 2, 3},
 			MIMEType: "image/jpeg",
 		},
@@ -353,12 +355,12 @@ func TestFrameRateLimitStage_DisableAudioPassthrough(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 2)
-	output := make(chan StreamElement, 2)
+	input := make(chan core.StreamElement, 2)
+	output := make(chan core.StreamElement, 2)
 
 	// Send audio - with passthrough disabled, it passes as non-media
-	input <- StreamElement{
-		Audio: &AudioData{
+	input <- core.StreamElement{
+		Audio: &core.AudioData{
 			Samples:  []byte{1, 2, 3},
 			Encoding: "pcm",
 		},
@@ -436,17 +438,17 @@ func TestFrameRateLimitStage_MixedContent(t *testing.T) {
 	stage := NewFrameRateLimitStage(config)
 	ctx := context.Background()
 
-	input := make(chan StreamElement, 10)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
 
 	// Send mixed content: text, image, audio, image, message, image
 	text := "hello"
-	input <- StreamElement{Text: &text}
-	input <- StreamElement{Image: &ImageData{Data: []byte{1}, MIMEType: "image/jpeg"}}
-	input <- StreamElement{Audio: &AudioData{Samples: []byte{2}, Encoding: "pcm"}}
-	input <- StreamElement{Image: &ImageData{Data: []byte{3}, MIMEType: "image/jpeg"}}
-	input <- StreamElement{Message: &types.Message{Role: "user", Content: "hi"}}
-	input <- StreamElement{Image: &ImageData{Data: []byte{4}, MIMEType: "image/jpeg"}}
+	input <- core.StreamElement{Text: &text}
+	input <- core.StreamElement{Image: &core.ImageData{Data: []byte{1}, MIMEType: "image/jpeg"}}
+	input <- core.StreamElement{Audio: &core.AudioData{Samples: []byte{2}, Encoding: "pcm"}}
+	input <- core.StreamElement{Image: &core.ImageData{Data: []byte{3}, MIMEType: "image/jpeg"}}
+	input <- core.StreamElement{Message: &types.Message{Role: "user", Content: "hi"}}
+	input <- core.StreamElement{Image: &core.ImageData{Data: []byte{4}, MIMEType: "image/jpeg"}}
 	close(input)
 
 	go func() {
@@ -456,7 +458,7 @@ func TestFrameRateLimitStage_MixedContent(t *testing.T) {
 	}()
 
 	// Collect results
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
