@@ -123,6 +123,10 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
+Nothing yet.
+
+## v2.22.0
+
 The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, streaming and AG-UI, caller identity, providers, retries, and the A2A server.
 
 ### Turn numbering
