@@ -7,7 +7,8 @@
 # internal/core's Scored and Kind, core.md for internal/core, other-core.md for
 # a second internal package also named core. want.md is the spliced page.
 # stage-typed.md lists typed constants and an example under its aliases;
-# want-typed.md is it spliced.
+# want-typed.md is it spliced. stage-vars.md re-exports core-vars.md's vars;
+# want-vars.md is it spliced.
 #
 # Run from anywhere: docs/scripts/test-splice-aliases.sh
 set -euo pipefail
@@ -43,6 +44,17 @@ if cmp -s "${DATA}/want-typed.md" "${tmp}/typed.md"; then
 else
   bad "typed constants and examples under an alias survive"
   diff -u "${DATA}/want-typed.md" "${tmp}/typed.md" | sed 's/^/      /' || true
+fi
+
+# Catches: re-exported vars rendered as the name they re-export
+# ("ErrX = core.ErrX") instead of their value; a const (iota means nothing out
+# of its group), a multi-line initializer and stage's own var left alone.
+"${SPLICE[@]}" "${DATA}/stage-vars.md" "${DATA}/core-vars.md" >"${tmp}/vars.md"
+if cmp -s "${DATA}/want-vars.md" "${tmp}/vars.md"; then
+  ok "re-exported vars show the internal initializer"
+else
+  bad "re-exported vars show the internal initializer"
+  diff -u "${DATA}/want-vars.md" "${tmp}/vars.md" | sed 's/^/      /' || true
 fi
 
 # Catches: a page with no internal pages to splice being rewritten at all.

@@ -639,67 +639,67 @@ const TextInputTurnSource = "duplex_text_input"
 ```go
 var (
     // ErrPipelineShuttingDown is returned when attempting to execute a pipeline that is shutting down.
-    ErrPipelineShuttingDown = core.ErrPipelineShuttingDown
+    ErrPipelineShuttingDown = errors.New("pipeline is shutting down")
     // ErrOutputTruncated ends the output of a turn that ran but lost output:
     // Shutdown abandoned the execution and the reader fell behind, so elements
     // were dropped (see StreamPipeline.Shutdown). Unlike ErrPipelineShuttingDown,
     // the turn did run, so its side effects may have happened.
-    ErrOutputTruncated = core.ErrOutputTruncated
+    ErrOutputTruncated = errors.New("pipeline output was dropped after shutdown abandoned the execution")
     // ErrShutdownTimeout is returned when pipeline shutdown times out.
-    ErrShutdownTimeout = core.ErrShutdownTimeout
+    ErrShutdownTimeout = errors.New("shutdown timeout exceeded")
     // ErrExecutionTimeout is the cause of a stage failure the pipeline's
     // ExecutionTimeout produced. The turn's error wraps both it and
     // context.DeadlineExceeded.
-    ErrExecutionTimeout = core.ErrExecutionTimeout
+    ErrExecutionTimeout = errors.New("pipeline execution timeout")
     // ErrInvalidPipeline is returned when building an invalid pipeline.
-    ErrInvalidPipeline = core.ErrInvalidPipeline
+    ErrInvalidPipeline = errors.New("invalid pipeline configuration")
     // ErrCyclicDependency is returned when the pipeline DAG contains cycles.
-    ErrCyclicDependency = core.ErrCyclicDependency
+    ErrCyclicDependency = errors.New("cyclic dependency detected in pipeline")
     // ErrStageNotFound is returned when a referenced stage doesn't exist.
-    ErrStageNotFound = core.ErrStageNotFound
+    ErrStageNotFound = errors.New("stage not found")
     // ErrDuplicateStageName is returned when multiple stages have the same name.
-    ErrDuplicateStageName = core.ErrDuplicateStageName
+    ErrDuplicateStageName = errors.New("duplicate stage name")
     // ErrNoStages is returned when trying to build a pipeline with no stages.
-    ErrNoStages = core.ErrNoStages
+    ErrNoStages = errors.New("pipeline must have at least one stage")
     // ErrCompositionToolNeedsApproval is returned when a tool an agent step of
     // a composition called is held for approval (CompositionExecutorDeps.
     // ApprovalChecker). A step cannot suspend for the approval, so it fails
     // rather than run the tool unapproved.
-    ErrCompositionToolNeedsApproval = core.ErrCompositionToolNeedsApproval
+    ErrCompositionToolNeedsApproval = errors.New("tool call needs approval, which a composition step cannot wait for")
     // ErrInvalidChannelBufferSize is returned for invalid buffer size.
-    ErrInvalidChannelBufferSize = core.ErrInvalidChannelBufferSize
+    ErrInvalidChannelBufferSize = errors.New("channel buffer size must be non-negative")
     // ErrInvalidMaxConcurrentPipelines is returned for invalid max concurrent pipelines.
-    ErrInvalidMaxConcurrentPipelines = core.ErrInvalidMaxConcurrentPipelines
+    ErrInvalidMaxConcurrentPipelines = errors.New("max concurrent pipelines must be non-negative")
     // ErrInvalidExecutionTimeout is returned for invalid execution timeout.
-    ErrInvalidExecutionTimeout = core.ErrInvalidExecutionTimeout
+    ErrInvalidExecutionTimeout = errors.New("execution timeout must be non-negative")
     // ErrInvalidGracefulShutdownTimeout is returned for invalid graceful shutdown timeout.
-    ErrInvalidGracefulShutdownTimeout = core.ErrInvalidGracefulShutdownTimeout
+    ErrInvalidGracefulShutdownTimeout = errors.New("graceful shutdown timeout must be non-negative")
     // ErrInvalidIdleTimeout is returned for invalid idle timeout.
-    ErrInvalidIdleTimeout = core.ErrInvalidIdleTimeout
+    ErrInvalidIdleTimeout = errors.New("idle timeout must be non-negative")
     // ErrFFmpegNotFound is returned when FFmpeg binary cannot be found.
-    ErrFFmpegNotFound = core.ErrFFmpegNotFound
+    ErrFFmpegNotFound = errors.New("ffmpeg not found")
     // ErrFFmpegFailed is returned when FFmpeg execution fails.
-    ErrFFmpegFailed = core.ErrFFmpegFailed
+    ErrFFmpegFailed = errors.New("ffmpeg execution failed")
     // ErrFFmpegTimeout is returned when FFmpeg execution times out.
-    ErrFFmpegTimeout = core.ErrFFmpegTimeout
+    ErrFFmpegTimeout = errors.New("ffmpeg execution timeout")
     // ErrInvalidVideoFormat is returned when video cannot be processed.
-    ErrInvalidVideoFormat = core.ErrInvalidVideoFormat
+    ErrInvalidVideoFormat = errors.New("invalid or unsupported video format")
     // ErrNoFramesExtracted is returned when FFmpeg produces no output frames.
-    ErrNoFramesExtracted = core.ErrNoFramesExtracted
+    ErrNoFramesExtracted = errors.New("no frames extracted from video")
     // ErrVideoDataRequired is returned when video data is required but missing.
-    ErrVideoDataRequired = core.ErrVideoDataRequired
+    ErrVideoDataRequired = errors.New("video data required but not available")
     // ErrFanInNotSupported is returned when a stage has multiple upstream edges but
     // does not implement MultiInputStage.
-    ErrFanInNotSupported = core.ErrFanInNotSupported
+    ErrFanInNotSupported = errors.New("stage has multiple upstreams but does not implement MultiInputStage")
     // ErrDuplicateFanInEdge is returned when a stage receives multiple edges from
     // the same upstream stage, creating a duplicate input source.
-    ErrDuplicateFanInEdge = core.ErrDuplicateFanInEdge
+    ErrDuplicateFanInEdge = errors.New("duplicate upstream edge detected")
     // ErrTurnStateRequired is returned by Build when a TemplateStage or
     // PromptAssemblyStage has no TurnState. Those stages share the loaded and
     // rendered system prompt through TurnState; without one they do nothing and
     // the provider receives an empty system prompt. Construct them with
     // NewTemplateStageWithTurnState / NewPromptAssemblyStageWithTurnState.
-    ErrTurnStateRequired = core.ErrTurnStateRequired
+    ErrTurnStateRequired = errors.New("stage requires a shared TurnState")
 )
 ```
 
@@ -722,13 +722,13 @@ var (
 <a name="ErrIdleTimeout"></a>ErrIdleTimeout is returned \(via context.Cause\) when the pipeline idle timeout fires because no activity was detected within the configured duration.
 
 ```go
-var ErrIdleTimeout = core.ErrIdleTimeout
+var ErrIdleTimeout = errors.New("pipeline idle timeout: no activity detected")
 ```
 
 <a name="ErrMaxRoundsExceeded"></a>ErrMaxRoundsExceeded matches, with errors.Is, a turn the provider stage ended because the model was still calling tools when the tool loop reached its round limit. Unlike a provider's own error it carries nothing secret, and it is recoverable: the model was working, and another message lets it continue. errors.As with \*MaxRoundsError gives the limit.
 
 ```go
-var ErrMaxRoundsExceeded = core.ErrMaxRoundsExceeded
+var ErrMaxRoundsExceeded = errors.New("max rounds exceeded")
 ```
 
 <a name="ErrSessionBoundSource"></a>ErrSessionBoundSource is PrewarmClips' error for a clip source that needs a live session: a provider's own out\-of\-band audio renders only inside a session, so it cannot be pre\-warmed.
@@ -741,7 +741,7 @@ var ErrSessionBoundSource = errors.New("the clip source is session-bound: a prov
 <a name="ErrTemplateUnresolved"></a>ErrTemplateUnresolved is returned by TemplateStage when the system prompt references a variable nothing supplied. The turn fails and the error reaches the caller wrapped in a \*StageError, so errors.Is matches it. The stage does not send the unrendered template to the model.
 
 ```go
-var ErrTemplateUnresolved = core.ErrTemplateUnresolved
+var ErrTemplateUnresolved = errors.New("system prompt has unresolved variables")
 ```
 
 <a name="ErrVoicePrewarmedByAnotherService"></a>ErrVoicePrewarmedByAnotherService is PrewarmClips' error for a text already pre\-warmed for the voice and format from another TTS service: a session with no TTS service plays one service's clips per voice, so a second service's is refused rather than mixed in.
