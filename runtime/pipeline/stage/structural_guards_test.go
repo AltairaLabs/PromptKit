@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,8 +12,9 @@ import (
 )
 
 // TestNoBulkWriterInStageConfigs is a structural invariant: no struct
-// field declared in **this package** (runtime/pipeline/stage) may have a
-// type that mentions BulkWriter. Hot-path runtime stages must reach the
+// field declared in **this package** (runtime/pipeline/stage) or in any
+// package under it (the stage/internal/** packages its stages move into,
+// #2876) may have a type that mentions BulkWriter. Hot-path runtime stages must reach the
 // store via MessageAppender, MetadataAccessor, or SummaryAccessor —
 // never via the bulk-write escape hatch.
 //
@@ -30,20 +32,10 @@ func TestNoBulkWriterInStageConfigs(t *testing.T) {
 		t.Fatalf("getwd: %v", err)
 	}
 
-	entries, err := os.ReadDir(wd)
-	if err != nil {
-		t.Fatalf("readdir: %v", err)
-	}
-
 	fset := token.NewFileSet()
 	var violations []string
 
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		path := filepath.Join(wd, name)
+	for _, path := range stageSourceFiles(t, wd) {
 		f, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
@@ -78,6 +70,34 @@ func TestNoBulkWriterInStageConfigs(t *testing.T) {
 			"MetadataAccessor / SummaryAccessor instead:\n  %s",
 			strings.Join(violations, "\n  "))
 	}
+}
+
+// stageSourceFiles returns the non-test Go files of the package in root and of
+// every package below it, skipping testdata trees, which hold fixtures rather
+// than code.
+func stageSourceFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	return files
 }
 
 // mentionsBulkWriter walks a type expression and reports whether any

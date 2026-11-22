@@ -302,9 +302,11 @@ for pkg in ${pkgs}; do
   # -trimpath: each worker tests a copy of the module at its own temp path,
   # and without it the build cache keys on that path, so every worker
   # recompiles the module cold and its mutants time out (and count as caught).
+  # PROMPTKIT_MUTATION_RUN skips the guards no mutant can fail but that would
+  # each cost a go command run per mutant (pipeline/stage/internal_guards_test.go).
   (
     cd "${ROOT}/${pkg}"
-    env GOWORK=off GOFLAGS="-count=1 -trimpath${flags}" \
+    env GOWORK=off GOFLAGS="-count=1 -trimpath${flags}" PROMPTKIT_MUTATION_RUN=1 \
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.relative GIT_CONFIG_VALUE_0=true \
       "${GREMLINS}" "${args[@]}" "${ROOT}/${pkg}"
   ) > "${log}" 2>&1 || {
