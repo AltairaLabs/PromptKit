@@ -1,4 +1,5 @@
-# TEMPORARY diagnostic workflow; removed before merge.
+# TEMPORARY validation workflow; removed before merge. Replays PR #2848's
+# Mutation Gate workload (the one cancelled at 30 min) with the sharded script.
 name: Mutation Diag
 on:
   pull_request:
@@ -6,21 +7,49 @@ on:
 permissions:
   contents: read
 jobs:
-  diag:
+  shard:
+    name: replay-2848 shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        extra: [ "", "-gcflags=github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage=-c=1" ]
+        shard: [ 1, 2, 3, 4 ]
     env:
       PROMPTKIT_SCHEMA_SOURCE: local
-      DIAG_EXTRA_GOFLAGS: ${{ matrix.extra }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+    - name: Check out PR 2848's head with this branch's script
+      run: |
+        cp scripts/check-mutation-diff.sh /tmp/
+        git fetch -q origin pull/2848/head
+        git checkout -q FETCH_HEAD
+        cp /tmp/check-mutation-diff.sh scripts/
     - run: scripts/ci-install-alsa.sh
     - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version: '1.26.0'
-        cache: false
-    - run: bash scripts/diag-mutation-cost.sh
+    - run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
+    - env:
+        MUTATION_SHARD: ${{ matrix.shard }}/4
+        MUTATION_RESULTS: /tmp/mutants-${{ matrix.shard }}.tsv
+      run: ./scripts/check-mutation-diff.sh e3d2d2257f50061e4dd7146b0b6e9688d7f0f47e
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: replay-mutants-${{ matrix.shard }}
+        path: /tmp/mutants-${{ matrix.shard }}.tsv
+        retention-days: 1
+  score:
+    needs: shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: replay-mutants-*
+        path: mutants
+        merge-multiple: true
+    - run: ./scripts/check-mutation-diff.sh --score mutants/*.tsv
