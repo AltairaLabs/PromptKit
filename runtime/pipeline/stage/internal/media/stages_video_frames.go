@@ -228,7 +228,11 @@ func (s *VideoToFramesStage) buildFFmpegArgs(inputPath, outputPattern string) []
 
 	switch s.config.Mode {
 	case FrameExtractionInterval:
-		fps := 1.0 / s.config.Interval.Seconds()
+		interval := s.config.Interval
+		if interval <= 0 {
+			interval = DefaultFrameInterval
+		}
+		fps := 1.0 / interval.Seconds()
 		filters = append(filters, fmt.Sprintf("fps=%.4f", fps))
 
 	case FrameExtractionKeyframes:

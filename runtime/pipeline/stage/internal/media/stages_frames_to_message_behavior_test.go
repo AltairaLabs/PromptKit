@@ -191,6 +191,23 @@ func TestVideoToFramesStage_BuildFFmpegArgsExactly(t *testing.T) {
 	}
 }
 
+// Interval mode with no interval set samples at DefaultFrameInterval (one
+// frame a second), not at fps=+Inf.
+func TestVideoToFramesStage_ZeroIntervalUsesDefault(t *testing.T) {
+	t.Parallel()
+	for _, interval := range []time.Duration{0, -time.Second} {
+		config := DefaultVideoToFramesConfig()
+		config.Mode = FrameExtractionInterval
+		config.Interval = interval
+		config.MaxFrames = 0
+		config.OutputQuality = 100
+
+		got := NewVideoToFramesStage(config).buildFFmpegArgs("/in.mp4", "/out_%04d.jpg")
+		assert.Equal(t, []string{"-y", "-i", "/in.mp4", "-vf", "fps=1.0000", "-q:v", "2", "/out_%04d.jpg"}, got,
+			"interval %v", interval)
+	}
+}
+
 // A canceled stage whose output nobody reads returns context.Canceled for a
 // video it could not extract, and for an element it would pass through.
 func TestVideoToFramesStage_CanceledWhileOutputBlocked(t *testing.T) {
