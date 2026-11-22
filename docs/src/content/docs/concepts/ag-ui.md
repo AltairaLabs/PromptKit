@@ -225,7 +225,7 @@ TEXT_MESSAGE_END                                                message 2
 RUN_FINISHED
 ```
 
-A round is one provider call. The adapter starts the next round where `Stream` reports that a call ended (`sdk.ChunkProviderCallEnd`), so text that follows a call belongs to the next assistant message even when no tool call came between them. A structured-output turn's re-ask streams its answer under the id of the reply it replaces, and the adapter keeps it in that reply's message.
+A round is one provider call. The adapter starts the next round where `Stream` reports that a call ended (`sdk.ChunkProviderCallEnd`), so text that follows a call belongs to the next assistant message even when no tool call came between them. A structured-output turn withholds its tool rounds' text from the stream. The adapter sends each such round's text whole, as its calls' parent message, before the calls. The re-ask streams its answer under the id of the reply it replaces, and the adapter keeps it in that reply's message.
 
 How the text is split depends on the provider: each `TEXT_MESSAGE_CONTENT` carries one chunk it streamed. A provider that does not stream sends each message's text in one `TEXT_MESSAGE_CONTENT` once its reply is complete. A round that only calls tools sends no text message, and its calls still name a parent message id.
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/AltairaLabs/PromptKit/sdk/v2"
+	"github.com/AltairaLabs/PromptKit/sdk/v2/internal/streamround"
 )
 
 // errStreamIncomplete is returned when a turn's stream ends without its
@@ -56,7 +57,7 @@ func (st *runState) consume(chunks <-chan sdk.StreamChunk) (*sdk.Response, error
 		case chunk.Type == sdk.ChunkProviderCallEnd:
 			st.liveEnd(chunk.Round, chunk.MessageID)
 		case chunk.Type == sdk.ChunkToolCall && chunk.ToolCall != nil:
-			st.liveCall(chunk.ToolCall, chunk.Round, chunk.MessageID)
+			st.liveCall(chunk.ToolCall, chunk.Round, chunk.MessageID, streamround.ReplyText(chunk))
 		case chunk.Type == sdk.ChunkToolResult && chunk.ToolResult != nil:
 			st.liveResult(chunk.ToolResult)
 		case chunk.Type == sdk.ChunkDone:
@@ -151,14 +152,22 @@ func (st *runState) liveText(delta string, replaces bool, messageID string) {
 // liveCall emits a tool call once its round's reply has streamed. A call of
 // another round than the current round's (the round its calls or its
 // provider call's end named) starts the next round, whether or not results
-// came between them; so does a call after the round's results.
-func (st *runState) liveCall(tc *types.MessageToolCall, round int, messageID string) {
+// came between them; so does a call after the round's results. replyText is
+// the stored text of the call's reply: a round whose text did not stream (a
+// structured-output turn withholds it) sends it whole first, so the calls'
+// parent message exists before them.
+func (st *runState) liveCall(tc *types.MessageToolCall, round int, messageID, replyText string) {
 	r := st.lastRound()
 	if r == nil || ((r.called || r.ended) && (r.round != round || r.resulted)) {
 		r = st.newRound(messageID)
 	}
 	st.closeReasoning(r)
 	st.closeText(r)
+	if !r.texted && replyText != "" {
+		st.emitText(r.msgID, replyText)
+		r.texted = true
+		r.text.WriteString(replyText)
+	}
 	st.emitCall(r.msgID, tc)
 	r.called, r.round = true, round
 }

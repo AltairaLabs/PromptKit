@@ -172,7 +172,9 @@ type StreamChunk struct {
 // ProviderCallEnd ends one provider call of a pipeline's streamed turn: it
 // follows the call's last text, reasoning and media, and comes before the
 // call's tool calls run. Every provider call of the turn ends with one,
-// the last call included, in stream order.
+// the last call included, in stream order. A round that makes no provider
+// call (a BeforeCall block, a request refused before it is sent) sends
+// none.
 type ProviderCallEnd struct {
 	// MessageID is the stable id (types.MetaMessageID) the call's assistant
 	// message is stored under, the id its text and reasoning deltas carried.
@@ -186,8 +188,9 @@ type ProviderCallEnd struct {
 	// is kept and types.FinishReasonError when nothing of it is.
 	FinishReason string `json:"finish_reason,omitempty"`
 
-	// ToolCalls are the calls the reply made, as the stored message holds
-	// them; empty for a call that failed with nothing kept.
+	// ToolCalls are the calls a completed reply made, as the stored message
+	// holds them. A failed call reports none, even when its kept partial
+	// reply holds complete calls: those never run.
 	ToolCalls []types.MessageToolCall `json:"tool_calls,omitempty"`
 }
 

@@ -338,10 +338,14 @@ With an audio session (`OpenVoice`, or `WithAudioSession` on a provider that tak
 |---|---|---|
 | Switch on `StreamChunk.Type` | `ChunkProviderCallEnd` chunks, with no `Text` | handle or skip them; `StreamRaw`, `StreamWithCallback` and the A2A server skip them |
 | Built against `main` and read `Round` on `ChunkToolCall` or `ChunkToolResult` | the first call's round is 0, not 1; after `ResumeStream` it continues the turn's count, where it restarted at 1 | drop any `-1` |
-| Close a streamed message when its provider call ends | one boundary per call, in stream order, naming the stored message | close it on `ChunkProviderCallEnd` |
-| Stream a structured-output turn (a `ResponseFormat` with tools) | the final-turn re-ask is a provider call with its own boundary, and its answer is stored under the id of the reply it replaces, so its text chunks and both calls' boundaries name that id | nothing |
+| Close a streamed message when its provider call ends | one boundary per call, in stream order, naming the stored message; a round a `BeforeCall` hook blocks, or whose request is refused before it is sent, makes no call and sends none | close it on `ChunkProviderCallEnd` |
+| Cancel a stream and go on draining it | the canceled call's boundary, `interrupted` or `error`, before the error chunk | nothing |
+| Stream a structured-output turn (a `ResponseFormat` with tools) | the final-turn re-ask is a provider call with its own boundary, and its answer is stored under the id of the reply it replaces, so its text chunks and both calls' boundaries name that id. The re-ask's text arrives once the re-ask has completed, where it streamed as the model produced it | nothing |
+| Stream a structured-output turn whose re-ask fails | none of the re-ask's answer, where its partial answer streamed; the kept unconstrained reply's text under its stored id, then the re-ask's boundary with `error` under an id of its own | nothing |
+| Have a `BeforeCall` hook or input guardrail block a structured-output turn | the blocked message stays the reply, and nothing it blocked reaches the model, where the re-ask sent the blocked input to the model and replaced the blocked message with its answer | nothing |
 | Read `stage.ElementMetadata` or `providers.StreamChunk` from a per-turn streaming pipeline yourself | elements and chunks carrying only `ProviderCallEnd`; the duplex pipeline sends none | skip them, or use them to delimit provider calls |
 | Run an AG-UI adapter over `Stream` | one round per provider call: text after a call ended belongs to the next round | nothing |
+| Run an AG-UI adapter over a structured-output turn | each tool round's withheld text as its calls' parent message, before the calls, where it came after the answer, inside the answer's open message | nothing |
 
 #### AG-UI runs carry state deltas, usage and pending calls, and reasoning on request
 

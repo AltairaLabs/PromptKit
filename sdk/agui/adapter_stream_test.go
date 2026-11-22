@@ -701,50 +701,123 @@ func TestRunSend_UnnumberedRoundsSplitAtTheirResults(t *testing.T) {
 	}, describeRun(evts))
 }
 
-// A structured-output turn's re-ask streams the answer that replaces the
-// closing reply, under that reply's id: the client gets it as one message,
-// the stored one, whose text is the answer, once. (The tool round's text,
-// withheld while the schema is, follows from the turn's messages.)
-func TestRunSend_StructuredOutputReaskIsTheClosingMessage(t *testing.T) {
-	conv := openConv(t, streamingProvider(
-		streamedCall("lookup", map[string]any{"id": "1"}, "Checking."),
-		streamedText("It shipped."),
-		streamedText(`{"shipped":`, `true}`),
-	), sdk.WithResponseFormat(&providers.ResponseFormat{
+func structuredConv(t *testing.T, provider providers.Provider) *sdk.Conversation {
+	t.Helper()
+	conv := openConv(t, provider, sdk.WithResponseFormat(&providers.ResponseFormat{
 		Type: providers.ResponseFormatJSONSchema, SchemaName: "status",
 		JSONSchema: []byte(`{"type":"object","properties":{"shipped":{"type":"boolean"}}}`),
 	}))
 	conv.OnTool("lookup", func(map[string]any) (any, error) { return "shipped", nil })
+	return conv
+}
 
-	evts, err := sendAndCollect(t, NewEventAdapter(conv), "did 1 ship?")
-	require.NoError(t, err)
+func structuredTurns() []mock.Turn {
+	return []mock.Turn{
+		streamedCall("lookup", map[string]any{"id": "1"}, "Checking."),
+		streamedText("It shipped."),
+		streamedText(`{"shipped":`, `true}`),
+	}
+}
 
-	assert.Equal(t, []string{
-		"RUN_STARTED",
-		`TOOL_CALL_START call_0_lookup lookup parent=m1`, `TOOL_CALL_ARGS call_0_lookup {"id":"1"}`,
-		"TOOL_CALL_END call_0_lookup",
-		"TOOL_CALL_RESULT call_0_lookup shipped",
-		"TEXT_MESSAGE_START m2", `TEXT_MESSAGE_CONTENT m2 {"shipped":`, "TEXT_MESSAGE_CONTENT m2 true}",
-		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Checking.", "TEXT_MESSAGE_END m1",
-		"TEXT_MESSAGE_END m2",
-		"RUN_FINISHED",
-	}, describeRun(evts))
+// assertTextIDsAreStored asserts each text message the run sent is named by
+// the id of a stored assistant message, in order, and returns those
+// messages.
+func assertTextIDsAreStored(t *testing.T, evts []aguievents.Event, conv *sdk.Conversation) []types.Message {
+	t.Helper()
 	var stored []types.Message
+	var ids []string
 	for _, m := range conv.Messages(context.Background()) {
 		if m.Role == roleAssistant {
 			stored = append(stored, m)
+			ids = append(ids, m.ID())
 		}
 	}
-	require.Len(t, stored, 2)
-	first, last := stored[0], stored[1]
-	assert.Equal(t, `{"shipped":true}`, last.GetContent())
 	var textIDs []string
 	for _, ev := range evts {
 		if start, ok := ev.(*aguievents.TextMessageStartEvent); ok {
 			textIDs = append(textIDs, start.MessageID)
 		}
 	}
-	assert.Equal(t, []string{last.ID(), first.ID()}, textIDs, "each message is named as it is stored")
+	assert.Equal(t, ids, textIDs, "each message is named as it is stored")
+	return stored
+}
+
+// A structured-output turn's tool round sends its withheld text as the
+// calls' parent message, before the calls; the re-ask streams the answer
+// that replaces the closing reply under that reply's id, so the client gets
+// it as one message, the stored one.
+func TestRunSend_StructuredOutputReaskIsTheClosingMessage(t *testing.T) {
+	conv := structuredConv(t, streamingProvider(structuredTurns()...))
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "did 1 ship?")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Checking.", "TEXT_MESSAGE_END m1",
+		`TOOL_CALL_START call_0_lookup lookup parent=m1`, `TOOL_CALL_ARGS call_0_lookup {"id":"1"}`,
+		"TOOL_CALL_END call_0_lookup",
+		"TOOL_CALL_RESULT call_0_lookup shipped",
+		"TEXT_MESSAGE_START m2", `TEXT_MESSAGE_CONTENT m2 {"shipped":`, "TEXT_MESSAGE_CONTENT m2 true}",
+		"TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	stored := assertTextIDsAreStored(t, evts, conv)
+	require.Len(t, stored, 2)
+	assert.Equal(t, `{"shipped":true}`, stored[1].GetContent())
+}
+
+// failingReask is the streaming mock whose third call, the re-ask, sends
+// one delta and fails.
+type failingReask struct {
+	*mock.ToolProvider
+	calls int
+	mu    sync.Mutex
+}
+
+func (p *failingReask) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools interface{}, choice string,
+) (<-chan providers.StreamChunk, error) {
+	in, err := p.ToolProvider.PredictStreamWithTools(ctx, req, tools, choice)
+	p.mu.Lock()
+	p.calls++
+	n := p.calls
+	p.mu.Unlock()
+	if err != nil || n != 3 {
+		return in, err
+	}
+	out := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
+	go func() {
+		defer close(out)
+		out <- <-in
+		for range in {
+		}
+		out <- providers.StreamChunk{Error: errors.New("stream broke")}
+	}()
+	return out, nil
+}
+
+// A re-ask that fails part-way leaves no message of its own: the client gets
+// the kept unconstrained answer as the closing message, under its stored id,
+// and none of the re-ask's partial answer.
+func TestRunSend_FailedStructuredOutputReaskLeavesNoOrphan(t *testing.T) {
+	conv := structuredConv(t, &failingReask{ToolProvider: streamingProvider(structuredTurns()...)})
+
+	evts, err := sendAndCollect(t, NewEventAdapter(conv), "did 1 ship?")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"RUN_STARTED",
+		"TEXT_MESSAGE_START m1", "TEXT_MESSAGE_CONTENT m1 Checking.", "TEXT_MESSAGE_END m1",
+		`TOOL_CALL_START call_0_lookup lookup parent=m1`, `TOOL_CALL_ARGS call_0_lookup {"id":"1"}`,
+		"TOOL_CALL_END call_0_lookup",
+		"TOOL_CALL_RESULT call_0_lookup shipped",
+		"TEXT_MESSAGE_START m2", "TEXT_MESSAGE_CONTENT m2 It shipped.", "TEXT_MESSAGE_END m2",
+		"RUN_FINISHED",
+	}, describeRun(evts))
+	stored := assertTextIDsAreStored(t, evts, conv)
+	require.Len(t, stored, 2)
+	assert.Equal(t, "It shipped.", stored[1].GetContent())
 }
 
 // Text after a provider call ended is the next call's message, even when no

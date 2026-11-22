@@ -1442,7 +1442,7 @@ type CapabilityContext struct {
 ```
 
 <a name="ChunkType"></a>
-## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L91>)
+## type [ChunkType](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L110>)
 
 ChunkType identifies the type of a streaming chunk.
 
@@ -1493,17 +1493,25 @@ const (
     // before its tools run and before any ChunkClientTool it suspends on).
     // Every provider call of the turn ends with exactly one, the last call
     // included, carrying Round, MessageID, FinishReason and ToolCalls. A
-    // call that fails still sends one, after its partial text and before
-    // the error chunk, with FinishReason types.FinishReasonInterrupted or
-    // types.FinishReasonError. A turn an input guardrail blocks makes no
-    // provider call and sends none, and neither does a provider that does
-    // not stream. StreamRaw and StreamWithCallback do not report it.
+    // call that fails, the caller's cancellation included, still sends one,
+    // after its partial text and before the error chunk, with FinishReason
+    // types.FinishReasonInterrupted (its partial reply is stored under
+    // MessageID) or types.FinishReasonError (nothing is stored under
+    // MessageID). A structured-output turn's final re-ask is a provider call
+    // too: its answer is stored under the id of the reply it replaces, and a
+    // re-ask that fails ends with types.FinishReasonError under an id of its
+    // own, its partial answer never sent, while the kept reply's text is
+    // sent under the reply's id. A round that makes no provider call sends
+    // none: one a BeforeCall hook or input guardrail blocks, on any round,
+    // and one whose request a provider refuses before sending it (media it
+    // does not support). Neither does a provider that does not stream.
+    // StreamRaw and StreamWithCallback do not report it.
     ChunkProviderCallEnd
 )
 ```
 
 <a name="ChunkType.String"></a>
-### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L142>)
+### func \(ChunkType\) [String](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L169>)
 
 ```go
 func (t ChunkType) String() string
@@ -3201,7 +3209,7 @@ Start runs the bound audio session: it feeds every microphone source into the pi
 Start owns the response stream — do not also read Response\(\) while it runs. Requires a session bound via OpenVoice / WithAudioSession.
 
 <a name="Conversation.Stream"></a>
-### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L218>)
+### func \(\*Conversation\) [Stream](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L245>)
 
 ```go
 func (c *Conversation) Stream(ctx context.Context, message any, opts ...SendOption) <-chan StreamChunk
@@ -3311,7 +3319,7 @@ Mock response from mock model mock-model
 </details>
 
 <a name="Conversation.StreamRaw"></a>
-### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L755>)
+### func \(\*Conversation\) [StreamRaw](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L794>)
 
 ```go
 func (c *Conversation) StreamRaw(ctx context.Context, message any) (<-chan streamPkg.Chunk, error)
@@ -7727,7 +7735,7 @@ func (r *StaticMCPEndpointResolver) Resolve(_ string) MCPEndpoint
 Resolve returns the static endpoint for any server name.
 
 <a name="StreamChunk"></a>
-## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L19-L88>)
+## type [StreamChunk](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/streaming.go#L20-L94>)
 
 StreamChunk represents a single chunk in a streaming response.
 
@@ -7782,9 +7790,10 @@ type StreamChunk struct {
     // is kept and types.FinishReasonError when nothing of it is.
     FinishReason string
 
-    // ToolCalls are the calls the reply a ChunkProviderCallEnd ends made, as
-    // its stored message holds them. Each also arrives as a ChunkToolCall,
-    // after the ChunkProviderCallEnd.
+    // ToolCalls are the calls the reply a ChunkProviderCallEnd ends made,
+    // for a call that completed: each also arrives as a ChunkToolCall, after
+    // the ChunkProviderCallEnd. A failed call reports none, even when its
+    // kept partial reply holds complete calls: those never run.
     ToolCalls []types.MessageToolCall
 
     // Media content (for ChunkMedia type)
@@ -7801,6 +7810,7 @@ type StreamChunk struct {
 
     // Error (if any occurred)
     Error error
+    // contains filtered or unexported fields
 }
 ```
 

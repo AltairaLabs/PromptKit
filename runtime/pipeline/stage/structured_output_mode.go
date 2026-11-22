@@ -124,32 +124,49 @@ func (s *ProviderStage) roundResponseFormat(providerTools interface{}) *provider
 // Unit tests could not see this: asserting "no loop text leaked" is satisfied
 // just as well by a stream that carries nothing whatsoever.
 //
+// The streamed re-ask's elements are held, not sent: held returns them for
+// the caller to send once the re-ask succeeded. Its answer is stored under
+// the replaced reply's id, which its text carries; a re-ask that fails keeps
+// the replaced reply under that id instead, so none of the failed answer may
+// reach the caller under it.
+//
 // late, when set, delivers usage a cut stream reports after the call ended
 // (streamedRound.lateUsage); the caller reports it once the call completes.
 func (tl *toolLoop) reaskCall(
 	ctx context.Context, req providers.PredictionRequest, rr roundRef,
-) (resp providers.PredictionResponse, late <-chan *types.CostInfo, err error) {
+) (resp providers.PredictionResponse, late <-chan *types.CostInfo, held []StreamElement, err error) {
 	if tl.output == nil {
 		resp, err = tl.reaskPredict(ctx, req)
-		return resp, nil, err
+		return resp, nil, nil, err
 	}
 
 	// suppressText is false here: this IS the answer, and it is the only text
 	// the consumer is going to get.
 	streamChan, err := tl.stage.startStreamingRequest(ctx, req, nil, "")
 	if err != nil {
-		return providers.PredictionResponse{}, nil, err
+		return providers.PredictionResponse{}, nil, nil, err
 	}
-	got, err := tl.stage.processStreamChunks(ctx, streamChan, tl.output, rr, false)
+	hold := make(chan StreamElement)
+	collected := make(chan []StreamElement, 1)
+	go func() {
+		var elems []StreamElement
+		for elem := range hold {
+			elems = append(elems, elem)
+		}
+		collected <- elems
+	}()
+	got, err := tl.stage.processStreamChunks(ctx, streamChan, hold, rr, false)
+	close(hold)
+	held = <-collected
 	if err != nil {
-		return providers.PredictionResponse{}, nil, err
+		return providers.PredictionResponse{}, nil, nil, err
 	}
 	return providers.PredictionResponse{
 		Content:      got.content,
 		CostInfo:     got.costInfo,
 		Reasoning:    got.reasoning,
 		FinishReason: got.finishReason,
-	}, got.lateUsage, nil
+	}, got.lateUsage, held, nil
 }
 
 // reaskPredict issues a non-streaming re-ask, choosing the same request path
@@ -241,8 +258,8 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	rr.messageID = tl.messages[last].ID()
 
 	started := timeNow()
-	resp, late, err := tl.reaskCall(ctx, req, rr)
-	tl.endReask(ctx, rr.messageID, resp.FinishReason, err)
+	resp, late, held, err := tl.reaskCall(ctx, req, rr)
+	tl.endReask(ctx, rr.messageID, resp.FinishReason, held, err)
 	if err != nil {
 		if tl.stage.emitter != nil {
 			tl.stage.emitter.ProviderCallFailedCtx(ctx, &events.ProviderCallFailedData{
@@ -341,16 +358,35 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr roundRef) {
 	tl.messages[last] = constrained
 }
 
-// endReask ends a streamed re-ask with its ProviderCallEnd element, as every
-// streamed provider call of a per-turn execution ends: finishReason is the
-// answer's, or types.FinishReasonError when the re-ask failed, which keeps
-// the unconstrained answer and nothing of the re-ask.
-func (tl *toolLoop) endReask(ctx context.Context, messageID, finishReason string, err error) {
-	if tl.output == nil || !tl.reportsRounds {
+// endReask sends what a streamed re-ask leaves the caller, then ends it with
+// its ProviderCallEnd element, as every streamed provider call of a per-turn
+// execution ends. A re-ask that succeeded sends its held elements, and its
+// end names messageID, under which its answer is stored. One that failed
+// keeps the unconstrained answer under messageID: that answer's text is
+// sent under it, as the stored message holds it, in place of anything of
+// the re-ask, and the end, types.FinishReasonError, names an id of its own,
+// under which nothing is stored.
+func (tl *toolLoop) endReask(
+	ctx context.Context, messageID, finishReason string, held []StreamElement, err error,
+) {
+	if tl.output == nil {
 		return
 	}
+	var fwd cancelForwarder
 	if err != nil {
-		finishReason = types.FinishReasonError
+		// reaskCall holds nothing of a failed re-ask.
+		if text := tl.messages[len(tl.messages)-1].GetContent(); text != "" {
+			elem := textDeltaElement(text, nil)
+			elem.Meta.MessageID = messageID
+			held = append(held, elem)
+		}
+		messageID, finishReason = types.NewMessageID(), types.FinishReasonError
+	}
+	for i := range held {
+		fwd.forward(ctx, tl.output, held[i])
+	}
+	if !tl.reportsRounds {
+		return
 	}
 	sendProviderCallEnd(ctx, &providers.ProviderCallEnd{MessageID: messageID, FinishReason: finishReason}, tl.output)
 }

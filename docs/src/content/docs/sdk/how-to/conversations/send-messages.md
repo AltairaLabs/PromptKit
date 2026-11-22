@@ -114,7 +114,13 @@ A turn that calls tools makes several provider calls, and streams each in order.
 
 `Round` counts the turn's provider calls from 0. After a client tool suspends the turn, `ResumeStream` continues the count, so a turn whose first two calls ran before it suspended streams its next call as round 2.
 
-A provider call that fails still sends its `ChunkProviderCallEnd`, after its partial text and before the chunk with `Error` set. Its `FinishReason` is `types.FinishReasonInterrupted` when the partial reply is kept in the history, and `types.FinishReasonError` when nothing of the call is kept. The turn's chunks for a server tool between two model calls look like this:
+A provider call that fails still sends its `ChunkProviderCallEnd`, after its partial text and before the chunk with `Error` set. That holds for a call you cancel, as long as you go on draining the channel. Its `FinishReason` is `types.FinishReasonInterrupted` when the partial reply is kept in the history under `MessageID`, and `types.FinishReasonError` when nothing is stored under `MessageID`. A failed call reports no `ToolCalls`, even when the kept partial reply holds complete calls, because those calls never run.
+
+A round that makes no provider call sends no `ChunkProviderCallEnd`. That covers a round a `BeforeCall` hook or input guardrail blocks, on the first round or a later one, and a round whose request the provider would refuse before it is sent, such as media it does not support. A provider that does not stream sends none either.
+
+With a `ResponseFormat` on a turn that offers tools, the tool rounds' text is withheld from the stream and the closing answer is asked again under the schema. That re-ask is a provider call with its own `ChunkProviderCallEnd`. Its text arrives once the re-ask has completed, under the id of the reply it replaces, which is the id its answer is stored under. When the re-ask fails, none of its answer is sent. The kept unconstrained reply's text arrives under the reply's id, and the re-ask ends with `types.FinishReasonError` under an id of its own.
+
+The turn's chunks for a server tool between two model calls look like this:
 
 | Chunk | `Round` | `MessageID` | Carries |
 |---|---|---|---|

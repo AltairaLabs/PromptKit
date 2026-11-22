@@ -368,6 +368,76 @@ func TestStream_ProviderCallEnd_TextOnlySingleCall(t *testing.T) {
 	assert.Equal(t, []a2aserver.EventKind{a2aserver.EventText, a2aserver.EventText, a2aserver.EventDone}, kinds)
 }
 
+func reaskTurns() []mock.Turn {
+	return []mock.Turn{
+		{Type: "tool_calls", StreamChunks: []string{"Checking."},
+			ToolCalls: []mock.ToolCall{{Name: "lookup", Arguments: map[string]any{"id": "1"}}}},
+		{Type: "text", StreamChunks: []string{"It shipped."}},
+		{Type: "text", StreamChunks: []string{`{"shipped":`, `true}`}},
+	}
+}
+
+func reaskConv(t *testing.T, provider providers.Provider, store statestore.Store) *Conversation {
+	t.Helper()
+	conv, err := Open(writeWorkflowTestPack(t, roundsPackJSON), "chat",
+		WithProvider(provider),
+		WithSkipSchemaValidation(), WithStateStore(store), WithConversationID("call-end"),
+		WithResponseFormat(&providers.ResponseFormat{
+			Type: providers.ResponseFormatJSONSchema, SchemaName: "status",
+			JSONSchema: []byte(`{"type":"object","properties":{"shipped":{"type":"boolean"}}}`),
+		}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conv.Close() })
+	conv.OnTool("lookup", func(args map[string]any) (any, error) { return args["id"], nil })
+	return conv
+}
+
+// A re-ask that fails keeps the unconstrained answer, stored under the
+// replaced reply's id: that answer streams under it, as stored, and nothing
+// of the failed re-ask does, however much of it the model sent. The re-ask's
+// end names an id of its own, under which nothing is stored.
+func TestStream_ProviderCallEnd_FailedStructuredOutputReask(t *testing.T) {
+	for _, keep := range []int{0, 1} {
+		t.Run(fmt.Sprintf("after %d deltas", keep), func(t *testing.T) {
+			store := statestore.NewMemoryStore()
+			conv := reaskConv(t, &failingCallProvider{
+				ToolProvider: mockRounds(reaskTurns()...), failAt: 2, keepDeltas: keep,
+			}, store)
+			log := newCallEndLog()
+
+			var resp *Response
+			got := log.drain(captureDone(conv.Stream(context.Background(), "did 1 ship?"), &resp))
+
+			assert.Equal(t, []string{
+				"end 0 m0 tool_use [call_0_lookup]",
+				"call 0 m0 call_0_lookup", "result 0 call_0_lookup 1",
+				"end 1 m1 stop []",
+				"text m1 It shipped.",
+				"end 2 m2 error []",
+				"done",
+			}, got)
+			assert.Equal(t, []string{"m0", "m1"}, log.stored(t, store))
+			require.NotNil(t, resp)
+			assert.Equal(t, "It shipped.", resp.Text())
+		})
+	}
+}
+
+// captureDone passes ch on, keeping its ChunkDone response in resp.
+func captureDone(ch <-chan StreamChunk, resp **Response) <-chan StreamChunk {
+	out := make(chan StreamChunk)
+	go func() {
+		defer close(out)
+		for c := range ch {
+			if c.Type == ChunkDone {
+				*resp = c.Message
+			}
+			out <- c
+		}
+	}()
+	return out
+}
+
 // A structured-output turn re-asks its closing answer under the schema: the
 // re-ask is a provider call of its own, and its answer replaces the closing
 // reply and is stored under that reply's id, so the re-ask's text and both
@@ -375,12 +445,7 @@ func TestStream_ProviderCallEnd_TextOnlySingleCall(t *testing.T) {
 func TestStream_ProviderCallEnd_StructuredOutputReask(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	conv, err := Open(writeWorkflowTestPack(t, roundsPackJSON), "chat",
-		WithProvider(mockRounds(
-			mock.Turn{Type: "tool_calls", StreamChunks: []string{"Checking."},
-				ToolCalls: []mock.ToolCall{{Name: "lookup", Arguments: map[string]any{"id": "1"}}}},
-			mock.Turn{Type: "text", StreamChunks: []string{"It shipped."}},
-			mock.Turn{Type: "text", StreamChunks: []string{`{"shipped":`, `true}`}},
-		)),
+		WithProvider(mockRounds(reaskTurns()...)),
 		WithSkipSchemaValidation(), WithStateStore(store), WithConversationID("call-end"),
 		WithResponseFormat(&providers.ResponseFormat{
 			Type: providers.ResponseFormatJSONSchema, SchemaName: "status",
@@ -402,4 +467,67 @@ func TestStream_ProviderCallEnd_StructuredOutputReask(t *testing.T) {
 		"done",
 	}, got)
 	assert.Equal(t, []string{"m0", "m1"}, log.stored(t, store))
+}
+
+// stallingCallProvider is the mock tool provider whose streamed reply sends
+// its first text delta, then waits for the caller to cancel and fails with
+// the cancellation.
+type stallingCallProvider struct {
+	*mock.ToolProvider
+}
+
+func (p *stallingCallProvider) PredictStreamWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools interface{}, choice string,
+) (<-chan providers.StreamChunk, error) {
+	in, err := p.ToolProvider.PredictStreamWithTools(ctx, req, tools, choice)
+	if err != nil {
+		return nil, err
+	}
+	out := make(chan providers.StreamChunk, providers.DefaultStreamBufferSize)
+	go func() {
+		defer close(out)
+		first := <-in
+		go func() {
+			for range in {
+			}
+		}()
+		out <- first
+		<-ctx.Done()
+		out <- providers.StreamChunk{Error: ctx.Err()}
+	}()
+	return out, nil
+}
+
+// A call the caller cancels mid-stream still ends with its boundary, after
+// its partial text and before the error, to a caller that goes on draining
+// the stream.
+func TestStream_ProviderCallEnd_CanceledCallStillEnds(t *testing.T) {
+	// The boundary must not be lost to the race between the canceled
+	// context and the channel send, so run the turn several times.
+	for i := 0; i < 10; i++ {
+		conv := callEndConv(t, &stallingCallProvider{ToolProvider: mockRounds(
+			mock.Turn{Type: "text", StreamChunks: []string{"Partial ", "answer."}},
+		)}, statestore.NewMemoryStore())
+		ctx, cancel := context.WithCancel(context.Background())
+		log := newCallEndLog()
+		var got []string
+		for chunk := range conv.Stream(ctx, "hi") {
+			if chunk.Type == ChunkText && chunk.Error == nil {
+				cancel()
+			}
+			got = append(got, log.drain(oneChunk(chunk))...)
+		}
+		cancel()
+		require.Len(t, got, 3, "run %d: %v", i, got)
+		assert.Equal(t, []string{"text m0 Partial ", "end 0 m0 interrupted []"}, got[:2], "run %d", i)
+		assert.Contains(t, got[2], context.Canceled.Error(), "run %d", i)
+	}
+}
+
+// oneChunk is a closed channel holding chunk.
+func oneChunk(chunk StreamChunk) <-chan StreamChunk {
+	ch := make(chan StreamChunk, 1)
+	ch <- chunk
+	close(ch)
+	return ch
 }

@@ -1946,7 +1946,9 @@ func (tl *toolLoop) afterRound(
 		// knowable, so a withheld schema is applied here — the answer that
 		// revealed the ending is regenerated under it. Before persistMessages,
 		// so the log holds the constrained answer rather than the discarded one.
-		if tl.schemaWithheld {
+		// A turn a guardrail blocked is not: its reply is the guardrail's
+		// message, and a re-ask would send what it blocked to the model.
+		if tl.schemaWithheld && !isMarkedBlockedInput(response) {
 			tl.reaskUnderSchema(ctx, rr)
 		}
 		tl.persistMessages(ctx, round)
@@ -2550,8 +2552,10 @@ func (s *ProviderStage) executeStreamingRound(
 // provider call, when the round reports it (streamingRoundParams.reportsEnd):
 // after the call's last delta, before its tool calls run. msg is the reply
 // the call leaves, stored under rr.messageID; nil, or an empty interrupted
-// reply, for a call that failed and kept nothing. The turn's context may be
-// the thing that ended the call, so the send goes through cancelForwarder.
+// reply, for a call that failed and kept nothing. Only a completed reply's
+// tool calls are reported: an interrupted reply's never run. The turn's
+// context may be the thing that ended the call, so the send goes through
+// cancelForwarder.
 func (s *ProviderStage) endProviderCall(
 	ctx context.Context, params *streamingRoundParams, rr roundRef, msg *types.Message, output chan<- StreamElement,
 ) {
@@ -2561,7 +2565,9 @@ func (s *ProviderStage) endProviderCall(
 	end := &providers.ProviderCallEnd{MessageID: rr.messageID, FinishReason: types.FinishReasonError}
 	if msg != nil && msg.Role == roleAssistant {
 		end.FinishReason = msg.FinishReason
-		end.ToolCalls = append([]types.MessageToolCall(nil), msg.ToolCalls...)
+		if msg.FinishReason != types.FinishReasonInterrupted {
+			end.ToolCalls = append([]types.MessageToolCall(nil), msg.ToolCalls...)
+		}
 	}
 	sendProviderCallEnd(ctx, end, output)
 }
