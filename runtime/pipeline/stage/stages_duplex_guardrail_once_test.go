@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -55,7 +56,7 @@ func TestDuplexGuardrailOnce_InputBlockWhileTheCutReplyEnds(t *testing.T) {
 	assert.Equal(t, []string{"item_A"}, sess.forgotten(), "the blocked input is still forgotten")
 	assert.Equal(t, 2, failedValidations(t, elems), "both guardrails' firings are on the turn")
 	msg, _ := turnMessage(t, elems)
-	assert.True(t, isMarkedBlockedInput(msg), "the turn is still marked as a blocked input's")
+	assert.True(t, history.IsMarkedBlockedInput(msg), "the turn is still marked as a blocked input's")
 }
 
 // The caller's transcript arrives after the reply an output guardrail cut has

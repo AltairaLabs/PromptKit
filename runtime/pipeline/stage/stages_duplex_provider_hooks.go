@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -363,7 +364,7 @@ func (s *DuplexProviderStage) guardInputText(
 		user:     s.pendingTypedUser,
 		turn:     s.typedTurn,
 	}
-	markBlockedInput(&blocked.msg)
+	history.MarkBlockedInput(&blocked.msg)
 	s.dropTurnID(elem)
 	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
 		s.sendToolResponses(ctx, toolResponses)
@@ -680,7 +681,7 @@ func (s *DuplexProviderStage) blockTurnWith(
 	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
 ) {
 	if s.turnGuard.spoken {
-		s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blockedTurnMessage(req, *d).Meta)
+		s.turnGuard.blockedMeta = history.MergeMeta(s.turnGuard.blockedMeta, blockedTurnMessage(req, *d).Meta)
 		return
 	}
 	s.blockTurnWithMessage(s.blockedTurnMessage(ctx, req, d, direction))
@@ -695,7 +696,7 @@ func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
 	s.turnGuard.blockedText = &content
 	// Merged, not replaced: a mark an earlier block on this turn set (a
 	// blocked input's) must survive this one.
-	s.turnGuard.blockedMeta = mergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
+	s.turnGuard.blockedMeta = history.MergeMeta(s.turnGuard.blockedMeta, blocked.Meta)
 	s.turnGuard.replaced = true
 	s.turnGuard.spoken = true
 	s.blockTurn()
@@ -896,7 +897,7 @@ func (s *DuplexProviderStage) applySpokenInputDecision(
 	s.blockTurnWith(ctx, req, &d, hooks.DirectionInput)
 	g.record(&s.turnGuard.validations, d, hooks.DirectionInput, dur)
 	// The reply that replaces the turn is a blocked input turn's canned reply.
-	s.turnGuard.blockedMeta = withBlockedInputMark(s.turnGuard.blockedMeta)
+	s.turnGuard.blockedMeta = history.WithBlockedInputMark(s.turnGuard.blockedMeta)
 	return true
 }
 
@@ -1094,11 +1095,11 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 	s.noteBlock(v.decision, hooks.DirectionOutput, s.replyGeneration())
 	// An output block replaces the turn's Meta with its own; a turn an input
 	// block already replaced stays marked as one.
-	blockedInput := isMarkedBlockedInput(msg)
+	blockedInput := history.IsMarkedBlockedInput(msg)
 	msg.Validations = append(msg.Validations, v.validations...)
 	v.enforce(msg)
 	if blockedInput {
-		markBlockedInput(msg)
+		history.MarkBlockedInput(msg)
 	}
 	markEnforcedTurn(msg, elem)
 	return true

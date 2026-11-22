@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	heardreplies "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/heard"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -86,7 +87,7 @@ func (s *TTSStageWithInterruption) speakStreamedMessage(
 		// A barge-in cut the reply: the model's next turn goes on from what
 		// was heard.
 		out.Message = reply.cutMessage(elem.Message, cutAt, types.PlayoutCutBargeIn)
-		s.config.HeardReplies.record(elem.Message.Content, out.Message)
+		heardreplies.Record(s.config.HeardReplies, elem.Message.Content, out.Message)
 		reply.stop()
 	case now.Before(end):
 		// The session is closing (its input ended) while the reply plays.

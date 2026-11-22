@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	rtpipeline "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -354,7 +355,7 @@ func (s *IncrementalSaveStage) indexNewMessages(
 		}
 	}
 
-	blocked := blockedInputTurns(messages)
+	blocked := history.BlockedInputTurns(messages)
 	for i := range messages {
 		// An interrupted reply is a fragment the model never finished (unless
 		// it is what a caller heard of a spoken reply, which model context
@@ -373,14 +374,14 @@ func (s *IncrementalSaveStage) indexNewMessages(
 // summaryBatch returns the first n messages of tail as a summary may see them:
 // without interrupted replies or blocked input turns. Blocked turns are found
 // on the whole tail before interrupted replies are taken out (see
-// withoutInterrupted), so a batch ending between a blocked request and the
+// history.WithoutInterrupted), so a batch ending between a blocked request and the
 // reply that marks it still leaves the request out.
 func summaryBatch(tail []types.Message, n int) []types.Message {
 	var blocked []bool
-	if mask := blockedInputTurns(tail); mask != nil {
+	if mask := history.BlockedInputTurns(tail); mask != nil {
 		blocked = mask[:n]
 	}
-	return types.ExcludeInterrupted(withoutMasked(tail[:n], blocked))
+	return types.ExcludeInterrupted(history.WithoutMasked(tail[:n], blocked))
 }
 
 // maybeSummarize checks if summarization is needed and triggers it.

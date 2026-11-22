@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -344,7 +345,7 @@ func TestProviderCallEnd_BlockedTurnIsNotReasked(t *testing.T) {
 				}
 			}
 			require.NotNil(t, reply)
-			assert.True(t, isMarkedBlockedInput(reply), "the blocked message is the turn's reply")
+			assert.True(t, history.IsMarkedBlockedInput(reply), "the blocked message is the turn's reply")
 			assert.NotContains(t, reply.Content, "found", "the re-ask did not replace it")
 			if round == 1 {
 				assert.NotContains(t, provider.requestTexts(), secret, "the blocked input never reached the model")

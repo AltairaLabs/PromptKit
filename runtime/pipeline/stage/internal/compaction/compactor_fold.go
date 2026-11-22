@@ -1,4 +1,4 @@
-package stage
+package compaction
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ func (r *foldToolResultsRule) CanFold(msg *types.Message, _ int, _ *CompactionCo
 		return false
 	}
 	content := msg.GetContent()
-	if len(content) < minCompactableBytes || strings.Contains(content, compactedMarker) {
+	if len(content) < minCompactableBytes || strings.Contains(content, CompactedMarker) {
 		return false
 	}
 	return true
@@ -67,7 +67,7 @@ func foldToolResult(msg *types.Message) string {
 			}
 		}
 		return fmt.Sprintf("[%s: %d parts, %d bytes %s]",
-			name, len(msg.Parts), totalBytes, compactedMarker)
+			name, len(msg.Parts), totalBytes, CompactedMarker)
 	}
 
 	// Text-only: preview + size
@@ -80,5 +80,5 @@ func foldToolResult(msg *types.Message) string {
 	}
 
 	return fmt.Sprintf("[%s: %s — %d bytes %s]",
-		name, preview, originalBytes, compactedMarker)
+		name, preview, originalBytes, CompactedMarker)
 }

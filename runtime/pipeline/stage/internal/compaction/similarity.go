@@ -1,7 +1,8 @@
-package stage
+package compaction
 
 import (
 	"math"
+	"slices"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -96,14 +97,5 @@ func BatchEmbeddingTexts(texts []string, batchSize int) [][]string {
 	if batchSize <= 0 {
 		return [][]string{texts}
 	}
-
-	var batches [][]string
-	for i := 0; i < len(texts); i += batchSize {
-		end := i + batchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
-		batches = append(batches, texts[i:end])
-	}
-	return batches
+	return slices.Collect(slices.Chunk(texts, batchSize))
 }

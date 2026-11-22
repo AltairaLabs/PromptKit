@@ -1,4 +1,4 @@
-package stage
+package compaction
 
 import (
 	"math"
@@ -241,5 +241,24 @@ func TestScoredMessage_Fields(t *testing.T) {
 	}
 	if scored.Message.Role != "user" {
 		t.Errorf("Expected Role 'user', got %s", scored.Message.Role)
+	}
+}
+
+// Equal scores, or equal indices, are not ordered: Less is strict, as
+// sort.Interface requires.
+func TestScoredMessages_LessIsStrict(t *testing.T) {
+	tied := ScoredMessages{{Index: 0, Score: 0.5}, {Index: 1, Score: 0.5}}
+	if tied.Less(0, 1) || tied.Less(1, 0) {
+		t.Fatal("equal scores must not order either way")
+	}
+	if !(ScoredMessages{{Score: 0.9}, {Score: 0.1}}).Less(0, 1) {
+		t.Fatal("a higher score sorts first")
+	}
+	same := ByOriginalIndex{{Index: 2}, {Index: 2}}
+	if same.Less(0, 1) {
+		t.Fatal("equal indices must not order")
+	}
+	if !(ByOriginalIndex{{Index: 1}, {Index: 2}}).Less(0, 1) {
+		t.Fatal("a lower index sorts first")
 	}
 }

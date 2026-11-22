@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/heard"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/stt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
@@ -1108,7 +1109,7 @@ func (s *TTSStageWithInterruption) Process(
 			// can flush too.
 			canceller.Refresh()
 			reply.interrupted()
-			s.config.HeardReplies.settle()
+			heard.Settle(s.config.HeardReplies)
 			if s.interruption != nil {
 				s.interruption.Reset()
 			}

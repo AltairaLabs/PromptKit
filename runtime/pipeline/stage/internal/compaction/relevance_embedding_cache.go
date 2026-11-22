@@ -1,4 +1,4 @@
-package stage
+package compaction
 
 import (
 	"context"
@@ -18,7 +18,7 @@ type embeddingKey struct {
 	sum      [sha256.Size]byte
 }
 
-// embeddingCache holds the vectors relevance truncation computed on its most
+// EmbeddingCache holds the vectors relevance truncation computed on its most
 // recent call, for RelevanceConfig.CacheEmbeddings.
 //
 // It lives on the ContextBuilderStage, so it lasts as long as the stage does:
@@ -27,7 +27,7 @@ type embeddingKey struct {
 // used, so it never holds more than one call's texts, and a message that has
 // left the input (dropped from a hot window, edited, or a replaced query) is
 // released on the next call. Safe for concurrent use.
-type embeddingCache struct {
+type EmbeddingCache struct {
 	mu      sync.Mutex
 	vectors map[embeddingKey][]float32
 }
@@ -42,23 +42,8 @@ func embeddingIdentity(p providers.EmbeddingProvider) string {
 	return identity
 }
 
-// embedTexts returns one vector per text, in order. Without caching it makes a
-// single Embed call for every text. With caching it embeds only the texts
-// whose vectors the previous call did not already hold, then keeps this
-// call's vectors for the next one.
-func (s *ContextBuilderStage) embedTexts(
-	ctx context.Context,
-	cfg *RelevanceConfig,
-	texts []string,
-) ([][]float32, error) {
-	if !cfg.CacheEmbeddings {
-		return embedAll(ctx, cfg.EmbeddingProvider, texts)
-	}
-	return s.embedCache.embed(ctx, cfg.EmbeddingProvider, texts)
-}
-
-// embedAll embeds texts in one call and checks one vector came back per text.
-func embedAll(ctx context.Context, p providers.EmbeddingProvider, texts []string) ([][]float32, error) {
+// EmbedAll embeds texts in one call and checks one vector came back per text.
+func EmbedAll(ctx context.Context, p providers.EmbeddingProvider, texts []string) ([][]float32, error) {
 	resp, err := p.Embed(ctx, providers.EmbeddingRequest{Texts: texts})
 	if err != nil {
 		return nil, fmt.Errorf("embedding generation failed: %w", err)
@@ -70,10 +55,10 @@ func embedAll(ctx context.Context, p providers.EmbeddingProvider, texts []string
 	return resp.Embeddings, nil
 }
 
-// embed returns one vector per text, embedding only the cache misses (each
+// Embed returns one vector per text, embedding only the cache misses (each
 // distinct missing text once), and replaces the cache with this call's
 // vectors. On an embedding error the cache is left as it was.
-func (c *embeddingCache) embed(
+func (c *EmbeddingCache) Embed(
 	ctx context.Context,
 	p providers.EmbeddingProvider,
 	texts []string,
@@ -87,7 +72,7 @@ func (c *embeddingCache) embed(
 	found, missing, missingKeys := c.lookup(keys, texts)
 
 	if len(missing) > 0 {
-		vectors, err := embedAll(ctx, p, missing)
+		vectors, err := EmbedAll(ctx, p, missing)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +94,7 @@ func (c *embeddingCache) embed(
 
 // lookup splits keys into the vectors already cached and the distinct texts
 // still to embed. found is a fresh map, safe to fill without the lock.
-func (c *embeddingCache) lookup(
+func (c *EmbeddingCache) lookup(
 	keys []embeddingKey,
 	texts []string,
 ) (found map[embeddingKey][]float32, missing []string, missingKeys []embeddingKey) {
@@ -131,4 +116,12 @@ func (c *embeddingCache) lookup(
 		missingKeys = append(missingKeys, key)
 	}
 	return found, missing, missingKeys
+}
+
+// Len returns how many vectors the cache holds: those of its most recent
+// successful call.
+func (c *EmbeddingCache) Len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.vectors)
 }

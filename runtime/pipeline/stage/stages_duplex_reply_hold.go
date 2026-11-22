@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -471,7 +472,7 @@ func keepHeardReply(elem *StreamElement, h *duplexReplyHold) {
 	msg.Parts = replaceTextParts(msg.Parts, msg.Content)
 	keepHeardAudio(msg, h.heardAudio)
 	msg.FinishReason = fr
-	msg.Meta = mergeMeta(msg.Meta, map[string]interface{}{finishReasonMetaKey: fr})
+	msg.Meta = history.MergeMeta(msg.Meta, map[string]interface{}{finishReasonMetaKey: fr})
 }
 
 // heldAudioDropped tells a session that counts released audio that nothing
