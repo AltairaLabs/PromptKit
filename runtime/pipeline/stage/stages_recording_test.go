@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -252,9 +253,9 @@ func TestRecordingStage_SkipsEndOfStream(t *testing.T) {
 func TestRecordingStage_ContextCancellation(t *testing.T) {
 	// An element accepted after cancellation waits this long for a reader
 	// that never comes; the test is about the returned error, not the wait.
-	prev := canceledForwardTimeout
-	canceledForwardTimeout = 5 * time.Millisecond
-	t.Cleanup(func() { canceledForwardTimeout = prev })
+	prev := core.CanceledForwardTimeout
+	core.CanceledForwardTimeout = 5 * time.Millisecond
+	t.Cleanup(func() { core.CanceledForwardTimeout = prev })
 
 	store := &fakeEventStore{}
 	config := RecordingStageConfig{

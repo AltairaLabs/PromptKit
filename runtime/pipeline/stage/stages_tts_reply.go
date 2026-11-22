@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -73,7 +74,7 @@ func (s *TTSStageWithInterruption) speakStreamedMessage(
 		s.awaitPlayout(synthCtx, reply, reply.playout.endOf(elem.Message.ID()))
 	}
 	out := *elem
-	now := s.clock.now()
+	now := s.clock.Now()
 	cutAt := reply.interruptedAt(now)
 	end := reply.playout.endOf(elem.Message.ID())
 	if s.config.NoPlaybackPacing {
@@ -164,11 +165,11 @@ func (s *TTSStageWithInterruption) awaitPlayout(ctx context.Context, reply *repl
 // and so does every wait once the input has ended (ended): the session is
 // ending, so the reply is no longer paced to its playback.
 func (s *TTSStageWithInterruption) waitUntil(ctx context.Context, ended <-chan struct{}, t time.Time) bool {
-	if !t.After(s.clock.now()) {
+	if !t.After(s.clock.Now()) {
 		return ctx.Err() == nil
 	}
 	select {
-	case <-s.clock.until(t):
+	case <-s.clock.Until(t):
 	case <-ended:
 	case <-ctx.Done():
 	}
@@ -284,7 +285,7 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 	// The caller plays this after it is handed over, so the bot is still
 	// speaking, and interruptible, until it would have finished.
 	d := audio.PCM16Duration(len(samples), sampleRate, 1)
-	reply.playout.add(text, reply.round, first, s.clock.now(), d)
+	reply.playout.add(text, reply.round, first, s.clock.Now(), d)
 	// Without playback pacing the caller does not play the audio in real
 	// time, so it opens no window in which caller speech interrupts it.
 	if s.interruption != nil && !s.config.NoPlaybackPacing {
@@ -293,7 +294,7 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 	return s.forwardElement(ctx, out, output)
 }
 
-// queueCancelingOnInterrupt is drainCancelingOnInterrupt with an unbounded
+// queueCancelingOnInterrupt is DrainCancelingOnInterrupt with an unbounded
 // queue: input is always read, so a reply that streams faster than it is
 // spoken never holds up the provider stage, and an Interrupt behind it is seen
 // (and cancels the turn) at once. Order is preserved.
@@ -305,7 +306,7 @@ func (s *TTSStageWithInterruption) emitSegmentAudio(
 // has stopped reading (stopped), reading the input to its end so upstream is
 // not blocked.
 func queueCancelingOnInterrupt(
-	ctx context.Context, input <-chan StreamElement, work chan<- StreamElement, c *turnCanceller,
+	ctx context.Context, input <-chan StreamElement, work chan<- StreamElement, c *core.TurnCanceller,
 	now func() time.Time, ended chan<- struct{}, stopped <-chan struct{},
 ) {
 	defer close(work)
@@ -352,14 +353,14 @@ func (q *elementQueue) open() bool { return q.in != nil || len(q.items) > 0 }
 
 // receive takes what a read of the input returned. An Interrupt cancels the
 // turn at once, ahead of the elements queued before it.
-func (q *elementQueue) receive(elem StreamElement, ok bool, c *turnCanceller) {
+func (q *elementQueue) receive(elem StreamElement, ok bool, c *core.TurnCanceller) {
 	if !ok {
 		q.in = nil
 		q.endInput()
 		return
 	}
 	if elem.Interrupt {
-		c.interruptAt(q.now())
+		c.InterruptAt(q.now())
 	}
 	q.items = append(q.items, elem)
 }

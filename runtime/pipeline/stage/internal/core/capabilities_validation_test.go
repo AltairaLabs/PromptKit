@@ -1,4 +1,4 @@
-package stage
+package core
 
 import (
 	"bytes"
@@ -189,11 +189,11 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 
 const mismatchMarker = "Pipeline format mismatch"
 
-// A pipeline whose connected stages cannot exchange data builds, but the
-// builder warns once per incompatibility, naming the edge. The warning is the
-// only signal a host gets before runtime, so each mismatch kind must produce
-// its own message and a compatible graph must produce none.
-func TestPipelineBuilder_WarnsOnFormatMismatch(t *testing.T) {
+// Connected stages that cannot exchange data get one warning per
+// incompatibility, naming the edge. The warning is the only signal a host gets
+// before runtime (the pipeline builder logs it), so each mismatch kind must
+// produce its own message and a compatible graph must produce none.
+func TestValidateCapabilities_WarnsOnFormatMismatch(t *testing.T) {
 	audio := func(c AudioCapability) Capabilities {
 		return Capabilities{ContentTypes: []ContentType{ContentTypeAudio}, Audio: &c}
 	}
@@ -256,10 +256,7 @@ func TestPipelineBuilder_WarnsOnFormatMismatch(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf := captureWarnings(t)
-			_, err := NewPipelineBuilder().Chain(tt.from, tt.to).Build()
-			if err != nil {
-				t.Fatalf("Build: %v", err)
-			}
+			ValidateCapabilities([]Stage{tt.from, tt.to}, map[string][]string{tt.from.Name(): {tt.to.Name()}})
 			log := buf.String()
 			if tt.wantNone {
 				if strings.Contains(log, mismatchMarker) {
@@ -296,5 +293,15 @@ func TestValidateCapabilities_OnlyChecksConnectedStages(t *testing.T) {
 	ValidateCapabilities([]Stage{a, b}, map[string][]string{"stage-a": {"stage-b"}})
 	if !strings.Contains(buf.String(), "content type incompatibility") {
 		t.Fatalf("edge a->b should warn; got: %s", buf.String())
+	}
+}
+
+// Stages that declare no formats at all are compatible: no warning.
+func TestValidateCapabilities_UndeclaredStagesAreCompatible(t *testing.T) {
+	buf := captureWarnings(t)
+	a, b := NewPassthroughStage("stage-a"), NewPassthroughStage("stage-b")
+	ValidateCapabilities([]Stage{a, b}, map[string][]string{"stage-a": {"stage-b"}})
+	if buf.Len() != 0 {
+		t.Fatalf("undeclared stages logged: %s", buf.String())
 	}
 }

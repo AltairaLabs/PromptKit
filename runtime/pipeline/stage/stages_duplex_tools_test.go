@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
@@ -604,13 +605,13 @@ func TestDuplexTools_ExecutesCallAndSendsRegistryResult(t *testing.T) {
 	// the call's result, then the reply the result produced.
 	require.Len(t, elems, 3)
 	require.NotNil(t, elems[0].Message)
-	assert.Equal(t, roleAssistant, elems[0].Message.Role)
+	assert.Equal(t, core.RoleAssistant, elems[0].Message.Role)
 	assert.Equal(t, []types.MessageToolCall{weatherCall("c1")}, elems[0].Message.ToolCalls)
 	assert.Equal(t, []int{1}, seenOutput, "the assistant element was emitted before the call ran")
 	require.NotNil(t, elems[1].Message)
 	assert.Equal(t, "tool", elems[1].Message.Role)
 	require.NotNil(t, elems[2].Message)
-	assert.Equal(t, roleAssistant, elems[2].Message.Role)
+	assert.Equal(t, core.RoleAssistant, elems[2].Message.Role)
 	assert.Equal(t, "It is 21 degrees", elems[2].Message.Content)
 
 	results := toolResultMessages(elems)
@@ -739,7 +740,7 @@ func TestDuplexTools_MaxRoundsRefusesUntilTheNextTurn(t *testing.T) {
 
 	// The next user turn starts a new tool turn: its call runs.
 	h.awaitToolTurnEnded() // by "giving up"
-	user := types.Message{Role: roleUser, Content: "and tomorrow?"}
+	user := types.Message{Role: core.RoleUser, Content: "and tomorrow?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	h.emit(toolCallTurn(weatherCall("c4")))
@@ -921,7 +922,7 @@ func TestDuplexTools_ProviderCallTiming(t *testing.T) {
 		replyDelay: replyTime,
 	})
 
-	user := types.Message{Role: roleUser, Content: "weather?"}
+	user := types.Message{Role: core.RoleUser, Content: "weather?"}
 	h.input <- StreamElement{Message: &user}
 	require.Eventually(t, func() bool {
 		evMu.Lock()
@@ -1088,8 +1089,8 @@ func TestDuplexTools_CostBudgetSpansTheSession(t *testing.T) {
 			registry: newWeatherRegistry(t, exec),
 			policy:   &pipeline.ToolPolicy{MaxCostUSD: 0.05},
 			history: []types.Message{
-				{Role: roleUser, Content: "hi"},
-				{Role: roleAssistant, Content: "hello", CostInfo: &types.CostInfo{TotalCost: 0.04}},
+				{Role: core.RoleUser, Content: "hi"},
+				{Role: core.RoleAssistant, Content: "hello", CostInfo: &types.CostInfo{TotalCost: 0.04}},
 			},
 		})
 		h.emit(toolTurn())
@@ -1150,7 +1151,7 @@ func TestDuplexTools_NewUserTurnDuringRound(t *testing.T) {
 	h.emit(toolCallTurn(weatherCall("c1")))
 	require.Eventually(t, func() bool { return len(exec.calls()) == 1 }, 2*time.Second, time.Millisecond)
 	earlier := h.toolTurn()
-	user := types.Message{Role: roleUser, Content: "actually, Rome"}
+	user := types.Message{Role: core.RoleUser, Content: "actually, Rome"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(earlier)
 	close(exec.gate)
@@ -1264,7 +1265,7 @@ func TestDuplexTools_ToolCallOnlyReplyAfterBargeInIsAnswered(t *testing.T) {
 			var calls [][]types.MessageToolCall
 			var replies []string
 			for _, e := range elems {
-				if e.Message == nil || e.Message.Role != roleAssistant {
+				if e.Message == nil || e.Message.Role != core.RoleAssistant {
 					continue
 				}
 				if len(e.Message.ToolCalls) > 0 {
@@ -1567,12 +1568,12 @@ func TestDuplexTools_BlockedTypedTurnOpensNoProviderCall(t *testing.T) {
 			text := "something off topic"
 			elem := StreamElement{Text: &text}
 			if withMessage {
-				elem.Message = &types.Message{Role: roleUser, Content: text}
+				elem.Message = &types.Message{Role: core.RoleUser, Content: text}
 			}
 			h.input <- elem
 			require.Eventually(t, func() bool {
 				for _, e := range h.stage.history.snapshot() {
-					if e.Role == roleAssistant && e.Content == "Not here." {
+					if e.Role == core.RoleAssistant && e.Content == "Not here." {
 						return true
 					}
 				}
@@ -1880,7 +1881,7 @@ func TestDuplexTools_RunnerWithoutOfferStateIsAnEmptyOffer(t *testing.T) {
 	r.resetOffered()
 	r.recordOffered("weather")
 	assert.Nil(t, r.offeredToolNames())
-	msg := types.Message{Role: roleAssistant}
+	msg := types.Message{Role: core.RoleAssistant}
 	r.stampToolsOffered(&msg)
 	assert.Nil(t, msg.Meta)
 	r.markBuilt(nil)

@@ -1,12 +1,11 @@
-package stage
+package core
 
 import (
 	"context"
 )
 
-const (
-	unknownType = "unknown"
-)
+// UnknownType is the String of a value outside its type's known set.
+const UnknownType = "unknown"
 
 // Stage is a processing unit in the pipeline DAG.
 // Unlike traditional middleware, stages explicitly declare their I/O characteristics
@@ -95,8 +94,6 @@ type MultiOutputStage interface {
 }
 
 // StageType defines the processing model of a stage.
-//
-//nolint:revive // Intentionally named StageType for clarity; stage.Type would be too generic
 type StageType int
 
 const (
@@ -140,7 +137,7 @@ func (st StageType) String() string {
 	case StageTypeBidirectional:
 		return "bidirectional"
 	default:
-		return unknownType
+		return UnknownType
 	}
 }
 
@@ -171,8 +168,6 @@ func (b *BaseStage) Type() StageType {
 
 // StageFunc is a functional adapter that allows using a function as a Stage.
 // This is useful for simple transformations without defining a new type.
-//
-//nolint:revive // Intentionally named StageFunc for clarity; stage.Func would be unclear
 type StageFunc struct {
 	BaseStage
 	processFunc func(context.Context, <-chan StreamElement, chan<- StreamElement) error

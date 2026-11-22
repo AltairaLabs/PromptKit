@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -12,9 +13,6 @@ const (
 	// defaultLargeConversationThreshold is the message count above which
 	// a warning is logged if no token budget is configured.
 	defaultLargeConversationThreshold = 100
-
-	// roleSystem is the role identifier for system messages.
-	roleSystem = "system"
 )
 
 // TokenBudgetConfig configures the TokenBudgetStage.
@@ -129,7 +127,7 @@ func (s *TokenBudgetStage) Process(
 // turn-failure signal.
 func hasTurnFailureSignal(elems []StreamElement) bool {
 	for i := range elems {
-		if isTurnFailureSignal(&elems[i]) {
+		if core.IsTurnFailureSignal(&elems[i]) {
 			return true
 		}
 	}
@@ -260,7 +258,7 @@ func (s *TokenBudgetStage) truncateMessages(
 
 	systemTokens := 0
 	for i := range messages {
-		if messages[i].Role == roleSystem {
+		if messages[i].Role == core.RoleSystem {
 			systemMsgs = append(systemMsgs, messages[i])
 			systemTokens += tokenCounts[i]
 		} else {

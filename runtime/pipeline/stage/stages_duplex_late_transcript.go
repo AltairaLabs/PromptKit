@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -104,7 +105,7 @@ func (s *DuplexProviderStage) placeFinalTranscript(
 func (s *DuplexProviderStage) emitLateUserTurn(
 	ctx context.Context, text, inputID string, output chan<- StreamElement,
 ) error {
-	user := &types.Message{Role: roleUser, Content: text,
+	user := &types.Message{Role: core.RoleUser, Content: text,
 		Parts: []types.ContentPart{{Type: types.ContentTypeText, Text: &text}}}
 	toolTurn, pos := s.late.owedToolTurn, s.late.owedHistPos
 	s.late.userShown(text, false)

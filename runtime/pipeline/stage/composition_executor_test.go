@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -540,7 +541,7 @@ func TestCompositionExecutor_TextStepNullLiteralEncodedAsString(t *testing.T) {
 func runStageOverChannel(t *testing.T, s Stage) {
 	t.Helper()
 	in := make(chan StreamElement, 1)
-	in <- NewMessageElement(&types.Message{Role: roleUser, Content: "x"})
+	in <- NewMessageElement(&types.Message{Role: core.RoleUser, Content: "x"})
 	close(in)
 	out := make(chan StreamElement, 1)
 	done := make(chan error, 1)

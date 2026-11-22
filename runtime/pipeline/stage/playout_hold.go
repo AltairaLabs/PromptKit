@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -17,19 +18,6 @@ const playoutCueItem = "cue"
 // playoutHoldPoll bounds how long the stage sleeps before rechecking a
 // playout end that moved (more audio arrived).
 const playoutHoldPoll = 250 * time.Millisecond
-
-// holdClock is the stage's time source; tests replace it.
-type holdClock struct {
-	now func() time.Time
-	// until delivers on the channel once the clock reaches deadline (at once
-	// if it already has). It takes a time, not a duration, so time that moves
-	// between the stage reading the clock and arming the wait is not lost.
-	until func(deadline time.Time) <-chan time.Time
-}
-
-var realHoldClock = holdClock{now: time.Now, until: func(deadline time.Time) <-chan time.Time {
-	return time.After(time.Until(deadline))
-}}
 
 // PlayoutHoldStage keeps a realtime reply out of the transcript until the
 // caller has heard it. A realtime model sends a reply's audio faster than it
@@ -63,12 +51,12 @@ var realHoldClock = holdClock{now: time.Now, until: func(deadline time.Time) <-c
 // A reply without audio, with nothing held ahead of it, passes unchanged.
 type PlayoutHoldStage struct {
 	BaseStage
-	clock holdClock
+	clock core.HoldClock
 }
 
 // NewPlayoutHoldStage creates a playout hold stage.
 func NewPlayoutHoldStage() *PlayoutHoldStage {
-	return &PlayoutHoldStage{BaseStage: NewBaseStage("playout-hold", StageTypeTransform), clock: realHoldClock}
+	return &PlayoutHoldStage{BaseStage: NewBaseStage("playout-hold", StageTypeTransform), clock: core.RealHoldClock}
 }
 
 // heldMessage is a Message awaiting release; reply is set for a reply whose
@@ -81,14 +69,14 @@ type heldMessage struct {
 
 // playoutHold is one Process run's state.
 type playoutHold struct {
-	clock   holdClock
+	clock   core.HoldClock
 	playout *audio.Playout
 	// seq keys the audio of the reply now arriving; audio is each reply's
 	// total.
 	seq   int
 	audio map[int]time.Duration
 	held  []heldMessage
-	fwd   cancelForwarder
+	fwd   core.CancelForwarder
 	// cut is the cut of the reply still arriving (an Interrupt before its
 	// Message): its Message, when it comes, records it and is not held.
 	cut *replyCut
@@ -104,18 +92,18 @@ type replyCut struct {
 // Process implements the Stage interface. A held Message is never lost: on
 // input close or cancellation everything held is released, with what was
 // heard, before Process returns, and after cancellation the input is still
-// read to its end (the hand-off is bounded, see cancelForwarder).
+// read to its end (the hand-off is bounded, see CancelForwarder).
 func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error {
 	defer close(output)
-	h := &playoutHold{clock: s.clock, playout: audio.NewPlayout(s.clock.now), audio: map[int]time.Duration{}}
+	h := &playoutHold{clock: s.clock, playout: audio.NewPlayout(s.clock.Now), audio: map[int]time.Duration{}}
 	for {
 		if len(h.held) > 0 && !h.playout.Playing() {
 			h.release(ctx, output, nil, "")
 		}
 		var wake <-chan time.Time
 		if len(h.held) > 0 {
-			now := h.clock.now()
-			wake = h.clock.until(minTime(h.playout.End(), now.Add(playoutHoldPoll)))
+			now := h.clock.Now()
+			wake = h.clock.Until(minTime(h.playout.End(), now.Add(playoutHoldPoll)))
 		}
 		select {
 		case elem, ok := <-input:
@@ -128,7 +116,7 @@ func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamEleme
 		case <-ctx.Done():
 			h.release(ctx, output, h.playout.Stop(), types.PlayoutCutSessionClosed)
 			for elem := range input {
-				h.fwd.forward(ctx, output, elem)
+				h.fwd.Forward(ctx, output, elem)
 			}
 			return ctx.Err()
 		}
@@ -156,11 +144,11 @@ func (h *playoutHold) handle(ctx context.Context, elem StreamElement, output cha
 		}
 	}
 	if h.takeCut(&elem) {
-		h.fwd.forward(ctx, output, elem)
+		h.fwd.Forward(ctx, output, elem)
 		return
 	}
 	heldReply := h.hold(&elem)
-	h.fwd.forward(ctx, output, elem)
+	h.fwd.Forward(ctx, output, elem)
 	switch {
 	case elem.Meta.Interrupted:
 		// The playback stopped: what was held is released with what was heard.
@@ -204,7 +192,7 @@ func (h *playoutHold) interrupt(ctx context.Context, output chan<- StreamElement
 // held: it no longer plays. It reports whether elem was that reply.
 func (h *playoutHold) takeCut(elem *StreamElement) bool {
 	msg := elem.Message
-	if h.cut == nil || h.cut.key != h.seq || msg == nil || msg.Role != roleAssistant ||
+	if h.cut == nil || h.cut.key != h.seq || msg == nil || msg.Role != core.RoleAssistant ||
 		!(elem.EndOfStream || elem.Meta.Interrupted) {
 		return false
 	}
@@ -228,12 +216,12 @@ func (h *playoutHold) hold(elem *StreamElement) bool {
 	if msg == nil || elem.Meta.PlayoutRelease {
 		return false
 	}
-	reply := msg.Role == roleAssistant && (elem.EndOfStream || elem.Meta.Interrupted) && h.audio[h.seq] > 0
+	reply := msg.Role == core.RoleAssistant && (elem.EndOfStream || elem.Meta.Interrupted) && h.audio[h.seq] > 0
 	if !reply && len(h.held) == 0 {
 		return false
 	}
 	if elem.Timestamp.IsZero() {
-		elem.Timestamp = h.clock.now() // its place in the recording is now, not its release
+		elem.Timestamp = h.clock.Now() // its place in the recording is now, not its release
 	}
 	h.held = append(h.held, heldMessage{elem: *elem, reply: reply, key: h.seq})
 	if reply {
@@ -267,7 +255,7 @@ func (h *playoutHold) release(ctx context.Context, output chan<- StreamElement, 
 		out.Meta.LateTranscript = m.elem.Meta.LateTranscript
 		out.Meta.CallerTurn = m.elem.Meta.CallerTurn
 		out.Meta.AwaitsTranscript = m.elem.Meta.AwaitsTranscript
-		h.fwd.forward(ctx, output, out)
+		h.fwd.Forward(ctx, output, out)
 		if m.reply {
 			delete(h.audio, m.key)
 		}

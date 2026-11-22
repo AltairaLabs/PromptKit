@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
@@ -147,7 +148,7 @@ func (s *TTSStage) extractText(elem *StreamElement) string {
 	// Only the assistant is spoken — a user transcript or tool result reaching a
 	// speech-out stage is data for later stages, not a line to read aloud. See
 	// TTSStageWithInterruption.extractText for the topology that proved this.
-	if elem.Message != nil && elem.Message.Role == roleAssistant {
+	if elem.Message != nil && elem.Message.Role == core.RoleAssistant {
 		// Extract text from message content
 		if elem.Message.Content != "" {
 			return elem.Message.Content

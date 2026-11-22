@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -186,10 +187,10 @@ func (s *MemoryExtractionStage) Process(
 	}
 
 	// A canceled turn's partial reply and error must still reach the stages
-	// after this one; see cancelForwarder.
-	var fwd cancelForwarder
+	// after this one; see CancelForwarder.
+	var fwd core.CancelForwarder
 	for i := range pending {
-		fwd.forward(ctx, output, pending[i])
+		fwd.Forward(ctx, output, pending[i])
 	}
 	return ctx.Err()
 }

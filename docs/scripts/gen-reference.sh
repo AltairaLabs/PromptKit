@@ -57,7 +57,9 @@ SPLICE=("./pipeline/stage")
 # name. splice-aliases.py fails rather than guess when two share a name.
 internal_dirs() {
   local mod
-  mod="$(go -C "$ROOT/runtime" list -m)"
+  # The package's own module: `go list -m` would print every module of the
+  # workspace (go.work), and the pattern below would then match nothing.
+  mod="$(go -C "$ROOT/runtime" list -f '{{.Module.Path}}' "$1")"
   go -C "$ROOT/runtime" list -f '{{join .Imports "\n"}}' "$1" |
     { grep "^$mod/${1#./}/internal/" || true; } | sed "s#^$mod/#./#"
 }

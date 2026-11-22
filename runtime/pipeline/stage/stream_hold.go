@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/segment"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -382,7 +383,7 @@ func (s *ProviderStage) awaitPartialVerdicts(
 	ctx context.Context, rs *roundStream,
 ) (got streamedRound, done bool, err error) {
 	// Waiting on a judge is activity, not idle silence.
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 	for rs.hold.inFlight() {
 		select {
 		case v := <-rs.hold.results:
@@ -476,7 +477,7 @@ func (s *ProviderStage) releaseHeld(ctx context.Context, rs *roundStream, finish
 		elem := textDeltaElement(text, finish)
 		elem.Meta.SegmentEnd = last || slices.Contains(rs.hold.seg.Segments(), rs.text.sent.Len())
 		elem.Meta.MessageID = rs.rr.messageID
-		if err := sendStreamElement(ctx, elem, rs.output); err != nil {
+		if err := core.SendStreamElement(ctx, elem, rs.output); err != nil {
 			return err
 		}
 		if s.emitter != nil {
@@ -531,7 +532,7 @@ func (s *ProviderStage) finishStreamedText(
 		}
 		elem := textDeltaElement(rest, &fr)
 		elem.Meta.MessageID = msg.ID()
-		return sendStreamElement(ctx, elem, output)
+		return core.SendStreamElement(ctx, elem, output)
 	}
 	if msg.Content == "" {
 		return nil
@@ -539,7 +540,7 @@ func (s *ProviderStage) finishStreamedText(
 	elem := textDeltaElement(msg.Content, &fr)
 	elem.Meta.ReplacesText = true
 	elem.Meta.MessageID = msg.ID()
-	return sendStreamElement(ctx, elem, output)
+	return core.SendStreamElement(ctx, elem, output)
 }
 
 // streamHoldRequest is the request a round's stream_hold guardrails judge

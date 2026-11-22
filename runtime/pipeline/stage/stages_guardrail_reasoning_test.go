@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -14,7 +15,7 @@ import (
 // thoughtful is an assistant reply that carries the model's reasoning.
 func thoughtful() *types.Message {
 	return &types.Message{
-		Role: roleAssistant, Content: "the banned answer",
+		Role: core.RoleAssistant, Content: "the banned answer",
 		Reasoning: &types.ReasoningTrace{
 			Text:   "reasoning toward the banned answer",
 			Opaque: []types.OpaqueReasoning{{Provider: "claude", Kind: "thinking_signature", Data: "sig"}},

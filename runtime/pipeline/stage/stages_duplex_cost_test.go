@@ -15,6 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -36,7 +37,7 @@ func usd(in, out int) *types.CostInfo {
 func costedReplies(elems []StreamElement) []*types.Message {
 	var out []*types.Message
 	for _, e := range elems {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			out = append(out, e.Message)
 		}
 	}
@@ -213,7 +214,7 @@ func TestDuplexCost_InterruptedCompletionAfterTheNextTurnBegins(t *testing.T) {
 	h, ev := costHarness(t, 0)
 	h.emit(gen(1, []providers.StreamChunk{{Content: "Once upon", Delta: "Once upon"}, {Interrupted: true}}))
 	ev.await(t, 1, 0) // the interrupted call has completed
-	user := types.Message{Role: roleUser, Content: "stop, tell me about Rome"}
+	user := types.Message{Role: core.RoleUser, Content: "stop, tell me about Rome"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	h.emit(gen(1, []providers.StreamChunk{{FinishReason: &stop, CostInfo: usd(50, 3)}}))
@@ -309,7 +310,7 @@ func TestDuplexCost_InterruptedPartialCarriesItsCost(t *testing.T) {
 // A call open when the session ends, with no reply, still completes.
 func TestDuplexCost_OpenCallCompletesOnClose(t *testing.T) {
 	h, ev := costHarness(t, 0)
-	user := types.Message{Role: roleUser, Content: "hello?"}
+	user := types.Message{Role: core.RoleUser, Content: "hello?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	h.finish()
@@ -339,7 +340,7 @@ func TestDuplexCost_CarriedCostGoesOnTheBlockedTurnFlushedAtClose(t *testing.T) 
 
 	var got []string
 	for e := range out {
-		if e.EndOfStream && e.Message != nil && e.Message.Role == roleAssistant {
+		if e.EndOfStream && e.Message != nil && e.Message.Role == core.RoleAssistant {
 			cost := "none"
 			if e.Message.CostInfo != nil {
 				cost = fmt.Sprintf("%d/%d", e.Message.CostInfo.InputTokens, e.Message.CostInfo.OutputTokens)
@@ -355,7 +356,7 @@ func TestDuplexCost_CarriedCostGoesOnTheBlockedTurnFlushedAtClose(t *testing.T) 
 // turn; the cost goes on the next message.
 func TestDuplexCost_TurnEndWithoutAMessageCompletesItsCall(t *testing.T) {
 	h, ev := costHarness(t, 0)
-	user := types.Message{Role: roleUser, Content: "hello?"}
+	user := types.Message{Role: core.RoleUser, Content: "hello?"}
 	h.input <- StreamElement{Message: &user}
 	h.awaitNewToolTurn(nil)
 	stop := "stop"

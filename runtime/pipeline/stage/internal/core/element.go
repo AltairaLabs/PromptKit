@@ -1,4 +1,4 @@
-package stage
+package core
 
 import (
 	"context"
@@ -117,7 +117,7 @@ type StreamElement struct {
 	// is the error it was recorded for. The pipeline sets them as the element
 	// leaves that stage, so the turn's failure is matched to the elements its
 	// own stage emitted. A stage that replaces Error makes the tag stale, and
-	// the element is tagged again as it leaves that stage (see errorSourceOf).
+	// the element is tagged again as it leaves that stage (see ErrorSource).
 	errorStage  string
 	errorTagged error
 }
@@ -167,7 +167,7 @@ const (
 
 // Bytes-per-sample for fixed-rate uncompressed audio formats.
 const (
-	bytesPerSamplePCM16   = 2
+	BytesPerSamplePCM16   = 2
 	bytesPerSampleFloat32 = 4
 )
 
@@ -197,7 +197,7 @@ func (af AudioFormat) String() string {
 func (af AudioFormat) BytesPerSample() int {
 	switch af {
 	case AudioFormatPCM16:
-		return bytesPerSamplePCM16
+		return BytesPerSamplePCM16
 	case AudioFormatFloat32:
 		return bytesPerSampleFloat32
 	case AudioFormatOpus, AudioFormatMP3, AudioFormatAAC:
@@ -482,8 +482,8 @@ func (e *StreamElement) WithSequence(seq int64) *StreamElement {
 	return e
 }
 
-// timeNow is a helper function that returns the current time.
+// TimeNow is a helper function that returns the current time.
 // It's extracted for easier testing (can be mocked).
-func timeNow() time.Time {
+func TimeNow() time.Time {
 	return time.Now()
 }

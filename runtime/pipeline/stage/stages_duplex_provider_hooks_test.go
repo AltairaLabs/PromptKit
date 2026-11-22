@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
@@ -99,7 +100,7 @@ func transcriptChunk(text string, audio []byte) providers.StreamChunk {
 func turnMessage(t *testing.T, elems []StreamElement) (*types.Message, StreamElement) {
 	t.Helper()
 	for _, e := range elems {
-		if e.EndOfStream && e.Message != nil && e.Message.Role == roleAssistant {
+		if e.EndOfStream && e.Message != nil && e.Message.Role == core.RoleAssistant {
 			return e.Message, e
 		}
 	}
@@ -365,7 +366,7 @@ func TestDuplexHooks_HistoryHoldsSpokenUserTurns(t *testing.T) {
 
 	out := make(chan StreamElement, 4)
 	require.False(t, s.handleInputElement(context.Background(),
-		&StreamElement{Message: &types.Message{Role: roleUser, Content: "from scenario"}},
+		&StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "from scenario"}},
 		out, make(chan error, 1)))
 	_, err := feedChunks(t, s,
 		providers.StreamChunk{Metadata: map[string]interface{}{
@@ -457,7 +458,7 @@ func TestDuplexHooks_ScenarioUserTurnGetsItsTranscript(t *testing.T) {
 	h := &capturingHook{}
 	s, _, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(h)))
 	turnID := "t1"
-	user := StreamElement{Message: &types.Message{Role: roleUser}}
+	user := StreamElement{Message: &types.Message{Role: core.RoleUser}}
 	user.Meta.TurnID = &turnID
 	require.False(t, s.handleInputElement(context.Background(), &user, make(chan StreamElement, 4), make(chan error, 1)))
 
@@ -683,7 +684,7 @@ func TestDuplexHooks_UserTurnsKeepSendOrderAroundBlockedTurn(t *testing.T) {
 	_, err := feedChunks(t, s, providers.StreamChunk{Content: "reply A"})
 	require.NoError(t, err)
 	for _, text := range []string{"B", "C"} {
-		elem := StreamElement{Text: &text, Message: &types.Message{Role: roleUser, Content: text}}
+		elem := StreamElement{Text: &text, Message: &types.Message{Role: core.RoleUser, Content: text}}
 		require.False(t, s.handleInputElement(context.Background(), &elem,
 			make(chan StreamElement, 4), make(chan error, 1)))
 	}
@@ -836,7 +837,7 @@ func TestDuplexHooks_BlockedTurnEmittedBeforeNextReply(t *testing.T) {
 func assertTypedUserTurn(t *testing.T, elem StreamElement, text string) {
 	t.Helper()
 	require.NotNil(t, elem.Message, "expected the user's turn")
-	assert.Equal(t, roleUser, elem.Message.Role)
+	assert.Equal(t, core.RoleUser, elem.Message.Role)
 	assert.Equal(t, text, elem.Message.Content)
 	assert.Equal(t, TextInputTurnSource, elem.Source)
 	assert.Nil(t, elem.Text, "the user's text is not presented as output text")

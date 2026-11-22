@@ -1,4 +1,4 @@
-package stage
+package core
 
 import (
 	"errors"
@@ -94,19 +94,10 @@ var (
 	ErrTurnStateRequired = errors.New("stage requires a shared TurnState")
 )
 
-// buildValidator is implemented by stages that can tell, before the pipeline
-// runs, that they were constructed in a way that cannot work. Build calls it
-// on every stage and fails on the first error.
-type buildValidator interface {
-	validateBuild() error
-}
-
 // StageError wraps an error with stage information. The pipeline delivers a
 // failed stage's error to the caller as a *StageError, except for an error the
 // stage already emitted as an error element before returning it, which the caller
 // receives as emitted. errors.Is and errors.As see through it to the stage's error.
-//
-//nolint:revive // Intentionally named StageError for clarity; stage.Error would be too generic
 type StageError struct {
 	StageName string
 	StageType StageType

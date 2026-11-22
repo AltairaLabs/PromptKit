@@ -9,6 +9,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -392,7 +393,7 @@ func (s *DuplexProviderStage) settleGeneratedReply(ctx context.Context, output c
 		return s.cutReply(ctx, output)
 	}
 	h.judge.stop()
-	msg := &types.Message{Role: roleAssistant, Content: s.accumulatedText.String()}
+	msg := &types.Message{Role: core.RoleAssistant, Content: s.accumulatedText.String()}
 	if s.runTurnAfterCallHooks(ctx, msg, &StreamElement{}) {
 		s.turnGuard.validations = append(s.turnGuard.validations, msg.Validations...)
 		s.blockTurnWithMessage(types.Message{Content: msg.Content, Meta: msg.Meta})
@@ -492,7 +493,7 @@ func (s *DuplexProviderStage) failUntranscribedReply(ctx context.Context) bool {
 	}
 	d := hooks.Deny("the reply's audio has no transcript to judge")
 	s.turnGuard.validations = append(s.turnGuard.validations, types.ValidationResult{
-		ValidatorType: "stream_hold", Passed: false, Timestamp: timeNow(),
+		ValidatorType: "stream_hold", Passed: false, Timestamp: core.TimeNow(),
 		Details: map[string]interface{}{"reason": "no_transcript"},
 	})
 	s.noteBlock(d, hooks.DirectionOutput, s.replyGeneration())
@@ -617,7 +618,7 @@ func (s *DuplexProviderStage) awaitReplyVerdicts(ctx context.Context, output cha
 	}
 	h.ending = true
 	// Waiting on a judge is activity, not idle silence.
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 	for s.replyHold == h && h.judge.inFlight() {
 		select {
 		case v := <-h.judge.results:

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
@@ -364,7 +365,7 @@ func TestForwardInputElements_ForwardsMessagesToolResultsAndSignals(t *testing.T
 
 	// 1. User message with a turn_id -> forwarded to output, turn_id queued.
 	turnID := "turn-99"
-	userMsg := StreamElement{Message: &types.Message{Role: roleUser, Content: "hi"}}
+	userMsg := StreamElement{Message: &types.Message{Role: core.RoleUser, Content: "hi"}}
 	userMsg.Meta.TurnID = &turnID
 	input <- userMsg
 
@@ -376,7 +377,7 @@ func TestForwardInputElements_ForwardsMessagesToolResultsAndSignals(t *testing.T
 	// 3. Tool result messages -> forwarded to output.
 	trm := StreamElement{}
 	trm.Meta.ToolResultMessages = []types.Message{{
-		Role:       roleAssistant,
+		Role:       core.RoleAssistant,
 		Content:    "tool out",
 		ToolResult: &types.MessageToolResult{Name: "mytool"},
 	}}

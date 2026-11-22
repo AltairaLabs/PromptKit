@@ -17,6 +17,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/selection"
@@ -146,7 +147,7 @@ func (s *ProviderStage) turnIndex() int {
 func (s *ProviderStage) beginStreamTurn(history, pending []types.Message) int {
 	index := max(countUserTurns(history)+countUserTurns(pending)-1, 0)
 	s.streamTurn.Store(int64(index) + 1)
-	s.turnState.setCallerTurn(index)
+	core.SetCallerTurn(s.turnState, index)
 	return index
 }
 
@@ -672,7 +673,7 @@ type providerInput struct {
 	metadata      map[string]interface{}
 
 	// upstreamErrors are the error elements an upstream stage's failure put
-	// on the input (see isTurnFailureSignal). Any of them means the turn failed.
+	// on the input (see IsTurnFailureSignal). Any of them means the turn failed.
 	upstreamErrors []StreamElement
 }
 
@@ -684,18 +685,6 @@ func (acc *providerInput) promptTools() []string {
 		return acc.eligibleTools
 	}
 	return acc.allowedTools
-}
-
-// forwardUpstreamErrors passes a failed turn's error elements downstream.
-func forwardUpstreamErrors(ctx context.Context, elems []StreamElement, output chan<- StreamElement) error {
-	for i := range elems {
-		select {
-		case output <- elems[i]:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	return nil
 }
 
 // Process executes the LLM provider call and handles tool execution.
@@ -721,7 +710,7 @@ func (s *ProviderStage) Process(
 	// incomplete request, without its system prompt for one. Pass the
 	// failure on instead.
 	if len(accumulated.upstreamErrors) > 0 {
-		return forwardUpstreamErrors(ctx, accumulated.upstreamErrors, output)
+		return core.ForwardUpstreamErrors(ctx, accumulated.upstreamErrors, output)
 	}
 
 	logger.Debug("ProviderStage accumulated input",
@@ -746,7 +735,7 @@ func inputMessage(elem *StreamElement) *types.Message {
 	if elem.Text == nil || *elem.Text == "" || elem.Meta.SynthesizedSpeech || elem.Meta.StreamingDelta {
 		return nil
 	}
-	return &types.Message{Role: roleUser, Content: *elem.Text}
+	return &types.Message{Role: core.RoleUser, Content: *elem.Text}
 }
 
 // accumulateInput collects messages from the input channel and seeds
@@ -765,7 +754,7 @@ func (s *ProviderStage) accumulateInput(input <-chan StreamElement) *providerInp
 	}
 
 	for elem := range input {
-		if isTurnFailureSignal(&elem) {
+		if core.IsTurnFailureSignal(&elem) {
 			acc.upstreamErrors = append(acc.upstreamErrors, elem)
 		}
 		if msg := inputMessage(&elem); msg != nil {
@@ -827,7 +816,7 @@ func (s *ProviderStage) streamingTurnState() streamingConfig {
 // turns within the session. Other non-control elements (e.g. an Interrupt
 // arriving between turns) are forwarded downstream unchanged so later stages and
 // follow-up work (the barge-in path) can act on them. An upstream turn-failure
-// signal (see isTurnFailureSignal) drops the turn in progress and is passed on:
+// signal (see IsTurnFailureSignal) drops the turn in progress and is passed on:
 // the model is not called for a turn whose input an upstream failure cut short.
 func (s *ProviderStage) processStreaming(
 	ctx context.Context,
@@ -836,10 +825,10 @@ func (s *ProviderStage) processStreaming(
 ) error {
 	// A concurrent reader cancels in-flight generation the instant a barge-in
 	// Interrupt arrives, so a blocking provider call cannot swallow it.
-	canceller := newTurnCanceller(ctx)
-	defer canceller.stop()
-	work := make(chan StreamElement, interruptWorkBuffer)
-	go drainCancelingOnInterrupt(input, work, canceller)
+	canceller := core.NewTurnCanceller(ctx)
+	defer canceller.Stop()
+	work := make(chan StreamElement, core.InterruptWorkBuffer)
+	go core.DrainCancelingOnInterrupt(input, work, canceller)
 
 	var history []types.Message
 	var pending []types.Message
@@ -853,7 +842,7 @@ func (s *ProviderStage) processStreaming(
 	}
 
 	// Input closed without an explicit EndOfStream: fire any trailing turn.
-	_, err := s.fireIfPending(ctx, canceller.context(), &history, pending, output)
+	_, err := s.fireIfPending(ctx, canceller.Context(), &history, pending, output)
 	return err
 }
 
@@ -861,7 +850,7 @@ func (s *ProviderStage) processStreaming(
 // the pending input after it. stop is set when the session is over.
 func (s *ProviderStage) streamingStep(
 	ctx context.Context,
-	canceller *turnCanceller,
+	canceller *core.TurnCanceller,
 	history *[]types.Message,
 	pending []types.Message,
 	elem StreamElement,
@@ -874,31 +863,31 @@ func (s *ProviderStage) streamingStep(
 		// the reader. Drop the partial turn's input, roll a fresh context,
 		// and forward the Interrupt downstream, where the speech-out stage
 		// reports what was heard of the reply it cut (heardReplies).
-		canceller.refresh()
+		canceller.Refresh()
 		s.heardReplies().expect()
-		return nil, false, sendStreamElement(ctx, elem, output)
+		return nil, false, core.SendStreamElement(ctx, elem, output)
 	case elem.EndOfTurn:
-		next, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
+		next, err = s.fireIfPending(ctx, canceller.Context(), history, pending, output)
 		return next, false, err
 	case elem.EndOfStream:
 		// Session over: fire any partial turn, then stop. Closing output
 		// downstream signals end-of-conversation to the next stages.
-		_, err = s.fireIfPending(ctx, canceller.context(), history, pending, output)
+		_, err = s.fireIfPending(ctx, canceller.Context(), history, pending, output)
 		return nil, true, err
-	case isTurnFailureSignal(&elem):
+	case core.IsTurnFailureSignal(&elem):
 		// An upstream stage failed the turn in progress. Its input is
 		// incomplete, so it is not fired when the input then ends.
-		return nil, false, sendStreamElement(ctx, elem, output)
+		return nil, false, core.SendStreamElement(ctx, elem, output)
 	case inMsg != nil && elem.Message == nil:
 		// Typed text (SendText, TriggerStart) is a whole user turn: no
 		// turn detector will end it, since it never passed through one.
-		next, err = s.fireIfPending(ctx, canceller.context(), history, append(pending, *inMsg), output)
+		next, err = s.fireIfPending(ctx, canceller.Context(), history, append(pending, *inMsg), output)
 		return next, false, err
 	case inMsg != nil:
 		return append(pending, *inMsg), false, nil
 	default:
 		// Stray content passes through unchanged.
-		return pending, false, sendStreamElement(ctx, elem, output)
+		return pending, false, core.SendStreamElement(ctx, elem, output)
 	}
 }
 
@@ -998,7 +987,7 @@ func (s *ProviderStage) fireStreamingTurn(
 	newStart := priorLen + len(pending)
 	if newStart <= len(full) {
 		for i := newStart; i < len(full); i++ {
-			storeCallerTurn(&full[i], turn)
+			core.StoreCallerTurn(&full[i], turn)
 		}
 		if emitErr := s.emitResponseMessages(forwardCtx, full[newStart:], output); emitErr != nil {
 			return emitErr
@@ -1006,7 +995,7 @@ func (s *ProviderStage) fireStreamingTurn(
 	}
 	*history = full
 
-	return sendStreamElement(forwardCtx, endOfTurnFor(full[min(newStart, len(full)):], turn), output)
+	return core.SendStreamElement(forwardCtx, endOfTurnFor(full[min(newStart, len(full)):], turn), output)
 }
 
 // endFailedStreamingTurn ends a streaming turn whose generation returned err.
@@ -1048,7 +1037,7 @@ func (s *ProviderStage) endFailedStreamingTurn(
 		return nil
 	}
 	logger.Error("ProviderStage streaming turn failed", "error", err)
-	return sendStreamElement(forwardCtx, NewErrorElement(err), output)
+	return core.SendStreamElement(forwardCtx, NewErrorElement(err), output)
 }
 
 // endOfTurnFor builds the EndOfTurn boundary for a turn whose new messages are
@@ -1058,7 +1047,7 @@ func endOfTurnFor(msgs []types.Message, callerTurn int) StreamElement {
 	elem := NewEndOfTurnElement()
 	elem.Meta.CallerTurn = &callerTurn
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == roleAssistant {
+		if msgs[i].Role == core.RoleAssistant {
 			if fr := msgs[i].FinishReason; fr != "" {
 				elem.Meta.FinishReason = &fr
 			}
@@ -1096,7 +1085,7 @@ func (s *ProviderStage) keepTurn(
 		}
 	}
 	*history = full
-	return sendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):], s.turnIndex()), output)
+	return core.SendStreamElement(ctx, endOfTurnFor(full[min(newStart, len(full)):], s.turnIndex()), output)
 }
 
 // markRoundTextEnd tells the stages after this one, on a streaming (duplex)
@@ -1112,10 +1101,10 @@ func (s *ProviderStage) markRoundTextEnd(
 	if !hasToolCalls || s.config == nil || !s.config.Streaming || output == nil || response.Content == "" {
 		return
 	}
-	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem := StreamElement{Timestamp: core.TimeNow(), Priority: PriorityNormal}
 	elem.Meta.RoundTextEnd = true
 	elem.Meta.MessageID = response.ID()
-	_ = sendStreamElement(ctx, elem, output)
+	_ = core.SendStreamElement(ctx, elem, output)
 }
 
 // completedRounds returns the rounds of msgs (a turn's new messages) that
@@ -1126,7 +1115,7 @@ func (s *ProviderStage) markRoundTextEnd(
 func completedRounds(msgs []types.Message) []types.Message {
 	end := 0
 	for i := 0; i < len(msgs); {
-		if msgs[i].Role != roleAssistant {
+		if msgs[i].Role != core.RoleAssistant {
 			i++
 			continue
 		}
@@ -1148,7 +1137,7 @@ func completedRounds(msgs []types.Message) []types.Message {
 func roundEnd(msgs []types.Message, i int) (int, bool) {
 	answered := map[string]bool{}
 	j := i + 1
-	for ; j < len(msgs) && msgs[j].Role == roleTool; j++ {
+	for ; j < len(msgs) && msgs[j].Role == core.RoleTool; j++ {
 		if r := msgs[j].ToolResult; r != nil {
 			answered[r.ID] = true
 		}
@@ -1167,16 +1156,6 @@ func allAnswered(calls []types.MessageToolCall, answered map[string]bool) bool {
 		}
 	}
 	return true
-}
-
-// sendStreamElement forwards one element downstream, honoring cancellation.
-func sendStreamElement(ctx context.Context, elem StreamElement, output chan<- StreamElement) error {
-	select {
-	case output <- elem:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 // executeAndEmit runs provider execution and emits results.
@@ -1229,7 +1208,7 @@ func endsInterrupted(messages []types.Message) bool {
 // emitInterruptedTranscript emits a failed turn's messages when they end in an
 // interrupted reply, so the save stage persists the partial output next to the
 // error that follows. The turn's context is often the thing that was
-// canceled, so the sends go through cancelForwarder: delivered to a consumer
+// canceled, so the sends go through CancelForwarder: delivered to a consumer
 // that is still reading, dropped after a short wait if it has gone.
 func (s *ProviderStage) emitInterruptedTranscript(
 	ctx context.Context, messages []types.Message, output chan<- StreamElement,
@@ -1237,9 +1216,9 @@ func (s *ProviderStage) emitInterruptedTranscript(
 	if !endsInterrupted(messages) {
 		return
 	}
-	var fwd cancelForwarder
+	var fwd core.CancelForwarder
 	for i := range messages {
-		fwd.forward(ctx, output, NewMessageElement(&messages[i]))
+		fwd.Forward(ctx, output, NewMessageElement(&messages[i]))
 	}
 }
 
@@ -1471,9 +1450,9 @@ func (tl *toolLoop) reportRound(ctx context.Context, msgs []types.Message) {
 	if !tl.reportsRounds || tl.output == nil || len(msgs) == 0 {
 		return
 	}
-	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem := StreamElement{Timestamp: core.TimeNow(), Priority: PriorityNormal}
 	elem.Meta.RoundMessages = msgs
-	_ = sendStreamElement(ctx, elem, tl.output)
+	_ = core.SendStreamElement(ctx, elem, tl.output)
 }
 
 // afterStreamedRound is afterRound for a streamed round. It reports the
@@ -1497,7 +1476,7 @@ func (tl *toolLoop) afterStreamedRound(
 func toolMessagesOf(msgs []types.Message) []types.Message {
 	var out []types.Message
 	for i := range msgs {
-		if msgs[i].Role == roleTool {
+		if msgs[i].Role == core.RoleTool {
 			out = append(out, msgs[i])
 		}
 	}
@@ -1695,7 +1674,7 @@ func intersectInOrder(source, keep []string) []string {
 // recent user message in the slice, or "" when none is found.
 func lastUserMessageText(msgs []types.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role != roleUser {
+		if msgs[i].Role != core.RoleUser {
 			continue
 		}
 		var sb strings.Builder
@@ -2351,12 +2330,12 @@ func (s *ProviderStage) executeRound(
 
 	// Build response message with latency and cost info
 	responseMsg := types.Message{
-		Role:         roleAssistant,
+		Role:         core.RoleAssistant,
 		Content:      resp.Content,
 		Parts:        resp.Parts,
 		Reasoning:    resp.Reasoning,
 		ToolCalls:    toolCalls,
-		Timestamp:    timeNow(),
+		Timestamp:    core.TimeNow(),
 		LatencyMs:    duration.Milliseconds(),
 		CostInfo:     resp.CostInfo,
 		FinishReason: resp.FinishReason,
@@ -2493,11 +2472,11 @@ func (s *ProviderStage) executeStreamingRound(
 	// firings — without this, a guardrail that aborts mid-stream produces
 	// no observable validation record.
 	responseMsg := types.Message{
-		Role:      roleAssistant,
+		Role:      core.RoleAssistant,
 		Content:   content,
 		ToolCalls: toolCalls,
 		Reasoning: reasoning,
-		Timestamp: timeNow(),
+		Timestamp: core.TimeNow(),
 		LatencyMs: duration.Milliseconds(),
 		CostInfo:  costInfo,
 		// Stamp the provider's own reason, mirroring the non-streaming path.
@@ -2555,7 +2534,7 @@ func (s *ProviderStage) executeStreamingRound(
 // reply, for a call that failed and kept nothing. Only a completed reply's
 // tool calls are reported: an interrupted reply's never run. The turn's
 // context may be the thing that ended the call, so the send goes through
-// cancelForwarder.
+// CancelForwarder.
 func (s *ProviderStage) endProviderCall(
 	ctx context.Context, params *streamingRoundParams, rr roundRef, msg *types.Message, output chan<- StreamElement,
 ) {
@@ -2563,7 +2542,7 @@ func (s *ProviderStage) endProviderCall(
 		return
 	}
 	end := &providers.ProviderCallEnd{MessageID: rr.messageID, FinishReason: types.FinishReasonError}
-	if msg != nil && msg.Role == roleAssistant {
+	if msg != nil && msg.Role == core.RoleAssistant {
 		end.FinishReason = msg.FinishReason
 		if msg.FinishReason != types.FinishReasonInterrupted {
 			end.ToolCalls = append([]types.MessageToolCall(nil), msg.ToolCalls...)
@@ -2574,10 +2553,10 @@ func (s *ProviderStage) endProviderCall(
 
 // sendProviderCallEnd sends end downstream as its own element.
 func sendProviderCallEnd(ctx context.Context, end *providers.ProviderCallEnd, output chan<- StreamElement) {
-	elem := StreamElement{Timestamp: timeNow(), Priority: PriorityNormal}
+	elem := StreamElement{Timestamp: core.TimeNow(), Priority: PriorityNormal}
 	elem.Meta.ProviderCallEnd = end
-	var fwd cancelForwarder
-	fwd.forward(ctx, output, elem)
+	var fwd core.CancelForwarder
+	fwd.Forward(ctx, output, elem)
 }
 
 // validateRequestContent fails a round whose input messages carry a media part
@@ -2751,11 +2730,11 @@ func (r *streamedRound) hasOutput() bool {
 // transcript shows what the model said before it stopped.
 func (s *ProviderStage) interruptedMessage(got *streamedRound, duration time.Duration, cause error) types.Message {
 	msg := types.Message{
-		Role:         roleAssistant,
+		Role:         core.RoleAssistant,
 		Content:      got.content,
 		ToolCalls:    got.toolCalls,
 		Reasoning:    got.reasoning,
-		Timestamp:    timeNow(),
+		Timestamp:    core.TimeNow(),
 		LatencyMs:    duration.Milliseconds(),
 		CostInfo:     got.costInfo,
 		FinishReason: types.FinishReasonInterrupted,
@@ -2796,7 +2775,7 @@ func (s *ProviderStage) guardInterrupted(
 	if s.hookRegistry == nil {
 		return true
 	}
-	err := s.runAfterCallHooks(liveContext(ctx), &afterCallParams{
+	err := s.runAfterCallHooks(core.LiveContext(ctx), &afterCallParams{
 		messages:     params.messages,
 		systemPrompt: params.systemPrompt,
 		round:        params.round,
@@ -2987,7 +2966,7 @@ func (s *ProviderStage) flushHeld(
 		}
 		elem := textDeltaElement(rest, finish)
 		elem.Meta.MessageID = messageID
-		if err := sendStreamElement(ctx, elem, output); err != nil {
+		if err := core.SendStreamElement(ctx, elem, output); err != nil {
 			return err
 		}
 	}
@@ -3029,7 +3008,7 @@ func (s *ProviderStage) emitCutText(
 	elem := textDeltaElement(cut, &fr)
 	elem.Meta.ReplacesText = acc.replaced
 	elem.Meta.MessageID = messageID
-	return sendStreamElement(ctx, elem, output)
+	return core.SendStreamElement(ctx, elem, output)
 }
 
 // cutUsageHold bounds how long a round an output guardrail cut waits for the
@@ -3101,7 +3080,7 @@ func (s *ProviderStage) reportLateUsage(
 	if late == nil {
 		return
 	}
-	ctx = liveContext(ctx)
+	ctx = core.LiveContext(ctx)
 	go func() {
 		for cost := range late {
 			s.emitter.ProviderCallUsageCtx(ctx, &events.ProviderCallUsageData{
@@ -3235,7 +3214,7 @@ func drainIfAbandoned(streamChan <-chan providers.StreamChunk, drained *bool) {
 // reply with finishReason when it is set.
 func textDeltaElement(text string, finishReason *string) StreamElement {
 	elem := NewTextElement(text)
-	elem.Timestamp = timeNow()
+	elem.Timestamp = core.TimeNow()
 	elem.Priority = PriorityNormal
 
 	// Mark as an incremental delta: the released text of the reply, which
@@ -3299,7 +3278,7 @@ func (s *ProviderStage) emitChunkElement(
 		elem := textDeltaElement(text, chunk.FinishReason)
 		elem.Meta.TokenCount = chunk.TokenCount
 		elem.Meta.MessageID = rr.messageID
-		if err := sendStreamElement(ctx, elem, output); err != nil {
+		if err := core.SendStreamElement(ctx, elem, output); err != nil {
 			return err
 		}
 	}
@@ -3310,7 +3289,7 @@ func (s *ProviderStage) emitChunkElement(
 // Routes by MIME type: audio/* → AudioData, video/* → VideoData, image/* → ImageData.
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement {
 	elem := StreamElement{
-		Timestamp: timeNow(),
+		Timestamp: core.TimeNow(),
 	}
 
 	switch {
@@ -3386,7 +3365,7 @@ func (s *ProviderStage) runAfterCallHooks(ctx context.Context, p *afterCallParam
 	// pipeline needs to emit the enforced (or allowed) result on. The
 	// handler itself stays bounded — see GuardrailHookAdapter's own timeout
 	// around handler.Eval.
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 
 	hookReq := s.providerHookRequest(p.messages, p.systemPrompt, p.round, p.metadata)
 	v := s.guardrailOutcome().judgeResponse(ctx, hookReq, p.responseMsg, p.round, p.duration.Milliseconds(), true)
@@ -3459,7 +3438,7 @@ func (s *ProviderStage) runBeforeCallHooks(
 	// instead of sending it, and Send() returned an empty response with no
 	// error. The handler itself stays bounded — see
 	// GuardrailHookAdapter's own timeout around handler.Eval.
-	defer keepIdleAlive(ctx)()
+	defer core.KeepIdleAlive(ctx)()
 
 	hookReq := &hooks.ProviderRequest{
 		ProviderID:   s.callProvider().ID(),
@@ -3524,14 +3503,14 @@ func (s *ProviderStage) emitBlockedTurnText(
 	*blocked = types.EnsureMessageID(*blocked)
 	elem := NewTextElement(blocked.Content)
 	elem.Meta.MessageID = blocked.ID()
-	elem.Timestamp = timeNow()
+	elem.Timestamp = core.TimeNow()
 	elem.Priority = PriorityNormal
 	elem.Meta.StreamingDelta = true
 	if blocked.FinishReason != "" {
 		fr := blocked.FinishReason
 		elem.Meta.FinishReason = &fr
 	}
-	return sendStreamElement(ctx, elem, output)
+	return core.SendStreamElement(ctx, elem, output)
 }
 
 // addedValidations returns the validations a hook appended to its copy of a
@@ -3645,7 +3624,7 @@ func guardrailValidation(d hooks.Decision, direction string) (types.ValidationRe
 		ValidatorType: vType,
 		Passed:        false,
 		Details:       details,
-		Timestamp:     timeNow(),
+		Timestamp:     core.TimeNow(),
 	}, true
 }
 
@@ -3696,9 +3675,9 @@ func blockedTurnMessage(req *hooks.ProviderRequest, d hooks.Decision) types.Mess
 	}
 
 	msg := types.Message{
-		Role:         roleAssistant,
+		Role:         core.RoleAssistant,
 		Content:      content,
-		Timestamp:    timeNow(),
+		Timestamp:    core.TimeNow(),
 		FinishReason: types.FinishReasonSafety,
 	}
 	msg.Meta = decisionMessageMeta(d)

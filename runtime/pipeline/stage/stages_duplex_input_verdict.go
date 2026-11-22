@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -80,7 +81,7 @@ func (s *DuplexProviderStage) judgeSpokenInput(
 	v := &spokenVerdict{req: req, inputID: inputID, done: make(chan struct{}), late: late}
 	go func() {
 		defer close(v.done)
-		defer keepIdleAlive(ctx)()
+		defer core.KeepIdleAlive(ctx)()
 		start := time.Now()
 		v.d = s.hookRegistry.RunBeforeProviderCall(ctx, v.req)
 		v.dur = time.Since(start)

@@ -12,6 +12,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -643,12 +644,12 @@ func (s *DuplexProviderStage) settleTurnCall(ctx context.Context, elem *StreamEl
 		return nil
 	}
 	msg := elem.Message
-	if msg != nil && msg.Role != roleAssistant {
+	if msg != nil && msg.Role != core.RoleAssistant {
 		return nil
 	}
 	noMessage := msg == nil
 	if noMessage {
-		msg = &types.Message{Role: roleAssistant, CostInfo: s.chunkCost}
+		msg = &types.Message{Role: core.RoleAssistant, CostInfo: s.chunkCost}
 		if elem.Meta.FinishReason != nil {
 			msg.FinishReason = *elem.Meta.FinishReason
 		}
@@ -746,7 +747,7 @@ func (s *DuplexProviderStage) chargeInterruptedTurn(
 	}
 	msg := elem.Message
 	if msg == nil {
-		msg = &types.Message{Role: roleAssistant, FinishReason: types.FinishReasonInterrupted}
+		msg = &types.Message{Role: core.RoleAssistant, FinishReason: types.FinishReasonInterrupted}
 	}
 	withCost := *msg
 	withCost.CostInfo = chunk.CostInfo

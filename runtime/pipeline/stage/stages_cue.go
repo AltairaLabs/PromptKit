@@ -8,27 +8,9 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
-
-// CueKind says what a cue is for.
-type CueKind string
-
-// CueGuardrailMessage is a guardrail's message, spoken when it cuts a reply
-// or blocks typed input.
-const CueGuardrailMessage CueKind = "guardrail_message"
-
-// Cue asks the cue stage (NewDuplexCueStage) to play the clip for Text.
-type Cue struct {
-	Kind CueKind
-	// Text is what the clip says and the key it is looked up by.
-	Text string
-	// Preemptible cues give way to reply audio: a flush-on-cut
-	// AudioPacingStage drops what is still queued of them when reply audio
-	// arrives. Guardrail messages are not preemptible: a reply queues behind
-	// them as behind another reply.
-	Preemptible bool
-}
 
 // cueClip is a cue's pre-rendered media.
 type cueClip struct {
@@ -217,7 +199,7 @@ type cueRun struct {
 	pending *cueRender
 	queue   []cueQueued
 	// fwd carries the run's output across a cancellation (see send).
-	fwd cancelForwarder
+	fwd core.CancelForwarder
 }
 
 type cuePreparedKey struct {
@@ -268,27 +250,27 @@ func (r *cueRun) step(ctx context.Context, input <-chan StreamElement) (bool, er
 // passThroughCanceled ends a canceled run: a cue still to play is not played,
 // but what the stages upstream still deliver (the partial reply a canceled
 // provider emits, its error) is carried on to the save stage, with what
-// waited behind the cue first. See cancelForwarder.
+// waited behind the cue first. See CancelForwarder.
 func (r *cueRun) passThroughCanceled(ctx context.Context, input <-chan StreamElement) error {
 	r.discard()
 	for i := range r.queue {
 		if !r.queue[i].sent {
-			r.fwd.forward(ctx, r.output, r.queue[i].elem)
+			r.fwd.Forward(ctx, r.output, r.queue[i].elem)
 		}
 	}
 	r.queue = nil
 	for elem := range input {
-		r.fwd.forward(ctx, r.output, elem)
+		r.fwd.Forward(ctx, r.output, elem)
 	}
 	return ctx.Err()
 }
 
 // send passes an element on. Once the run is canceled the element is still
-// offered downstream for a short while (see cancelForwarder), so the one in
+// offered downstream for a short while (see CancelForwarder), so the one in
 // hand when the cancellation lands is not lost, and send returns the
 // cancellation so that no clip plays after it.
 func (r *cueRun) send(ctx context.Context, elem StreamElement) error {
-	r.fwd.forward(ctx, r.output, elem)
+	r.fwd.Forward(ctx, r.output, elem)
 	return ctx.Err()
 }
 
@@ -318,7 +300,7 @@ func (r *cueRun) handle(ctx context.Context, elem StreamElement) error {
 	if r.pending == nil {
 		return r.forward(ctx, elem)
 	}
-	if isCut(&elem) {
+	if core.IsCut(&elem) {
 		return r.cutPending(ctx, elem)
 	}
 	if r.pending.cue.Preemptible && hasAudio(&elem) && elem.Meta.CueAudio == nil {
@@ -513,9 +495,9 @@ func (r *cueRun) emit(ctx context.Context, cue Cue, clip cueClip, isReady bool) 
 
 // emitPCM plays pcm, ready to play at rate, for cue.
 func (r *cueRun) emitPCM(ctx context.Context, cue Cue, pcm []byte, rate int) error {
-	chunk := bytesPerSamplePCM16 * int(int64(rate)*int64(r.s.cfg.ChunkDuration)/int64(time.Second))
-	if chunk < bytesPerSamplePCM16 {
-		chunk = bytesPerSamplePCM16
+	chunk := core.BytesPerSamplePCM16 * int(int64(rate)*int64(r.s.cfg.ChunkDuration)/int64(time.Second))
+	if chunk < core.BytesPerSamplePCM16 {
+		chunk = core.BytesPerSamplePCM16
 	}
 	for start := 0; start < len(pcm); start += chunk {
 		end := min(start+chunk, len(pcm))
@@ -529,7 +511,7 @@ func (r *cueRun) emitPCM(ctx context.Context, cue Cue, pcm []byte, rate int) err
 		})
 		c := cue
 		elem.Meta.CueAudio = &c
-		if err := sendStreamElement(ctx, elem, r.output); err != nil {
+		if err := core.SendStreamElement(ctx, elem, r.output); err != nil {
 			return err
 		}
 	}
@@ -559,8 +541,8 @@ func prepareCueAudio(a *AudioData, rate int) []byte {
 	} else {
 		pcm = append([]byte(nil), pcm...)
 	}
-	fade := min(int(int64(rate)*int64(cueFadeOut)/int64(time.Second)), len(pcm)/bytesPerSamplePCM16)
-	tail := len(pcm) - bytesPerSamplePCM16*fade
+	fade := min(int(int64(rate)*int64(cueFadeOut)/int64(time.Second)), len(pcm)/core.BytesPerSamplePCM16)
+	tail := len(pcm) - core.BytesPerSamplePCM16*fade
 	copy(pcm[tail:], audio.FadeOutPCM16(pcm[tail:], fade))
 	return pcm
 }
@@ -568,10 +550,10 @@ func prepareCueAudio(a *AudioData, rate int) []byte {
 // trimPCM16Silence is pcm (little-endian mono PCM16) without its leading and
 // trailing samples at or below cueSilenceLevel.
 func trimPCM16Silence(pcm []byte) []byte {
-	n := len(pcm) / bytesPerSamplePCM16
+	n := len(pcm) / core.BytesPerSamplePCM16
 	loud := func(i int) bool {
 		//nolint:gosec // reinterpreting PCM16 wire bytes as a signed sample
-		s := int(int16(binary.LittleEndian.Uint16(pcm[bytesPerSamplePCM16*i:])))
+		s := int(int16(binary.LittleEndian.Uint16(pcm[core.BytesPerSamplePCM16*i:])))
 		return s > cueSilenceLevel || s < -cueSilenceLevel
 	}
 	first := 0
@@ -582,5 +564,5 @@ func trimPCM16Silence(pcm []byte) []byte {
 	for last > first && !loud(last-1) {
 		last--
 	}
-	return pcm[bytesPerSamplePCM16*first : bytesPerSamplePCM16*last]
+	return pcm[core.BytesPerSamplePCM16*first : core.BytesPerSamplePCM16*last]
 }

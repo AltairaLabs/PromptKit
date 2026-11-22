@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,9 +209,9 @@ func TestTokenBudgetStage_SystemMessagesExceedBudget(t *testing.T) {
 	// A system message that by itself exceeds the budget leaves no room for
 	// the user's: rather than send the system prompt alone, the stage fails.
 	got, err := runTokenBudget(t, 10,
-		turnMsg(roleSystem, "You are a very helpful assistant with many instructions "+
+		turnMsg(core.RoleSystem, "You are a very helpful assistant with many instructions "+
 			"that are very long and take up a lot of tokens in the context window"),
-		turnMsg(roleUser, "Hello"),
+		turnMsg(core.RoleUser, "Hello"),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "token budget exceeded")

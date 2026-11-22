@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -172,7 +173,7 @@ func TestCompositionStage_RunsAfterContextBuilderWithHistory(t *testing.T) {
 	var sawAssistant bool
 	elems := drainChannel(out)
 	for _, e := range elems {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			sawAssistant = true
 		}
 	}

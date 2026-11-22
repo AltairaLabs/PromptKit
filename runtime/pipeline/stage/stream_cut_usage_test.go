@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -56,7 +57,7 @@ func sendScriptedDeltas(stream chan<- providers.StreamChunk, deltas ...string) {
 func lastAssistantOf(t *testing.T, elems []StreamElement) *types.Message {
 	t.Helper()
 	for i := len(elems) - 1; i >= 0; i-- {
-		if m := elems[i].Message; m != nil && m.Role == roleAssistant {
+		if m := elems[i].Message; m != nil && m.Role == core.RoleAssistant {
 			return m
 		}
 	}

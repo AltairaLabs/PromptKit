@@ -6,6 +6,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // recordingAudioMIMEType is the MIME type used when recording PCM audio.
@@ -39,12 +40,6 @@ const (
 	RecordingPositionInput RecordingPosition = "input"
 	// RecordingPositionOutput records elements leaving the pipeline (agent output).
 	RecordingPositionOutput RecordingPosition = "output"
-)
-
-// Role constants for message recording.
-const (
-	roleUser      = "user"
-	roleAssistant = "assistant"
 )
 
 // RecordingStageConfig configures the recording stage behavior.
@@ -146,11 +141,11 @@ func (rs *RecordingStage) Process(
 
 	// A canceled turn's partial reply and error arrive after the
 	// cancellation, and are recorded and passed through like any other
-	// element; see cancelForwarder.
-	var fwd cancelForwarder
+	// element; see CancelForwarder.
+	var fwd core.CancelForwarder
 	for elem := range input {
-		rs.recordElement(liveContext(ctx), &elem, &msgIndex)
-		fwd.forward(ctx, output, elem)
+		rs.recordElement(core.LiveContext(ctx), &elem, &msgIndex)
+		fwd.Forward(ctx, output, elem)
 	}
 
 	return ctx.Err()
@@ -172,7 +167,7 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 		return
 	}
 
-	if elem.Error != nil && !isTurnFailureSignal(elem) {
+	if elem.Error != nil && !core.IsTurnFailureSignal(elem) {
 		// A turn-failure signal is not recorded: it repeats an upstream
 		// stage's failure at every recorder it passes, and the pipeline's
 		// completion event already carries that failure.
@@ -235,9 +230,9 @@ func eventTime(elem *StreamElement) time.Time {
 // determineRole returns the message role based on recording position.
 func (rs *RecordingStage) determineRole() string {
 	if rs.config.Position == RecordingPositionInput {
-		return roleUser
+		return core.RoleUser
 	}
-	return roleAssistant
+	return core.RoleAssistant
 }
 
 // appendOrWarn writes the event to the store using the pipeline's context and
@@ -340,10 +335,10 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 	eventType := events.EventAudioOutput
 	actor := ""
 	generatedFrom := "model"
-	if role == roleUser {
+	if role == core.RoleUser {
 		direction = audioDirectionInput
 		eventType = events.EventAudioInput
-		actor = roleUser
+		actor = core.RoleUser
 		generatedFrom = ""
 	}
 
@@ -412,10 +407,10 @@ func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamEl
 	eventType := events.EventImageOutput
 	direction := audioDirectionOutput
 	actor := ""
-	if role == roleUser {
+	if role == core.RoleUser {
 		eventType = events.EventImageInput
 		direction = audioDirectionInput
-		actor = roleUser
+		actor = core.RoleUser
 	}
 
 	rs.appendOrWarn(ctx, &events.Event{

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 )
 
@@ -26,7 +27,7 @@ func finalTranscriptChunk(text string) providers.StreamChunk {
 func userTurns(elems []StreamElement) []string {
 	var out []string
 	for i := range elems {
-		if m := elems[i].Message; m != nil && m.Role == roleUser {
+		if m := elems[i].Message; m != nil && m.Role == core.RoleUser {
 			if elems[i].Meta.LateTranscript {
 				out = append(out, "late:"+m.Content)
 			} else {
@@ -102,7 +103,7 @@ func TestDuplexLateTranscript_OpensNoNewToolTurn(t *testing.T) {
 	assert.Equal(t, []string{"late:weather in Paris?"}, userTurns(elems))
 	var running []bool
 	for i := range elems {
-		if m := elems[i].Message; elems[i].EndOfStream && m != nil && m.Role == roleAssistant {
+		if m := elems[i].Message; elems[i].EndOfStream && m != nil && m.Role == core.RoleAssistant {
 			running = append(running, elems[i].Meta.ToolCallsRunning)
 		}
 	}
@@ -132,7 +133,7 @@ func TestDuplexLateTranscript_SlowToolRoundKeepsTheTranscript(t *testing.T) {
 	for e := range out {
 		switch m := e.Message; {
 		case m == nil:
-		case m.Role == roleTool:
+		case m.Role == core.RoleTool:
 			got = append(got, "tool:"+m.ToolResult.ID)
 		case len(m.ToolCalls) > 0:
 			got = append(got, m.Role+":"+m.Content+" calls "+m.ToolCalls[0].ID)

@@ -413,3 +413,10 @@ func executionSlots(config *PipelineConfig) chan struct{} {
 	}
 	return make(chan struct{}, config.MaxConcurrentPipelines)
 }
+
+// buildValidator is implemented by stages that can tell, before the pipeline
+// runs, that they were constructed in a way that cannot work. Build calls it
+// on every stage and fails on the first error.
+type buildValidator interface {
+	validateBuild() error
+}

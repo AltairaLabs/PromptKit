@@ -1,4 +1,4 @@
-package stage
+package core
 
 import (
 	"sync"

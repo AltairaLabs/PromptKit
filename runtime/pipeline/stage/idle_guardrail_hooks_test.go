@@ -55,7 +55,7 @@ func stageWithSlowGuardrail(hook *slowGuardrailHook) *ProviderStage {
 
 // TestRunBeforeCallHooks_SlowGuardrailDoesNotTripIdleTimeout is the
 // regression for #2064 round 1's finding 3: before the `defer
-// keepIdleAlive(ctx)()` fix, a guardrail hook slower than IdleTimeout raced
+// KeepIdleAlive(ctx)()` fix, a guardrail hook slower than IdleTimeout raced
 // its own idle-timeout cancellation. The classifier itself was already
 // bounded (GuardrailHookAdapter's own ~30s timeout), but the SHARED pipeline
 // context could still expire mid-evaluation and take the correctly-built
@@ -63,7 +63,7 @@ func stageWithSlowGuardrail(hook *slowGuardrailHook) *ProviderStage {
 //
 // The hook holds an idle window open (see idleProbe) instead of racing a real
 // timer, so the test does not depend on how fast the runner is. Reverting the
-// `defer keepIdleAlive(ctx)()` line in runBeforeCallHooks makes the window
+// `defer KeepIdleAlive(ctx)()` line in runBeforeCallHooks makes the window
 // lapse and the test fail.
 func TestRunBeforeCallHooks_SlowGuardrailDoesNotTripIdleTimeout(t *testing.T) {
 	probe := newIdleProbe()
@@ -81,7 +81,7 @@ func TestRunBeforeCallHooks_SlowGuardrailDoesNotTripIdleTimeout(t *testing.T) {
 
 // TestRunAfterCallHooks_SlowGuardrailDoesNotTripIdleTimeout is the AfterCall
 // (output-direction) half of the test above. Reverting the `defer
-// keepIdleAlive(ctx)()` line in runAfterCallHooks makes it fail.
+// KeepIdleAlive(ctx)()` line in runAfterCallHooks makes it fail.
 func TestRunAfterCallHooks_SlowGuardrailDoesNotTripIdleTimeout(t *testing.T) {
 	probe := newIdleProbe()
 	hook := &slowGuardrailHook{probe: probe, message: "held open after"}

@@ -2,10 +2,12 @@ package stage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -130,7 +132,7 @@ func TestProviderStage_Streaming_InterruptCancelsGeneration(t *testing.T) {
 
 	var assistant, interrupts int
 	for e := range output {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			assistant++
 		}
 		if e.Interrupt {
@@ -230,7 +232,7 @@ func TestProviderStage_Streaming_StreamingProvider(t *testing.T) {
 	require.Len(t, prov.requests, 1)
 	var assistant []*types.Message
 	for e := range output {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			m := e.Message
 			assistant = append(assistant, m)
 		}
@@ -306,7 +308,7 @@ func TestProviderStage_Streaming_OneReplyPerTurn(t *testing.T) {
 		switch {
 		case e.EndOfTurn:
 			endOfTurns++
-		case e.Message != nil && e.Message.Role == roleAssistant:
+		case e.Message != nil && e.Message.Role == core.RoleAssistant:
 			m := e.Message
 			assistant = append(assistant, m)
 		}
@@ -343,7 +345,7 @@ func TestProviderStage_Streaming_ThreadsHistory(t *testing.T) {
 	// Turn 2 sees: turn-1 user, turn-1 assistant reply, turn-2 user.
 	require.Len(t, prov.requests[1], 3, "turn 2 sees turn 1 as history plus its own user message")
 	assert.Equal(t, "first question", prov.requests[1][0].Content)
-	assert.Equal(t, roleAssistant, prov.requests[1][1].Role)
+	assert.Equal(t, core.RoleAssistant, prov.requests[1][1].Role)
 	assert.Equal(t, "reply-1", prov.requests[1][1].Content)
 	assert.Equal(t, "second question", prov.requests[1][2].Content)
 }
@@ -371,7 +373,7 @@ func TestProviderStage_Streaming_UserEmittedBeforeReply(t *testing.T) {
 			if e.Message.Role == "user" && firstUser < 0 {
 				firstUser = i
 			}
-			if e.Message.Role == roleAssistant && firstAssistant < 0 {
+			if e.Message.Role == core.RoleAssistant && firstAssistant < 0 {
 				firstAssistant = i
 			}
 		}
@@ -405,5 +407,21 @@ func TestProviderStage_Streaming_EmitsUserMessages(t *testing.T) {
 		}
 	}
 	assert.Contains(t, roles, "user", "the turn's user message must be emitted downstream")
-	assert.Contains(t, roles, roleAssistant, "the assistant reply must be emitted downstream")
+	assert.Contains(t, roles, core.RoleAssistant, "the assistant reply must be emitted downstream")
+}
+
+func TestCompleteToolCalls_DropsCallsWithHalfWrittenArgs(t *testing.T) {
+	calls := []types.MessageToolCall{
+		{ID: "1", Name: "search", Args: json.RawMessage(`{"q":"weather"}`)},
+		{ID: "2", Name: "lookup", Args: json.RawMessage(`{"city":"Bri`)},
+		{ID: "3", Name: "ping"},
+	}
+
+	got := completeToolCalls(calls)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "1", got[0].ID)
+	assert.Equal(t, "3", got[1].ID, "a call with no arguments yet is kept")
+	_, err := json.Marshal(types.Message{Role: "assistant", ToolCalls: got})
+	assert.NoError(t, err, "the kept calls must marshal")
 }

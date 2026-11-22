@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -832,7 +833,7 @@ func (s *DuplexProviderStage) handleInputElement(
 		return s.handleAllResponsesReceived(elem, done)
 	}
 	if isCueOnly(elem) { // for a cueStage downstream, not the session
-		if err := sendStreamElement(ctx, *elem, output); err != nil {
+		if err := core.SendStreamElement(ctx, *elem, output); err != nil {
 			done <- err
 			return true
 		}
@@ -968,7 +969,7 @@ func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *StreamElement) {
 	if text == "" {
 		return
 	}
-	user := &types.Message{Role: roleUser, Content: text, Timestamp: time.Now()}
+	user := &types.Message{Role: core.RoleUser, Content: text, Timestamp: time.Now()}
 	s.setTurnStart(time.Now())
 	s.userTurnDue = true
 	s.inputUserTurn.Store(true)
@@ -1000,7 +1001,7 @@ func (s *DuplexProviderStage) queueTypedUserTurn(ctx context.Context) error {
 func (s *DuplexProviderStage) emitTypedUserTurn(
 	ctx context.Context, user *types.Message, output chan<- StreamElement,
 ) error {
-	return s.emit(ctx, StreamElement{Message: user, Timestamp: timeNow(), Source: TextInputTurnSource}, output)
+	return s.emit(ctx, StreamElement{Message: user, Timestamp: core.TimeNow(), Source: TextInputTurnSource}, output)
 }
 
 // forwardToolResultMessages sends each tool result message to output.
@@ -1021,7 +1022,7 @@ func (s *DuplexProviderStage) forwardToolResultMessages(
 // messages), marks a user turn due to begin its tool turn (userTurnDue), and
 // queues the element's turn_id for correlating transcription events.
 func (s *DuplexProviderStage) trackInputTurn(elem *StreamElement) {
-	if elem.Message.Role == roleUser {
+	if elem.Message.Role == core.RoleUser {
 		now := time.Now()
 		s.setTurnStart(now)
 		s.userTurnDue = true
@@ -1263,8 +1264,8 @@ func (s *DuplexProviderStage) sendVideoElement(ctx context.Context, elem *Stream
 		Timestamp: elem.Video.Timestamp,
 		IsLast:    false,
 		Metadata: map[string]string{
-			metaKeyMIMEType: elem.Video.MIMEType,
-			"is_key_frame":  fmt.Sprintf("%v", elem.Video.IsKeyFrame),
+			core.MetaKeyMIMEType: elem.Video.MIMEType,
+			"is_key_frame":       fmt.Sprintf("%v", elem.Video.IsKeyFrame),
 		},
 	}
 
@@ -1293,7 +1294,7 @@ func (s *DuplexProviderStage) sendImageElement(ctx context.Context, elem *Stream
 		Timestamp: timestamp,
 		IsLast:    false,
 		Metadata: map[string]string{
-			metaKeyMIMEType: elem.Image.MIMEType,
+			core.MetaKeyMIMEType: elem.Image.MIMEType,
 		},
 	}
 
@@ -1452,9 +1453,9 @@ func (s *DuplexProviderStage) trackOpenTurn(ctx context.Context, chunk *provider
 	}
 	newTicker := s.idleHoldTicker
 	if newTicker == nil {
-		newTicker = realIdleTicker
+		newTicker = core.RealIdleTicker
 	}
-	s.stopOpenTurnHold = keepIdleAliveUpTo(ctx, maxHold, newTicker)
+	s.stopOpenTurnHold = core.KeepIdleAliveUpTo(ctx, maxHold, newTicker)
 }
 
 // endOpenTurnHold stops the open turn's idle hold, if there is one.
@@ -1877,7 +1878,7 @@ func (s *DuplexProviderStage) reportCanceledReply(
 	if !turnDone || elem.Meta.FinishReason == nil || *elem.Meta.FinishReason != finishReasonInterrupted {
 		return nil
 	}
-	return sendStreamElement(ctx, interruptElement(finishReasonInterrupted), output)
+	return core.SendStreamElement(ctx, interruptElement(finishReasonInterrupted), output)
 }
 
 // bindChunkGeneration binds the provider call and accumulation of the
@@ -2173,7 +2174,7 @@ func (s *DuplexProviderStage) emitBufferedUserTurn(
 	transcript, inputID := s.takeTranscript()
 	s.late.userShown(transcript, fromDeltas)
 	userMsg := &types.Message{
-		Role:    roleUser,
+		Role:    core.RoleUser,
 		Content: transcript,
 		Parts: []types.ContentPart{{
 			Type: types.ContentTypeText,

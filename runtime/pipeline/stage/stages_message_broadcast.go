@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // MessageBroadcastStage publishes message.created on the EventBus for each new
@@ -96,11 +97,11 @@ func (s *MessageBroadcastStage) Process(
 	msgIndex := 0
 
 	// A canceled turn's partial reply and error arrive after the
-	// cancellation; see cancelForwarder.
-	var fwd cancelForwarder
+	// cancellation; see CancelForwarder.
+	var fwd core.CancelForwarder
 	for elem := range input {
-		s.broadcast(liveContext(ctx), &elem, &msgIndex)
-		fwd.forward(ctx, output, elem)
+		s.broadcast(core.LiveContext(ctx), &elem, &msgIndex)
+		fwd.Forward(ctx, output, elem)
 	}
 
 	return ctx.Err()

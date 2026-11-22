@@ -1,4 +1,4 @@
-package stage
+package core
 
 // contentTypeAny is a constant for "any" content type string representation.
 const contentTypeAny = "any"
@@ -41,7 +41,7 @@ func (ct ContentType) String() string {
 	case ContentTypeToolCall:
 		return "tool_call"
 	default:
-		return unknownType
+		return UnknownType
 	}
 }
 

@@ -3,10 +3,12 @@ package stage
 import (
 	"context"
 	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // idleProbe stands in for the pipeline's idle timer through the seam stages
-// already use, the idle control contextWithIdleReset puts on the context.
+// already use, the idle control ContextWithIdleReset puts on the context.
 //
 // The real timer races wall-clock time: a test that runs slow work against a
 // 50ms window fails whenever the runner is loaded enough to delay a heartbeat.
@@ -22,7 +24,7 @@ type idleProbe struct {
 // returns at the first reset.
 const idleProbeBound = 2 * time.Second
 
-// idleProbeTimeout is the idle window the probe reports. keepIdleAlive paces
+// idleProbeTimeout is the idle window the probe reports. KeepIdleAlive paces
 // its heartbeat at half of it, so a small one keeps passing tests fast.
 const idleProbeTimeout = 2 * time.Millisecond
 
@@ -32,7 +34,7 @@ func newIdleProbe() *idleProbe {
 
 // context returns ctx carrying the probe as its idle control.
 func (p *idleProbe) context(ctx context.Context) context.Context {
-	return contextWithIdleReset(ctx, func() {
+	return core.ContextWithIdleReset(ctx, func() {
 		select {
 		case p.resets <- struct{}{}:
 		default:

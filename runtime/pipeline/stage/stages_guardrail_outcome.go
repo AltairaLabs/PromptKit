@@ -8,6 +8,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -294,7 +295,7 @@ func (h *holdController) emitMedia(ctx context.Context, chunk *providers.StreamC
 // sendMedia emits the media waiting behind held text.
 func (h *holdController) sendMedia(ctx context.Context, output chan<- StreamElement) error {
 	for len(h.media) > 0 {
-		if err := sendStreamElement(ctx, h.media[0], output); err != nil {
+		if err := core.SendStreamElement(ctx, h.media[0], output); err != nil {
 			return err
 		}
 		h.media = h.media[1:]

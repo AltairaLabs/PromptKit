@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -36,7 +37,7 @@ func TestRecording_UserMessageRecordedOncePerTurn(t *testing.T) {
 	).Build()
 	require.NoError(t, err)
 
-	user := realMessage(roleUser, "hello")
+	user := realMessage(core.RoleUser, "hello")
 	_, err = pipe.ExecuteSync(context.Background(), NewMessageElement(&user))
 	require.NoError(t, err)
 
@@ -58,7 +59,7 @@ func TestRecording_OutputRecordsUserTranscriptItAloneSees(t *testing.T) {
 	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionOutput})
 
 	msgs := []types.Message{
-		{Role: roleUser, Content: "spoken words"},
+		{Role: core.RoleUser, Content: "spoken words"},
 		{Role: "assistant", Content: "answer"},
 	}
 	in := make(chan StreamElement, len(msgs))

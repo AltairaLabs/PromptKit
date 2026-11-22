@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/storage"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -162,7 +163,7 @@ func (s *MediaComposeStage) handleComposeInput(
 	// Check if this is a media element with extract metadata
 	if elem.Meta.MediaExtract == nil {
 		// Pass through non-extracted elements
-		return sendStreamElement(ctx, elem, output)
+		return core.SendStreamElement(ctx, elem, output)
 	}
 
 	// Accumulate the part
@@ -170,7 +171,7 @@ func (s *MediaComposeStage) handleComposeInput(
 	if err != nil {
 		logger.Error("Failed to accumulate media part", "error", err)
 		elem.Error = err
-		return sendStreamElement(ctx, elem, output)
+		return core.SendStreamElement(ctx, elem, output)
 	}
 
 	// If all parts received, compose and emit
@@ -192,13 +193,13 @@ func (s *MediaComposeStage) emitComposed(
 		errElem := NewErrorElement(err)
 		errElem.Sequence = complete.sequence
 		errElem.Source = complete.source
-		return sendStreamElement(ctx, errElem, output)
+		return core.SendStreamElement(ctx, errElem, output)
 	}
 
 	outElem := NewMessageElement(composed)
 	outElem.Sequence = complete.sequence
 	outElem.Source = complete.source
-	return sendStreamElement(ctx, outElem, output)
+	return core.SendStreamElement(ctx, outElem, output)
 }
 
 // takePending removes and returns every still-pending message.
@@ -278,7 +279,7 @@ func (s *MediaComposeStage) composeMessage(pm *pendingMessage) (*types.Message, 
 		}
 	} else {
 		msg = &types.Message{
-			Role:      roleUser,
+			Role:      core.RoleUser,
 			Timestamp: time.Now(),
 		}
 	}

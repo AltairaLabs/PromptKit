@@ -10,6 +10,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -191,7 +192,7 @@ func TestReplyHold_ScenarioPathJudgesWithTheCallersTurn(t *testing.T) {
 	hook := &replyHoldHook{mode: hooks.StreamHoldTurn}
 	r, _ := newReleased(t, StreamHoldConfig{Realtime: RealtimeHoldTurn}, 0, hook)
 	r.s.turnIDQueue = []string{"t1"}
-	r.s.history.add(&types.Message{Role: roleUser})
+	r.s.history.add(&types.Message{Role: core.RoleUser})
 	r.feed(providers.StreamChunk{Metadata: map[string]interface{}{
 		"type": "input_transcription", "transcription": "Is it sunny?",
 	}})
@@ -231,7 +232,7 @@ func TestReplyHold_ReplySpokenOverAtItsEndLeavesNoTurn(t *testing.T) {
 
 			var assistant []string
 			for _, m := range r.s.history.snapshot() {
-				if m.Role == roleAssistant {
+				if m.Role == core.RoleAssistant {
 					assistant = append(assistant, m.Content)
 				}
 			}
@@ -334,7 +335,7 @@ func replyCallerTurn(r *released, text string, end providers.StreamChunk) int {
 	r.t.Helper()
 	r.feed(transcriptChunk(text, pcm(10)))
 	for _, e := range r.feedElems(end) {
-		if e.Message != nil && e.Message.Role == roleAssistant && e.Meta.CallerTurn != nil {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant && e.Meta.CallerTurn != nil {
 			return *e.Meta.CallerTurn
 		}
 	}
@@ -408,7 +409,7 @@ func TestReplyHold_BargeInAfterAPassKeepsTheHeardLateTranscript(t *testing.T) {
 	r.feed(transcriptChunk(" Mild later.", pcm(20)))
 	var m *types.Message
 	for _, e := range r.feedElems(providers.StreamChunk{Interrupted: true}) {
-		if e.Message != nil && e.Message.Role == roleAssistant {
+		if e.Message != nil && e.Message.Role == core.RoleAssistant {
 			m = e.Message
 		}
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -32,7 +33,7 @@ func turnMsg(role, text string) types.Message { return types.Message{Role: role,
 // turnCall is an assistant message calling tools with the given IDs; each
 // call's args cost argWords tokens.
 func turnCall(argWords int, ids ...string) types.Message {
-	m := types.Message{Role: roleAssistant}
+	m := types.Message{Role: core.RoleAssistant}
 	for _, id := range ids {
 		args, _ := json.Marshal(map[string]string{"q": strings.TrimSpace(strings.Repeat("w ", argWords))})
 		m.ToolCalls = append(m.ToolCalls, types.MessageToolCall{ID: id, Name: "lookup", Args: args})
@@ -42,7 +43,7 @@ func turnCall(argWords int, ids ...string) types.Message {
 
 func turnResult(id, text string) types.Message {
 	r := types.NewTextToolResult(id, "lookup", text)
-	return types.Message{Role: roleTool, Content: text, ToolResult: &r}
+	return types.Message{Role: core.RoleTool, Content: text, ToolResult: &r}
 }
 
 // runTurnBoundary sends messages through a context builder and returns what
@@ -89,7 +90,7 @@ func runTurnBoundaryErr(t *testing.T, policy *ContextBuilderPolicy, msgs ...type
 // This is the shape a Resume with tool results sends.
 func TestContextBuilder_CurrentTurnThatDoesNotFitFails(t *testing.T) {
 	got, err := runTurnBoundaryErr(t, &ContextBuilderPolicy{TokenBudget: 6, Strategy: TruncateOldest},
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 20)),
 		turnCall(1, "c1"),
 		turnResult("c1", "found it"),
 	)
@@ -103,12 +104,12 @@ func TestContextBuilder_CurrentTurnThatDoesNotFitFails(t *testing.T) {
 // that reuses its (empty) ID.
 func TestContextBuilder_OpeningPassRunsBeforePairing(t *testing.T) {
 	got := runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 12, Strategy: TruncateOldest},
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
-		turnMsg(roleSystem, "be brief"),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnMsg(core.RoleSystem, "be brief"),
 		turnCall(1, ""),
-		turnMsg(roleUser, "q1"),
+		turnMsg(core.RoleUser, "q1"),
 		turnResult("", "r1"),
-		turnMsg(roleUser, "q2"),
+		turnMsg(core.RoleUser, "q2"),
 	)
 	assert.Equal(t, []string{"system:be brief", "user:q1", "user:q2"}, got)
 }
@@ -128,11 +129,11 @@ func TestContextBuilder_ParallelCallsNeedEveryResult(t *testing.T) {
 	}
 	got := runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 9, Strategy: TruncateLeastRelevant,
 		RelevanceConfig: &RelevanceConfig{EmbeddingProvider: topic, MinRecentMessages: 1}},
-		turnMsg(roleUser, "apples please"),
+		turnMsg(core.RoleUser, "apples please"),
 		turnCall(1, "c1", "c2"),
 		turnResult("c1", "pears w w w w w w"),
 		turnResult("c2", "apples found"),
-		turnMsg(roleUser, "apples again"),
+		turnMsg(core.RoleUser, "apples again"),
 	)
 	assert.Equal(t, []string{"user:apples please", "user:apples again"}, got,
 		"c1's result did not fit, so the call and c2's result go too")
@@ -142,11 +143,11 @@ func TestContextBuilder_ParallelCallsNeedEveryResult(t *testing.T) {
 // message, never on the reply to a question that was dropped.
 func TestContextBuilder_SlidingKeepsWholeTurns(t *testing.T) {
 	got := runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 9, Strategy: TruncateOldest},
-		turnMsg(roleUser, "q0 w w w w w w w"),
-		turnMsg(roleAssistant, "a0 w"),
-		turnMsg(roleUser, "q1 w"),
-		turnMsg(roleAssistant, "a1 w"),
-		turnMsg(roleUser, "q2 w"),
+		turnMsg(core.RoleUser, "q0 w w w w w w w"),
+		turnMsg(core.RoleAssistant, "a0 w"),
+		turnMsg(core.RoleUser, "q1 w"),
+		turnMsg(core.RoleAssistant, "a1 w"),
+		turnMsg(core.RoleUser, "q2 w"),
 	)
 	assert.Equal(t, []string{"user:q1 w", "assistant:a1 w", "user:q2 w"}, got)
 }
@@ -155,21 +156,21 @@ func TestContextBuilder_SlidingKeepsWholeTurns(t *testing.T) {
 // every provider rejects that request.
 func TestContextBuilder_SlidingNeverOrphansAToolResult(t *testing.T) {
 	got := runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 6, Strategy: TruncateOldest},
-		turnMsg(roleUser, "look it up"),
+		turnMsg(core.RoleUser, "look it up"),
 		turnCall(20, "c1"),
 		turnResult("c1", "found it"),
-		turnMsg(roleAssistant, "here it is"),
-		turnMsg(roleUser, "thanks"),
+		turnMsg(core.RoleAssistant, "here it is"),
+		turnMsg(core.RoleUser, "thanks"),
 	)
 	assert.Equal(t, []string{"user:thanks"}, got,
 		"the budget fits the result but not its call, so the turn goes whole")
 
 	got = runTurnBoundary(t, &ContextBuilderPolicy{TokenBudget: 40, Strategy: TruncateOldest},
-		turnMsg(roleUser, "look it up"),
+		turnMsg(core.RoleUser, "look it up"),
 		turnCall(20, "c1"),
 		turnResult("c1", "found it"),
-		turnMsg(roleAssistant, "here it is"),
-		turnMsg(roleUser, "thanks"),
+		turnMsg(core.RoleAssistant, "here it is"),
+		turnMsg(core.RoleUser, "thanks"),
 	)
 	assert.Equal(t, []string{"user:look it up", "assistant:calls=c1", "tool:found it",
 		"assistant:here it is", "user:thanks"}, got, "a turn that fits keeps its call and result together")
@@ -181,9 +182,9 @@ func TestContextBuilder_SummarizeSplitsOnATurn(t *testing.T) {
 	summarizer := &recordingSummarizer{}
 	got := runTurnBoundary(t,
 		&ContextBuilderPolicy{TokenBudget: 80, Strategy: TruncateSummarize, Summarizer: summarizer},
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 79)),
-		turnMsg(roleAssistant, "a0 w w w w"),
-		turnMsg(roleUser, "q1 w w w w"),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 79)),
+		turnMsg(core.RoleAssistant, "a0 w w w w"),
+		turnMsg(core.RoleUser, "q1 w w w w"),
 	)
 	assert.Equal(t, []string{"system:[Summary of 2 earlier messages]: summary", "user:q1 w w w w"}, got)
 	require.Len(t, summarizer.batch, 2)
@@ -193,8 +194,8 @@ func TestContextBuilder_SummarizeSplitsOnATurn(t *testing.T) {
 	// model nothing, so the stage fails instead.
 	_, err := runTurnBoundaryErr(t,
 		&ContextBuilderPolicy{TokenBudget: 80, Strategy: TruncateSummarize, Summarizer: summarizer},
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 79)),
-		turnMsg(roleAssistant, "a0 w w w w"),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 79)),
+		turnMsg(core.RoleAssistant, "a0 w w w w"),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too small for the current turn")
@@ -221,11 +222,11 @@ func TestContextBuilder_RelevanceKeepsToolExchangesWhole(t *testing.T) {
 
 	// The result is relevant and fits; its call is neither.
 	got := runTurnBoundary(t, relevance(6),
-		turnMsg(roleUser, "apples please"),
+		turnMsg(core.RoleUser, "apples please"),
 		turnCall(1, "c1"),
 		turnResult("c1", "apples found"),
-		turnMsg(roleAssistant, "pears here"),
-		turnMsg(roleUser, "apples again"),
+		turnMsg(core.RoleAssistant, "pears here"),
+		turnMsg(core.RoleUser, "apples again"),
 	)
 	assert.Equal(t, []string{"user:apples please", "user:apples again"}, got, "no result without its call")
 
@@ -233,11 +234,11 @@ func TestContextBuilder_RelevanceKeepsToolExchangesWhole(t *testing.T) {
 	callWithText := turnCall(1, "c1")
 	callWithText.Content = "apples lookup"
 	got = runTurnBoundary(t, relevance(6),
-		turnMsg(roleUser, "apples q"),
+		turnMsg(core.RoleUser, "apples q"),
 		callWithText,
 		turnResult("c1", "pears"),
-		turnMsg(roleAssistant, "pears"),
-		turnMsg(roleUser, "apples"),
+		turnMsg(core.RoleAssistant, "pears"),
+		turnMsg(core.RoleUser, "apples"),
 	)
 	assert.Equal(t, []string{"user:apples q", "user:apples"}, got, "no call without its result")
 }

@@ -1,15 +1,15 @@
-package stage
+package core
 
 import (
 	"context"
 	"time"
 )
 
-// canceledForwardTimeout bounds each send once the turn's context is done. A
+// CanceledForwardTimeout bounds each send once the turn's context is done. A
 // variable so tests need not wait it out.
-var canceledForwardTimeout = 500 * time.Millisecond
+var CanceledForwardTimeout = 500 * time.Millisecond
 
-// cancelForwarder forwards a pass-through stage's elements so that a
+// CancelForwarder forwards a pass-through stage's elements so that a
 // canceled turn still delivers what it produced.
 //
 // When a turn is canceled (the caller gives up, the idle timer fires, a
@@ -23,13 +23,13 @@ var canceledForwardTimeout = 500 * time.Millisecond
 // offers each element downstream for a short time. A consumer collecting the
 // result still reads; one that has gone away must not block the pipeline, so
 // the first send that times out stops all further forwarding.
-type cancelForwarder struct {
+type CancelForwarder struct {
 	gone bool
 }
 
-// forward sends elem downstream: a normal cancellable send while ctx is live,
+// Forward sends elem downstream: a normal cancellable send while ctx is live,
 // and a bounded one after it is done.
-func (f *cancelForwarder) forward(ctx context.Context, output chan<- StreamElement, elem StreamElement) {
+func (f *CancelForwarder) Forward(ctx context.Context, output chan<- StreamElement, elem StreamElement) {
 	if f.gone {
 		return
 	}
@@ -44,9 +44,9 @@ func (f *cancelForwarder) forward(ctx context.Context, output chan<- StreamEleme
 }
 
 // forwardAfterCancel offers elem downstream for at most
-// canceledForwardTimeout and reports whether it was delivered.
+// CanceledForwardTimeout and reports whether it was delivered.
 func forwardAfterCancel(output chan<- StreamElement, elem StreamElement) bool {
-	timer := time.NewTimer(canceledForwardTimeout)
+	timer := time.NewTimer(CanceledForwardTimeout)
 	defer timer.Stop()
 	select {
 	case output <- elem:
@@ -56,10 +56,10 @@ func forwardAfterCancel(output chan<- StreamElement, elem StreamElement) bool {
 	}
 }
 
-// liveContext returns ctx, or a copy the cancellation does not reach when ctx
+// LiveContext returns ctx, or a copy the cancellation does not reach when ctx
 // is done — for the side effects (recording, events) that describe a canceled
 // turn and must not fail because it was canceled.
-func liveContext(ctx context.Context) context.Context {
+func LiveContext(ctx context.Context) context.Context {
 	if ctx.Err() != nil {
 		return context.WithoutCancel(ctx)
 	}

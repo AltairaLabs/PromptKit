@@ -28,4 +28,5 @@ use (
 	./tools/mcp-interop
 	./tools/packspec-gen
 	./tools/seamscan
+	./tools/stage-aliases-gen
 )

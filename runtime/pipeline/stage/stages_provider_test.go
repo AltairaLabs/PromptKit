@@ -12,6 +12,8 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks" // Used by TestAfterRound_ExcludesAfterRepeatedRejection
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/stagetest"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
@@ -2092,7 +2094,7 @@ func TestProviderStage_ResetsIdleOnStreamChunks(t *testing.T) {
 	// Set up context with a spy reset func
 	var resetCount int32
 	spy := func() { resetCount++ }
-	ctx := contextWithIdleReset(context.Background(), spy, time.Second)
+	ctx := core.ContextWithIdleReset(context.Background(), spy, time.Second)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
@@ -2126,7 +2128,7 @@ func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
 
 	var resetCount int32
 	spy := func() { resetCount++ }
-	ctx := contextWithIdleReset(context.Background(), spy, time.Second)
+	ctx := core.ContextWithIdleReset(context.Background(), spy, time.Second)
 
 	input := make(chan StreamElement, 1)
 	userMsg := types.Message{Role: "user", Content: "Test message"}
@@ -2282,8 +2284,8 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 		Chain(providerStage).
 		Build()
 	require.NoError(t, err)
-	clock := &fakeIdleTimer{}
-	pl.idleAfterFunc = clock.afterFunc
+	clock := &stagetest.FakeIdleTimer{}
+	pl.idleAfterFunc = clock.AfterFunc
 
 	userMsg := types.Message{Role: "user", Content: "hello"}
 	elem := NewMessageElement(&userMsg)
@@ -2299,7 +2301,7 @@ func TestIdleTimeout_SlowProviderExceedsTimeout(t *testing.T) {
 	}()
 
 	<-provider.waiting
-	clock.advance(idle)
+	clock.Advance(idle)
 	var got outcome
 	select {
 	case got = <-done:
@@ -2338,8 +2340,8 @@ func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
 		Chain(providerStage).
 		Build()
 	require.NoError(t, err)
-	clock := &fakeIdleTimer{}
-	pl.idleAfterFunc = clock.afterFunc
+	clock := &stagetest.FakeIdleTimer{}
+	pl.idleAfterFunc = clock.AfterFunc
 
 	userMsg := types.Message{Role: "user", Content: "hello"}
 	elem := NewMessageElement(&userMsg)
@@ -2355,7 +2357,7 @@ func TestIdleTimeout_SlowProviderWithinTimeout(t *testing.T) {
 	}()
 
 	<-provider.waiting
-	clock.advance(idle * 3 / 4)
+	clock.Advance(idle * 3 / 4)
 	close(provider.gate)
 	got := <-done
 
@@ -3312,7 +3314,7 @@ func TestProviderStage_ReasoningEndToEnd(t *testing.T) {
 func assistantReplies(results []StreamElement) []string {
 	var replies []string
 	for _, r := range results {
-		if r.Message != nil && r.Message.Role == roleAssistant {
+		if r.Message != nil && r.Message.Role == core.RoleAssistant {
 			replies = append(replies, r.Message.Content)
 		}
 	}

@@ -129,6 +129,22 @@ def without_anchors(lines, taken):
     return out
 
 
+def examples(lines):
+    """The facade section's example blocks (gomarkdoc's <details>), each with
+    the blank line after it."""
+    out, inside = [], False
+    for i, line in enumerate(lines):
+        if line.startswith("<details><summary>Example"):
+            inside = True
+        if inside:
+            out.append(line)
+            if line == "</details>":
+                inside = False
+                if i + 1 < len(lines) and lines[i + 1] == "":
+                    out.append("")
+    return out
+
+
 def splice(facade, internals):
     taken = facade.anchors()
     i = 0
@@ -154,7 +170,14 @@ def splice(facade, internals):
         _, f_end = facade.type_group(name)
 
         head = src.sections[start]
-        head.lines = without_anchors(head.lines, taken)
+        # The facade's own type section goes; the typed constants and
+        # variables it listed under the type are the internal section's too,
+        # so only anchors rendered elsewhere on the page are dropped from it.
+        here = {m.group(1) for m in map(ANY_ANCHOR.match, s.lines[1:]) if m}
+        head.lines = without_anchors(head.lines, taken - here)
+        taken |= {m.group(1) for m in map(ANY_ANCHOR.match, head.lines) if m}
+        # Examples live in the facade's tests, so only its page has them.
+        head.lines = head.lines + examples(s.lines)
         own = facade.sections[i + 1 : f_end]
         own_anchors = {o.anchor for o in own}
         methods = [

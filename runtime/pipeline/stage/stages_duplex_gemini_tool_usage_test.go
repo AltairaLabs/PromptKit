@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/gemini"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
@@ -249,7 +250,7 @@ func TestDuplexGeminiLive_ContentlessEndOfACompletedCallIsItsUsage(t *testing.T)
 func endedTurnContents(elems []StreamElement) []string {
 	var out []string
 	for _, e := range elems {
-		if e.EndOfStream && e.Message != nil && e.Message.Role == roleAssistant {
+		if e.EndOfStream && e.Message != nil && e.Message.Role == core.RoleAssistant {
 			out = append(out, e.Message.Content)
 		}
 	}

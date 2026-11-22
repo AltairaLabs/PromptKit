@@ -11,6 +11,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -68,7 +69,7 @@ func trace(elems []StreamElement) []string {
 			out = append(out, "error")
 		case e.Interrupt:
 			out = append(out, "interrupt")
-		case e.Message != nil && e.Message.Role == roleUser:
+		case e.Message != nil && e.Message.Role == core.RoleUser:
 			out = append(out, "user:"+e.Message.Content)
 		case e.EndOfStream && e.Message != nil:
 			out = append(out, "end:"+e.Message.Content+"|"+e.Message.FinishReason)
@@ -191,7 +192,7 @@ func (h *wordInputHook) Name() string { return "word_input" }
 func (h *wordInputHook) BeforeCall(_ context.Context, req *hooks.ProviderRequest) hooks.Decision {
 	var last string
 	for _, m := range req.Messages {
-		if m.Role == roleUser {
+		if m.Role == core.RoleUser {
 			last = m.GetContent()
 		}
 	}
@@ -389,7 +390,7 @@ func TestDuplexGuardrailCut_LateSpokenInputBlockInterruptsOnly(t *testing.T) {
 func TestDuplexGuardrailCut_ScenarioTranscriptBlockedAtTurnEnd(t *testing.T) {
 	s, sess := cutStage(t, hooks.NewRegistry(hooks.WithProviderHook(&wordInputHook{word: "wire"})))
 	turnID := "t1"
-	user := StreamElement{Message: &types.Message{Role: roleUser}}
+	user := StreamElement{Message: &types.Message{Role: core.RoleUser}}
 	user.Meta.TurnID = &turnID
 	require.False(t, s.handleInputElement(context.Background(), &user, make(chan StreamElement, 4), make(chan error, 1)))
 

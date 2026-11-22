@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -446,7 +447,7 @@ func TestReplyRelease_CutShortKeepsWhatWasReleased(t *testing.T) {
 			for {
 				select {
 				case e := <-r.out:
-					if e.Message != nil && e.Message.Role == roleAssistant {
+					if e.Message != nil && e.Message.Role == core.RoleAssistant {
 						msg = e.Message
 					}
 					continue

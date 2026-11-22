@@ -1,4 +1,4 @@
-package stage
+package core
 
 import (
 	"sync/atomic"
@@ -149,9 +149,9 @@ func (t *TurnState) SessionTurns() int {
 	return int(t.sessionTurns.Load())
 }
 
-// completeSessionTurn counts one completed realtime-session turn. The
+// CompleteSessionTurn counts one completed realtime-session turn on t. The
 // DuplexProviderStage owns this.
-func (t *TurnState) completeSessionTurn() {
+func CompleteSessionTurn(t *TurnState) {
 	if t != nil {
 		t.sessionTurns.Add(1)
 	}
@@ -169,9 +169,9 @@ func (t *TurnState) CallerTurn() (int, bool) {
 	return int(n) - 1, n > 0
 }
 
-// setCallerTurn records the caller turn of a turn a duplex session completed.
-// The duplex provider stages own this.
-func (t *TurnState) setCallerTurn(index int) {
+// SetCallerTurn records on t the caller turn of a turn a duplex session
+// completed. The duplex provider stages own this.
+func SetCallerTurn(t *TurnState, index int) {
 	if t != nil {
 		t.callerTurn.Store(int64(index) + 1)
 	}

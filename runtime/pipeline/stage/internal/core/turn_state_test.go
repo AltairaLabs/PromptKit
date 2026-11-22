@@ -1,4 +1,4 @@
-package stage
+package core
 
 import (
 	"testing"
@@ -91,4 +91,51 @@ func TestTurnState_BeginTurnClearsTheVariables(t *testing.T) {
 	state.BeginTurn()
 
 	assert.Empty(t, state.Variables, "a previous turn's per-send variable must not reach this turn")
+}
+
+func TestTurnState_TurnIndexAdvancesFromWhatWasSet(t *testing.T) {
+	state := NewTurnState()
+	assert.Equal(t, 0, state.TurnIndex(), "no turn established")
+	state.SetTurnIndex(4)
+	assert.Equal(t, 4, state.TurnIndex())
+	assert.Equal(t, 5, state.AdvanceTurn())
+	assert.Equal(t, 5, state.TurnIndex())
+}
+
+func TestTurnState_SessionTurnsCountCompletedSessionTurns(t *testing.T) {
+	state := NewTurnState()
+	assert.Equal(t, 0, state.SessionTurns())
+	CompleteSessionTurn(state)
+	CompleteSessionTurn(state)
+	assert.Equal(t, 2, state.SessionTurns())
+}
+
+func TestTurnState_CallerTurnReportsTheLatestSet(t *testing.T) {
+	state := NewTurnState()
+	_, ok := state.CallerTurn()
+	assert.False(t, ok, "no duplex turn has completed")
+
+	SetCallerTurn(state, 0)
+	index, ok := state.CallerTurn()
+	assert.True(t, ok, "caller turn 0 is a turn, not none")
+	assert.Equal(t, 0, index)
+
+	SetCallerTurn(state, 3)
+	index, ok = state.CallerTurn()
+	assert.True(t, ok)
+	assert.Equal(t, 3, index)
+}
+
+func TestTurnState_NilIsSafe(t *testing.T) {
+	var state *TurnState
+	assert.Equal(t, 0, state.TurnIndex())
+	assert.Equal(t, 0, state.AdvanceTurn())
+	assert.Equal(t, 0, state.SessionTurns())
+	_, ok := state.CallerTurn()
+	assert.False(t, ok)
+	assert.NotPanics(t, func() {
+		state.SetTurnIndex(1)
+		CompleteSessionTurn(state)
+		SetCallerTurn(state, 1)
+	})
 }

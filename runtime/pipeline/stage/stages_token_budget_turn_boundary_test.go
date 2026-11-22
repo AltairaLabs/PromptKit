@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tokenizer"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -74,11 +75,11 @@ func runTokenBudgetStage(
 // call is a 400 on every provider.
 func TestTokenBudgetStage_NeverOrphansAToolResult(t *testing.T) {
 	got, err := runTokenBudget(t, 20,
-		turnMsg(roleUser, "look it up"),
+		turnMsg(core.RoleUser, "look it up"),
 		turnCall(20, "c1"),
 		turnResult("c1", "found it"),
-		turnMsg(roleAssistant, "here it is"),
-		turnMsg(roleUser, "thanks"),
+		turnMsg(core.RoleAssistant, "here it is"),
+		turnMsg(core.RoleUser, "thanks"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"user:thanks"}, got)
@@ -88,9 +89,9 @@ func TestTokenBudgetStage_NeverOrphansAToolResult(t *testing.T) {
 // question that was dropped.
 func TestTokenBudgetStage_KeepsWholeTurns(t *testing.T) {
 	got, err := runTokenBudget(t, 14,
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 19)),
-		turnMsg(roleAssistant, "a0 w"),
-		turnMsg(roleUser, "q1 w"),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 19)),
+		turnMsg(core.RoleAssistant, "a0 w"),
+		turnMsg(core.RoleUser, "q1 w"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"user:q1 w"}, got)
@@ -102,7 +103,7 @@ func TestTokenBudgetStage_KeepsWholeTurns(t *testing.T) {
 // TestTokenBudgetStage_SystemMessagesExceedBudget.)
 func TestTokenBudgetStage_CurrentTurnThatDoesNotFitFails(t *testing.T) {
 	got, err := runTokenBudget(t, 20,
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 20)),
 		turnCall(1, "c1"),
 		turnResult("c1", "found it"),
 	)
@@ -115,8 +116,8 @@ func TestTokenBudgetStage_CurrentTurnThatDoesNotFitFails(t *testing.T) {
 // older turn is dropped.
 func TestTokenBudgetStage_KeepsAToolExchangeThatFits(t *testing.T) {
 	got, err := runTokenBudget(t, 25,
-		turnMsg(roleUser, "q0 "+strings.Repeat("w ", 20)),
-		turnMsg(roleUser, "q1"),
+		turnMsg(core.RoleUser, "q0 "+strings.Repeat("w ", 20)),
+		turnMsg(core.RoleUser, "q1"),
 		turnCall(1, "c1"),
 		turnResult("c1", "found it"),
 	)
@@ -129,22 +130,22 @@ func TestTokenBudgetStage_KeepsAToolExchangeThatFits(t *testing.T) {
 // messages would be sent.
 func TestTokenBudgetStage_HistoryWithNoUserMessage(t *testing.T) {
 	got, err := runTokenBudget(t, 8,
-		turnMsg(roleAssistant, "a0 "+strings.Repeat("w ", 19)),
-		turnMsg(roleAssistant, "a1 w"),
+		turnMsg(core.RoleAssistant, "a0 "+strings.Repeat("w ", 19)),
+		turnMsg(core.RoleAssistant, "a1 w"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"assistant:a1 w"}, got)
 
 	got, err = runTokenBudget(t, 12,
-		turnMsg(roleSystem, "sys"),
-		turnMsg(roleAssistant, "a0 "+strings.Repeat("w ", 19)),
-		turnMsg(roleAssistant, "a1 w"),
+		turnMsg(core.RoleSystem, "sys"),
+		turnMsg(core.RoleAssistant, "a0 "+strings.Repeat("w ", 19)),
+		turnMsg(core.RoleAssistant, "a1 w"),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"system:sys", "assistant:a1 w"}, got)
 
 	got, err = runTokenBudget(t, 8,
-		turnMsg(roleAssistant, "a0 "+strings.Repeat("w ", 19)),
+		turnMsg(core.RoleAssistant, "a0 "+strings.Repeat("w ", 19)),
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too small for the current turn")
@@ -156,7 +157,7 @@ func TestTokenBudgetStage_HistoryWithNoUserMessage(t *testing.T) {
 func TestTokenBudgetStage_SystemPromptFillsTheBudget(t *testing.T) {
 	ts := NewTurnState()
 	ts.SystemPrompt = strings.TrimSpace(strings.Repeat("rule ", 15))
-	got, err := runTokenBudgetStage(t, wordBudgetStage(12, ts), nil, turnMsg(roleUser, "hi"))
+	got, err := runTokenBudgetStage(t, wordBudgetStage(12, ts), nil, turnMsg(core.RoleUser, "hi"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "too small for the current turn")
 	assert.Empty(t, got)
@@ -167,9 +168,9 @@ func TestTokenBudgetStage_SystemPromptFillsTheBudget(t *testing.T) {
 func TestTokenBudgetStage_PassesAnUpstreamFailureThrough(t *testing.T) {
 	long := "q0 " + strings.Repeat("w ", 20)
 	got, err := runTokenBudgetStage(t, wordBudgetStage(8, nil),
-		[]StreamElement{newTurnFailureSignal(errors.New("upstream broke"))},
-		turnMsg(roleUser, long),
-		turnMsg(roleUser, "q1"),
+		[]StreamElement{core.NewTurnFailureSignal(errors.New("upstream broke"))},
+		turnMsg(core.RoleUser, long),
+		turnMsg(core.RoleUser, "q1"),
 	)
 	require.NoError(t, err)
 	require.Len(t, got, 3)

@@ -2,6 +2,7 @@ package stage
 
 import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -69,7 +70,7 @@ func isMarkedBlockedInput(m *types.Message) bool {
 // isBlockedInputReply reports whether m is the canned reply substituted for a
 // turn an input guardrail or BeforeCall hook blocked.
 func isBlockedInputReply(m *types.Message) bool {
-	if m.Role != roleAssistant || len(m.ToolCalls) > 0 {
+	if m.Role != core.RoleAssistant || len(m.ToolCalls) > 0 {
 		return false
 	}
 	if isMarkedBlockedInput(m) {
@@ -85,7 +86,7 @@ func isBlockedInputReply(m *types.Message) bool {
 // left out with it by blockedReplyBeforeMetaKey (or its own mark, when a
 // TranscriptReorderStage moved the request ahead of it).
 func isBlockedInputRequest(m *types.Message) bool {
-	return m.Role == roleUser && isMarkedBlockedInput(m)
+	return m.Role == core.RoleUser && isMarkedBlockedInput(m)
 }
 
 // hasInputValidation reports whether m records a guardrail firing on the
@@ -139,9 +140,9 @@ func blockedInputTurns(msgs []types.Message) []bool {
 // by.
 func answeredBy(m, prev *types.Message, reply bool) bool {
 	if reply {
-		return prev.Role == roleUser
+		return prev.Role == core.RoleUser
 	}
-	return isBlockedRequestAnsweredBefore(m) && prev.Role == roleAssistant && len(prev.ToolCalls) == 0
+	return isBlockedRequestAnsweredBefore(m) && prev.Role == core.RoleAssistant && len(prev.ToolCalls) == 0
 }
 
 // excludeBlockedInputTurns returns msgs without the blocked input turns, for

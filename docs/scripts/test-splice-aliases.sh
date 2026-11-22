@@ -6,6 +6,8 @@
 # the pipeline/stage split (#2876): stage.md for a facade aliasing
 # internal/core's Scored and Kind, core.md for internal/core, other-core.md for
 # a second internal package also named core. want.md is the spliced page.
+# stage-typed.md lists typed constants and an example under its aliases;
+# want-typed.md is it spliced.
 #
 # Run from anywhere: docs/scripts/test-splice-aliases.sh
 set -euo pipefail
@@ -30,6 +32,17 @@ if cmp -s "${DATA}/want.md" "${tmp}/got.md"; then
 else
   bad "aliases render the internal types' fields and methods"
   diff -u "${DATA}/want.md" "${tmp}/got.md" | sed 's/^/      /' || true
+fi
+
+# Catches: a splice that drops what the facade lists under an alias's own
+# section: its typed constants (they render with the internal values instead)
+# and its examples, which only the facade's tests have.
+"${SPLICE[@]}" "${DATA}/stage-typed.md" "${DATA}/core.md" >"${tmp}/typed.md"
+if cmp -s "${DATA}/want-typed.md" "${tmp}/typed.md"; then
+  ok "typed constants and examples under an alias survive"
+else
+  bad "typed constants and examples under an alias survive"
+  diff -u "${DATA}/want-typed.md" "${tmp}/typed.md" | sed 's/^/      /' || true
 fi
 
 # Catches: a page with no internal pages to splice being rewritten at all.

@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 )
 
 // runOnce runs p on one user message and returns the error elements the
@@ -128,9 +130,9 @@ func TestExecute_TimeoutForwardedThenReturnedIsOneFailure(t *testing.T) {
 func TestCompletionTotals_MatchesFailureBySourceStage(t *testing.T) {
 	failure := NewStageError("b", StageTypeTransform, io.EOF)
 	fromB := NewErrorElement(io.EOF)
-	tagErrorSource(&fromB, "b")
+	core.TagErrorSource(&fromB, "b")
 	fromC := NewErrorElement(io.EOF)
-	tagErrorSource(&fromC, "c")
+	core.TagErrorSource(&fromC, "c")
 
 	totals := &completionTotals{}
 	require.True(t, totals.observe(&fromC))
@@ -138,8 +140,8 @@ func TestCompletionTotals_MatchesFailureBySourceStage(t *testing.T) {
 	require.True(t, totals.observe(&fromB))
 	assert.True(t, totals.delivered(failure), "b's own report is its failure")
 
-	sig := newTurnFailureSignal(failure)
-	tagErrorSource(&sig, "b")
+	sig := core.NewTurnFailureSignal(failure)
+	core.TagErrorSource(&sig, "b")
 	signalFirst := &completionTotals{}
 	require.True(t, signalFirst.observe(&sig))
 	c2 := fromC
@@ -168,7 +170,7 @@ func TestExecute_BranchForwardedSignalStillReachesEveryReader(t *testing.T) {
 					defer close(out)
 					saw := false
 					for e := range in {
-						saw = saw || isTurnFailureSignal(&e)
+						saw = saw || core.IsTurnFailureSignal(&e)
 						out <- e
 					}
 					if saw {

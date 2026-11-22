@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -42,7 +43,7 @@ func (s *DuplexProviderStage) takeInterruptedTurn(cause string) *types.Message {
 		return nil
 	}
 	msg := &types.Message{
-		Role:         roleAssistant,
+		Role:         core.RoleAssistant,
 		Content:      text,
 		FinishReason: types.FinishReasonInterrupted,
 		Meta: map[string]interface{}{
@@ -275,7 +276,7 @@ func (s *DuplexProviderStage) chunkToElement(chunk *providers.StreamChunk) Strea
 		// Create Message if there's content, cost info, or tool calls
 		if hasContent || hasCostInfo || hasToolCalls {
 			msg := &types.Message{
-				Role:         roleAssistant,
+				Role:         core.RoleAssistant,
 				Content:      accumulatedText,
 				Parts:        []types.ContentPart{},
 				ToolCalls:    toolCalls,

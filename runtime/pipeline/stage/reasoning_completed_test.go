@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -111,7 +112,7 @@ func TestReasoningCompleted_EmittedPerRoundWithCorrelation(t *testing.T) {
 
 	for i, r := range rounds {
 		resp := types.Message{
-			Role:      roleAssistant,
+			Role:      core.RoleAssistant,
 			Reasoning: &types.ReasoningTrace{Text: r.reasoning},
 		}
 		// hasToolCalls=false ends the loop immediately after the emit, which is
@@ -172,7 +173,7 @@ func TestReasoningCompleted_SilentWhenRoundDidNotReason(t *testing.T) {
 		{Text: "", Opaque: nil}, // explicitly empty
 	}
 	for _, tr := range cases {
-		resp := types.Message{Role: roleAssistant, Reasoning: tr}
+		resp := types.Message{Role: core.RoleAssistant, Reasoning: tr}
 		_, _, err := loop.afterRound(t.Context(), nil, &resp, false, roundRef{round: 1, providerCallID: "pc-x"})
 		require.NoError(t, err)
 	}

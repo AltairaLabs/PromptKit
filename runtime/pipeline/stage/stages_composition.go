@@ -10,6 +10,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition/engine"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -99,7 +100,7 @@ func (s *CompositionStage) Process(ctx context.Context, in <-chan StreamElement,
 // resultMessage builds the assistant message carrying the composition output,
 // with the recorder's snapshot (when any) under compositionSnapshotMetaKey.
 func (s *CompositionStage) resultMessage(result json.RawMessage) *types.Message {
-	assistant := &types.Message{Role: roleAssistant, Content: string(result)}
+	assistant := &types.Message{Role: core.RoleAssistant, Content: string(result)}
 	if s.recorder != nil {
 		if snap := s.recorder.Snapshot(); snap != nil {
 			if assistant.Meta == nil {

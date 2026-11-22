@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -172,16 +173,16 @@ func TestDuplexStage_RecordsTheCallerTurnOnTurnState(t *testing.T) {
 // form a store returns it; a caller turn on anything but a reply is ignored.
 func TestCallerTurns_ResumedFromTheTranscript(t *testing.T) {
 	reply := func(turn any) types.Message {
-		return types.Message{Role: roleAssistant, Meta: map[string]interface{}{types.MetaCallerTurn: turn}}
+		return types.Message{Role: core.RoleAssistant, Meta: map[string]interface{}{types.MetaCallerTurn: turn}}
 	}
 	assert.Equal(t, 2, resumedCallerTurns(nil, 2))
-	assert.Equal(t, 2, resumedCallerTurns([]types.Message{{Role: roleAssistant}}, 2), "no stored turn")
+	assert.Equal(t, 2, resumedCallerTurns([]types.Message{{Role: core.RoleAssistant}}, 2), "no stored turn")
 	assert.Equal(t, 5, resumedCallerTurns([]types.Message{reply(1), reply(4)}, 2))
 	assert.Equal(t, 4, resumedCallerTurns([]types.Message{reply(int64(3))}, 0))
 	assert.Equal(t, 7, resumedCallerTurns([]types.Message{reply(float64(6))}, 0), "as JSON decodes it")
 	assert.Equal(t, 3, resumedCallerTurns([]types.Message{reply(1)}, 3), "fewer than the user turns")
 	assert.Equal(t, 0, resumedCallerTurns([]types.Message{reply("9")}, 0), "not a number")
-	user := types.Message{Role: roleUser, Meta: map[string]interface{}{types.MetaCallerTurn: 8}}
+	user := types.Message{Role: core.RoleUser, Meta: map[string]interface{}{types.MetaCallerTurn: 8}}
 	assert.Equal(t, 1, resumedCallerTurns([]types.Message{user}, 1), "only a reply's counts")
 }
 
