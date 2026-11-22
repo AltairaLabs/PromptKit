@@ -2,12 +2,12 @@ package stage
 
 import (
 	"context"
-	"math"
 	"strconv"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	heardreplies "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/heard"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -196,7 +196,7 @@ func (h *playoutHold) takeCut(elem *StreamElement) bool {
 		!(elem.EndOfStream || elem.Meta.Interrupted) {
 		return false
 	}
-	elem.Message = heardReply(msg, h.cut.heard, h.audio[h.seq], h.cut.cause)
+	elem.Message = heardreplies.CutReply(msg, h.cut.heard, h.audio[h.seq], h.cut.cause)
 	h.cut = nil
 	h.endReply()
 	return true
@@ -243,7 +243,7 @@ func (h *playoutHold) release(ctx context.Context, output chan<- StreamElement, 
 		m := h.held[i]
 		msg := m.elem.Message
 		if got, cut := heard[strconv.Itoa(m.key)]; m.reply && cut {
-			msg = heardReply(msg, got, h.audio[m.key], cause)
+			msg = heardreplies.CutReply(msg, got, h.audio[m.key], cause)
 		}
 		// Not a turn end: the held element already carried this reply's, to
 		// every stage downstream, when it happened.
@@ -261,23 +261,4 @@ func (h *playoutHold) release(ctx context.Context, output chan<- StreamElement, 
 		}
 	}
 	h.held = nil
-}
-
-// heardReply is a copy of msg recording that heard of its total audio was
-// played. The text and FinishReason are kept.
-func heardReply(msg *types.Message, heard, total time.Duration, cause string) *types.Message {
-	c := *msg
-	c.Meta = make(map[string]interface{}, len(msg.Meta)+4)
-	for k, v := range msg.Meta {
-		c.Meta[k] = v
-	}
-	c.Meta[types.MetaPlayoutCut] = cause
-	c.Meta[types.MetaHeardMs] = heard.Milliseconds()
-	c.Meta[types.MetaAudioMs] = total.Milliseconds()
-	fraction := 0.0
-	if total > 0 {
-		fraction = math.Round(float64(heard)/float64(total)*1000) / 1000
-	}
-	c.Meta[types.MetaPlayedFraction] = fraction
-	return &c
 }

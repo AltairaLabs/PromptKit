@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/metrics"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 )
@@ -74,8 +75,7 @@ func TestAudioHealthPipeline_EndToEnd(t *testing.T) {
 		fc.t = fc.t.Add(d + 100*time.Millisecond)
 		return nil
 	}
-	pacing.clock = fc
-	pacing.prerollChunks = 0
+	voice.SetPacingClock(pacing, fc.now, fc.sleep, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

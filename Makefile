@@ -54,7 +54,7 @@ bench-audio-memory: ## Report audio-path memory: retention per session + allocat
 	@echo "Audio path memory benchmarks (no -race: it perturbs allocation)"
 	@echo ""
 	@echo "== Retention: heap held per session length =="
-	@cd runtime && go test ./pipeline/stage/ -run '^$$' -bench BenchmarkAudioTurnStageRetention -benchtime 1x
+	@cd runtime && go test ./pipeline/stage/internal/voice/ -run '^$$' -bench BenchmarkAudioTurnStageRetention -benchtime 1x
 	@echo ""
 	@echo "== Churn: cost per audio chunk =="
 	@cd runtime && go test ./audio/ -run '^$$' -bench 'BenchmarkSilenceDetectorProcessAudio|BenchmarkResamplePCM16' -benchtime 2000x

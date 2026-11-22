@@ -1,0 +1,194 @@
+package voice_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNewSTTStage(t *testing.T) {
+	s := voice.NewSTTStage(&mockSTTService{}, voice.DefaultSTTStageConfig())
+
+	assert.Equal(t, core.StageTypeTransform, s.Type())
+	assert.Equal(t, "stt", s.Name())
+}
+
+func TestDefaultSTTStageConfig(t *testing.T) {
+	config := voice.DefaultSTTStageConfig()
+
+	assert.Equal(t, "en", config.Language)
+	assert.True(t, config.SkipEmpty)
+	assert.NotZero(t, config.MinAudioBytes, "MinAudioBytes should have a default value")
+}
+
+func TestSTTStage_TranscribesAudio(t *testing.T) {
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{Text: "Hello from transcription"}, nil
+		},
+	}
+	s := voice.NewSTTStage(mock, voice.DefaultSTTStageConfig())
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(32000), 16000),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Text)
+	assert.Equal(t, "Hello from transcription", *results[0].Text)
+}
+
+func TestSTTStage_TranscriptionError(t *testing.T) {
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{}, context.DeadlineExceeded
+		},
+	}
+	s := voice.NewSTTStage(mock, voice.DefaultSTTStageConfig())
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(32000), 16000),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	require.Len(t, results, 1)
+	assert.NotNil(t, results[0].Error, "Expected error element for transcription failure")
+}
+
+// A whitespace-only transcription produces no element; the next utterance's
+// transcription still comes through. Both were transcribed: the skip is the
+// empty text, not the audio-size check.
+func TestSTTStage_EmptyTranscription(t *testing.T) {
+	replies := []string{"   ", "hello"}
+	var calls int
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			text := replies[calls]
+			calls++
+			return base.STTResponse{Text: text}, nil
+		},
+	}
+	config := voice.DefaultSTTStageConfig()
+	config.SkipEmpty = true
+	s := voice.NewSTTStage(mock, config)
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(32000), 16000),
+		makeAudioElement(generateTestPCMAudio(32000), 16000),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	assert.Equal(t, 2, calls, "both utterances must reach the STT service")
+	require.Len(t, results, 1, "the whitespace transcription must produce no element")
+	require.NotNil(t, results[0].Text)
+	assert.Equal(t, "hello", *results[0].Text)
+}
+
+// Audio shorter than MinAudioBytes is not transcribed: no transcription
+// reaches the output, so a fragment of noise never becomes a user turn.
+func TestSTTStage_SkipsSmallAudio(t *testing.T) {
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{Text: "transcribed noise"}, nil
+		},
+	}
+	config := voice.DefaultSTTStageConfig()
+	config.MinAudioBytes = 1000
+
+	s := voice.NewSTTStage(mock, config)
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(100), 16000), // 100 bytes < 1000 min
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	assert.Empty(t, results, "small audio must produce no element")
+}
+
+func TestSTTStage_PassesThroughNonAudio(t *testing.T) {
+	s := voice.NewSTTStage(&mockSTTService{}, voice.DefaultSTTStageConfig())
+
+	inputs := []core.StreamElement{
+		makeTextElement("Pass through text"),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Text)
+	assert.Equal(t, "Pass through text", *results[0].Text)
+}
+
+func TestSTTStage_EndOfStream(t *testing.T) {
+	transcribeCalled := false
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			transcribeCalled = true
+			return base.STTResponse{}, nil
+		},
+	}
+	s := voice.NewSTTStage(mock, voice.DefaultSTTStageConfig())
+
+	inputs := []core.StreamElement{
+		makeEndOfStreamElement(),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	require.Len(t, results, 1)
+	assert.True(t, results[0].EndOfStream, "EndOfStream should be forwarded")
+	assert.False(t, transcribeCalled, "Transcribe should not be called for EndOfStream")
+}
+
+func TestSTTStage_PreservesMetadata(t *testing.T) {
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, _ base.STTRequest) (base.STTResponse, error) {
+			return base.STTResponse{Text: "Transcribed text"}, nil
+		},
+	}
+	s := voice.NewSTTStage(mock, voice.DefaultSTTStageConfig())
+
+	turnID := "abc123"
+	audioElem := core.StreamElement{
+		Audio: &core.AudioData{
+			Samples:    generateTestPCMAudio(32000),
+			SampleRate: 16000,
+			Channels:   1,
+			Format:     core.AudioFormatPCM16,
+		},
+		Meta: core.ElementMetadata{TurnID: &turnID},
+	}
+
+	results := runStage(t, s, []core.StreamElement{audioElem}, 2*time.Second)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Text)
+	require.NotNil(t, results[0].Meta.TurnID)
+	assert.Equal(t, "abc123", *results[0].Meta.TurnID)
+}
+
+func TestSTTStage_PassesLanguageConfig(t *testing.T) {
+	var capturedLanguage string
+	mock := &mockSTTService{
+		transcribeFunc: func(_ context.Context, req base.STTRequest) (base.STTResponse, error) {
+			capturedLanguage = req.Hints["language"]
+			return base.STTResponse{Text: "Hola"}, nil
+		},
+	}
+	config := voice.DefaultSTTStageConfig()
+	config.Language = "es"
+
+	s := voice.NewSTTStage(mock, config)
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(32000), 16000),
+	}
+	runStage(t, s, inputs, 2*time.Second)
+
+	assert.Equal(t, "es", capturedLanguage, "Language hint should be passed to Transcribe request")
+}

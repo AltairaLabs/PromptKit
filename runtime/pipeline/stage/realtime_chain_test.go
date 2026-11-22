@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,7 +103,7 @@ func TestNewRealtimeChain_PacingModes(t *testing.T) {
 			require.Equal(t, []string{"duplex_provider", "cue", "audio-pacing-output"}, chainNames(stages))
 			pacer, ok := stages[2].(*AudioPacingStage)
 			require.True(t, ok)
-			assert.Equal(t, tc.flush, pacer.flushOnCut)
+			assert.Equal(t, tc.flush, voice.FlushesOnCut(pacer))
 		})
 	}
 	stages, err := NewRealtimeChain(newRealtimeTestProvider(), RealtimeChainConfig{Pacing: RealtimePacingNone})

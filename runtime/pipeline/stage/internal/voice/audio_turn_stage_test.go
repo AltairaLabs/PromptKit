@@ -1,0 +1,623 @@
+package voice_test
+
+import (
+	"bytes"
+	"context"
+	"testing"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestNewAudioTurnStage(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	assert.Equal(t, core.StageTypeAccumulate, s.Type())
+	assert.Equal(t, "audio_turn", s.Name())
+}
+
+// The documented defaults callers get when they configure nothing.
+func TestDefaultAudioTurnConfig(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+
+	assert.Equal(t, 800*time.Millisecond, config.SilenceDuration)
+	assert.Equal(t, 200*time.Millisecond, config.MinSpeechDuration)
+	assert.Equal(t, 30*time.Second, config.MaxTurnDuration)
+	assert.Equal(t, 16000, config.SampleRate)
+}
+
+func TestAudioTurnStage_PassThroughNonAudio(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	inputs := []core.StreamElement{
+		makeTextElement("Hello, world!"),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Text)
+	assert.Equal(t, "Hello, world!", *results[0].Text)
+}
+
+func TestAudioTurnStage_PassthroughMetadata(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	audioData := generateTestPCMAudio(160)
+	elem := core.StreamElement{
+		Audio: &core.AudioData{
+			Samples:    audioData,
+			SampleRate: 16000,
+			Channels:   1,
+			Format:     core.AudioFormatPCM16,
+		},
+	}
+	elem.Meta.Passthrough = true
+
+	results := runStage(t, s, []core.StreamElement{elem}, 2*time.Second)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Audio)
+	assert.Equal(t, audioData, results[0].Audio.Samples)
+}
+
+func TestAudioTurnStage_AccumulatesAudio(t *testing.T) {
+	t.Parallel()
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 100 * time.Millisecond
+	config.MinSpeechDuration = 50 * time.Millisecond
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateStopping,
+			audio.VADStateQuiet,
+			audio.VADStateQuiet,
+			audio.VADStateQuiet,
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	for i := 0; i < 6; i++ { // the stage times turns in audio, not wall time
+		input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	}
+	close(input)
+
+	select {
+	case elem := <-output:
+		require.NotNil(t, elem.Audio, "Expected audio output")
+		assert.NotEmpty(t, elem.Audio.Samples, "Expected non-empty audio samples")
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for accumulated audio output")
+	}
+}
+
+func TestAudioTurnStage_MinSpeechDuration(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 50 * time.Millisecond
+	config.MinSpeechDuration = 500 * time.Millisecond // Long min speech - won't complete via shouldCompleteTurn
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking,
+			audio.VADStateStopping,
+			audio.VADStateQuiet,
+			audio.VADStateQuiet,
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send chunks instantly (no delay) - turn should NOT complete
+	for i := 0; i < 4; i++ {
+		input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	}
+	close(input)
+
+	// Audio should arrive via emitRemainingAudio on stream close
+	select {
+	case elem := <-output:
+		require.NotNil(t, elem.Audio, "Expected audio emitted on stream close")
+		assert.NotEmpty(t, elem.Audio.Samples)
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for audio output on stream close")
+	}
+}
+
+func TestAudioTurnStage_MaxTurnDuration(t *testing.T) {
+	t.Parallel()
+	config := voice.DefaultAudioTurnConfig()
+	config.MaxTurnDuration = 100 * time.Millisecond
+	config.SilenceDuration = 10 * time.Second // Won't trigger
+	config.MinSpeechDuration = 20 * time.Millisecond
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan core.StreamElement, 20)
+	output := make(chan core.StreamElement, 20)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// 8 chunks of 20ms of 16kHz audio (640 bytes each): 160ms of speech, past
+	// the 100ms max. Input stays open, so the turn can only end at the max,
+	// after exactly the first 5 chunks; the stage times turns in audio.
+	const chunkBytes = 640
+	var chunks [][]byte
+	for i := 0; i < 8; i++ {
+		chunk := bytes.Repeat([]byte{byte(i + 1)}, chunkBytes)
+		chunks = append(chunks, chunk)
+		input <- makeAudioElement(chunk, 16000)
+	}
+	defer close(input)
+
+	select {
+	case elem := <-output:
+		require.NotNil(t, elem.Audio, "Expected audio output from max turn duration")
+		assert.Equal(t, bytes.Join(chunks[:5], nil), elem.Audio.Samples,
+			"the turn is cut at 100ms of audio, while input is still open")
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for max-turn-duration output")
+	}
+}
+
+func TestAudioTurnStage_EndOfStream_EmitsBufferedAudio(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 10 * time.Second // Won't trigger via silence
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(160), 16000),
+		makeAudioElement(generateTestPCMAudio(160), 16000),
+		makeEndOfStreamElement(),
+	}
+
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	// Should have audio then EndOfStream
+	var audioElems, eosElems int
+	for _, r := range results {
+		if r.Audio != nil {
+			audioElems++
+		}
+		if r.EndOfStream {
+			eosElems++
+		}
+	}
+	assert.Equal(t, 1, audioElems, "Expected 1 accumulated audio element before EOS")
+	assert.Equal(t, 1, eosElems, "Expected 1 EndOfStream element")
+
+	// Audio should come before EOS
+	if len(results) >= 2 {
+		assert.NotNil(t, results[0].Audio, "Audio should come before EOS")
+		assert.True(t, results[len(results)-1].EndOfStream, "EOS should be last")
+	}
+}
+
+func TestAudioTurnStage_EndOfStream_EmptyBuffer(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	inputs := []core.StreamElement{
+		makeEndOfStreamElement(),
+	}
+
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	// Only EndOfStream should be forwarded; no audio
+	require.Len(t, results, 1)
+	assert.True(t, results[0].EndOfStream)
+	assert.Nil(t, results[0].Audio)
+}
+
+func TestAudioTurnStage_TurnDetector_Integration(t *testing.T) {
+	t.Parallel()
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 10 * time.Second // Won't trigger via silence
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+		},
+	}
+	config.VAD = mockVAD
+
+	td := &mockTurnDetector{isUserSpeakingVal: true}
+	processAudioCalled := 0
+	td.processAudioFunc = func(ctx context.Context, audioData []byte) (bool, error) {
+		processAudioCalled++
+		return false, nil
+	}
+	config.TurnDetector = td
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Send 2 chunks with delay
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	time.Sleep(20 * time.Millisecond)
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	time.Sleep(20 * time.Millisecond)
+
+	// Flip to not speaking
+	td.isUserSpeakingVal = false
+
+	// Send 3rd chunk
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	close(input)
+
+	// Should complete the turn
+	select {
+	case elem := <-output:
+		require.NotNil(t, elem.Audio, "Expected audio output from turn detector integration")
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for turn completion via TurnDetector")
+	}
+
+	assert.Greater(t, processAudioCalled, 0, "processAudioFunc should have been called")
+}
+
+// A barge-in keeps the audio that triggered it: the chunk the caller spoke over
+// the bot is the start of their next turn, not something to discard (#2301).
+func TestAudioTurnStage_Interruption_KeepsBufferedSpeech(t *testing.T) {
+	t.Parallel()
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 10 * time.Second // Won't trigger
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+			audio.VADStateSpeaking,
+		},
+	}
+	config.VAD = mockVAD
+
+	handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	handler.SetBotSpeaking(true)
+	config.InterruptionHandler = handler
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// First chunk - triggers interruption (bot speaking + user speaking VAD state)
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+
+	// Barge-in emits an Interrupt element first.
+	select {
+	case elem := <-output:
+		assert.True(t, elem.Interrupt, "barge-in should emit an Interrupt element first")
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for Interrupt element")
+	}
+
+	// Reset the handler to clear the interruption, once the stage has seen it
+	handler.Reset()
+
+	// Send another chunk and close
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	close(input)
+
+	// Expect both chunks: the one that triggered the barge-in is kept.
+	select {
+	case elem := <-output:
+		require.NotNil(t, elem.Audio, "Expected post-interruption audio")
+		assert.Equal(t, 320, len(elem.Audio.Samples), "the barge-in chunk must not be dropped")
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for post-interruption audio")
+	}
+}
+
+func TestAudioTurnStage_EmitsInterruptOnBargeIn(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 10 * time.Second // Won't trigger via silence
+
+	// A single Speaking chunk while the bot is speaking is a barge-in.
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{audio.VADStateSpeaking},
+	}
+	config.VAD = mockVAD
+
+	handler := audio.NewInterruptionHandler(audio.InterruptionImmediate, nil)
+	handler.SetBotSpeaking(true)
+	config.InterruptionHandler = handler
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	inputs := []core.StreamElement{
+		makeAudioElement(generateTestPCMAudio(160), 16000),
+	}
+	results := runStage(t, s, inputs, 2*time.Second)
+
+	sawInterrupt := false
+	for _, r := range results {
+		if r.Interrupt {
+			sawInterrupt = true
+		}
+	}
+	assert.True(t, sawInterrupt, "barge-in (user speech while bot speaking) must emit an Interrupt element")
+}
+
+func TestAudioTurnStage_EmitsEndOfTurnAfterTurn(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	config.EmitEndOfTurn = true
+	config.SilenceDuration = 30 * time.Millisecond
+	config.MinSpeechDuration = 10 * time.Millisecond
+
+	// 160 samples/chunk = 10 ms @ 16 kHz. Turn completion is timed in AUDIO time,
+	// so the turn closes after 30 ms (3 chunks) of silence audio — no wall-clock
+	// sleeps required.
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking, // chunk1: speech (>= MinSpeechDuration)
+			audio.VADStateQuiet,    // chunk2: 10 ms silence
+			audio.VADStateQuiet,    // chunk3: 20 ms silence
+			audio.VADStateQuiet,    // chunk4: 30 ms silence -> turn completes
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+	go func() { _ = s.Process(ctx, input, output) }()
+
+	for range 4 {
+		input <- makeAudioElement(generateTestPCMAudio(320), 16000) // 320 B = 160 samples = 10 ms
+	}
+	close(input)
+
+	var sawAudio, sawEndOfTurn, audioBeforeEOT bool
+	timeout := time.After(time.Second)
+loop:
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				break loop
+			}
+			if elem.Audio != nil {
+				sawAudio = true
+			}
+			if elem.EndOfTurn {
+				sawEndOfTurn = true
+				if sawAudio {
+					audioBeforeEOT = true
+				}
+			}
+		case <-timeout:
+			break loop
+		}
+	}
+
+	assert.True(t, sawAudio, "turn audio should be emitted")
+	assert.True(t, sawEndOfTurn, "EndOfTurn should be emitted after a completed turn")
+	assert.True(t, audioBeforeEOT, "EndOfTurn should follow the turn audio")
+}
+
+func TestAudioTurnStage_NoEndOfTurnByDefault(t *testing.T) {
+	t.Parallel()
+	config := voice.DefaultAudioTurnConfig() // EmitEndOfTurn defaults false
+	config.SilenceDuration = 30 * time.Millisecond
+	config.MinSpeechDuration = 10 * time.Millisecond
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking, audio.VADStateStopping, audio.VADStateQuiet,
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+	go func() { _ = s.Process(ctx, input, output) }()
+
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	time.Sleep(20 * time.Millisecond)
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	time.Sleep(35 * time.Millisecond)
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	close(input)
+
+	timeout := time.After(time.Second)
+loop:
+	for {
+		select {
+		case elem, ok := <-output:
+			if !ok {
+				break loop
+			}
+			assert.False(t, elem.EndOfTurn, "no EndOfTurn should be emitted when EmitEndOfTurn is false")
+		case <-timeout:
+			break loop
+		}
+	}
+}
+
+func TestAudioTurnStage_MultipleTurns(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	// 160 samples/chunk = 10 ms @ 16 kHz. Each turn closes on 30 ms (3 chunks) of
+	// silence AUDIO — no wall-clock sleeps. resetState calls vad.Reset(), which
+	// rewinds the mock's state index, so both turns replay this same 4-state
+	// pattern.
+	config.SilenceDuration = 30 * time.Millisecond
+	config.MinSpeechDuration = 10 * time.Millisecond
+
+	mockVAD := &mockVADAnalyzer{
+		states: []audio.VADState{
+			audio.VADStateSpeaking, // speech (>= MinSpeechDuration)
+			audio.VADStateQuiet,    // 10 ms silence
+			audio.VADStateQuiet,    // 20 ms silence
+			audio.VADStateQuiet,    // 30 ms silence -> turn completes
+		},
+	}
+	config.VAD = mockVAD
+
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	input := make(chan core.StreamElement, 20)
+	output := make(chan core.StreamElement, 20)
+
+	go func() {
+		_ = s.Process(ctx, input, output)
+	}()
+
+	// Turn 1: speech + 30 ms silence audio.
+	for range 4 {
+		input <- makeAudioElement(generateTestPCMAudio(320), 16000) // 320 B = 160 samples = 10 ms
+	}
+
+	// Wait for first turn output
+	var turn1 *core.StreamElement
+	select {
+	case elem := <-output:
+		turn1 = &elem
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for turn 1 output")
+	}
+	require.NotNil(t, turn1.Audio, "Turn 1 should produce audio")
+
+	// Turn 2 (same pattern):
+	for range 4 {
+		input <- makeAudioElement(generateTestPCMAudio(320), 16000) // 320 B = 160 samples = 10 ms
+	}
+	close(input)
+
+	// Wait for second turn output
+	var turn2 *core.StreamElement
+	select {
+	case elem := <-output:
+		turn2 = &elem
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for turn 2 output")
+	}
+	require.NotNil(t, turn2.Audio, "Turn 2 should produce audio")
+}
+
+func TestAudioTurnStage_ContextCancellation(t *testing.T) {
+	config := voice.DefaultAudioTurnConfig()
+	config.SilenceDuration = 10 * time.Second
+	s, err := voice.NewAudioTurnStage(config)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.Process(ctx, input, output)
+	}()
+
+	input <- makeAudioElement(generateTestPCMAudio(160), 16000)
+	cancel()
+	close(input)
+
+	select {
+	case <-errCh:
+		// Process should return after context cancellation or input close
+	case <-time.After(2 * time.Second):
+		t.Fatal("Process should have returned after context cancellation")
+	}
+}

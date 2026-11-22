@@ -31,7 +31,7 @@ func withNamePrefix(prefix string, s stage.Stage) stage.Stage {
 // When includeResample is true, the AudioResampleStage normalizes the track to
 // vad.SampleRate (falling back to the package default when unset) before
 // VAD/turn-detection runs, and is a no-op passthrough when the source is already
-// at that rate — see runtime/pipeline/stage/stages_resample.go.
+// at that rate — see runtime/pipeline/stage/internal/voice/stages_resample.go.
 func BuildAudioTrackStages(
 	namePrefix string,
 	includeResample bool,
