@@ -50,6 +50,8 @@
 #                   installed at the pinned version into a temp GOBIN).
 #   MUTATION_WORKERS    parallel mutants per package (default 4; each worker
 #                   copies the module, so more is not faster on a laptop).
+#   MUTATION_MEM_LIMIT_KB  per-process address-space cap for gremlins and the
+#                   tests it runs, Linux only (default 4194304, i.e. 4 GiB).
 set -Eeuo pipefail
 
 # Every failure says why. A command that fails with no message of its own
@@ -304,8 +306,16 @@ for pkg in ${pkgs}; do
   # recompiles the module cold and its mutants time out (and count as caught).
   # PROMPTKIT_MUTATION_RUN skips the guards no mutant can fail but that would
   # each cost a go command run per mutant (pipeline/stage/internal_guards_test.go).
+  # Memory cap (Linux only; RLIMIT_AS is per process and inherited): a mutant
+  # that makes an appending loop unbounded otherwise grows until the runner is
+  # shut down, failing the whole shard with no mutant named (#2886). Under the
+  # cap its test binary dies with "out of memory" and the mutant counts as
+  # caught. 4 GiB still compiles and tests the biggest packages (sdk, stage).
   (
     cd "${ROOT}/${pkg}"
+    if [ "$(uname -s)" = Linux ]; then
+      ulimit -v "${MUTATION_MEM_LIMIT_KB:-4194304}"
+    fi
     env GOWORK=off GOFLAGS="-count=1 -trimpath${flags}" PROMPTKIT_MUTATION_RUN=1 \
       GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.relative GIT_CONFIG_VALUE_0=true \
       "${GREMLINS}" "${args[@]}" "${ROOT}/${pkg}"
