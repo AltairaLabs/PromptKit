@@ -119,6 +119,29 @@ expect "a move into a sibling of stage/internal fails" 1 "# github.com/AltairaLa
 ## incompatible changes
 Cue: changed from Cue to github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internalx.Cue" "internalx.Cue"
 
+# Outside pipeline/stage the old side names the type through stage.
+expect "a moved type held by another package passes" 0 "# github.com/AltairaLabs/PromptKit/runtime/v2/streaming
+## incompatible changes
+Uses.S: changed from github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage.ScoredMessage to $Q.ScoredMessage
+(*Session).Top: changed from func() *github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage.ScoredMessage to func() *$Q.ScoredMessage" "Uses.S: changed from"
+
+# Catches: the in-stage rule (delete the qualifier) applied in another
+# package, where an unqualified name is that package's own type.
+expect "another package swapping its own type for a moved one fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/streaming
+## incompatible changes
+Uses.S: changed from ScoredMessage to $Q.ScoredMessage" "Uses.S: changed from ScoredMessage"
+
+# Catches: the stage-qualifier rule applied inside stage, where the old side
+# never prints stage's own qualifier.
+expect "the other-package rule does not apply inside stage" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+ScoredMessage: changed from github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage.ScoredMessage to $Q.ScoredMessage" "breaking changes"
+
+# Catches: an unanchored qualifier match inside a longer import path.
+expect "a qualifier inside a longer path fails" 1 "# github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage
+## incompatible changes
+Cue.F: changed from example.com/Cue to example.com/github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core.Cue" "example.com/github.com"
+
 # A generic alias prints its type parameters without their constraints on the
 # new side (seen in the same experiment), so it cannot be told apart from a
 # constraint change and stays a manual decision.

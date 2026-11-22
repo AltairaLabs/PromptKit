@@ -46,8 +46,10 @@ var stagePackagePath = reflect.TypeFor[StageError]().PkgPath()
 // A consumer cannot import an internal package, so a type it can only reach
 // (a field, a parameter, a result) but not name breaks code that declares a
 // variable of it. The API-compatibility allowlist accepts apidiff's "changed
-// from X to .../stage/internal/<pkg>.X" for a moved type BECAUSE this test
-// guarantees stage.X still names it (scripts/api-compat-allowlist.sh).
+// from X to .../stage/internal/<pkg>.X" for a moved type because this test
+// guarantees stage.X still names it (scripts/api-compat-allowlist.sh), and
+// scripts/check-stage-api.sh compares what stage.X now names with its old
+// declaration.
 func TestInternalTypesReachableFromAPIHaveAliases(t *testing.T) {
 	skipUnderMutationRun(t)
 	pkg := loadExportedTypes(t, stagePackagePath)

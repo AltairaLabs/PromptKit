@@ -16,6 +16,8 @@ on:
       - 'docs/src/content/docs/sdk/reference/**'
       - 'docs/scripts/gen-reference.sh'
       - 'docs/scripts/splice-aliases.py'
+      - 'docs/scripts/test-splice-aliases.sh'
+      - 'docs/scripts/testdata/**'
       - 'docs/scripts/check-reference.sh'
       - 'docs/scripts/gen-sdk-reference.sh'
       - 'docs/scripts/check-sdk-reference.sh'
@@ -30,6 +32,8 @@ on:
       - 'docs/src/content/docs/sdk/reference/**'
       - 'docs/scripts/gen-reference.sh'
       - 'docs/scripts/splice-aliases.py'
+      - 'docs/scripts/test-splice-aliases.sh'
+      - 'docs/scripts/testdata/**'
       - 'docs/scripts/check-reference.sh'
       - 'docs/scripts/gen-sdk-reference.sh'
       - 'docs/scripts/check-sdk-reference.sh'
@@ -54,6 +58,11 @@ jobs:
 
     - name: Install gomarkdoc
       run: go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@v1.1.0
+
+    # pipeline/stage's page splices in the types it aliases from
+    # stage/internal (#2876); the fixtures fail if the splice stops doing so.
+    - name: Test the alias splice
+      run: docs/scripts/test-splice-aliases.sh
 
     - name: Check runtime reference is up to date
       run: make docs-reference-check

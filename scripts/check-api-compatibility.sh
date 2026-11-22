@@ -187,6 +187,21 @@ for m in "${MODULES[@]}"; do
   echo
 done
 
+# gorelease cannot see inside a type pipeline/stage aliases from one of its
+# internal packages (#2876): it reports a move as "X: changed from X to
+# .../internal/core.X", which the allowlist accepts, and nothing at all when
+# core.X later loses a field, because it skips internal packages. This compares
+# every such type with its declaration in the previous release.
+echo "── runtime/pipeline/stage aliases of stage/internal types"
+mkdir -p "$WORK/base"
+git -C "$REPO" archive "$BASE" runtime | tar -x -C "$WORK/base"
+if ! env STAGE_API_OLD_ROOT="$WORK/base" STAGE_API_NEW_ROOT="$CLONE" \
+  STAGE_API_PACKAGES="runtime|${MODULE_PATH}/runtime${PATH_SUFFIX}/pipeline/stage" \
+  "$REPO/scripts/check-stage-api.sh" 2>&1 | sed 's/^/   /'; then
+  failed+=("runtime (stage aliases)")
+fi
+echo
+
 if [ ${#failed[@]} -gt 0 ]; then
   echo "::error::API changes in these modules are incompatible with ${VERSION}: ${failed[*]}"
   echo "::error::"

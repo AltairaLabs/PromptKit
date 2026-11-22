@@ -52,13 +52,14 @@ MAP=(
 # one-line `type X = core.X`.
 SPLICE=("./pipeline/stage")
 
-# internal_dirs <pkg> prints, as ./-relative dirs gomarkdoc accepts, every
-# package under <pkg>/internal/. A pattern matching no packages is a warning,
-# not an error, and lists none.
+# internal_dirs <pkg> prints, as ./-relative dirs gomarkdoc accepts, the
+# packages under <pkg>/internal/ that <pkg> imports: the ones its aliases can
+# name. splice-aliases.py fails rather than guess when two share a name.
 internal_dirs() {
   local mod
   mod="$(go -C "$ROOT/runtime" list -m)"
-  go -C "$ROOT/runtime" list "$1/internal/..." 2>/dev/null | sed "s#^$mod/#./#"
+  go -C "$ROOT/runtime" list -f '{{join .Imports "\n"}}' "$1" |
+    { grep "^$mod/${1#./}/internal/" || true; } | sed "s#^$mod/#./#"
 }
 
 mkdir -p "$OUT"
