@@ -69,11 +69,40 @@ type responsesResponse struct {
 	ID        string            `json:"id"`
 	Object    string            `json:"object"`
 	CreatedAt int64             `json:"created_at"`
-	Status    string            `json:"status"` // "completed", "failed", "in_progress"
+	Status    string            `json:"status"` // "completed", "incomplete", "failed", "in_progress"
 	Model     string            `json:"model"`
 	Output    []responsesOutput `json:"output"`
 	Usage     *responsesUsage   `json:"usage,omitempty"`
 	Error     *responsesError   `json:"error,omitempty"`
+	// IncompleteDetails says why a response with status "incomplete" ended.
+	IncompleteDetails *responsesIncompleteDetails `json:"incomplete_details,omitempty"`
+}
+
+// responsesIncompleteDetails is a Responses API incomplete_details object.
+type responsesIncompleteDetails struct {
+	Reason string `json:"reason"` // "max_output_tokens", "content_filter"
+}
+
+// responsesStatusIncomplete is the status of a response cut short by a limit.
+const responsesStatusIncomplete = "incomplete"
+
+// responsesFinishReason is the canonical finish reason of a finished Responses
+// API reply. The Responses API sends no finish_reason: a reply that calls
+// functions is a completed response whose output holds function_call items,
+// and one cut short is incomplete, with incomplete_details saying why. So a
+// completed reply with tool calls stopped to call them (tool_use, as Chat
+// Completions' "tool_calls" maps); without, it is a natural stop.
+func responsesFinishReason(incomplete bool, details *responsesIncompleteDetails, hasToolCalls bool) string {
+	switch {
+	case incomplete && details != nil && details.Reason == "content_filter":
+		return types.FinishReasonSafety
+	case incomplete:
+		return types.FinishReasonMaxOutputTokens
+	case hasToolCalls:
+		return types.FinishReasonToolUse
+	default:
+		return types.FinishReasonStop
+	}
 }
 
 // responsesOutput represents an output item in the response
@@ -486,6 +515,8 @@ func (p *Provider) predictWithResponses(
 	predictResp.Latency = latency
 	predictResp.Reasoning = reasoning
 	predictResp.Raw = respBody
+	predictResp.FinishReason = responsesFinishReason(
+		responsesResp.Status == responsesStatusIncomplete, responsesResp.IncompleteDetails, len(toolCalls) > 0)
 
 	return predictResp, toolCalls, nil
 }
@@ -587,7 +618,8 @@ func (p *Provider) predictStreamWithResponses(
 	}, p.streamResponsesResponse)
 }
 
-// sendFinalChunk sends the final stream chunk with accumulated content
+// sendFinalChunk sends the final stream chunk of a completed response with
+// accumulated content; a reply that called functions finishes as tool_use.
 func (p *Provider) sendFinalChunk(
 	outChan chan<- providers.StreamChunk,
 	accumulated string,
@@ -595,7 +627,7 @@ func (p *Provider) sendFinalChunk(
 	totalTokens int,
 	usage *responsesUsage,
 ) {
-	reason := finishStop
+	reason := responsesFinishReason(false, nil, len(toolCalls) > 0)
 	finalChunk := providers.StreamChunk{
 		Content:      accumulated,
 		ToolCalls:    toolCalls,
@@ -928,17 +960,12 @@ func (p *Provider) handleIncomplete(
 ) *responsesUsage {
 	var incomplete struct {
 		Response struct {
-			Usage             *responsesUsage `json:"usage"`
-			IncompleteDetails *struct {
-				Reason string `json:"reason"`
-			} `json:"incomplete_details"`
+			Usage             *responsesUsage             `json:"usage"`
+			IncompleteDetails *responsesIncompleteDetails `json:"incomplete_details"`
 		} `json:"response"`
 	}
 	_ = json.Unmarshal([]byte(data), &incomplete)
-	reason := types.FinishReasonMaxOutputTokens
-	if d := incomplete.Response.IncompleteDetails; d != nil && d.Reason == "content_filter" {
-		reason = types.FinishReasonSafety
-	}
+	reason := responsesFinishReason(true, incomplete.Response.IncompleteDetails, len(toolCalls) > 0)
 	finalChunk := providers.StreamChunk{
 		Content:      accumulated,
 		ToolCalls:    toolCalls,

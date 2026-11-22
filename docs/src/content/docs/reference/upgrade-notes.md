@@ -443,6 +443,15 @@ Several providers decided behavior from the model name alone, which fails for an
 | Give a Vertex embedding provider a model-registry name (`projects/…/models/<id>`) | provider construction fails: that resource has no `:predict` method | deploy the model and use its endpoint name |
 | Match the error text of a failed tool call on OpenAI Chat Completions (non-streaming) or Ollama | `*providers.ProviderHTTPError`, reading `API request to <url> failed with status <n>: <body>`, where it was a plain `API error (status <n>): <body>`. `Send` now returns it as a `*sdk.ProviderError` with `StatusCode` set, and `providers.IsTransient` reports a 429 or 5xx as transient, as on every other request path | match with `errors.As` instead of on the text |
 
+#### The OpenAI Responses API reports why a reply finished
+
+The Responses API sends no `finish_reason`. A streamed reply always finished as `stop`, a reply that called a tool included, and a unary reply reported no finish reason at all. The provider now reads it from the response: a completed response with function calls is `tool_use`, an incomplete one is `max_output_tokens` (or `safety` for a content filter), and any other completed response is `stop`. `api_mode: responses` is the default on `api.openai.com`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run a tool-calling turn on the Responses API | `tool_use` on the final stream chunk and the stored assistant message, where it was `stop` | compare against `types.FinishReasonToolUse` |
+| Call `Predict` or `PredictWithTools` on the Responses API | `stop`, `tool_use`, `max_output_tokens` or `safety`, where `FinishReason` was empty | compare against the `types.FinishReason*` constants |
+
 #### Gemini applies a response schema only to the answering round
 
 A response schema with tools was routed to the Interactions API, where the model called the tool on every round. The provider now sends a round that can call tools without the schema and, when that round answers, asks for the answer again with the schema and no tools, on whichever API `api_mode` chooses. A stream holds the tool round's chunks back, so the unconstrained draft is never delivered.
