@@ -121,3 +121,22 @@ func TestHeardReplies_ApplySwapsOnlyTheMatchingReply(t *testing.T) {
 	assert.Equal(t, []string{"First", "next", "Second reply."}, contents(got))
 	assert.Equal(t, types.FinishReasonInterrupted, got[0].FinishReason)
 }
+
+// A wait for an Interrupt that is never handled ends with its context, well
+// before the bound.
+func TestHeardReplies_AwaitEndsWithItsContext(t *testing.T) {
+	old := SettleTimeout
+	SettleTimeout = time.Minute
+	t.Cleanup(func() { SettleTimeout = old })
+	h := NewHeardReplies()
+	Expect(h) // never settled
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	waited := within(t, "await", func() time.Duration {
+		start := time.Now()
+		Await(ctx, h)
+		return time.Since(start)
+	})
+	assert.Less(t, waited, time.Second, "the cancelled context ends the wait, not the one-minute bound")
+}

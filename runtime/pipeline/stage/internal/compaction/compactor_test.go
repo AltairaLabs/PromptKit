@@ -647,3 +647,9 @@ func TestCollapsePairs_PairAtTheStartRemovesItsCall(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("[file_read: superseded — %d bytes compacted]", len(first)), result.Messages[0].Content)
 	assert.Equal(t, 2, result.MessagesFolded, "the folded result and its removed call")
 }
+
+// Each built-in rule names itself exactly.
+func TestCompactionRules_Names(t *testing.T) {
+	assert.Equal(t, "fold_tool_results", FoldToolResults().Name())
+	assert.Equal(t, "collapse_pairs", CollapsePairs().Name())
+}
