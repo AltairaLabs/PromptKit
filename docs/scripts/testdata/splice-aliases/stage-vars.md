@@ -63,6 +63,12 @@ var (
 )
 ```
 
+<a name="ErrJoined"></a>ErrJoined is re-exported alone and declared over two lines.
+
+```go
+var ErrJoined = core.ErrJoined
+```
+
 <a name="ErrOwn"></a>ErrOwn is stage's own.
 
 ```go

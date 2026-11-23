@@ -69,6 +69,13 @@ var (
 )
 ```
 
+<a name="ErrJoined"></a>ErrJoined is re-exported alone and declared over two lines.
+
+```go
+var ErrJoined = errors.New("joined over " +
+    "two lines")
+```
+
 <a name="ErrSingle"></a>ErrSingle is re-exported alone.
 
 ```go

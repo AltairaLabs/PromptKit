@@ -49,9 +49,10 @@ fi
 
 # Catches: re-exported vars, and consts declared as one literal or as an
 # expression of other packages' names ("5 * time.Minute"), rendered as the
-# name they re-export ("ErrX = core.ErrX") instead of their value; a const
-# declared as iota, or naming a const of its group or of an internal package
-# (they mean nothing out of their group), a multi-line initializer and
+# name they re-export ("ErrX = core.ErrX") instead of their value; a var
+# declared over several lines (ErrLong, ErrJoined) cut to its first line or
+# left as the name; a const declared as iota, or naming a const of its group
+# or of an internal package (they mean nothing out of their group), and
 # stage's own var left alone.
 "${SPLICE[@]}" "${DATA}/stage-vars.md" "${DATA}/core-vars.md" >"${tmp}/vars.md"
 if cmp -s "${DATA}/want-vars.md" "${tmp}/vars.md"; then

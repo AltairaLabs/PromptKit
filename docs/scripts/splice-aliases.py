@@ -179,19 +179,33 @@ def decl_blocks(lines, keyword):
 
 
 def var_values(page, internal_pkgs):
-    """The initializer of each var the page declares on one line, and of each
-    const whose initializer means the same out of its group."""
+    """The initializer of each var the page declares, with the lines that
+    continue it, and of each const whose initializer means the same out of its
+    group."""
     values = {}
     lines = page.preamble + [l for s in page.sections for l in s.lines]
-    for line in decl_blocks(lines, "var"):
+    block = decl_blocks(lines, "var")
+    for i, line in enumerate(block):
         m = VAR_SPEC.match(line)
-        if m and not m.group(4).endswith(("(", "{", ",")):
-            values.setdefault(m.group(2), m.group(4))
+        if m:
+            values.setdefault(m.group(2), "\n".join([m.group(4)] + continuation(block, i)))
     for line in decl_blocks(lines, "const"):
         m = VAR_SPEC.match(line)
         if m and const_means_itself(m.group(4), internal_pkgs):
             values.setdefault(m.group(2), m.group(4))
     return values
+
+
+def continuation(lines, i):
+    """The lines that continue the spec at lines[i]: those after it indented
+    deeper than it ("ErrX = errors.New("a " +" then its second string)."""
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    out = []
+    for line in lines[i + 1:]:
+        if not line.strip() or len(line) - len(line.lstrip()) <= indent:
+            break
+        out.append(line)
+    return out
 
 
 def const_means_itself(value, internal_pkgs):
@@ -231,7 +245,7 @@ def resolve_vars(lines, by_pkg):
             values = by_pkg.get(pkg)
             if name == m.group(2) and values and name in values:
                 line = m.group(1) + m.group(2) + m.group(3) + " = " + values[name]
-        out.append(line)
+        out.extend(line.split("\n"))
     return out
 
 

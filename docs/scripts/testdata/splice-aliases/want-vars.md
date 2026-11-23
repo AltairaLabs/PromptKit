@@ -59,8 +59,16 @@ var (
     // ErrGone is gone.
     ErrGone = errors.New("gone")
     // ErrLong is declared over several lines.
-    ErrLong = core.ErrLong
+    ErrLong = fmt.Errorf(
+        "long %d", 1)
 )
+```
+
+<a name="ErrJoined"></a>ErrJoined is re-exported alone and declared over two lines.
+
+```go
+var ErrJoined = errors.New("joined over " +
+    "two lines")
 ```
 
 <a name="ErrOwn"></a>ErrOwn is stage's own.
