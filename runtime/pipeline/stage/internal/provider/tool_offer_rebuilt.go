@@ -68,7 +68,7 @@ type offerLog struct {
 	sentAny   bool          // a provider call has been sent an array
 	inputs    offerInputs   // what the turn's offer was last built from
 	causes    []string      // what changed the array since the last call, in order, each once
-	withdrawn bool          // the turn's tool loop withdrew tools (excluded, exhausted)
+	withdrawn bool          // the turn withdrew tools (excluded, exhausted, structured_output_reask)
 	warned    bool          // the cache-cost warning was logged (claimWarning)
 }
 
@@ -90,7 +90,8 @@ func (o *ToolOfferHistory) addCauseLocked(reason string) {
 	if !slices.Contains(o.log.causes, reason) {
 		o.log.causes = append(o.log.causes, reason)
 	}
-	if reason == events.ToolOfferReasonExcluded || reason == events.ToolOfferReasonExhausted {
+	switch reason {
+	case events.ToolOfferReasonExcluded, events.ToolOfferReasonExhausted, events.ToolOfferReasonStructuredOutputReask:
 		o.log.withdrawn = true
 	}
 }

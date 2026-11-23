@@ -488,8 +488,11 @@ const (
 	// ToolOfferReasonExhausted: max_tool_calls_per_turn is spent, so the
 	// rest of the turn is sent no tools.
 	ToolOfferReasonExhausted = "exhausted"
+	// ToolOfferReasonStructuredOutputReask: a structured-output turn
+	// re-asks its final answer under the response schema, with no tools.
+	ToolOfferReasonStructuredOutputReask = "structured_output_reask"
 	// ToolOfferReasonTurnReset: a new turn offers again the tools the
-	// previous turn's tool loop withdrew (excluded, exhausted).
+	// previous turn withdrew (excluded, exhausted, structured_output_reask).
 	ToolOfferReasonTurnReset = "turn_reset"
 	// ToolOfferReasonWorkflowState: the turn runs under a prompt or
 	// workflow state that declares different tools.

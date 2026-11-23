@@ -266,7 +266,8 @@ The tools array is the first part of a request that a provider caches. A differe
 | `describe` | `DescribeTool` describes the tools differently, such as a workflow state narrowing the `skill__activate` index |
 | `excluded` | A tool was dropped after its calls failed twice (`tool.excluded`) |
 | `exhausted` | `MaxToolCallsPerTurn` is spent, so the rest of the turn is sent no tools |
-| `turn_reset` | A new turn offers again the tools the previous turn's loop withdrew |
+| `structured_output_reask` | A structured-output turn re-asks its final answer under the response schema, with no tools |
+| `turn_reset` | A new turn offers again the tools the previous turn withdrew |
 | `workflow_state` | The turn runs under a prompt or workflow state that declares different tools |
 | `provider_switch` | The call goes to another provider, which takes the tools in its own wire form |
 | `mcp_list_changed` | Only MCP tools (`mcp__*`) were added or removed |

@@ -582,3 +582,26 @@ func TestToolOfferRebuilt_SharedHistorySpansStages(t *testing.T) {
 	}, ev.all())
 	assert.Equal(t, 1, strings.Count(buf.String(), offerRebuiltWarning), buf.String())
 }
+
+// A structured-output turn re-asks its answer with no tools, which is a
+// different tools array: the re-ask reports every tool removed, and the next
+// turn's first call reports them back.
+func TestToolOfferRebuilt_StructuredOutputReask(t *testing.T) {
+	ev := newOfferEvents(t)
+	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "lookup_order")})
+	s := newOfferStage(t, prov, registryWithTools(t, "lookup_order"), ev, offerStageOpts{
+		allowed: []string{"lookup_order"},
+		cfg:     &ProviderConfig{ResponseFormat: jsonSchemaFormat()},
+	})
+
+	runOfferTurn(t, s, "where is my order")
+	runOfferTurn(t, s, "and now?")
+
+	assert.Nil(t, prov.offeredOn(t, 2), "the re-ask is sent no tools")
+	assert.Equal(t, []string{"lookup_order"}, prov.offeredOn(t, 3), "the next turn offers the tools again")
+	assert.Equal(t, []events.ToolOfferRebuiltData{
+		{Reasons: []string{events.ToolOfferReasonStructuredOutputReask}, Removed: []string{"lookup_order"}, Round: 2},
+		{Reasons: []string{events.ToolOfferReasonTurnReset}, Added: []string{"lookup_order"}, Round: 1},
+		{Reasons: []string{events.ToolOfferReasonStructuredOutputReask}, Removed: []string{"lookup_order"}, Round: 1},
+	}, ev.all())
+}
