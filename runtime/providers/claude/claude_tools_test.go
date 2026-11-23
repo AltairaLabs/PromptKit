@@ -1169,9 +1169,10 @@ func TestAddClaudeToolConfig_ToolChoice(t *testing.T) {
 			wantValue:  map[string]interface{}{"type": "any"},
 		},
 		{
-			name:       "none — must NOT send as tool name",
+			name:       "none — sent as Claude's none, never as a tool name",
 			toolChoice: "none",
-			wantKey:    false, // "none" means don't use tools — omit tool_choice
+			wantKey:    true,
+			wantValue:  map[string]interface{}{"type": "none"},
 		},
 		{
 			name:       "specific tool name",

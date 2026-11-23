@@ -34,6 +34,7 @@ const (
 	// Claude tool_choice "type" values.
 	toolChoiceAuto = "auto"
 	toolChoiceAny  = "any"
+	toolChoiceNone = "none"
 
 	// Shared error-wrapping formats for tool-path request building.
 	errMarshalRequestFailed = "failed to marshal request: %w"
@@ -413,11 +414,11 @@ func addClaudeToolConfig(request *claudeRequest, tools any, toolChoice string) {
 	request.Tools = tools
 
 	switch toolChoice {
-	case "", "none":
-		// Empty: no forced selection. "none": Claude doesn't support
-		// tool_choice:"none" directly, so omit tool_choice and let the model
-		// decide not to use tools (the tools are still sent so it knows they
-		// exist). Both leave ToolChoice unset.
+	case "":
+		// No forced selection: ToolChoice stays unset.
+	case toolChoiceNone:
+		// The tools are still sent, and the model may call none of them.
+		request.ToolChoice = map[string]any{fieldType: toolChoiceNone}
 	case toolChoiceAuto:
 		request.ToolChoice = map[string]any{fieldType: toolChoiceAuto}
 	case "required", toolChoiceAny:
