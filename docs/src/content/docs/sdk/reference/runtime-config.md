@@ -82,7 +82,7 @@ RuntimeConfig is a Kubernetes-style YAML manifest that declaratively configures 
 
 The Go types backing this schema live in `pkg/config/runtime_config.go` and `pkg/config/types.go`.
 
-The loader decodes strictly. A key that is not a field documented on this page, at any depth, fails the load with an error naming the key, its line and the type it was looked up in, such as `line 8: field base_ulr not found in type config.Provider`. Fields typed as a map take any key: `labels`, `annotations`, `headers`, `additional_config`, `extensions`, `env`, `source_args`, `commonFields`, the `http` header and static maps, and a sandbox's settings beside `mode`. A top-level `$schema` key is allowed.
+The loader decodes strictly. A key that is not a field of `config.RuntimeConfig`, at any depth, fails the load with an error naming the key, its line and the type it was looked up in, such as `line 8: field base_ulr not found in type config.Provider`. Fields typed as a map take any key: `metadata.labels` and `metadata.annotations`; a provider's `headers`, `additional_config` and `platform.additional_config`; a tool's `input_schema`, `output_schema`, `mock_result`, `extensions`, `action_scope.extensions`, and `http` header and static maps; an MCP server's `env`, `headers` and `source_args`; `logging.commonFields` and a module's `fields`; and a sandbox's settings beside `mode`. A top-level `$schema` key is allowed.
 
 ---
 

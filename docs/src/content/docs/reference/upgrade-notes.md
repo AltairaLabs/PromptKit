@@ -145,7 +145,8 @@ Fields typed as a map take any key, as before: `metadata.labels` and `metadata.a
 | If you | You will see | Change |
 |---|---|---|
 | Load a RuntimeConfig with a misspelled or unsupported key | the load fails, naming the key and its line, where the key was ignored | fix the spelling, or delete the key: it never had an effect |
-| Load a RuntimeConfig that carries keys for another tool | the load fails on the first of those keys | keep those keys in a separate file |
+| Load a RuntimeConfig that carries keys for another tool | the load fails, naming each of those keys | keep those keys in a separate file |
+| Load a RuntimeConfig with a top-level key that only holds YAML anchors, such as `x-common: &c ...` | the load fails, naming that key | move the anchor onto the first entry that uses it, or define it there and merge it into the others with `<<: *c` |
 | Load a Provider file with an unknown key | the reported line is the line in the file, where it was counted after dropping comments, blank lines and `$schema` | none |
 
 ### Providers
