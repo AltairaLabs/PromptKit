@@ -996,8 +996,11 @@ func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 
 // A save stage without a store still passes on what a canceled turn produced:
 // the partial reply the provider stage emits after the cancellation and its
-// error reach the caller, and the cancellation is returned.
+// error reach a caller that starts reading 20 ms after Process does, and the
+// cancellation is returned. Each element is offered for up to 10 s after the
+// cancellation, so the caller's start is never the race.
 func TestIncrementalSaveStage_PassthroughForwardsACanceledTurn(t *testing.T) {
+	setForwardTimeout(t, 10*time.Second)
 	s := NewIncrementalSaveStage(nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1012,7 +1015,7 @@ func TestIncrementalSaveStage_PassthroughForwardsACanceledTurn(t *testing.T) {
 	output := make(chan core.StreamElement)
 	got := make(chan []core.StreamElement, 1)
 	go func() {
-		// The caller starts reading after the stage has begun sending.
+		// The caller is not reading when Process starts.
 		time.Sleep(20 * time.Millisecond)
 		var elems []core.StreamElement
 		for elem := range output {
