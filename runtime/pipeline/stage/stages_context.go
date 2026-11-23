@@ -261,6 +261,17 @@ func (s *ContextAssemblyStage) assembleFromReader(
 		n = 20 // sensible default
 	}
 
+	// Retrieval needs where the hot window starts in the transcript. The count
+	// is read before the window: a message another writer appends after it
+	// only moves the window later, so the start taken from it is never past
+	// the window's real one and retrieval never repeats a message the window
+	// holds. A count read after the window could include such a message.
+	var countBefore int
+	var countErr error
+	if s.retrievalEnabled() {
+		countBefore, countErr = reader.MessageCount(ctx, convID)
+	}
+
 	recentMsgs, err := reader.LoadRecentMessages(ctx, convID, n)
 	if err != nil {
 		if errors.Is(err, statestore.ErrNotFound) {
@@ -271,7 +282,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 
 	// 3. Semantic retrieval, inserted between summaries and hot window
 	if s.retrievalEnabled() {
-		retrieved, err := s.retrieveRelevant(ctx, convID, reader, query, recentMsgs)
+		retrieved, err := s.retrieveRelevant(ctx, convID, query, recentMsgs, countBefore, countErr)
 		if err != nil {
 			logger.Warn("Context assembly: semantic retrieval failed, using hot window only",
 				"conversation", convID, "error", err)
@@ -284,13 +295,16 @@ func (s *ContextAssemblyStage) assembleFromReader(
 	return assembled, nil
 }
 
-// retrieveRelevant searches the message index for messages relevant to the current context.
+// retrieveRelevant searches the message index for messages relevant to the
+// current context. countBefore is the message count read before recentMsgs,
+// and countErr the error reading it.
 func (s *ContextAssemblyStage) retrieveRelevant(
 	ctx context.Context,
 	convID string,
-	reader statestore.MessageReader,
 	query string,
 	recentMsgs []types.Message,
+	countBefore int,
+	countErr error,
 ) ([]types.Message, error) {
 	// Search with the current input; a turn with no user text of its own (a
 	// resumed turn, audio) falls back to the last stored user message.
@@ -314,11 +328,10 @@ func (s *ContextAssemblyStage) retrieveRelevant(
 	// Results index messages by their position in the transcript. The hot
 	// window holds the last len(recentMsgs) positions, which are already sent,
 	// so a result from there would repeat a message.
-	total, err := reader.MessageCount(ctx, convID)
-	if err != nil {
-		return nil, fmt.Errorf("context assembly: counting messages: %w", err)
+	if countErr != nil {
+		return nil, fmt.Errorf("context assembly: counting messages: %w", countErr)
 	}
-	windowStart := total - len(recentMsgs)
+	windowStart := countBefore - len(recentMsgs)
 	kept := slices.DeleteFunc(slices.Clone(results), func(r statestore.IndexResult) bool {
 		return r.TurnIndex >= windowStart
 	})
