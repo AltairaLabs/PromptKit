@@ -3,6 +3,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,7 @@ type explicitCacheServer struct {
 	createCalls  int32
 	createStatus int
 	lastGenBody  []byte
+	genBodies    [][]byte
 	createBodies [][]byte
 }
 
@@ -39,7 +41,7 @@ func newExplicitCacheServer(t *testing.T, createStatus int) *explicitCacheServer
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/cachedContents"):
-			atomic.AddInt32(&s.createCalls, 1)
+			n := atomic.AddInt32(&s.createCalls, 1)
 			createBody, _ := io.ReadAll(r.Body)
 			s.createBodies = append(s.createBodies, createBody)
 			if s.createStatus != http.StatusOK {
@@ -47,11 +49,14 @@ func newExplicitCacheServer(t *testing.T, createStatus int) *explicitCacheServer
 				_, _ = io.WriteString(w, `{"error":{"message":"boom"}}`)
 				return
 			}
-			_, _ = io.WriteString(w, `{"name":"cachedContents/test123"}`)
+			// Each create gets its own name, so a test can tell which cache a
+			// request references.
+			_, _ = fmt.Fprintf(w, `{"name":"cachedContents/test%d"}`, n)
 		case strings.Contains(r.URL.Path, ":generateContent"),
 			strings.Contains(r.URL.Path, ":streamGenerateContent"):
 			body, _ := io.ReadAll(r.Body)
 			s.lastGenBody = body
+			s.genBodies = append(s.genBodies, body)
 			if strings.Contains(r.URL.Path, ":streamGenerateContent") {
 				// The streaming endpoint returns a JSON array of responses.
 				_, _ = io.WriteString(w, "["+geminiGenOKBody+"]")
@@ -107,7 +112,7 @@ func TestExplicitCaching_Predict_ReferencesCache(t *testing.T) {
 		t.Fatalf("Predict: %v", err)
 	}
 	body := srv.genBody(t)
-	if body["cachedContent"] != "cachedContents/test123" {
+	if body["cachedContent"] != "cachedContents/test1" {
 		t.Errorf("expected cachedContent reference, got %v", body["cachedContent"])
 	}
 	if _, has := body["systemInstruction"]; has {
@@ -142,7 +147,7 @@ func TestExplicitCaching_PredictStream_ReferencesCache(t *testing.T) {
 		t.Errorf("streamed content = %q, want %q", content, "ok")
 	}
 	body := srv.genBody(t)
-	if body["cachedContent"] != "cachedContents/test123" {
+	if body["cachedContent"] != "cachedContents/test1" {
 		t.Errorf("expected cachedContent reference, got %v", body["cachedContent"])
 	}
 	if _, has := body["systemInstruction"]; has {
@@ -168,7 +173,7 @@ func TestExplicitCaching_Tools_DropsPrefix(t *testing.T) {
 		t.Fatalf("PredictWithTools: %v", err)
 	}
 	body := srv.genBody(t)
-	if body["cachedContent"] != "cachedContents/test123" {
+	if body["cachedContent"] != "cachedContents/test1" {
 		t.Errorf("expected cachedContent reference, got %v", body["cachedContent"])
 	}
 	for _, k := range []string{"systemInstruction", "tools", "tool_config"} {
@@ -432,7 +437,7 @@ func TestExplicitCaching_Tools_ToolChoiceTravelsInCachedContent(t *testing.T) {
 				t.Errorf("CachedContent toolConfig mode = %q, want %q", got, tc.wantMode)
 			}
 			body := srv.genBody(t)
-			if body["cachedContent"] != "cachedContents/test123" {
+			if body["cachedContent"] != "cachedContents/test1" {
 				t.Fatalf("expected cachedContent reference, got %v", body["cachedContent"])
 			}
 			for _, k := range []string{"tool_config", "toolConfig"} {
@@ -468,6 +473,20 @@ func TestExplicitCaching_Tools_CacheKeyIncludesToolChoice(t *testing.T) {
 	}
 	if got := srv.createdToolConfigMode(t, 1); got != "NONE" {
 		t.Errorf("second create toolConfig mode = %q, want NONE", got)
+	}
+	// Each round references the cache created for its own choice.
+	want := []string{"cachedContents/test1", "cachedContents/test2", "cachedContents/test1"}
+	if len(srv.genBodies) != len(want) {
+		t.Fatalf("expected %d generateContent requests, got %d", len(want), len(srv.genBodies))
+	}
+	for i, raw := range srv.genBodies {
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("generateContent body %d not JSON: %v", i, err)
+		}
+		if body["cachedContent"] != want[i] {
+			t.Errorf("round %d cachedContent = %v, want %s", i, body["cachedContent"], want[i])
+		}
 	}
 }
 
