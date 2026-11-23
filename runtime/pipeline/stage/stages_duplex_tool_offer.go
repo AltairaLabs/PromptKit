@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -127,7 +128,7 @@ func (s *DuplexProviderStage) allowedTools() []string {
 // the policy's tool choice is "none".
 func (s *DuplexProviderStage) wantedSessionTools(excluded map[string]bool) []providers.StreamingToolDefinition {
 	r := s.toolRunner()
-	return s.sessionTools(r, r.offer(s.allowedTools(), excluded), excluded)
+	return s.sessionTools(r, r.Offer(s.allowedTools(), excluded), excluded)
 }
 
 // sessionTools is what the session is given of offer, the conversation's
@@ -136,9 +137,9 @@ func (s *DuplexProviderStage) wantedSessionTools(excluded map[string]bool) []pro
 // choice is "none". The session's sync (wantedSessionTools) and each
 // round's check (sessionOffers) both apply these rules through it.
 func (s *DuplexProviderStage) sessionTools(
-	r *toolRunner, offer []*tools.ToolDescriptor, excluded map[string]bool,
+	r *provider.ToolRunner, offer []*tools.ToolDescriptor, excluded map[string]bool,
 ) []providers.StreamingToolDefinition {
-	if s.sessionToolChoice() == toolChoiceNone || r.toolsDisabled() {
+	if s.sessionToolChoice() == provider.ToolChoiceNone || r.ToolsDisabled() {
 		return nil
 	}
 	var host []providers.StreamingToolDefinition

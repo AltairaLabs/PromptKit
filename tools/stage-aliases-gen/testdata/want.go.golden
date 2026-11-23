@@ -5,6 +5,7 @@ package stage
 import (
 	"context"
 	"example.com/stage/internal/core"
+	corepkg "example.com/stage/internal/core"
 	"github.com/example/runtime/v2/types"
 )
 
@@ -51,6 +52,16 @@ func Wrap(ctx context.Context, arg1 int, msg *types.Message) (Scored, error) {
 // Close has an unnamed parameter.
 func Close(arg0 Scored) {
 	core.Close(arg0)
+}
+
+// Named has a parameter named like the package, which the wrapper keeps.
+func Named(core Scored, n int) Scored {
+	return corepkg.Named(core, n)
+}
+
+// NamedResult has a result named like the package, which the wrapper keeps.
+func NamedResult(n int) (core Scored) {
+	return corepkg.NamedResult(n)
 }
 
 // ErrGone is gone.

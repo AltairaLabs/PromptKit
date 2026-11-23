@@ -811,7 +811,7 @@ func ModelContextMask(msgs []types.Message) []bool
 ModelContextMask reports, for each message of msgs, whether ExcludeFromModelContext leaves it out: an interrupted reply \(but not what a caller heard of one, types.Message.IsHeardPrefix\), a message of a blocked input turn, or one marked Meta\[types.MetaExcludedFromModel\]. It returns nil when it leaves none out. A host that rebuilds a history from another copy of it uses the mask to keep what the transcript holds out of model context out of it still.
 
 <a name="NewCompositionStepExecutor"></a>
-## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L144>)
+## func [NewCompositionStepExecutor](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L145>)
 
 ```go
 func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecutor
@@ -820,7 +820,7 @@ func NewCompositionStepExecutor(deps CompositionExecutorDeps) engine.StepExecuto
 NewCompositionStepExecutor returns an engine.StepExecutor that runs prompt/agent steps as sub\-pipelines and tool steps via the registry.
 
 <a name="NewFileSchemaResolver"></a>
-## func [NewFileSchemaResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/schema_resolver.go#L13>)
+## func [NewFileSchemaResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L19>)
 
 ```go
 func NewFileSchemaResolver(configDir string) func(path string) (json.RawMessage, error)
@@ -1236,7 +1236,7 @@ func (b *BaseStage) Type() StageType
 Type returns the stage type.
 
 <a name="BlockedMessage"></a>
-## type [BlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_blocked_message.go#L19-L38>)
+## type [BlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_blocked_message.go#L19-L38>)
 
 BlockedMessage is a guardrail firing whose message is about to replace a turn, as a BlockedMessageFunc is given it.
 
@@ -1264,7 +1264,7 @@ type BlockedMessage struct {
 ```
 
 <a name="BlockedMessageFunc"></a>
-## type [BlockedMessageFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_blocked_message.go#L46>)
+## type [BlockedMessageFunc](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_blocked_message.go#L46>)
 
 BlockedMessageFunc chooses the text of a blocked message: what replaces the turn, is shown to the caller, stored, and spoken by a cue. An empty return keeps b.Text, as does a panic. On a realtime session \(DuplexProviderStage\) it is given at most the cue stage's OnDemandBudget \(1.5s by default; its ctx is canceled then\) before b.Text is used, so it cannot stall the session's output.
 
@@ -1348,7 +1348,7 @@ func (s ByOriginalIndex) Swap(i, j int)
 
 
 <a name="CallRateLimitError"></a>
-## type [CallRateLimitError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L34-L37>)
+## type [CallRateLimitError](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_call_rate.go#L34-L37>)
 
 CallRateLimitError is the refusal of a call over ToolPolicy.MaxCallsPerMinute. Its message is what the model is told in place of the call's result.
 
@@ -1360,7 +1360,7 @@ type CallRateLimitError struct {
 ```
 
 <a name="CallRateLimitError.Error"></a>
-### func \(\*CallRateLimitError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L39>)
+### func \(\*CallRateLimitError\) [Error](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_call_rate.go#L39>)
 
 ```go
 func (e *CallRateLimitError) Error() string
@@ -1369,7 +1369,7 @@ func (e *CallRateLimitError) Error() string
 
 
 <a name="CallRateWindow"></a>
-## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L82-L88>)
+## type [CallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_call_rate.go#L82-L88>)
 
 CallRateWindow enforces ToolPolicy.MaxCallsPerMinute. For each conversation and tool, it counts the calls admitted to run in the last minute. A call is checked against the limit, and counted, only when it is admitted \(Admit\):
 
@@ -1392,7 +1392,7 @@ type CallRateWindow struct {
 ```
 
 <a name="NewCallRateWindow"></a>
-### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L91>)
+### func [NewCallRateWindow](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L270>)
 
 ```go
 func NewCallRateWindow() *CallRateWindow
@@ -1401,7 +1401,7 @@ func NewCallRateWindow() *CallRateWindow
 NewCallRateWindow returns an empty window.
 
 <a name="CallRateWindow.Admit"></a>
-### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L114>)
+### func \(\*CallRateWindow\) [Admit](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_call_rate.go#L114>)
 
 ```go
 func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error
@@ -1410,7 +1410,7 @@ func (w *CallRateWindow) Admit(conversationID, tool string, limit int) error
 Admit admits a call to tool in conversationID under a limit of limit calls per minute. If the calls admitted in the last minute already reach the limit, it returns a \*CallRateLimitError and counts nothing; otherwise the call counts for one minute from now. The host calls it for a call that runs outside the provider stage: a held call when it is approved, a deferred call when its result is used. A nil window or a limit of 0 or less admits every call.
 
 <a name="CallRateWindow.AdmitRelease"></a>
-### func \(\*CallRateWindow\) [AdmitRelease](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L126>)
+### func \(\*CallRateWindow\) [AdmitRelease](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_call_rate.go#L126>)
 
 ```go
 func (w *CallRateWindow) AdmitRelease(conversationID, tool string, limit int) (release func(), err error)
@@ -1419,7 +1419,7 @@ func (w *CallRateWindow) AdmitRelease(conversationID, tool string, limit int) (r
 AdmitRelease is Admit, also returning release, which takes the admission back: for a call admitted when its result was settled whose result is then never used \(its turn was abandoned\), so it does not keep a slot. release is nil when the call is refused, and does nothing when no limit applies.
 
 <a name="CallRateWindow.Scoped"></a>
-### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/tool_call_rate.go#L100>)
+### func \(\*CallRateWindow\) [Scoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_call_rate.go#L100>)
 
 ```go
 func (w *CallRateWindow) Scoped(scope string) *CallRateWindow
@@ -1577,7 +1577,7 @@ type CompactionStrategy interface {
 ```
 
 <a name="CompositionExecutorDeps"></a>
-## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L65-L140>)
+## type [CompositionExecutorDeps](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/composition_executor.go#L66-L141>)
 
 CompositionExecutorDeps carries the runtime collaborators a composition step needs to execute. Injected once; reused for every step of every Execute call.
 
@@ -2269,7 +2269,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L83-L324>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L84-L325>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2291,7 +2291,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L349-L352>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L350-L353>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2300,7 +2300,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L375-L379>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L376-L380>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2309,7 +2309,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L388-L393>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L389-L394>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2318,7 +2318,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L419-L423>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L420-L424>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2333,7 +2333,7 @@ If no session is pre\-configured, the session is created lazily when the first e
 With tool execution \(SetToolExecution\), a tool call still running when the session ends is canceled and waited for up to the input grace period, and before output closes each tool call message it carries is followed by a result for each of its calls, but a call held for approval, which the caller answers.
 
 <a name="DuplexProviderStage.RunsToolCalls"></a>
-### func \(\*DuplexProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L118>)
+### func \(\*DuplexProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L119>)
 
 ```go
 func (s *DuplexProviderStage) RunsToolCalls() bool
@@ -2342,7 +2342,7 @@ func (s *DuplexProviderStage) RunsToolCalls() bool
 RunsToolCalls reports whether the stage runs the session's tool calls itself, which SetToolExecution with a registry turns on \(ToolCallRunner\).
 
 <a name="DuplexProviderStage.SetBlockedMessage"></a>
-### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L96>)
+### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L97>)
 
 ```go
 func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc)
@@ -2351,7 +2351,7 @@ func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc)
 SetBlockedMessage sets the function that chooses the text a guardrail's block replaces a turn with, as ProviderConfig.BlockedMessage does for ProviderStage, so a blocked turn reads and sounds the same on both paths. The text it returns is shown, stored and spoken by the cue stage. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetCaller"></a>
-### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L87>)
+### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L88>)
 
 ```go
 func (s *DuplexProviderStage) SetCaller(caller types.Caller)
@@ -2360,7 +2360,7 @@ func (s *DuplexProviderStage) SetCaller(caller types.Caller)
 SetCaller sets who the conversation acts for, so each provider hook call and chunk interceptor call carries it \(ProviderRequest.Caller, ChunkRequest.Caller\), as ProviderStage's do through ProviderConfig.Caller. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetHookRegistry"></a>
-### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L70>)
+### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L71>)
 
 ```go
 func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
@@ -2369,7 +2369,7 @@ func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
 SetHookRegistry installs the provider hooks \(guardrails\) the stage runs. A nil registry, the default, runs none. The registry is handed the stage's emitter, as ProviderStage does, so its guardrails report through it. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetPromptDeclarations"></a>
-### func \(\*DuplexProviderStage\) [SetPromptDeclarations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L79>)
+### func \(\*DuplexProviderStage\) [SetPromptDeclarations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L80>)
 
 ```go
 func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.Prompt)
@@ -2378,7 +2378,7 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 SetPromptDeclarations sets the pack declarations of the prompts, keyed by task, so each hook call carries the declaration of the prompt the session runs \(ProviderRequest.Prompt\), as ProviderStage's do through ProviderConfig.PromptDeclarations. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L341>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L342>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
@@ -2387,7 +2387,7 @@ func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSe
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
 
 <a name="DuplexProviderStage.SetStreamHold"></a>
-### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1152>)
+### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1153>)
 
 ```go
 func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)
@@ -2396,7 +2396,7 @@ func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)
 SetStreamHold sets how the stage holds a spoken reply for the output guardrails whose stream\_hold holds it \(StreamHoldConfig.Realtime\), and how segments are sized and judged. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetToolExecution"></a>
-### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L95-L97>)
+### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L96-L98>)
 
 ```go
 func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy *pipeline.ToolPolicy, cfg DuplexToolConfig, resolver WorkflowStateResolver)
@@ -2405,7 +2405,7 @@ func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy 
 SetToolExecution makes the stage run the session's tool calls through the registry, under policy merged with the prompt's tool\_policy, recording executed calls and stamping workflow state through resolver \(nil for none\). A nil registry, the default, leaves tool calls to the host: they are forwarded downstream on the assistant message and nothing runs them here. Must be called before the stage runs.
 
 <a name="DuplexToolConfig"></a>
-## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L66-L87>)
+## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L67-L88>)
 
 DuplexToolConfig is what a DuplexProviderStage's tool calls run with, as the matching ProviderConfig fields are for ProviderStage.
 
@@ -2659,7 +2659,7 @@ type ElementMetadata struct {
 ```
 
 <a name="EndInputter"></a>
-## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L59-L61>)
+## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L60-L62>)
 
 EndInputter is an optional interface for sessions that support explicit end\-of\-input signaling. This is primarily used by mock sessions to trigger responses after all audio has been sent.
 
@@ -2978,7 +2978,7 @@ func (s *FramesToMessageStage) Process(ctx context.Context, input <-chan StreamE
 Process implements the Stage interface. Collects frames and composes them into messages.
 
 <a name="Handoff"></a>
-## type [Handoff](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L18-L41>)
+## type [Handoff](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/state_handoff.go#L18-L41>)
 
 Handoff describes the prompt and tool set the workflow's current state needs.
 
@@ -3012,7 +3012,7 @@ type Handoff struct {
 ```
 
 <a name="HandoffCall"></a>
-## type [HandoffCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L45-L48>)
+## type [HandoffCall](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/state_handoff.go#L45-L48>)
 
 HandoffCall is what the current state's prompt runs on: its provider and its sampling parameters \(prompt.Registry.CallParameters\).
 
@@ -4666,7 +4666,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L183-L332>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L186-L335>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4824,7 +4824,7 @@ type ProviderConfig struct {
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L345>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L348>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4833,7 +4833,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L335>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L338>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4842,7 +4842,7 @@ func (c *ProviderConfig) CallParams() prompt.CallParams
 CallParams returns c's sampling fields as one value.
 
 <a name="ProviderStage"></a>
-## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L72-L121>)
+## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L75-L124>)
 
 ProviderStage executes LLM calls and handles tool execution.
 
@@ -4858,7 +4858,7 @@ type ProviderStage struct {
 ```
 
 <a name="NewProviderStage"></a>
-### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L399-L404>)
+### func [NewProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L60>)
 
 ```go
 func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig) *ProviderStage
@@ -4867,7 +4867,7 @@ func NewProviderStage(provider providers.Provider, toolRegistry *tools.Registry,
 NewProviderStage creates a new provider stage for request/response mode.
 
 <a name="NewProviderStageWithEmitter"></a>
-### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L411-L417>)
+### func [NewProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L67>)
 
 ```go
 func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter) *ProviderStage
@@ -4876,7 +4876,7 @@ func NewProviderStageWithEmitter(provider providers.Provider, toolRegistry *tool
 NewProviderStageWithEmitter creates a new provider stage with event emission support. The stage emits provider.call.started, provider.call.completed, and provider.call.failed events through it for observability and session recording.
 
 <a name="NewProviderStageWithHooks"></a>
-### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L424-L431>)
+### func [NewProviderStageWithHooks](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L74>)
 
 ```go
 func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry) *ProviderStage
@@ -4885,7 +4885,7 @@ func NewProviderStageWithHooks(provider providers.Provider, toolRegistry *tools.
 NewProviderStageWithHooks creates a provider stage with event emission and hook support. The hookRegistry enables synchronous interception of provider calls, streaming chunks, and tool execution. Pass nil for no hooks \(zero overhead\).
 
 <a name="NewProviderStageWithTurnState"></a>
-### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L438-L446>)
+### func [NewProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L81>)
 
 ```go
 func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *tools.Registry, toolPolicy *pipeline.ToolPolicy, config *ProviderConfig, emitter *events.Emitter, hookRegistry *hooks.Registry, turnState *TurnState) *ProviderStage
@@ -4894,7 +4894,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L693-L697>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L696-L700>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4903,7 +4903,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L396>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L399>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -4912,7 +4912,7 @@ func (s *ProviderStage) RunsToolCalls() bool
 RunsToolCalls reports whether the stage runs the model's tool calls itself: it does whenever it has a tool registry \(ToolCallRunner\).
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
-### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L178>)
+### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L181>)
 
 ```go
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
@@ -5034,7 +5034,7 @@ type RealtimeChainConfig struct {
 ```
 
 <a name="RealtimeHold"></a>
-## type [RealtimeHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L62>)
+## type [RealtimeHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stream_hold.go#L55>)
 
 RealtimeHold is how a realtime session holds a spoken reply for the output guardrails that hold it \(StreamHoldConfig.Realtime\).
 
@@ -5061,7 +5061,7 @@ const (
 ```
 
 <a name="RealtimeHold.Valid"></a>
-### func \(RealtimeHold\) [Valid](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L79>)
+### func \(RealtimeHold\) [Valid](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stream_hold.go#L72>)
 
 ```go
 func (h RealtimeHold) Valid() bool
@@ -6257,7 +6257,7 @@ func NewVideoElement(video *VideoData) StreamElement
 NewVideoElement creates a new StreamElement with video data.
 
 <a name="StreamMediaToElement"></a>
-### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_provider.go#L3293>)
+### func [StreamMediaToElement](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L87>)
 
 ```go
 func StreamMediaToElement(media *providers.StreamMediaData) StreamElement
@@ -6360,7 +6360,7 @@ func (e *StreamExecution) Output() <-chan StreamElement
 Output returns the execution's output, as Execute returns it.
 
 <a name="StreamHoldConfig"></a>
-## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stream_hold.go#L23-L58>)
+## type [StreamHoldConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stream_hold.go#L16-L51>)
 
 StreamHoldConfig sizes the segments a stream\_hold: segment output guardrail judges a streamed reply in, and bounds its judging. It is per conversation, not per guardrail: every segment guardrail judges the same segments. Zero fields take the defaults.
 
@@ -6465,7 +6465,7 @@ func (p *StreamPipeline) Start(ctx context.Context, input <-chan StreamElement) 
 Start is Execute, returning the execution so that the caller can learn the error that ended it \(StreamExecution.Err\) once its output has closed: an error element on the output alone does not say whether the stage carried on from it, and elements may follow the one that failed the turn.
 
 <a name="StructuredOutputMode"></a>
-## type [StructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L40>)
+## type [StructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/structured_output_mode.go#L41>)
 
 StructuredOutputMode selects when a caller's ResponseFormat is applied to a tool loop.
 
@@ -6508,7 +6508,7 @@ const (
 ```
 
 <a name="ParseStructuredOutputMode"></a>
-### func [ParseStructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/structured_output_mode.go#L65>)
+### func [ParseStructuredOutputMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L206>)
 
 ```go
 func ParseStructuredOutputMode(raw string) StructuredOutputMode
@@ -6814,7 +6814,7 @@ func (s *TokenBudgetStage) Process(ctx context.Context, input <-chan StreamEleme
 Process reads all messages, enforces the token budget, and forwards the \(possibly truncated\) messages downstream.
 
 <a name="ToolCallRecorder"></a>
-## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L92-L98>)
+## type [ToolCallRecorder](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/state_handoff.go#L92-L98>)
 
 ToolCallRecorder is an optional interface a WorkflowStateResolver may implement to receive the number of tool calls each round executed.
 
@@ -7355,7 +7355,7 @@ func (r *WeightedRouter) RegisterOutput(name string, output chan<- StreamElement
 RegisterOutput registers an output channel with a name.
 
 <a name="WorkflowStateResolver"></a>
-## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/state_handoff.go#L64-L78>)
+## type [WorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/state_handoff.go#L64-L78>)
 
 WorkflowStateResolver lets a workflow consumer keep a turn aligned with the workflow's current state.
 

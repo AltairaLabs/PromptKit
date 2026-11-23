@@ -48,6 +48,12 @@ func Wrap(ctx context.Context, _ int, msg *types.Message) (Scored, error) { retu
 // Close has an unnamed parameter.
 func Close(Scored) {}
 
+// Named has a parameter named like the package, which the wrapper keeps.
+func Named(core Scored, n int) Scored { return core }
+
+// NamedResult has a result named like the package, which the wrapper keeps.
+func NamedResult(n int) (core Scored) { return Scored{Index: n} }
+
 // Helper is exported for stage's own use only.
 func Helper() {}
 

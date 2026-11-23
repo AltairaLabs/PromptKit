@@ -185,7 +185,7 @@ func (s *ContextAssemblyStage) loadHistory(
 		if err != nil {
 			return nil, err
 		}
-		s.turnState.SetTurnIndex(countUserTurns(msgs))
+		s.turnState.SetTurnIndex(core.CountUserTurns(msgs))
 		return msgs, nil
 	}
 	msgs, err := s.assembleFromReader(ctx, convID, reader, query)

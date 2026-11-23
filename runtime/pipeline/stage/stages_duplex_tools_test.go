@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
@@ -1319,10 +1321,10 @@ func TestDuplexTools_StampsTheTurnAndRecordsCalls(t *testing.T) {
 	require.NotEmpty(t, elems)
 	require.NotNil(t, elems[0].Message)
 	assert.Equal(t, map[string]interface{}{
-		finishReasonMetaKey:    "tool_calls",
-		types.MetaToolsOffered: []string{"forecast", "weather"},
-		workflowStateMetaKey:   map[string]any{"state": "triage"},
-		types.MetaCallerTurn:   0,
+		finishReasonMetaKey:           "tool_calls",
+		types.MetaToolsOffered:        []string{"forecast", "weather"},
+		provider.WorkflowStateMetaKey: map[string]any{"state": "triage"},
+		types.MetaCallerTurn:          0,
 	}, elems[0].Message.Meta)
 	assert.Equal(t, []int{2}, resolver.records())
 }
@@ -1878,14 +1880,14 @@ func TestDuplexTools_RunnerWithoutOfferStateIsAnEmptyOffer(t *testing.T) {
 	st.SetToolExecution(registryWithTools(t, "weather"), nil, DuplexToolConfig{}, nil)
 	r := st.toolRunner()
 
-	r.resetOffered()
-	r.recordOffered("weather")
-	assert.Nil(t, r.offeredToolNames())
+	r.ResetOffered()
+	r.RecordOffered("weather")
+	assert.Nil(t, r.OfferedToolNames())
 	msg := types.Message{Role: core.RoleAssistant}
-	r.stampToolsOffered(&msg)
+	r.StampToolsOffered(&msg)
 	assert.Nil(t, msg.Meta)
-	r.markBuilt(nil)
-	assert.True(t, r.describedChanged(nil), "nothing is ever recorded as built")
+	r.MarkBuilt(nil)
+	assert.True(t, r.DescribedChanged(nil), "nothing is ever recorded as built")
 }
 
 // Tool calls that arrive for a provider call already completed (a cancelled

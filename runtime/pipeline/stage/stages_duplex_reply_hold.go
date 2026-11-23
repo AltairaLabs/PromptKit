@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -29,7 +30,7 @@ import (
 //     marking its generation complete (providers.StreamChunk
 //     GenerationComplete).
 //   - Segment (RealtimeHoldSegment): the transcript is cut into segments and
-//     judged as it streams (the text path's streamHold and segmenter). When
+//     judged as it streams (the text path's provider.StreamHold and segmenter). When
 //     every guardrail has passed the transcript up to an offset, the audio
 //     that arrived before the transcript delta completing that offset is
 //     released, minus a holdback of the most recent audio for a session whose
@@ -51,7 +52,7 @@ type duplexReplyHold struct {
 	gen int64
 	// judge runs the segment guardrails' judgments of the transcript; its
 	// judging is false when the whole reply is held.
-	judge *streamHold
+	judge *provider.StreamHold
 	// cleared is each holding guardrail's cleared offset into the transcript.
 	cleared []int
 	// held is the reply's output still held, in arrival order.
@@ -126,7 +127,7 @@ func (s *DuplexProviderStage) beginReplyHold(
 	if h := s.replyHold; h != nil && h.gen != 0 && chunk.Generation != 0 && chunk.Generation != h.gen {
 		// The provider moved on to another reply: what the superseded one
 		// still held is never heard, and its message is dropped with it.
-		h.judge.stop()
+		h.judge.Stop()
 		s.replyHold = nil
 	}
 	if s.replyHold != nil || s.turnGuard.blocked || !isAssistantContentChunk(chunk, isOutputTranscription) {
@@ -137,9 +138,9 @@ func (s *DuplexProviderStage) beginReplyHold(
 		return
 	}
 	h := &duplexReplyHold{cleared: make([]int, len(holders)), holdback: s.streamHold.Holdback, gen: chunk.Generation}
-	h.judge = newHeldGuardrails(ctx, holders, s.hookRequest(s.history.snapshot()), s.streamHold)
+	h.judge = provider.NewHeldGuardrails(ctx, holders, s.hookRequest(s.history.snapshot()), s.streamHold)
 	if s.streamHold.Realtime != RealtimeHoldSegment {
-		h.judge.judging = false
+		h.judge.Judging = false
 	}
 	if h.holdback <= 0 {
 		if tl, ok := s.session.(providers.TranscriptLagger); ok {
@@ -186,7 +187,7 @@ func (s *DuplexProviderStage) holdReplyOutput(chunk *providers.StreamChunk, elem
 	h.held = append(h.held, out)
 	elem.Text, elem.Audio = nil, nil
 	if out.text != "" {
-		h.judge.segmentAndJudge(out.text)
+		h.judge.SegmentAndJudge(out.text)
 	}
 	return true
 }
@@ -255,44 +256,46 @@ func (s *DuplexProviderStage) replyHoldInterrupted() bool {
 
 // replyHoldVerdicts is the channel the held reply's segment judgments
 // arrive on, or nil (never ready) when none can.
-func (s *DuplexProviderStage) replyHoldVerdicts() <-chan partialVerdict {
-	if s.replyHold == nil || !s.replyHold.judge.judging {
+func (s *DuplexProviderStage) replyHoldVerdicts() <-chan provider.PartialVerdict {
+	if s.replyHold == nil || !s.replyHold.judge.Judging {
 		return nil
 	}
-	return s.replyHold.judge.results
+	return s.replyHold.judge.Results
 }
 
 // onReplyVerdict applies a segment guardrail's judgment of the held reply: a
 // pass releases what every guardrail has now cleared; a firing cuts the
 // reply with the guardrail's message.
-func (s *DuplexProviderStage) onReplyVerdict(ctx context.Context, v partialVerdict, output chan<- StreamElement) error {
+func (s *DuplexProviderStage) onReplyVerdict(
+	ctx context.Context, v provider.PartialVerdict, output chan<- StreamElement,
+) error {
 	h := s.replyHold
-	v.g.busy = false
+	v.Guardrail.Busy = false
 	if ctx.Err() != nil {
 		return nil
 	}
-	if v.d.Allow {
-		h.cleared[v.g.index] = max(h.cleared[v.g.index], len(v.text))
+	if v.Decision.Allow {
+		h.cleared[v.Guardrail.Index] = max(h.cleared[v.Guardrail.Index], len(v.Text))
 		if err := s.releaseCleared(ctx, output); err != nil {
 			return err
 		}
 		if !h.ending {
-			h.judge.judge(v.g)
+			h.judge.Judge(v.Guardrail)
 		}
 		return nil
 	}
-	canceled := h.judge.stop()
-	g := s.guardrailOutcomeAt(h.judge.req.TurnIndex)
-	ov := g.verdict(ctx, h.judge.req, v.text, []hooks.Decision{v.d}, v.took, false)
-	s.noteBlock(ov.decision, hooks.DirectionOutput, s.replyGeneration())
-	s.turnGuard.validations = append(s.turnGuard.validations, ov.validations...)
+	canceled := h.judge.Stop()
+	g := s.guardrailOutcomeAt(h.judge.Req.TurnIndex)
+	ov := g.Verdict(ctx, h.judge.Req, v.Text, []hooks.Decision{v.Decision}, v.Took, false)
+	s.noteBlock(ov.Decision, hooks.DirectionOutput, s.replyGeneration())
+	s.turnGuard.validations = append(s.turnGuard.validations, ov.Validations...)
 	if s.emitter != nil {
-		name, _ := v.d.Metadata[metadataKeyValidatorType].(string)
+		name, _ := v.Decision.Metadata[provider.MetadataKeyValidatorType].(string)
 		s.emitter.StreamHoldCut(ctx, &events.StreamHoldCutData{
-			Guardrail: name, SegmentIndex: v.segment, ReleasedBytes: h.heard.Len(), CanceledJudges: canceled,
+			Guardrail: name, SegmentIndex: v.Segment, ReleasedBytes: h.heard.Len(), CanceledJudges: canceled,
 		})
 	}
-	s.blockTurnWithMessage(types.Message{Content: ov.text, Meta: decisionMessageMeta(ov.decision)})
+	s.blockTurnWithMessage(types.Message{Content: ov.Text, Meta: provider.DecisionMessageMeta(ov.Decision)})
 	return s.cutReply(ctx, output)
 }
 
@@ -343,7 +346,7 @@ func (s *DuplexProviderStage) releaseHeldOutput(ctx context.Context, n int, outp
 			(o.elem.Audio != nil && s.playoutHeld != nil && !s.playoutHeld.ReleaseAudio(&o.src)) {
 			h.interrupted = true
 			h.held = nil
-			h.judge.stop()
+			h.judge.Stop()
 			return nil
 		}
 		h.held = h.held[1:]
@@ -393,7 +396,7 @@ func (s *DuplexProviderStage) settleGeneratedReply(ctx context.Context, output c
 	if s.failUntranscribedReply(ctx) {
 		return s.cutReply(ctx, output)
 	}
-	h.judge.stop()
+	h.judge.Stop()
 	msg := &types.Message{Role: core.RoleAssistant, Content: s.accumulatedText.String()}
 	if s.runTurnAfterCallHooks(ctx, msg, &StreamElement{}) {
 		s.turnGuard.validations = append(s.turnGuard.validations, msg.Validations...)
@@ -423,7 +426,7 @@ func (s *DuplexProviderStage) settleReplyHold(
 		return nil
 	}
 	s.replyHold = nil
-	h.judge.stop()
+	h.judge.Stop()
 	msg := elem.Message
 	fr := ""
 	if elem.Meta.FinishReason != nil {
@@ -498,7 +501,7 @@ func (s *DuplexProviderStage) failUntranscribedReply(ctx context.Context) bool {
 		Details: map[string]interface{}{"reason": "no_transcript"},
 	})
 	s.noteBlock(d, hooks.DirectionOutput, s.replyGeneration())
-	s.blockTurnWith(ctx, h.judge.req, &d, hooks.DirectionOutput)
+	s.blockTurnWith(ctx, h.judge.Req, &d, hooks.DirectionOutput)
 	return true
 }
 
@@ -512,7 +515,7 @@ func (s *DuplexProviderStage) dropReplyHold(heardText bool) {
 	}
 	s.heldAudioDropped(h.gen)
 	s.replyHold = nil
-	h.judge.stop()
+	h.judge.Stop()
 	if h.passed {
 		// After the pass the reply's audio played as it arrived: the
 		// transcript held for the turn's check went with audio heard.
@@ -614,15 +617,15 @@ func (s *DuplexProviderStage) finishReplyVerdicts(
 // judgment starts: that check judges the rest.
 func (s *DuplexProviderStage) awaitReplyVerdicts(ctx context.Context, output chan<- StreamElement) error {
 	h := s.replyHold
-	if h == nil || !h.judge.judging {
+	if h == nil || !h.judge.Judging {
 		return nil
 	}
 	h.ending = true
 	// Waiting on a judge is activity, not idle silence.
 	defer core.KeepIdleAlive(ctx)()
-	for s.replyHold == h && h.judge.inFlight() {
+	for s.replyHold == h && h.judge.InFlight() {
 		select {
-		case v := <-h.judge.results:
+		case v := <-h.judge.Results:
 			if err := s.onReplyVerdict(ctx, v, output); err != nil {
 				return err
 			}

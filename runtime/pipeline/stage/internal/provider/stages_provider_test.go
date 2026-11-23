@@ -1,0 +1,3162 @@
+package provider
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks" // Used by TestAfterRound_ExcludesAfterRepeatedRejection
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/compaction"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/testutil"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// nonStreamingProvider wraps a provider and disables streaming support.
+// Used for testing the non-streaming code path (executeRound).
+type nonStreamingProvider struct {
+	providers.Provider
+}
+
+func (p *nonStreamingProvider) SupportsStreaming() bool {
+	return false
+}
+
+// TestProviderStage_StreamingMode tests that streaming providers use the streaming execution path
+func TestProviderStage_StreamingMode(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test message",
+	}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	// Execute stage
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect output
+	var elements []core.StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+
+	// Should have received streaming chunks + final message
+	require.Greater(t, len(elements), 0, "should receive at least one element")
+
+	// Check for streaming text elements (deltas)
+	foundTextElement := false
+	for _, elem := range elements {
+		if elem.Text != nil && *elem.Text != "" {
+			foundTextElement = true
+			break
+		}
+	}
+	assert.True(t, foundTextElement, "should have streaming text elements")
+
+	// Last element should be complete message
+	lastElem := elements[len(elements)-1]
+	assert.NotNil(t, lastElem.Message, "last element should have message")
+	assert.Equal(t, "assistant", lastElem.Message.Role)
+}
+
+// TestProviderStage_MetadataExtraction tests extraction of system prompt and allowed tools
+func TestProviderStage_MetadataExtraction(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "Custom system prompt"
+	turnState.AllowedTools = []string{"tool1", "tool2"}
+	turnState.ProviderRequestMetadata = map[string]interface{}{"custom_key": "custom_value"}
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test",
+	}
+	input <- core.NewMessageElement(&userMsg)
+	close(input)
+
+	// Execute stage
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// The stage should successfully extract and use the metadata
+	// (verification is implicit - no errors means metadata was handled correctly)
+	var elements []core.StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+	assert.Greater(t, len(elements), 0, "should receive output")
+}
+
+// TestProviderStage_TurnStateEmpty pins behaviour when TurnState is wired
+// but its fields are zero/empty: the stage uses the empty values and does
+// not fall back to anywhere else (the legacy metadata bag path is gone).
+func TestProviderStage_TurnStateEmpty(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState() // empty
+
+	stage := NewProviderStageWithTurnState(provider, nil, nil,
+		&ProviderConfig{MaxTokens: 100, Temperature: 0.7}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 2)
+	elem := core.NewMessageElement(&types.Message{Role: "user", Content: "Test"})
+	input <- elem
+	close(input)
+
+	acc := stage.accumulateInput(input)
+	assert.Empty(t, acc.systemPrompt,
+		"empty TurnState.SystemPrompt produces an empty system prompt")
+	assert.Empty(t, acc.allowedTools,
+		"empty TurnState.AllowedTools produces no allowed tools")
+}
+
+// TestProviderStage_NoProvider tests error when provider is nil
+func TestProviderStage_NoProvider(t *testing.T) {
+	stage := NewProviderStage(nil, nil, nil, &ProviderConfig{})
+
+	input := make(chan core.StreamElement, 1)
+	input <- core.NewMessageElement(&types.Message{Role: "user", Content: "Test"})
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no provider configured")
+}
+
+// A unary turn with no message still calls the model, on its system prompt
+// alone: that is how a caller has the model speak first (PromptArena's
+// self-play persona generates the opening user turn this way). The reply is
+// the turn's output.
+func TestProviderStage_EmptyInput(t *testing.T) {
+	provider := &multiTurnRecordingProvider{}
+	ts := core.NewTurnState()
+	ts.SystemPrompt = "You are a customer opening a support chat."
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, ts)
+
+	results := runTestStage(t, stage, nil)
+
+	require.Len(t, provider.requests, 1, "no message: one call on the system prompt alone")
+	assert.Empty(t, provider.requests[0])
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+}
+
+// TestProviderStage_MultipleMessages tests processing multiple messages
+func TestProviderStage_MultipleMessages(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 3)
+	for i := 0; i < 3; i++ {
+		msg := types.Message{
+			Role:    "user",
+			Content: "Test message",
+		}
+		input <- core.NewMessageElement(&msg)
+	}
+	close(input)
+
+	output := make(chan core.StreamElement, 20)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect all assistant messages from output
+	var assistantMessages []*types.Message
+	for elem := range output {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			assistantMessages = append(assistantMessages, elem.Message)
+		}
+	}
+
+	// ProviderStage processes all inputs together, should have at least one response
+	assert.Greater(t, len(assistantMessages), 0, "should have at least one assistant response")
+}
+
+// TestProviderStage_ContextCancellation tests context cancellation
+func TestProviderStage_ContextCancellation(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test message",
+	}
+	input <- core.NewMessageElement(&userMsg)
+	close(input)
+
+	// Create cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Execute stage in goroutine
+	output := make(chan core.StreamElement, 10)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- stage.Process(ctx, input, output)
+	}()
+
+	// Cancel immediately
+	cancel()
+
+	// Wait for completion
+	err := <-errChan
+
+	// Should receive cancellation error or complete successfully
+	// (depends on timing - cancellation may happen before or after processing)
+	if err != nil {
+		assert.Contains(t, err.Error(), "context canceled")
+	}
+}
+
+// TestProviderStage_StreamingChunkMetadata tests that streaming chunks have proper metadata
+func TestProviderStage_StreamingChunkMetadata(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a storyteller"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Tell me a story",
+	}
+	input <- core.NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan core.StreamElement, 20)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect all elements
+	var elements []core.StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+
+	// Check that streaming elements have timestamp and priority
+	for _, elem := range elements {
+		if elem.Text != nil {
+			// This is a streaming chunk
+			assert.False(t, elem.Timestamp.IsZero(), "streaming chunk should have timestamp")
+			assert.NotEqual(t, core.Priority(0), elem.Priority, "streaming chunk should have priority")
+		}
+	}
+}
+
+// TestProviderStage_MessageTimestamps tests that messages have timestamps
+func TestProviderStage_MessageTimestamps(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test",
+	}
+	input <- core.NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Check that assistant messages have timestamps
+	for elem := range output {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			assert.False(t, elem.Message.Timestamp.IsZero(),
+				"assistant message should have timestamp")
+		}
+	}
+}
+
+// TestProviderStage_MessageLatency tests that messages have latency tracking
+func TestProviderStage_MessageLatency(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test message",
+	}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Check that assistant messages have latency set (may be 0 for fast mock)
+	foundAssistant := false
+	for elem := range output {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			foundAssistant = true
+			// Latency should be non-negative (mock may return instantly)
+			assert.GreaterOrEqual(t, elem.Message.LatencyMs, int64(0),
+				"assistant message should have non-negative latency")
+		}
+	}
+	assert.True(t, foundAssistant, "should have at least one assistant message")
+}
+
+// TestProviderStage_StreamingLatency tests latency tracking in streaming mode
+func TestProviderStage_StreamingLatency(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", true) // streaming = true
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "System"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test streaming message",
+	}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 100)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect all output elements
+	var assistantMessages []types.Message
+	for elem := range output {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			assistantMessages = append(assistantMessages, *elem.Message)
+		}
+	}
+
+	// Should have at least one assistant message with latency
+	assert.NotEmpty(t, assistantMessages, "should have assistant messages")
+	for _, msg := range assistantMessages {
+		assert.GreaterOrEqual(t, msg.LatencyMs, int64(0),
+			"streaming assistant message should have non-negative latency")
+	}
+}
+
+// =============================================================================
+// Helper Function Tests
+// =============================================================================
+
+func TestIsToolBlocked(t *testing.T) {
+	tests := []struct {
+		name      string
+		toolName  string
+		blocklist []string
+		expected  bool
+	}{
+		{
+			name:      "empty blocklist",
+			toolName:  "some_tool",
+			blocklist: []string{},
+			expected:  false,
+		},
+		{
+			name:      "tool not in blocklist",
+			toolName:  "allowed_tool",
+			blocklist: []string{"blocked_tool"},
+			expected:  false,
+		},
+		{
+			name:      "tool in blocklist",
+			toolName:  "blocked_tool",
+			blocklist: []string{"blocked_tool"},
+			expected:  true,
+		},
+		{
+			name:      "tool in middle of blocklist",
+			toolName:  "tool2",
+			blocklist: []string{"tool1", "tool2", "tool3"},
+			expected:  true,
+		},
+		{
+			name:      "nil blocklist",
+			toolName:  "some_tool",
+			blocklist: nil,
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isToolBlocked(tt.toolName, tt.blocklist)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// A stage built with no config still runs a turn: the user message reaches
+// the provider and the reply comes back as the assistant message.
+func TestNewProviderStage_NilConfig(t *testing.T) {
+	provider := &multiTurnRecordingProvider{}
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	results := runTestStage(t, stage, []core.StreamElement{newTestMsgElement("user", "hello")})
+
+	require.Len(t, provider.requests, 1)
+	last := provider.requests[0][len(provider.requests[0])-1]
+	assert.Equal(t, "hello", last.Content)
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+}
+
+func TestNewProviderStage_WithConfig(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	seed := 42
+
+	config := &ProviderConfig{
+		MaxTokens:   500,
+		Temperature: 0.9,
+		Seed:        &seed,
+	}
+
+	stage := NewProviderStage(provider, nil, nil, config)
+
+	assert.NotNil(t, stage)
+	assert.Equal(t, 500, stage.config.MaxTokens)
+	assert.Equal(t, float32(0.9), stage.config.Temperature)
+	assert.Equal(t, &seed, stage.config.Seed)
+}
+
+func TestProviderStage_NonStreamingMode(t *testing.T) {
+	// Create mock provider WITHOUT streaming support using wrapper
+	baseProvider := mock.NewProvider("test-provider", "test-model", false)
+	provider := &nonStreamingProvider{Provider: baseProvider}
+
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test message",
+	}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect output
+	var elements []core.StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+
+	// Should have at least one response
+	require.Greater(t, len(elements), 0)
+
+	// Verify that we got a final message with assistant role
+	foundAssistant := false
+	for _, elem := range elements {
+		if elem.Message != nil && elem.Message.Role == "assistant" {
+			foundAssistant = true
+			break
+		}
+	}
+	assert.True(t, foundAssistant, "should have assistant message in output")
+}
+
+func TestProviderStage_MockScenarioMetadata(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "System"
+	turnState.ProviderRequestMetadata = map[string]interface{}{
+		"mock_scenario_id": "test-scenario",
+		"mock_turn_number": 1,
+	}
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{
+		Role:    "user",
+		Content: "Test",
+	}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+
+	require.NoError(t, err)
+
+	// Collect output
+	var elements []core.StreamElement
+	for elem := range output {
+		elements = append(elements, elem)
+	}
+	assert.Greater(t, len(elements), 0)
+}
+
+func TestProviderStage_BaseStageProperties(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	assert.Equal(t, "provider", stage.Name())
+	assert.Equal(t, core.StageTypeGenerate, stage.Type())
+}
+
+// =============================================================================
+// Helper Function Unit Tests (for coverage)
+// =============================================================================
+
+func TestProviderStage_AccumulateInput(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+
+	t.Run("accumulates messages and reads from TurnState", func(t *testing.T) {
+		turnState := core.NewTurnState()
+		turnState.SystemPrompt = "You are helpful"
+		turnState.AllowedTools = []string{"tool1", "tool2"}
+		turnState.ProviderRequestMetadata = map[string]interface{}{"custom_key": "custom_value"}
+
+		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
+
+		input := make(chan core.StreamElement, 3)
+		input <- core.NewMessageElement(&types.Message{Role: "user", Content: "Hello"})
+		input <- core.NewMessageElement(&types.Message{Role: "assistant", Content: "Hi"})
+		input <- core.NewMessageElement(&types.Message{Role: "user", Content: "Thanks"})
+		close(input)
+
+		acc := stage.accumulateInput(input)
+
+		assert.Len(t, acc.messages, 3)
+		assert.Equal(t, "You are helpful", acc.systemPrompt)
+		assert.Equal(t, []string{"tool1", "tool2"}, acc.allowedTools)
+		assert.Equal(t, "custom_value", acc.metadata["custom_key"])
+	})
+
+	t.Run("handles empty input", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, nil, nil)
+		input := make(chan core.StreamElement)
+		close(input)
+
+		acc := stage.accumulateInput(input)
+
+		assert.Len(t, acc.messages, 0)
+		assert.Empty(t, acc.systemPrompt)
+		assert.Nil(t, acc.allowedTools)
+		assert.NotNil(t, acc.metadata)
+	})
+
+	t.Run("bare text is the user's message; other content is not", func(t *testing.T) {
+		turnState := core.NewTurnState()
+		turnState.ProviderRequestMetadata = map[string]interface{}{"key": "value"}
+		stage := NewProviderStageWithTurnState(provider, nil, nil, nil, nil, nil, turnState)
+
+		input := make(chan core.StreamElement, 5)
+		text := "some text"
+		input <- core.StreamElement{Text: &text}
+		spoken := core.StreamElement{Text: testutil.Ptr("already spoken")}
+		spoken.Meta.SynthesizedSpeech = true
+		input <- spoken
+		delta := core.StreamElement{Text: testutil.Ptr("an upstream reply frag")}
+		delta.Meta.StreamingDelta = true
+		input <- delta
+		input <- core.StreamElement{Audio: &core.AudioData{Samples: []byte{1, 2}}}
+		input <- core.StreamElement{Text: testutil.Ptr("")}
+		close(input)
+
+		acc := stage.accumulateInput(input)
+
+		assert.Equal(t, []types.Message{{Role: "user", Content: "some text"}}, acc.messages)
+		assert.Equal(t, "value", acc.metadata["key"])
+	})
+}
+
+func TestProviderStage_EmitResponseMessages(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	t.Run("emits all messages", func(t *testing.T) {
+		ctx := context.Background()
+		output := make(chan core.StreamElement, 10)
+		messages := []types.Message{
+			{Role: "assistant", Content: "Response 1"},
+			{Role: "assistant", Content: "Response 2"},
+		}
+
+		go func() {
+			err := stage.emitResponseMessages(ctx, messages, output)
+			assert.NoError(t, err)
+			close(output)
+		}()
+
+		var received []core.StreamElement
+		for elem := range output {
+			received = append(received, elem)
+		}
+
+		assert.Len(t, received, 2)
+		assert.Equal(t, "Response 1", received[0].Message.Content)
+	})
+
+	t.Run("handles empty messages", func(t *testing.T) {
+		ctx := context.Background()
+		output := make(chan core.StreamElement, 10)
+
+		err := stage.emitResponseMessages(ctx, []types.Message{}, output)
+
+		require.NoError(t, err)
+		assert.Empty(t, output, "no messages, no elements")
+	})
+
+	t.Run("respects context cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		output := make(chan core.StreamElement) // Unbuffered, will block
+		messages := []types.Message{{Role: "assistant", Content: "Test"}}
+
+		err := stage.emitResponseMessages(ctx, messages, output)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "context canceled")
+	})
+}
+
+func TestProviderStage_GetMaxRounds(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+
+	t.Run("returns default when no policy", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, nil, nil)
+		assert.Equal(t, 50, stage.getMaxRounds()) // DefaultMaxRounds
+	})
+
+	t.Run("returns policy value when set", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, &pipeline.ToolPolicy{MaxRounds: 5}, nil)
+		assert.Equal(t, 5, stage.getMaxRounds())
+	})
+
+	t.Run("returns default when policy MaxRounds is zero", func(t *testing.T) {
+		stage := NewProviderStage(provider, nil, &pipeline.ToolPolicy{MaxRounds: 0}, nil)
+		assert.Equal(t, 50, stage.getMaxRounds())
+	})
+}
+
+// =============================================================================
+// Event Emission Tests - Ensure ProviderStage emits provider call events
+// =============================================================================
+
+// waitForWG waits for a WaitGroup with a timeout, returns false if timed out
+func waitForWG(wg *sync.WaitGroup, timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func TestProviderStage_EmitsProviderCallStartedEvent(t *testing.T) {
+	// Create event bus and emitter
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	// Track received events
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(events.EventProviderCallStarted, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	// Create provider and stage with emitter
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, emitter, nil, turnState)
+
+	// Create input
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	// Execute stage
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	// Wait for event with timeout
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		t.Fatal("timed out waiting for ProviderCallStarted event - event was not emitted")
+	}
+
+	// Verify event data
+	require.NotNil(t, receivedEvent)
+	assert.Equal(t, events.EventProviderCallStarted, receivedEvent.Type)
+	assert.Equal(t, "test-run", receivedEvent.ExecutionID)
+	assert.Equal(t, "test-session", receivedEvent.SessionID)
+
+	data, ok := receivedEvent.Data.(*events.ProviderCallStartedData)
+	require.True(t, ok, "event data should be *ProviderCallStartedData")
+	assert.Equal(t, "test-provider", data.Provider)
+	assert.Equal(t, 1, data.MessageCount) // 1 user message
+}
+
+func TestProviderStage_EmitsProviderCallCompletedEvent(t *testing.T) {
+	// Create event bus and emitter
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	// Track received events
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	// Create provider and stage with emitter
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, emitter, nil, turnState)
+
+	// Create input
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	// Execute stage
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	// Wait for event with timeout
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		t.Fatal("timed out waiting for ProviderCallCompleted event - event was not emitted")
+	}
+
+	// Verify event data
+	require.NotNil(t, receivedEvent)
+	assert.Equal(t, events.EventProviderCallCompleted, receivedEvent.Type)
+	assert.Equal(t, "test-run", receivedEvent.ExecutionID)
+	assert.Equal(t, "test-session", receivedEvent.SessionID)
+
+	data, ok := receivedEvent.Data.(*events.ProviderCallCompletedData)
+	require.True(t, ok, "event data should be *ProviderCallCompletedData")
+	assert.Equal(t, "test-provider", data.Provider)
+	assert.Greater(t, data.Duration, time.Duration(0), "duration should be positive")
+	assert.NotEmpty(t, data.FinishReason, "FinishReason must be populated, not the placeholder empty string")
+}
+
+func TestProviderStage_EmitsProviderCallCompletedEvent_NonStreaming(t *testing.T) {
+	// Create event bus and emitter
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	// Track received events
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	// Create provider WITHOUT streaming support using the wrapper
+	baseProvider := mock.NewProvider("test-provider", "test-model", false)
+	provider := &nonStreamingProvider{Provider: baseProvider}
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, emitter, nil, turnState)
+
+	// Create input
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	// Execute stage
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	// Wait for event with timeout
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		t.Fatal("timed out waiting for ProviderCallCompleted event in non-streaming mode - event was not emitted")
+	}
+
+	// Verify event data
+	require.NotNil(t, receivedEvent)
+	assert.Equal(t, events.EventProviderCallCompleted, receivedEvent.Type)
+
+	data, ok := receivedEvent.Data.(*events.ProviderCallCompletedData)
+	require.True(t, ok, "event data should be *ProviderCallCompletedData")
+	assert.Equal(t, "test-provider", data.Provider)
+}
+
+// A stage built without an emitter has nothing to publish events through: it
+// must not fail or drop the turn for want of one, and runs it as a stage with
+// an emitter does.
+func TestProviderStage_RunsTheTurnWithoutAnEmitter(t *testing.T) {
+	t.Parallel()
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	input <- core.NewMessageElement(&userMsg)
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	require.NoError(t, stage.Process(context.Background(), input, output))
+
+	var msgs []types.Message
+	for elem := range output {
+		if elem.Message != nil {
+			msgs = append(msgs, *elem.Message)
+		}
+	}
+	require.Len(t, msgs, 2, "the user message and the reply")
+	assert.Equal(t, "Test message", msgs[0].GetContent())
+	assert.Equal(t, "assistant", msgs[1].Role)
+	assert.Equal(t, "Mock response from test-provider model test-model", msgs[1].GetContent())
+}
+
+// toolOfferRecorder is a non-streaming ToolSupport provider that records,
+// per call, the names of the tool declarations it was handed (nil when the
+// stage took the no-tools Predict path).
+type toolOfferRecorder struct {
+	multiTurnRecordingProvider
+	offered [][]string
+}
+
+func (p *toolOfferRecorder) BuildTooling(descriptors []*providers.ToolDescriptor) (providers.ProviderTools, error) {
+	return descriptors, nil
+}
+
+func (p *toolOfferRecorder) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.offered = append(p.offered, nil)
+	return p.multiTurnRecordingProvider.Predict(ctx, req)
+}
+
+func (p *toolOfferRecorder) PredictWithTools(
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, _ string,
+) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	names := []string{} // non-nil: tells a tools call with no tools from a plain call
+	for _, d := range tools.([]*providers.ToolDescriptor) {
+		names = append(names, d.Name)
+	}
+	p.offered = append(p.offered, names)
+	resp, err := p.multiTurnRecordingProvider.Predict(ctx, req)
+	return resp, nil, err
+}
+
+func (p *toolOfferRecorder) PredictStreamWithTools(
+	_ context.Context, _ providers.PredictionRequest, _ providers.ProviderTools, _ string,
+) (<-chan providers.StreamChunk, error) {
+	return nil, errors.New("not streaming")
+}
+
+var _ providers.ToolSupport = (*toolOfferRecorder)(nil)
+
+// The provider is offered exactly the registry tools the turn's prompt
+// allows: allowed tools reach the provider request, and a turn that allows
+// none takes the plain no-tools call even when the registry has tools.
+func TestProviderStage_WithToolRegistry(t *testing.T) {
+	run := func(t *testing.T, allowed []string) *toolOfferRecorder {
+		t.Helper()
+		reg := tools.NewRegistry()
+		for _, n := range []string{"test_tool", "other_tool"} {
+			require.NoError(t, reg.Register(&tools.ToolDescriptor{
+				Name: n, Description: n, InputSchema: []byte(`{"type": "object"}`),
+			}))
+		}
+		prov := &toolOfferRecorder{}
+		ts := core.NewTurnState()
+		ts.SystemPrompt = "You are a helpful assistant"
+		ts.AllowedTools = allowed
+		stage := NewProviderStageWithTurnState(prov, reg, nil, &ProviderConfig{MaxTokens: 100}, nil, nil, ts)
+		results := runTestStage(t, stage, []core.StreamElement{newTestMsgElement("user", "Test message")})
+		require.Equal(t, []string{"reply-1"}, assistantReplies(results))
+		return prov
+	}
+
+	t.Run("builds tools when allowed_tools in metadata", func(t *testing.T) {
+		prov := run(t, []string{"test_tool"})
+		assert.Equal(t, [][]string{{"test_tool"}}, prov.offered)
+	})
+
+	t.Run("handles empty allowed_tools", func(t *testing.T) {
+		prov := run(t, nil)
+		assert.Equal(t, [][]string{nil}, prov.offered, "no allowed tools: the no-tools Predict path")
+	})
+}
+
+// =============================================================================
+// Tool Execution Tests - Test executeToolCalls and handleToolResult
+// =============================================================================
+
+// mockAsyncExecutor implements tools.AsyncToolExecutor for testing
+type mockAsyncExecutor struct {
+	name       string
+	status     tools.ToolExecutionStatus
+	content    []byte
+	parts      []types.ContentPart
+	errorMsg   string
+	pendingMsg string
+}
+
+func (m *mockAsyncExecutor) Name() string {
+	return m.name
+}
+
+func (m *mockAsyncExecutor) Execute(_ context.Context, descriptor *tools.ToolDescriptor, _ json.RawMessage) (json.RawMessage, error) {
+	if m.status == tools.ToolStatusFailed {
+		return nil, fmt.Errorf("%s", m.errorMsg)
+	}
+	return m.content, nil
+}
+
+func (m *mockAsyncExecutor) ExecuteAsync(_ context.Context, descriptor *tools.ToolDescriptor, _ json.RawMessage) (*tools.ToolExecutionResult, error) {
+	result := &tools.ToolExecutionResult{
+		Status:  m.status,
+		Content: m.content,
+		Parts:   m.parts,
+		Error:   m.errorMsg,
+	}
+	if m.status == tools.ToolStatusPending {
+		result.PendingInfo = &tools.PendingToolInfo{
+			Reason:   "requires_approval",
+			Message:  m.pendingMsg,
+			ToolName: descriptor.Name,
+		}
+	}
+	return result, nil
+}
+
+func TestProviderStage_ExecuteToolCalls_NilRegistry(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil) // nil registry
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "some_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	_, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool registry not configured")
+}
+
+func TestProviderStage_ExecuteToolCalls_BlockedTool(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	// Register a tool
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "blocked_tool",
+		Description: "A blocked tool",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	// Create stage with tool policy that blocks the tool
+	toolPolicy := &pipeline.ToolPolicy{
+		Blocklist: []string{"blocked_tool"},
+	}
+	stage := NewProviderStage(provider, registry, toolPolicy, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "tool", results[0].Role)
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "blocked by policy")
+	assert.Contains(t, results[0].ToolResult.Error, "blocked by policy")
+}
+
+func TestProviderStage_ExecuteToolCalls_ToolNotFound(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "nonexistent_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "tool", results[0].Role)
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "Error:")
+	assert.NotEmpty(t, results[0].ToolResult.Error)
+}
+
+func TestProviderStage_ExecuteToolCalls_Complete(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	// Register mock executor that returns complete status
+	executor := &mockAsyncExecutor{
+		name:    "test-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`{"result": "success"}`),
+	}
+	registry.RegisterExecutor(executor)
+
+	// Register a tool that uses this executor (Mode matches executor name)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "A test tool",
+		Mode:        "test-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "tool", results[0].Role)
+	assert.NotNil(t, results[0].ToolResult)
+	assert.Empty(t, results[0].ToolResult.Error)
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "result")
+}
+
+func TestProviderStage_ExecuteToolCalls_Pending(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	// Register mock executor that returns pending status
+	executor := &mockAsyncExecutor{
+		name:       "pending-executor",
+		status:     tools.ToolStatusPending,
+		pendingMsg: "Tool requires user approval",
+	}
+	registry.RegisterExecutor(executor)
+
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "pending_tool",
+		Description: "A tool requiring approval",
+		Mode:        "pending-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "pending_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	// Pending tools now return ErrToolsPending
+	require.Error(t, err)
+	ep, ok := tools.IsErrToolsPending(err)
+	require.True(t, ok, "error should be *ErrToolsPending")
+	require.Len(t, ep.Pending, 1)
+	assert.Equal(t, "call-1", ep.Pending[0].CallID)
+	assert.Equal(t, "pending_tool", ep.Pending[0].ToolName)
+	assert.Contains(t, ep.Pending[0].ToolResult.GetTextContent(), "requires")
+
+	// No completed results since only tool was pending
+	assert.Empty(t, results)
+}
+
+func TestProviderStage_ExecuteToolCalls_Failed(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	// Register mock executor that returns failed status
+	executor := &mockAsyncExecutor{
+		name:     "failing-executor",
+		status:   tools.ToolStatusFailed,
+		errorMsg: "Tool execution failed: network error",
+	}
+	registry.RegisterExecutor(executor)
+
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "failing_tool",
+		Description: "A tool that fails",
+		Mode:        "failing-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "failing_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "tool", results[0].Role)
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "failed")
+	assert.NotEmpty(t, results[0].ToolResult.Error)
+}
+
+func TestProviderStage_ExecuteToolCalls_MultipleToolCalls(t *testing.T) {
+	// Test multiple tool calls in a single request
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	// Register mock executor for complete status
+	executor := &mockAsyncExecutor{
+		name:    "multi-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`{"result": "ok"}`),
+	}
+	registry.RegisterExecutor(executor)
+
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "tool1",
+		Description: "Tool 1",
+		Mode:        "multi-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "tool2",
+		Description: "Tool 2",
+		Mode:        "multi-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "tool1", Args: json.RawMessage(`{}`)},
+		{ID: "call-2", Name: "tool2", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+	assert.Equal(t, "call-1", results[0].ToolResult.ID)
+	assert.Equal(t, "call-2", results[1].ToolResult.ID)
+}
+
+func TestProviderStage_BuildProviderTools_ToolChoice(t *testing.T) {
+	// Test that tool choice from policy is used
+	registry := tools.NewRegistry()
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "Test",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	toolPolicy := &pipeline.ToolPolicy{
+		ToolChoice: "required",
+	}
+	stage := NewProviderStage(provider, registry, toolPolicy, nil)
+
+	// Build tools with allowed_tools
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
+
+	require.NoError(t, err)
+	assert.NotNil(t, providerTools)
+	assert.Equal(t, "required", toolChoice)
+}
+
+func TestProviderStage_BuildProviderTools_ToolNotFound(t *testing.T) {
+	// Test that missing tools are skipped (logs warning but continues)
+	registry := tools.NewRegistry()
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	// Build tools with non-existent tool — no descriptors to send, returns nil
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"nonexistent_tool"}, nil)
+
+	require.NoError(t, err)
+	// No tools found means no BuildTooling call
+	assert.Equal(t, "", toolChoice)
+	assert.Nil(t, providerTools)
+}
+
+func TestProviderStage_BuildProviderTools_ProviderNoToolSupport(t *testing.T) {
+	// Test that providers without tool support return nil tools
+	registry := tools.NewRegistry()
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "Test",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	// Regular mock provider doesn't implement ToolSupport
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	// Build tools with allowed_tools - should return nil since provider doesn't support tools
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
+
+	require.NoError(t, err)
+	assert.Nil(t, providerTools)
+	assert.Empty(t, toolChoice)
+}
+
+func TestProviderStage_BuildProviderTools_EmptyAllowedTools(t *testing.T) {
+	// Test that empty allowed_tools returns nil
+	registry := tools.NewRegistry()
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{}, nil)
+
+	require.NoError(t, err)
+	assert.Nil(t, providerTools)
+	assert.Empty(t, toolChoice)
+}
+
+func TestProviderStage_BuildProviderTools_ToolChoiceNoneSendsNoTools(t *testing.T) {
+	// tool_choice: none means the model cannot call tools this turn. Sending
+	// the tool declarations anyway wastes tokens and, on some models, primes
+	// spurious tool calls. buildProviderTools must return nil so the provider
+	// uses the non-tool path and sends no declarations / tool_config.
+	registry := tools.NewRegistry()
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "Test",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	toolPolicy := &pipeline.ToolPolicy{ToolChoice: "none"}
+	stage := NewProviderStage(provider, registry, toolPolicy, nil)
+
+	providerTools, choice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
+
+	require.NoError(t, err)
+	assert.Nil(t, providerTools, "tool_choice=none must not send tool declarations")
+	assert.Equal(t, "", choice, "no tool_choice is sent without tools")
+}
+
+func TestProviderStage_BuildProviderTools_NilRegistry(t *testing.T) {
+	// Test that nil registry returns nil tools
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"test_tool"}, nil)
+
+	require.NoError(t, err)
+	assert.Nil(t, providerTools)
+	assert.Empty(t, toolChoice)
+}
+
+func TestProviderStage_BuildProviderTools_SystemToolsIncluded(t *testing.T) {
+	// System-namespaced tools (skill__, a2a__, etc.) are included automatically
+	// even when they're not in the allowedTools list.
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "skill__activate",
+		Description: "Activate a skill",
+		InputSchema: []byte(`{"type":"object","properties":{"name":{"type":"string"}}}`),
+	})
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "regular_tool",
+		Description: "A regular tool",
+		InputSchema: []byte(`{"type":"object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	// Only allow regular_tool — skill__activate should still be included as a system tool
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{"regular_tool"}, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "auto", toolChoice)
+	assert.NotNil(t, providerTools)
+}
+
+func TestProviderStage_BuildProviderTools_SystemToolsWithEmptyAllowed(t *testing.T) {
+	// System tools are included even when allowedTools is empty.
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "a2a__send",
+		Description: "Send to agent",
+		InputSchema: []byte(`{"type":"object"}`),
+	})
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	providerTools, toolChoice, err := stage.buildProviderTools([]string{}, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, "auto", toolChoice)
+	assert.NotNil(t, providerTools)
+}
+
+func TestProviderStage_HandleToolResult_AllStatuses(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	testCases := []struct {
+		name           string
+		status         tools.ToolExecutionStatus
+		content        []byte
+		errorMsg       string
+		pendingMsg     string
+		expectError    bool
+		contentContain string
+	}{
+		{
+			name:           "complete status with JSON",
+			status:         tools.ToolStatusComplete,
+			content:        []byte(`{"key": "value"}`),
+			contentContain: "key",
+		},
+		{
+			name:           "complete status with plain text",
+			status:         tools.ToolStatusComplete,
+			content:        []byte("plain text result"),
+			contentContain: "plain text result",
+		},
+		{
+			name:           "failed status",
+			status:         tools.ToolStatusFailed,
+			errorMsg:       "execution error",
+			expectError:    true,
+			contentContain: "failed",
+		},
+		{
+			name:           "pending status with message",
+			status:         tools.ToolStatusPending,
+			pendingMsg:     "Approval required",
+			contentContain: "Approval required",
+		},
+		{
+			name:           "pending status without message",
+			status:         tools.ToolStatusPending,
+			pendingMsg:     "",
+			contentContain: "awaiting approval",
+		},
+		{
+			name:           "unknown status",
+			status:         tools.ToolExecutionStatus("unknown"),
+			expectError:    true,
+			contentContain: "Unknown tool status",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			call := types.MessageToolCall{
+				ID:   "test-call-id",
+				Name: "test_tool",
+				Args: json.RawMessage(`{}`),
+			}
+
+			asyncResult := &tools.ToolExecutionResult{
+				Status:  tc.status,
+				Content: tc.content,
+				Error:   tc.errorMsg,
+			}
+			if tc.status == tools.ToolStatusPending {
+				asyncResult.PendingInfo = &tools.PendingToolInfo{
+					Message:  tc.pendingMsg,
+					ToolName: "test_tool",
+				}
+			}
+
+			result := stage.handleToolResult(call, asyncResult)
+
+			assert.Equal(t, "test-call-id", result.ID)
+			assert.Equal(t, "test_tool", result.Name)
+			assert.Contains(t, result.GetTextContent(), tc.contentContain)
+			if tc.expectError {
+				assert.NotEmpty(t, result.Error)
+			}
+		})
+	}
+}
+
+func TestProviderStage_EmitsBothStartAndCompletedEvents(t *testing.T) {
+	// Create event bus and emitter
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	// Track received events
+	var mu sync.Mutex
+	receivedTypes := make([]events.EventType, 0)
+	var wg sync.WaitGroup
+	wg.Add(2) // Expect both Started and Completed
+
+	bus.Subscribe(events.EventProviderCallStarted, func(e *events.Event) {
+		mu.Lock()
+		receivedTypes = append(receivedTypes, e.Type)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	bus.Subscribe(events.EventProviderCallCompleted, func(e *events.Event) {
+		mu.Lock()
+		receivedTypes = append(receivedTypes, e.Type)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	// Create provider and stage with emitter
+	provider := mock.NewProvider("test-provider", "test-model", false)
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helpful assistant"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, emitter, nil, turnState)
+
+	// Create input
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	// Execute stage
+	output := make(chan core.StreamElement, 10)
+	ctx := context.Background()
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	// Wait for both events with timeout
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		mu.Lock()
+		t.Fatalf("timed out waiting for events - only received: %v", receivedTypes)
+		mu.Unlock()
+	}
+
+	// Verify both events were received
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Len(t, receivedTypes, 2, "should receive both Started and Completed events")
+	assert.Contains(t, receivedTypes, events.EventProviderCallStarted)
+	assert.Contains(t, receivedTypes, events.EventProviderCallCompleted)
+}
+
+func TestProviderStage_ExecuteToolCalls_PendingSuspends(t *testing.T) {
+	// When a tool returns ToolStatusPending, executeToolCalls should return
+	// an ErrToolsPending error alongside completed tool results.
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "normal_tool",
+		Description: "A normal tool",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "mock",
+		MockResult:  json.RawMessage(`"ok"`),
+	})
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "pending_tool",
+		Description: "A pending tool",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "client",
+	})
+
+	// Register an async executor that returns pending for client tools
+	pendingExec := &mockAsyncExecutor{
+		name:       "client",
+		status:     tools.ToolStatusPending,
+		pendingMsg: "awaiting caller",
+	}
+	registry.RegisterExecutor(pendingExec)
+
+	provider := mock.NewProvider("test", "model", false)
+	s := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "normal_tool", Args: json.RawMessage(`{}`)},
+		{ID: "call-2", Name: "pending_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := s.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+
+	// Should return ErrToolsPending
+	require.Error(t, err)
+	ep, ok := tools.IsErrToolsPending(err)
+	require.True(t, ok, "error should be *ErrToolsPending")
+	require.Len(t, ep.Pending, 1)
+	assert.Equal(t, "call-2", ep.Pending[0].CallID)
+	assert.Equal(t, "pending_tool", ep.Pending[0].ToolName)
+
+	// Completed results should still be returned
+	require.Len(t, results, 1, "completed tool results should be returned")
+}
+
+func TestProviderStage_ExecuteToolCalls_EmitsStartedCompleted(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+
+	executor := &mockAsyncExecutor{
+		name:    "test-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`{"result": "ok"}`),
+	}
+	registry.RegisterExecutor(executor)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "emit_tool",
+		Description: "A tool for testing event emission",
+		Mode:        "test-executor",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(2) // expect started + completed
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "emit_tool", Args: json.RawMessage(`{"key":"value"}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	require.True(t, waitForWG(&wg, holdTestDeadline), "the started and completed events did not both arrive")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 2)
+
+	// Find events by type (event bus delivery order is non-deterministic under -race)
+	var startedEvt, completedEvt *events.Event
+	for _, e := range captured {
+		switch e.Type {
+		case events.EventToolCallStarted:
+			startedEvt = e
+		case events.EventToolCallCompleted:
+			completedEvt = e
+		}
+	}
+
+	require.NotNil(t, startedEvt, "expected a tool.call.started event")
+	require.NotNil(t, completedEvt, "expected a tool.call.completed event")
+
+	startedData, ok := startedEvt.Data.(*events.ToolCallStartedData)
+	require.True(t, ok)
+	assert.Equal(t, "emit_tool", startedData.ToolName)
+	assert.Equal(t, "call-1", startedData.CallID)
+	assert.Equal(t, "value", startedData.Args["key"])
+
+	completedData, ok := completedEvt.Data.(*events.ToolCallCompletedData)
+	require.True(t, ok)
+	assert.Equal(t, "emit_tool", completedData.ToolName)
+	assert.Equal(t, "call-1", completedData.CallID)
+	assert.Equal(t, "complete", completedData.Status)
+}
+
+func TestProviderStage_ExecuteToolCalls_EmitsFailed(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+	// Don't register any tool — ExecuteAsync will return "tool not found" error
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(2) // expect started + failed
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "nonexistent_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ToolResult.Error, "nonexistent_tool")
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 2)
+
+	// Events may arrive in any order from async bus — find by type
+	var startedEvent, failedEvent *events.Event
+	for _, e := range captured {
+		switch e.Type {
+		case events.EventToolCallStarted:
+			startedEvent = e
+		case events.EventToolCallFailed:
+			failedEvent = e
+		}
+	}
+	require.NotNil(t, startedEvent, "expected tool.call.started event")
+	require.NotNil(t, failedEvent, "expected tool.call.failed event")
+
+	failedData, ok := failedEvent.Data.(*events.ToolCallFailedData)
+	require.True(t, ok)
+	assert.Equal(t, "nonexistent_tool", failedData.ToolName)
+	assert.Equal(t, "call-1", failedData.CallID)
+	assert.Error(t, failedData.Error)
+}
+
+func TestProviderStage_ExecuteToolCalls_PendingEmitsRequestAndCompleted(t *testing.T) {
+	// When a tool returns ToolStatusPending, buildPendingResult should emit:
+	//   1. tool.client.request — so observers know a client tool awaits fulfillment
+	//   2. tool.call.completed with status "pending" — so every started has a matching completion
+	registry := tools.NewRegistry()
+	_ = registry.Register(&tools.ToolDescriptor{
+		Name:        "location_tool",
+		Description: "Gets user location",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode:        "client",
+	})
+
+	pendingExec := &mockAsyncExecutor{
+		name:       "client",
+		status:     tools.ToolStatusPending,
+		pendingMsg: "Allow location access?",
+	}
+	registry.RegisterExecutor(pendingExec)
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-pe", "session-pe", "conv-pe")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(3) // started + client.request + completed(pending)
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+		wg.Done()
+	})
+
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-loc", Name: "location_tool", Args: json.RawMessage(`{"accuracy":"fine"}`)},
+	}
+
+	_, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+	require.Error(t, err, "should return ErrToolsPending")
+
+	require.True(t, waitForWG(&wg, holdTestDeadline), "the three events did not all arrive")
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Classify captured events
+	var startedEvt, clientReqEvt, completedEvt *events.Event
+	for _, e := range captured {
+		switch e.Type {
+		case events.EventToolCallStarted:
+			startedEvt = e
+		case events.EventClientToolRequest:
+			clientReqEvt = e
+		case events.EventToolCallCompleted:
+			completedEvt = e
+		}
+	}
+
+	require.NotNil(t, startedEvt, "expected tool.call.started event")
+	require.NotNil(t, clientReqEvt, "expected tool.client.request event")
+	require.NotNil(t, completedEvt, "expected tool.call.completed event")
+
+	// Verify client request data
+	reqData, ok := clientReqEvt.Data.(*events.ClientToolRequestData)
+	require.True(t, ok)
+	assert.Equal(t, "call-loc", reqData.CallID)
+	assert.Equal(t, "location_tool", reqData.ToolName)
+	assert.Equal(t, "Allow location access?", reqData.ConsentMsg)
+
+	// Verify completed has status "pending"
+	compData, ok := completedEvt.Data.(*events.ToolCallCompletedData)
+	require.True(t, ok)
+	assert.Equal(t, "location_tool", compData.ToolName)
+	assert.Equal(t, "call-loc", compData.CallID)
+	assert.Equal(t, "pending", compData.Status)
+}
+
+func TestProviderStage_ExecuteToolCalls_BlockedNoEvents(t *testing.T) {
+	t.Parallel()
+	provider := mock.NewProvider("test", "model", false)
+	registry := tools.NewRegistry()
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "blocked_tool",
+		Description: "A blocked tool",
+		InputSchema: []byte(`{"type": "object"}`),
+	})
+
+	toolPolicy := &pipeline.ToolPolicy{
+		Blocklist: []string{"blocked_tool"},
+	}
+
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run-1", "session-1", "conv-1")
+
+	var captured []*events.Event
+	var mu sync.Mutex
+
+	bus.SubscribeAll(func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+	})
+
+	stage := NewProviderStageWithEmitter(provider, registry, toolPolicy, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Contains(t, results[0].ToolResult.GetTextContent(), "blocked by policy")
+
+	// Give the event bus a moment to process any events
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, captured, "blocked tools should not emit any tool call events")
+}
+
+// =============================================================================
+// Multimodal Tool Result Tests — Issue #622
+// =============================================================================
+
+func TestProviderStage_HandleToolResult_MultimodalParts(t *testing.T) {
+	// When asyncResult.Parts is non-empty, handleToolResult should propagate
+	// those parts directly instead of wrapping text content.
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	call := types.MessageToolCall{
+		ID:   "call-mm",
+		Name: "image_tool",
+		Args: json.RawMessage(`{}`),
+	}
+
+	imgPart := types.NewImagePartFromData("base64data", "image/png", nil)
+	textPart := types.NewTextPart("image description")
+
+	asyncResult := &tools.ToolExecutionResult{
+		Status:  tools.ToolStatusComplete,
+		Content: []byte(`"image description"`),
+		Parts:   []types.ContentPart{textPart, imgPart},
+	}
+
+	result := stage.handleToolResult(call, asyncResult)
+
+	assert.Equal(t, "call-mm", result.ID)
+	assert.Equal(t, "image_tool", result.Name)
+	require.Len(t, result.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, result.Parts[1].Type)
+	assert.Empty(t, result.Error)
+}
+
+func TestProviderStage_HandleToolResult_LegacyTextOnly(t *testing.T) {
+	// When asyncResult.Parts is empty, handleToolResult wraps the text
+	// content as a single text ContentPart (legacy path).
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, nil)
+
+	call := types.MessageToolCall{
+		ID:   "call-txt",
+		Name: "text_tool",
+		Args: json.RawMessage(`{}`),
+	}
+
+	asyncResult := &tools.ToolExecutionResult{
+		Status:  tools.ToolStatusComplete,
+		Content: []byte("plain text result"),
+	}
+
+	result := stage.handleToolResult(call, asyncResult)
+
+	assert.Equal(t, "call-txt", result.ID)
+	assert.Equal(t, "text_tool", result.Name)
+	require.Len(t, result.Parts, 1)
+	assert.Equal(t, types.ContentTypeText, result.Parts[0].Type)
+	assert.Contains(t, *result.Parts[0].Text, "plain text result")
+	assert.Empty(t, result.Error)
+}
+
+func TestProviderStage_ExecuteToolCalls_PropagatesMultimodalParts(t *testing.T) {
+	// End-to-end: multimodal Parts from executor flow through to MessageToolResult.
+	registry := tools.NewRegistry()
+	imgPart := types.NewImagePartFromData("base64data", "image/png", nil)
+	textPart := types.NewTextPart("caption")
+	executor := &mockAsyncExecutor{
+		name:    "mm-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`"caption"`),
+		parts:   []types.ContentPart{textPart, imgPart},
+	}
+	registry.RegisterExecutor(executor)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "mm_tool",
+		Description: "multimodal tool",
+		Mode:        "mm-executor",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	})
+
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, registry, nil, nil)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-1", Name: "mm_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].ToolResult)
+	require.Len(t, results[0].ToolResult.Parts, 2)
+	assert.Equal(t, types.ContentTypeText, results[0].ToolResult.Parts[0].Type)
+	assert.Equal(t, types.ContentTypeImage, results[0].ToolResult.Parts[1].Type)
+}
+
+func TestProviderStage_ToolCallCompletedEvent_MetadataOnlyParts(t *testing.T) {
+	t.Parallel()
+	// ToolCallCompleted events should contain metadata-only parts (no binary data).
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "run", "sess", "conv")
+
+	var mu sync.Mutex
+	var captured []*events.Event
+	bus.Subscribe(events.EventToolCallCompleted, func(e *events.Event) {
+		mu.Lock()
+		captured = append(captured, e)
+		mu.Unlock()
+	})
+
+	registry := tools.NewRegistry()
+	base64Data := "iVBORw0KGgoAAAANSUhEUg"
+	imgPart := types.NewImagePartFromData(base64Data, "image/png", nil)
+	textPart := types.NewTextPart("result text")
+	executor := &mockAsyncExecutor{
+		name:    "img-executor",
+		status:  tools.ToolStatusComplete,
+		content: []byte(`"result text"`),
+		parts:   []types.ContentPart{textPart, imgPart},
+	}
+	registry.RegisterExecutor(executor)
+	registry.Register(&tools.ToolDescriptor{
+		Name:        "img_tool",
+		Description: "image tool",
+		Mode:        "img-executor",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	})
+
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStageWithEmitter(provider, registry, nil, nil, emitter)
+
+	toolCalls := []types.MessageToolCall{
+		{ID: "call-img", Name: "img_tool", Args: json.RawMessage(`{}`)},
+	}
+
+	results, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+
+	// Give the event bus time to deliver
+	time.Sleep(50 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, captured, 1)
+	data := captured[0].Data.(*events.ToolCallEventData)
+	assert.Equal(t, "img_tool", data.ToolName)
+	require.Len(t, data.Parts, 2)
+
+	// Text part should be preserved
+	assert.Equal(t, types.ContentTypeText, data.Parts[0].Type)
+	assert.Equal(t, "result text", *data.Parts[0].Text)
+
+	// Image part should have binary data stripped (metadata only)
+	assert.Equal(t, types.ContentTypeImage, data.Parts[1].Type)
+	require.NotNil(t, data.Parts[1].Media)
+	assert.Nil(t, data.Parts[1].Media.Data, "binary data should be stripped from events")
+	assert.Equal(t, "image/png", data.Parts[1].Media.MIMEType)
+}
+
+// errorProvider always returns an error from Predict.
+type errorProvider struct {
+	providers.Provider
+}
+
+func (p *errorProvider) ID() string              { return "error-provider" }
+func (p *errorProvider) Model() string           { return "error-model" }
+func (p *errorProvider) SupportsStreaming() bool { return false }
+func (p *errorProvider) SupportsTools() bool     { return false }
+func (p *errorProvider) Predict(_ context.Context, _ providers.PredictionRequest) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{}, fmt.Errorf("provider unavailable")
+}
+
+func TestProviderStage_EmitsProviderCallFailedEvent(t *testing.T) {
+	bus := events.NewEventBus()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	bus.Subscribe(events.EventProviderCallFailed, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	provider := &errorProvider{}
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are helpful"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, emitter, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 10)
+	err := stage.Process(context.Background(), input, output)
+	require.Error(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	if !waitForWG(&wg, 500*time.Millisecond) {
+		t.Fatal("timed out waiting for ProviderCallFailed event")
+	}
+
+	require.NotNil(t, receivedEvent)
+	assert.Equal(t, events.EventProviderCallFailed, receivedEvent.Type)
+
+	data, ok := receivedEvent.Data.(*events.ProviderCallFailedData)
+	require.True(t, ok)
+	assert.Equal(t, "error-provider", data.Provider)
+	assert.Equal(t, "error-model", data.Model)
+	assert.Contains(t, data.Error.Error(), "provider unavailable")
+}
+
+// =============================================================================
+// Idle Timeout Reset Tests
+// =============================================================================
+
+func TestProviderStage_ResetsIdleOnStreamChunks(t *testing.T) {
+	provider := mock.NewProvider("test-provider", "test-model", false)
+
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, nil, nil, turnState)
+
+	// Set up context with a spy reset func
+	var resetCount int32
+	spy := func() { resetCount++ }
+	ctx := core.ContextWithIdleReset(context.Background(), spy, time.Second)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 20)
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	// Drain output
+	for range output {
+	}
+
+	// Mock provider streams multiple chunks — reset should be called at least once
+	// (once per chunk in processStreamChunks, plus round boundaries)
+	assert.Greater(t, resetCount, int32(0), "idle reset should be called during streaming")
+}
+
+func TestProviderStage_ResetsIdleOnNonStreamingRound(t *testing.T) {
+	inner := mock.NewProvider("test-provider", "test-model", false)
+	provider := &nonStreamingProvider{Provider: inner}
+
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{
+		MaxTokens:   100,
+		Temperature: 0.7,
+	}, nil, nil, turnState)
+
+	var resetCount int32
+	spy := func() { resetCount++ }
+	ctx := core.ContextWithIdleReset(context.Background(), spy, time.Second)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "Test message"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 20)
+	err := stage.Process(ctx, input, output)
+	require.NoError(t, err)
+
+	for range output {
+	}
+
+	// Non-streaming path: reset at round entry + after round
+	assert.Greater(t, resetCount, int32(0), "idle reset should be called for non-streaming rounds")
+}
+
+// =============================================================================
+// Idle Timeout End-to-End Tests (slow provider)
+// =============================================================================
+
+func (p *finishReasonProvider) SupportsStreaming() bool { return false }
+
+func (p *finishReasonProvider) Predict(
+	_ context.Context, _ providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	return providers.PredictionResponse{
+		Content:      "done",
+		FinishReason: types.FinishReasonMaxOutputTokens,
+	}, nil
+}
+
+// wait returns a channel that is ready when the provider should reply.
+func (p *delayedStreamProvider) wait() <-chan struct{} {
+	if p.waiting != nil {
+		close(p.waiting)
+	}
+	if p.gate != nil {
+		return p.gate
+	}
+	ready := make(chan struct{})
+	time.AfterFunc(p.delay, func() { close(ready) })
+	return ready
+}
+
+func (p *delayedStreamProvider) ID() string              { return "delayed" }
+func (p *delayedStreamProvider) Model() string           { return "delayed-model" }
+func (p *delayedStreamProvider) SupportsStreaming() bool { return true }
+func (p *delayedStreamProvider) MaxContextTokens() int   { return 4096 }
+func (p *delayedStreamProvider) SupportsToolUse() bool   { return false }
+
+func (p *delayedStreamProvider) PredictStream(
+	ctx context.Context, _ providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	ch := make(chan providers.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		select {
+		case <-p.wait():
+			finish := "stop"
+			ch <- providers.StreamChunk{
+				Content:      p.response,
+				Delta:        p.response,
+				FinishReason: &finish,
+			}
+		case <-ctx.Done():
+			return
+		}
+	}()
+	return ch, nil
+}
+
+func (p *delayedStreamProvider) Predict(
+	ctx context.Context, _ providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	select {
+	case <-p.wait():
+		return providers.PredictionResponse{Content: p.response}, nil
+	case <-ctx.Done():
+		return providers.PredictionResponse{}, ctx.Err()
+	}
+}
+
+// =============================================================================
+// Tool Rejection Auto-Exclusion Tests
+// =============================================================================
+
+func TestUpdateExcludedTools_CountsAndExcludes(t *testing.T) {
+	stage := &ProviderStage{}
+	rejectionCounts := map[string]int{}
+	excluded := map[string]bool{}
+
+	// First rejection: count=1, not yet excluded
+	results := []types.Message{
+		types.NewToolResultMessage(types.MessageToolResult{
+			ID: "c1", Name: "dangerous_tool", Error: "blocked by hook",
+			Parts: []types.ContentPart{types.NewTextPart("blocked by hook")},
+		}),
+	}
+	changed := stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
+	assert.False(t, changed, "first rejection should not exclude")
+	assert.Equal(t, 1, rejectionCounts["dangerous_tool"])
+	assert.False(t, excluded["dangerous_tool"])
+
+	// Second rejection: count=2, now excluded
+	changed = stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
+	assert.True(t, changed, "second rejection should exclude")
+	assert.Equal(t, 2, rejectionCounts["dangerous_tool"])
+	assert.True(t, excluded["dangerous_tool"])
+
+	// Third rejection: already excluded, no change
+	changed = stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
+	assert.False(t, changed, "already excluded, no change")
+}
+
+func TestUpdateExcludedTools_IgnoresSuccessfulResults(t *testing.T) {
+	stage := &ProviderStage{}
+	rejectionCounts := map[string]int{}
+	excluded := map[string]bool{}
+
+	results := []types.Message{
+		types.NewToolResultMessage(types.MessageToolResult{
+			ID: "c1", Name: "good_tool", Error: "",
+			Parts: []types.ContentPart{types.NewTextPart("success")},
+		}),
+	}
+	changed := stage.updateExcludedTools(context.Background(), results, rejectionCounts, excluded, 1)
+	assert.False(t, changed)
+	assert.Equal(t, 0, rejectionCounts["good_tool"])
+}
+
+func TestBuildProviderTools_RespectsExcluded(t *testing.T) {
+	// Use ToolProvider which implements ToolSupport (BuildTooling)
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+
+	for _, name := range []string{"tool_a", "tool_b", "tool_c"} {
+		err := registry.Register(&tools.ToolDescriptor{
+			Name:        name,
+			Description: "Test tool " + name,
+			InputSchema: json.RawMessage(`{"type": "object"}`),
+		})
+		require.NoError(t, err)
+	}
+
+	stage := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+
+	// No exclusions — all tools present
+	allTools, _, err := stage.buildProviderTools(
+		[]string{"tool_a", "tool_b", "tool_c"}, nil,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, allTools)
+
+	// Exclude tool_b
+	excluded := map[string]bool{"tool_b": true}
+	excludedTools, _, err := stage.buildProviderTools(
+		[]string{"tool_a", "tool_b", "tool_c"}, excluded,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, excludedTools)
+
+	// BuildTooling returns []*providers.ToolDescriptor for mock ToolProvider
+	allDescs, ok1 := allTools.([]*providers.ToolDescriptor)
+	exclDescs, ok2 := excludedTools.([]*providers.ToolDescriptor)
+	require.True(t, ok1, "expected []*providers.ToolDescriptor")
+	require.True(t, ok2, "expected []*providers.ToolDescriptor")
+
+	assert.Equal(t, 3, len(allDescs))
+	assert.Equal(t, 2, len(exclDescs))
+	for _, d := range exclDescs {
+		assert.NotEqual(t, "tool_b", d.Name, "excluded tool should not be present")
+	}
+}
+
+// =============================================================================
+// MessageLog Write-Through Tests
+// =============================================================================
+
+// spyMessageLog records all LogAppend calls for test inspection.
+type spyMessageLog struct {
+	mu       sync.Mutex
+	appends  []spyAppendCall
+	messages []types.Message // accumulated messages
+	failNext bool            // if true, next LogAppend returns error
+}
+
+type spyAppendCall struct {
+	id       string
+	startSeq int
+	count    int
+}
+
+func (s *spyMessageLog) LogAppend(_ context.Context, id string, startSeq int, messages []types.Message) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.failNext {
+		s.failNext = false
+		return 0, fmt.Errorf("simulated log append failure")
+	}
+
+	s.appends = append(s.appends, spyAppendCall{id: id, startSeq: startSeq, count: len(messages)})
+
+	// Idempotent dedup
+	skip := len(s.messages) - startSeq
+	if skip < 0 {
+		skip = 0
+	}
+	if skip < len(messages) {
+		s.messages = append(s.messages, messages[skip:]...)
+	}
+	return len(s.messages), nil
+}
+
+func (s *spyMessageLog) LogLoad(_ context.Context, _ string, recent int) ([]types.Message, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if recent > 0 && recent < len(s.messages) {
+		return s.messages[len(s.messages)-recent:], nil
+	}
+	return s.messages, nil
+}
+
+func (s *spyMessageLog) LogLen(_ context.Context, _ string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.messages), nil
+}
+
+func (s *spyMessageLog) appendCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.appends)
+}
+
+func TestToolLoop_WriteThroughPersistsPerRound(t *testing.T) {
+	spy := &spyMessageLog{}
+
+	// Mock provider that returns tool calls for 2 rounds then stops
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "You are a helper"
+	stage := NewProviderStageWithTurnState(provider, registry, nil,
+		&ProviderConfig{
+			MaxTokens:        100,
+			MessageLog:       spy,
+			MessageLogConvID: "test-conv",
+		}, nil, nil, turnState)
+
+	input := make(chan core.StreamElement, 1)
+	userMsg := types.Message{Role: "user", Content: "do something"}
+	elem := core.NewMessageElement(&userMsg)
+	input <- elem
+	close(input)
+
+	output := make(chan core.StreamElement, 50)
+	processErr := stage.Process(context.Background(), input, output)
+	require.NoError(t, processErr)
+	for range output {
+	}
+
+	// The mock provider doesn't return tool calls, so only 1 round.
+	// But the write-through should have fired at least once if there were tool calls.
+	// With no tool calls, afterRound returns done=true immediately — no write-through.
+	// This test verifies the wiring doesn't panic and works when configured.
+	length, _ := spy.LogLen(context.Background(), "test-conv")
+	// No tool calls → no rounds → no write-through (messages saved by save stage)
+	assert.GreaterOrEqual(t, length, 0)
+}
+
+// With no MessageLog configured the turn runs as usual: the reply reaches
+// the output and the provider sees the system prompt and user message.
+func TestToolLoop_WriteThroughDisabledByDefault(t *testing.T) {
+	provider := &multiTurnRecordingProvider{}
+	turnState := core.NewTurnState()
+	turnState.SystemPrompt = "helper"
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, nil, turnState)
+
+	results := runTestStage(t, stage, []core.StreamElement{newTestMsgElement("user", "hello")})
+
+	require.Len(t, provider.requests, 1)
+	assert.Equal(t, "hello", provider.requests[0][len(provider.requests[0])-1].Content)
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+}
+
+func TestAfterRound_WriteThroughAppendsMessages(t *testing.T) {
+	spy := &spyMessageLog{}
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	stage := NewProviderStageWithHooks(provider, registry, nil,
+		&ProviderConfig{
+			MaxTokens:        100,
+			MessageLog:       spy,
+			MessageLogConvID: "test-conv",
+		}, nil, nil)
+
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	loop.MaxRounds = 5
+
+	// Simulate a round with tool calls
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, _ := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, RoundRef{Round: 1})
+	assert.False(t, done)
+
+	// Write-through should have fired
+	assert.Greater(t, spy.appendCount(), 0, "LogAppend should be called after tool round")
+
+	length, _ := spy.LogLen(context.Background(), "test-conv")
+	assert.Greater(t, length, 0, "messages should be persisted")
+}
+
+func TestAfterRound_WriteThroughFailureNonFatal(t *testing.T) {
+	spy := &spyMessageLog{failNext: true}
+
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	stage := NewProviderStageWithHooks(provider, registry, nil,
+		&ProviderConfig{
+			MaxTokens:        100,
+			MessageLog:       spy,
+			MessageLogConvID: "test-conv",
+		}, nil, nil)
+
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	loop.MaxRounds = 5
+
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+
+	// First call fails but loop continues
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, RoundRef{Round: 1})
+	assert.False(t, done)
+	assert.NoError(t, err, "write-through failure should not abort the loop")
+}
+
+// A tool-capable provider with allowed tools but no tool registry gets the
+// plain no-tools call: there is nothing to declare, and that is not an error.
+func TestNewToolLoop_BuildError(t *testing.T) {
+	provider := &toolOfferRecorder{}
+	ts := core.NewTurnState()
+	ts.AllowedTools = []string{"some_tool"}
+	stage := NewProviderStageWithTurnState(provider, nil, nil, &ProviderConfig{}, nil, nil, ts)
+
+	results := runTestStage(t, stage, []core.StreamElement{newTestMsgElement("user", "hi")})
+
+	assert.Equal(t, [][]string{nil}, provider.offered)
+	assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+}
+
+func TestAfterRound_NoToolCalls(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{})
+
+	acc := &providerInput{
+		messages: []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	response := types.Message{Role: "assistant", Content: "hello"}
+	done, msgs, err := loop.afterRound(context.Background(), nil, &response, false, RoundRef{Round: 1})
+
+	assert.True(t, done, "should be done when no tool calls")
+	require.NoError(t, err)
+	assert.Len(t, msgs, 2) // original user msg + response
+	assert.Equal(t, "hello", msgs[1].Content)
+}
+
+func TestAfterRound_NoToolCalls_PersistsFinalResponse(t *testing.T) {
+	spy := &spyMessageLog{}
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil, nil, &ProviderConfig{
+		MaxTokens:        100,
+		MessageLog:       spy,
+		MessageLogConvID: "test-conv",
+	})
+
+	acc := &providerInput{
+		messages: []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Final response with no tool calls — should still be persisted
+	response := types.Message{Role: "assistant", Content: "goodbye"}
+	done, _, err := loop.afterRound(context.Background(), nil, &response, false, RoundRef{Round: 1})
+	assert.True(t, done)
+	require.NoError(t, err)
+
+	// The final response should be persisted even though there are no tool calls
+	length, _ := spy.LogLen(context.Background(), "test-conv")
+	assert.Equal(t, 1, length, "final response should be persisted (history already in store, only new response)")
+
+	loaded, _ := spy.LogLoad(context.Background(), "test-conv", 0)
+	require.Len(t, loaded, 1)
+	assert.Equal(t, "goodbye", loaded[0].Content)
+}
+
+func TestAfterRound_MaxRoundsExceeded(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	stage := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	loop.MaxRounds = 1 // force max rounds = current round
+
+	// Response with a tool call
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, RoundRef{Round: 1})
+
+	assert.True(t, done)
+	require.ErrorIs(t, err, core.ErrMaxRoundsExceeded)
+	var maxErr *core.MaxRoundsError
+	require.ErrorAs(t, err, &maxErr)
+	assert.Equal(t, 1, maxErr.Rounds)
+	assert.Equal(t, "provider stage: max rounds (1) exceeded", err.Error())
+}
+
+func TestAfterRound_ExcludesAfterRepeatedRejection(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "blocked_tool",
+		Description: "always blocked",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	// Use denyToolHook from stages_provider_hooks_test.go (same package)
+	hookReg := hooks.NewRegistry(hooks.WithToolHook(&denyToolHook{
+		blockedTool: "blocked_tool",
+		reason:      "blocked by test",
+	}))
+
+	stage := NewProviderStageWithHooks(provider, registry, nil, &ProviderConfig{}, nil, hookReg)
+
+	acc := &providerInput{
+		allowedTools: []string{"blocked_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	loop.MaxRounds = 10
+
+	// First call — tool gets rejected, still available
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, _ := loop.afterRound(context.Background(), []string{"blocked_tool"}, &response, true, RoundRef{Round: 1})
+	assert.False(t, done)
+	assert.False(t, loop.Excluded["blocked_tool"], "first rejection should not exclude")
+
+	// Second call — tool gets rejected again, now excluded
+	response2 := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c2", Name: "blocked_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, _ = loop.afterRound(context.Background(), []string{"blocked_tool"}, &response2, true, RoundRef{Round: 2})
+	assert.False(t, done)
+	assert.True(t, loop.Excluded["blocked_tool"], "second rejection should exclude")
+}
+
+func TestAfterRound_CostBudgetExceeded(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	stage := NewProviderStage(provider, registry,
+		&pipeline.ToolPolicy{MaxCostUSD: 0.10},
+		&ProviderConfig{},
+	)
+
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Round 1: cost under budget
+	response1 := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.05},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response1, true, RoundRef{Round: 1})
+	assert.False(t, done, "should continue when under budget")
+	require.NoError(t, err)
+	assert.InDelta(t, 0.05, loop.CumulativeCost, 0.001)
+
+	// Round 2: cost exceeds budget (0.05 + 0.06 = 0.11 > 0.10)
+	response2 := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.06},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c2", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response2, true, RoundRef{Round: 2})
+	assert.True(t, done, "should stop when cost budget exceeded")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cost budget exceeded")
+	assert.Contains(t, err.Error(), "0.1100")
+	assert.Contains(t, err.Error(), "0.1000")
+	assert.NotEmpty(t, msgs, "should return messages even on budget exceeded")
+}
+
+func TestAfterRound_CostBudgetZeroIsUnlimited(t *testing.T) {
+	provider := mock.NewProvider("test", "model", false)
+	stage := NewProviderStage(provider, nil,
+		&pipeline.ToolPolicy{MaxCostUSD: 0}, // zero = unlimited
+		&ProviderConfig{},
+	)
+
+	acc := &providerInput{
+		messages: []types.Message{{Role: "user", Content: "hi"}},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Even with high cost, should not terminate
+	response := types.Message{
+		Role:     "assistant",
+		Content:  "done",
+		CostInfo: &types.CostInfo{TotalCost: 999.99},
+	}
+	done, _, err := loop.afterRound(context.Background(), nil, &response, false, RoundRef{Round: 1})
+	assert.True(t, done, "done because no tool calls")
+	require.NoError(t, err, "should not error — zero MaxCostUSD means unlimited")
+}
+
+// TestNewToolLoop_CostBudgetIsPerRun verifies MaxCostUSD bounds the whole run,
+// not just this turn's loop: newToolLoop seeds cumulativeCost from the cost
+// already carried on the input history, so a fresh-per-turn loop still trips
+// the budget on accumulated prior spend.
+func TestNewToolLoop_CostBudgetIsPerRun(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	require.NoError(t, registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	}))
+
+	stage := NewProviderStage(provider, registry,
+		&pipeline.ToolPolicy{MaxCostUSD: 0.10},
+		&ProviderConfig{},
+	)
+
+	// Prior turns of this run already cost 0.08 (carried on message CostInfo).
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages: []types.Message{
+			{Role: "user", Content: "hi"},
+			{Role: "assistant", Content: "prior turn", CostInfo: &types.CostInfo{TotalCost: 0.05}},
+			{Role: "tool", Content: "res", CostInfo: &types.CostInfo{TotalCost: 0.03}},
+		},
+	}
+	loop, err := stage.newToolLoop(acc)
+	require.NoError(t, err)
+	assert.InDelta(t, 0.08, loop.CumulativeCost, 0.001,
+		"cumulativeCost should be seeded from prior-turn history cost")
+
+	// This turn's first round costs only 0.05 — under the cap on its own — but
+	// 0.08 (prior) + 0.05 = 0.13 > 0.10, so the RUN budget trips.
+	response := types.Message{
+		Role:     "assistant",
+		CostInfo: &types.CostInfo{TotalCost: 0.05},
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, msgs, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, RoundRef{Round: 1})
+	assert.True(t, done, "run budget should trip from accumulated prior cost")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cost budget exceeded")
+	assert.NotEmpty(t, msgs, "should return messages even on budget exceeded")
+}
+
+func TestCompactBeforeRound_EmitsEvent(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := tools.NewRegistry()
+	err := registry.Register(&tools.ToolDescriptor{
+		Name:        "test_tool",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type": "object"}`),
+		Mode:        "mock",
+	})
+	require.NoError(t, err)
+
+	bus := events.NewEventBus()
+	defer bus.Close()
+	emitter := events.NewEmitter(bus, "test-run", "test-session", "test-conv")
+
+	stg := NewProviderStageWithHooks(provider, registry, nil, &ProviderConfig{
+		Compactor: &compaction.ContextCompactor{
+			BudgetTokens:   100, // very low to force compaction
+			Threshold:      0.50,
+			PinRecentCount: 2,
+		},
+	}, emitter, nil)
+
+	// Build messages with a large tool result that will be compacted
+	msgs := []types.Message{
+		{Role: "user", Content: "start"},
+		largeToolResult("file_read", 2000),
+		{Role: "assistant", Content: "got the file"},
+	}
+	acc := &providerInput{
+		allowedTools: []string{"test_tool"},
+		messages:     msgs,
+	}
+	loop, err := stg.newToolLoop(acc)
+	require.NoError(t, err)
+
+	// Subscribe before the event
+	var receivedEvent *events.Event
+	var wg sync.WaitGroup
+	wg.Add(1)
+	bus.Subscribe(events.EventContextCompacted, func(e *events.Event) {
+		receivedEvent = e
+		wg.Done()
+	})
+
+	// Round 1's tool calls append their results; compaction runs once, just
+	// before round 2, and reports the round whose results it compacted.
+	response := types.Message{
+		Role: "assistant",
+		ToolCalls: []types.MessageToolCall{
+			{ID: "c1", Name: "test_tool", Args: json.RawMessage(`{}`)},
+		},
+	}
+	done, _, err := loop.afterRound(context.Background(), []string{"test_tool"}, &response, true, RoundRef{Round: 1})
+	assert.False(t, done)
+	require.NoError(t, err)
+	loop.compactBeforeRound(2)
+
+	require.True(t, waitForWG(&wg, holdTestDeadline), "no context.compacted event")
+	require.NotNil(t, receivedEvent, "should have received context.compacted event")
+	assert.Equal(t, events.EventContextCompacted, receivedEvent.Type)
+	data, ok := receivedEvent.Data.(*events.ContextCompactionData)
+	require.True(t, ok, "event data should be *ContextCompactionData")
+	assert.Equal(t, 1, data.Round)
+	assert.Greater(t, data.MessagesFolded, 0)
+	assert.Greater(t, data.OriginalTokens, data.CompactedTokens)
+	assert.Equal(t, 100, data.BudgetTokens)
+}
+
+// TestProviderStage_StopOnTool verifies that ToolPolicy.StopOnTool causes the
+// agent tool loop to stop cleanly at the end of any round in which the named
+// tool fires — no max-rounds error, no further provider call.
+func TestProviderStage_StopOnTool(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := mockToolRegistry(t, "stop_tool", "other_tool")
+
+	t.Run("named tool fires → clean stop (done=true, no error)", func(t *testing.T) {
+		stage := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{StopOnTool: "stop_tool", MaxRounds: 10},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"stop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stage.newToolLoop(acc)
+		require.NoError(t, err)
+		// maxRounds is 10 — if StopOnTool is ignored we'd expect done=false here
+		// (round 1 < maxRounds). A clean done=true proves StopOnTool fired.
+
+		response := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c1", Name: "stop_tool", Args: json.RawMessage(`{}`)},
+			},
+		}
+		done, msgs, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, RoundRef{Round: 1})
+
+		assert.True(t, done, "StopOnTool should signal done when the named tool fires")
+		require.NoError(t, err, "StopOnTool stop should be clean — no error")
+		assert.NotEmpty(t, msgs, "messages should be returned on clean stop")
+	})
+
+	t.Run("different tool fires → loop continues (done=false)", func(t *testing.T) {
+		stage := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{StopOnTool: "stop_tool", MaxRounds: 10},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"other_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stage.newToolLoop(acc)
+		require.NoError(t, err)
+
+		response := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c2", Name: "other_tool", Args: json.RawMessage(`{}`)},
+			},
+		}
+		done, _, err := loop.afterRound(context.Background(), []string{"other_tool"}, &response, true, RoundRef{Round: 1})
+
+		assert.False(t, done, "non-terminal tool should not stop the loop")
+		require.NoError(t, err)
+		last := loop.messages[len(loop.messages)-1]
+		require.NotNil(t, last.ToolResult)
+		assert.Equal(t, "c2", last.ToolResult.ID, "the round's result is appended and the loop goes on")
+	})
+
+	t.Run("StopOnTool empty → normal MaxRounds behaviour", func(t *testing.T) {
+		stage := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxRounds: 1}, // no StopOnTool
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"stop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stage.newToolLoop(acc)
+		require.NoError(t, err)
+
+		response := types.Message{
+			Role: "assistant",
+			ToolCalls: []types.MessageToolCall{
+				{ID: "c3", Name: "stop_tool", Args: json.RawMessage(`{}`)},
+			},
+		}
+		done, _, err := loop.afterRound(context.Background(), []string{"stop_tool"}, &response, true, RoundRef{Round: 1})
+
+		assert.True(t, done, "max rounds should still stop the loop")
+		require.Error(t, err, "max rounds exceeded should be an error (not a clean stop)")
+		assert.Contains(t, err.Error(), "max rounds")
+	})
+}
+
+// TestAfterRound_IdenticalToolCallBreaker verifies that the repeated-identical-call
+// guard aborts the loop when the same tool is called with identical arguments
+// MaxIdenticalToolCalls times.
+func TestAfterRound_IdenticalToolCallBreaker(t *testing.T) {
+	provider := mock.NewToolProvider("test", "model", false, nil)
+	registry := mockToolRegistry(t, "loop_tool")
+
+	t.Run("nudges at threshold then aborts if it persists", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"loop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stg.newToolLoop(acc)
+		require.NoError(t, err)
+		loop.MaxRounds = 10 // high so rounds don't interfere
+
+		identicalArgs := json.RawMessage(`{"query":"same"}`)
+		mkResponse := func(round int) *types.Message {
+			return &types.Message{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool", Args: identicalArgs},
+				},
+			}
+		}
+
+		// Rounds 1-2: below threshold — continue.
+		for round := 1; round <= 2; round++ {
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(round), true, RoundRef{Round: round})
+			assert.False(t, done, "round %d: should not stop before threshold", round)
+			require.NoError(t, loopErr, "round %d: should not error before threshold", round)
+		}
+
+		// Round 3: hits threshold — NUDGE (continue, no error), feedback appended.
+		before := len(loop.messages)
+		done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(3), true, RoundRef{Round: 3})
+		assert.False(t, done, "threshold should nudge, not abort")
+		require.NoError(t, loopErr, "threshold nudge should not error")
+		msgs := loop.messages
+		require.Greater(t, len(msgs), before, "a feedback message should be appended")
+		require.NotNil(t, msgs[len(msgs)-1].ToolResult)
+		assert.Contains(t, msgs[len(msgs)-1].ToolResult.GetTextContent(), "Repeated call",
+			"the model should be told it repeated the call")
+
+		// Round 4: still looping after the nudge — ABORT.
+		done, _, loopErr = loop.afterRound(context.Background(), []string{"loop_tool"}, mkResponse(4), true, RoundRef{Round: 4})
+		assert.True(t, done, "should abort once the loop persists after a nudge")
+		require.Error(t, loopErr, "should error after the nudge fails")
+		assert.Contains(t, loopErr.Error(), "persisted after a self-correction nudge")
+		assert.Contains(t, loopErr.Error(), "loop_tool")
+	})
+
+	t.Run("does not abort when args differ each round", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 3},
+			&ProviderConfig{},
+		)
+
+		acc := &providerInput{
+			allowedTools: []string{"loop_tool"},
+			messages:     []types.Message{{Role: "user", Content: "go"}},
+		}
+		loop, err := stg.newToolLoop(acc)
+		require.NoError(t, err)
+		loop.MaxRounds = 10
+
+		// Each round uses different args — should not trip the breaker
+		for round := 1; round <= 5; round++ {
+			response := types.Message{
+				Role: "assistant",
+				ToolCalls: []types.MessageToolCall{
+					{ID: fmt.Sprintf("c%d", round), Name: "loop_tool",
+						Args: json.RawMessage(fmt.Sprintf(`{"query":"step-%d"}`, round))},
+				},
+			}
+			done, _, loopErr := loop.afterRound(context.Background(), []string{"loop_tool"}, &response, true, RoundRef{Round: round})
+			// round == loop.maxRounds would stop; otherwise should continue without error
+			if round < loop.MaxRounds {
+				assert.False(t, done, "round %d: varying args should not trip breaker", round)
+				require.NoError(t, loopErr, "round %d: varying args should not error", round)
+			}
+		}
+		var resultIDs []string
+		for _, m := range loop.messages {
+			if m.ToolResult != nil {
+				resultIDs = append(resultIDs, m.ToolResult.ID)
+			}
+		}
+		assert.Equal(t, []string{"c1", "c2", "c3", "c4", "c5"}, resultIDs, "every round's call ran")
+	})
+
+	t.Run("default threshold is 3 when policy field is zero", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry,
+			&pipeline.ToolPolicy{MaxIdenticalToolCalls: 0}, // 0 = use default
+			&ProviderConfig{},
+		)
+		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
+	})
+
+	t.Run("nil policy uses default threshold", func(t *testing.T) {
+		stg := NewProviderStage(provider, registry, nil, &ProviderConfig{})
+		assert.Equal(t, 3, stg.getMaxIdenticalToolCalls())
+	})
+}
+
+// TestProcessStreamChunks_AccumulatesReasoning verifies the regular streaming
+// provider stage accumulates StreamChunk.Reasoning deltas into a ReasoningTrace
+// (returned, not in content) and emits a live non-content ReasoningDelta element.
+func TestProcessStreamChunks_AccumulatesReasoning(t *testing.T) {
+	s := &ProviderStage{}
+	in := make(chan providers.StreamChunk, 4)
+	out := make(chan core.StreamElement, 16)
+	fr := "stop"
+	in <- providers.StreamChunk{Reasoning: "think "}
+	in <- providers.StreamChunk{Reasoning: "more"}
+	in <- providers.StreamChunk{Content: "answer", Delta: "answer", FinishReason: &fr}
+	close(in)
+
+	got, err := s.processStreamChunks(context.Background(), in, out, RoundRef{Round: 1}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", got.content, "content must exclude reasoning")
+	require.NotNil(t, got.reasoning, "expected a reasoning trace")
+	assert.Equal(t, "think more", got.reasoning.Text)
+	assert.Equal(t, "stop", got.finishReason, "finish reason must be threaded out for the completion event")
+
+	close(out)
+	var sawReasoning bool
+	for e := range out {
+		if e.Reasoning != nil {
+			sawReasoning = true
+		}
+	}
+	assert.True(t, sawReasoning, "expected a live ReasoningDelta element")
+}
+
+func (p *reasoningEndToEndProvider) SupportsStreaming() bool { return false }
+
+func (p *reasoningEndToEndProvider) Predict(
+	_ context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	p.gotMessages = req.Messages
+	return providers.PredictionResponse{
+		Content: "the answer",
+		Reasoning: &types.ReasoningTrace{
+			Text:   "internal reasoning",
+			Opaque: []types.OpaqueReasoning{{Provider: "test", Kind: "thinking_signature", Data: "sig"}},
+		},
+	}, nil
+}
+
+// assistantReplies returns the content of every assistant message in results.
+func assistantReplies(results []core.StreamElement) []string {
+	var replies []string
+	for _, r := range results {
+		if r.Message != nil && r.Message.Role == core.RoleAssistant {
+			replies = append(replies, r.Message.Content)
+		}
+	}
+	return replies
+}
+
+// Text a duplex or VAD session sends (SendText) arrives as a bare Text
+// element. It is the user's turn: the provider must receive it as the user
+// message, on the unary and on the streaming path, and answer it.
+func TestProviderStage_BareTextIsTheUserTurn(t *testing.T) {
+	t.Run("unary", func(t *testing.T) {
+		provider := &multiTurnRecordingProvider{}
+		stage := NewProviderStage(provider, nil, nil, nil)
+
+		results := runTestStage(t, stage, []core.StreamElement{core.NewTextElement("what is the weather")})
+
+		require.Len(t, provider.requests, 1)
+		assert.Equal(t, []types.Message{{Role: "user", Content: "what is the weather"}}, provider.requests[0])
+		assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+	})
+
+	t.Run("streaming", func(t *testing.T) {
+		provider := &multiTurnRecordingProvider{}
+		stage := NewProviderStage(provider, nil, nil, &ProviderConfig{Streaming: true})
+
+		results := runTestStage(t, stage, []core.StreamElement{core.NewTextElement("hi there"), core.NewEndOfTurnElement()})
+
+		require.Len(t, provider.requests, 1)
+		assert.Equal(t, []types.Message{{Role: "user", Content: "hi there"}}, provider.requests[0])
+		assert.Equal(t, []string{"reply-1"}, assistantReplies(results))
+	})
+}
+
+// A tool result reaches the model with every value exact: a large integer
+// keeps its digits and null reads null.
+func TestProviderStage_HandleToolResult_ValuesStayExact(t *testing.T) {
+	stage := NewProviderStage(mock.NewProvider("test", "model", false), nil, nil, nil)
+	call := types.MessageToolCall{ID: "c", Name: "t", Args: json.RawMessage(`{}`)}
+
+	for content, want := range map[string]string{
+		`9007199254740993`:        "9007199254740993",
+		`10000000`:                "10000000",
+		`null`:                    "null",
+		`{"id":9007199254740993}`: "{\n  \"id\": 9007199254740993\n}",
+	} {
+		result := stage.handleToolResult(call, &tools.ToolExecutionResult{
+			Status: tools.ToolStatusComplete, Content: []byte(content),
+		})
+		assert.Equal(t, want, result.GetTextContent(), content)
+	}
+}

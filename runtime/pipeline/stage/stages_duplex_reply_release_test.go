@@ -196,12 +196,12 @@ func (r *released) settle() {
 // and not parked at a test's gate: those whose verdicts settle waits for. A
 // canceled judging has none.
 func (r *released) answerable() int {
-	if r.s.replyHoldVerdicts() == nil || r.s.replyHold.judge.ctx.Err() != nil {
+	if r.s.replyHoldVerdicts() == nil || r.s.replyHold.judge.Ctx.Err() != nil {
 		return 0
 	}
 	running := 0
-	for _, g := range r.s.replyHold.judge.holders {
-		if g.busy {
+	for _, g := range r.s.replyHold.judge.Holders {
+		if g.Busy {
 			running++
 		}
 	}
