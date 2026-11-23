@@ -1,0 +1,281 @@
+package provider
+
+import (
+	"context"
+	"slices"
+	"strings"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+)
+
+// tools.offer.rebuilt reports a provider call sent a tools array that differs
+// from the one the stage's previous provider call was sent. Every tools build
+// records the array it made (offerSnapshot) and what caused it (noteOffer*);
+// before each provider call, the round compares the array it sends against
+// the last one sent (reportOfferSent). A build that is never sent, such as a
+// grant superseded by a workflow handoff in the same round, is reported only
+// through the array that is.
+
+// offerSnapshot is a tools array as a provider is sent it: the names of its
+// tools, sorted; DescribeTool's fingerprint of it (describedToolsKey); and
+// the provider it was built for. The zero value is no array.
+type offerSnapshot struct {
+	names    []string
+	key      string
+	provider providers.Provider
+}
+
+// equal reports whether o and other are the same array for the same provider.
+func (o offerSnapshot) equal(other offerSnapshot) bool {
+	return o.key == other.key && sameProvider(o.provider, other.provider) && slices.Equal(o.names, other.names)
+}
+
+// offerInputs is what a turn's offer is built from: the prompt's (or workflow
+// state's) allowed tools, those after a ToolSelector narrowed them, and the
+// conversation's grants.
+type offerInputs struct {
+	prompt  []string
+	allowed []string
+	grants  []string
+}
+
+// offerLog is the record ToolOffer keeps for tools.offer.rebuilt.
+type offerLog struct {
+	current   offerSnapshot // the array last built, or none once withdrawn
+	sent      offerSnapshot // the array the last provider call was sent
+	sentAny   bool          // a provider call has been sent an array
+	inputs    offerInputs   // what the turn's offer was last built from
+	causes    []string      // what changed the array since the last call, in order, each once
+	withdrawn bool          // the turn's tool loop withdrew tools (excluded, exhausted)
+	warned    bool          // the cache-cost warning was logged (claimWarning)
+}
+
+// setCurrent records snap as the array last built.
+func (o *ToolOffer) setCurrent(snap offerSnapshot) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.log.current = snap
+}
+
+// noteCause records reason as having changed the array since the last call.
+func (o *ToolOffer) noteCause(reason string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.addCauseLocked(reason)
+}
+
+func (o *ToolOffer) addCauseLocked(reason string) {
+	if !slices.Contains(o.log.causes, reason) {
+		o.log.causes = append(o.log.causes, reason)
+	}
+	if reason == events.ToolsOfferReasonExcluded || reason == events.ToolsOfferReasonExhausted {
+		o.log.withdrawn = true
+	}
+}
+
+// noteTurn records the turn's offer as built from in, and, when the array
+// built for it differs from the one last sent, why: a turn's first build
+// has no single cause, so it is told apart by what it was built from.
+func (o *ToolOffer) noteTurn(in offerInputs, describes bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.log.sentAny && !o.log.current.equal(o.log.sent) {
+		o.addCauseLocked(o.turnCauseLocked(in, describes))
+	}
+	o.log.inputs = in
+	o.log.withdrawn = false
+}
+
+// turnCauseLocked names what changed a turn's array from the one last sent.
+func (o *ToolOffer) turnCauseLocked(in offerInputs, describes bool) string {
+	prev, cur, sent := o.log.inputs, o.log.current, o.log.sent
+	added, removed := diffNames(sent.names, cur.names)
+	switch {
+	case !sameProvider(cur.provider, sent.provider):
+		return events.ToolsOfferReasonProviderSwitch
+	case !slices.Equal(in.prompt, prev.prompt):
+		return events.ToolsOfferReasonWorkflowState
+	case !slices.Equal(in.allowed, prev.allowed):
+		return events.ToolsOfferReasonSelector
+	case !slices.Equal(in.grants, prev.grants):
+		return events.ToolsOfferReasonClientTools
+	case onlyMCP(added, removed):
+		return events.ToolsOfferReasonMCPListChanged
+	case o.log.withdrawn:
+		return events.ToolsOfferReasonTurnReset
+	case describes && len(added) == 0 && len(removed) == 0:
+		return events.ToolsOfferReasonDescribe
+	default:
+		return events.ToolsOfferReasonRegistry
+	}
+}
+
+// setInputs records what the offer is now built from, for a change made
+// during the turn (a grant, a workflow handoff).
+func (o *ToolOffer) setInputs(in offerInputs) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.log.inputs = in
+}
+
+// lastInputs returns what the offer was last recorded built from.
+func (o *ToolOffer) lastInputs() offerInputs {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.log.inputs
+}
+
+// takeSent records the array last built as sent, and returns the change from
+// the array sent before it, or nil when there is none.
+func (o *ToolOffer) takeSent() *events.ToolsOfferRebuiltData {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	cur, prev, first := o.log.current, o.log.sent, !o.log.sentAny
+	causes := o.log.causes
+	o.log.sent, o.log.sentAny, o.log.causes = cur, true, nil
+	if first || cur.equal(prev) {
+		return nil
+	}
+	if len(causes) == 0 {
+		causes = []string{events.ToolsOfferReasonRegistry}
+	}
+	added, removed := diffNames(prev.names, cur.names)
+	return &events.ToolsOfferRebuiltData{Reasons: causes, Added: added, Removed: removed}
+}
+
+// claimWarning reports whether the cache-cost warning is still to be logged,
+// and marks it logged.
+func (o *ToolOffer) claimWarning() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.log.warned {
+		return false
+	}
+	o.log.warned = true
+	return true
+}
+
+// diffNames returns the names in to and not in from, and those in from and
+// not in to, each sorted as from and to are. Nil when there are none.
+func diffNames(from, to []string) (added, removed []string) {
+	for _, n := range to {
+		if !slices.Contains(from, n) {
+			added = append(added, n)
+		}
+	}
+	for _, n := range from {
+		if !slices.Contains(to, n) {
+			removed = append(removed, n)
+		}
+	}
+	return added, removed
+}
+
+// mcpToolPrefix starts the name of every tool an MCP server provides
+// (mcp__<server>__<tool>).
+const mcpToolPrefix = "mcp" + tools.NamespaceSep
+
+// onlyMCP reports whether there is a change and every changed name is an MCP
+// tool's.
+func onlyMCP(added, removed []string) bool {
+	if len(added)+len(removed) == 0 {
+		return false
+	}
+	for _, n := range append(slices.Clone(added), removed...) {
+		if !strings.HasPrefix(n, mcpToolPrefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// snapshotOf is the snapshot of an array built from offer, fingerprinted key,
+// for the stage's call provider.
+func (s *ProviderStage) snapshotOf(offer []*tools.ToolDescriptor, key string) offerSnapshot {
+	names := make([]string, 0, len(offer))
+	for _, d := range offer {
+		names = append(names, d.Name)
+	}
+	slices.Sort(names)
+	return offerSnapshot{names: names, key: key, provider: s.callProvider()}
+}
+
+// noteTurnOffer records the turn's first tools build, from acc.
+func (s *ProviderStage) noteTurnOffer(acc *providerInput) {
+	s.offerState().noteTurn(s.offerInputsFor(acc), s.config != nil && s.config.DescribeTool != nil)
+}
+
+// offerInputsFor is what acc's offer is built from now.
+func (s *ProviderStage) offerInputsFor(acc *providerInput) offerInputs {
+	if acc == nil {
+		return offerInputs{grants: s.runner().grantedTools()}
+	}
+	return offerInputs{prompt: acc.promptTools(), allowed: acc.allowedTools, grants: s.runner().grantedTools()}
+}
+
+// noteHandoffOffer records a workflow handoff's tools build, from acc as the
+// handoff left it: the destination state's tools, or another provider's
+// wire form of them.
+func (s *ProviderStage) noteHandoffOffer(acc *providerInput, providerChanged bool) {
+	o := s.offerState()
+	if providerChanged {
+		o.noteCause(events.ToolsOfferReasonProviderSwitch)
+	} else {
+		o.noteCause(events.ToolsOfferReasonWorkflowState)
+	}
+	o.setInputs(s.offerInputsFor(acc))
+}
+
+// noteRoundOffer records a rebuild a tool round caused: the round changed
+// the offer (offerChanged) by moving the grants or excluding a tool, or else
+// DescribeTool now describes the tools differently.
+func (tl *toolLoop) noteRoundOffer(offerChanged bool) {
+	o := tl.stage.offerState()
+	in := tl.stage.offerInputsFor(tl.acc)
+	if offerChanged && !slices.Equal(in.grants, o.lastInputs().grants) {
+		o.noteCause(events.ToolsOfferReasonSkillGrant)
+	}
+	if excluded := len(tl.Excluded); excluded > tl.excludedNoted {
+		tl.excludedNoted = excluded
+		o.noteCause(events.ToolsOfferReasonExcluded)
+	}
+	if !offerChanged {
+		o.noteCause(events.ToolsOfferReasonDescribe)
+	}
+	o.setInputs(in)
+}
+
+// withdrawOffer records that the rest of the turn is sent no tools, because
+// reason withdrew them.
+func (s *ProviderStage) withdrawOffer(reason string) {
+	o := s.offerState()
+	o.setCurrent(offerSnapshot{provider: s.callProvider()})
+	o.noteCause(reason)
+}
+
+// reportOfferSent records that round's provider call is sent the array last
+// built, and publishes tools.offer.rebuilt when it differs from the array the
+// previous call was sent. On a provider that caches the prompt it also logs,
+// once per stage, what that costs.
+func (s *ProviderStage) reportOfferSent(ctx context.Context, round int) {
+	o := s.offerState()
+	change := o.takeSent()
+	if change == nil {
+		return
+	}
+	change.Round = round
+	change.CachingProvider = supportsPromptCaching(s.callProvider())
+	if change.CachingProvider && o.claimWarning() {
+		logger.Warn("tools array changed mid-conversation: a provider that caches the prompt cannot reuse "+
+			"its cache past the first changed tool (Claude writes the whole prefix again), so this call "+
+			"pays for the prefix again; keep the offered tools the same across rounds and turns to keep "+
+			"the cache. Every further change is reported as a tools.offer.rebuilt event",
+			"reasons", change.Reasons, "added", change.Added, "removed", change.Removed, "round", round)
+	}
+	if s.emitter != nil {
+		s.emitter.ToolsOfferRebuiltCtx(ctx, change)
+	}
+}

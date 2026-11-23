@@ -49,3 +49,13 @@ func TestPriceUsage_ImageAndVideoAreInputCost(t *testing.T) {
 	assert.InDelta(t, 3.0, ci.InputCostUSD, 1e-9)
 	assert.Zero(t, ci.OutputCostUSD)
 }
+
+// The cache writes a provider reports reach a priced call's CostInfo, under
+// the unit types.CostInfo.CacheWriteTokens reads.
+func TestPriceUsage_CacheWriteTokensReadBack(t *testing.T) {
+	ci := base.PriceUsage(nil, "p", base.ProviderTypeInference,
+		base.TokenUsage{Input: 3, CacheRead: 120, CacheWrite: 9656, Output: 40}, nil, 0)
+	assert.Equal(t, 9656, ci.CacheWriteTokens())
+	assert.Equal(t, 120, ci.CachedTokens)
+	assert.Equal(t, 3, ci.InputTokens, "cache writes stay out of the input headline")
+}

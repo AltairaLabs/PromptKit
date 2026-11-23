@@ -103,7 +103,8 @@ func TestProviderStage_CutTurnEndsAtOnceAndItsUsageFollows(t *testing.T) {
 	assert.Equal(t, noPineappleMsg, lastAssistantOf(t, r.elems).Content)
 
 	// The provider finishes the reply after the turn has ended.
-	stream <- providers.StreamChunk{CostInfo: &types.CostInfo{InputTokens: 12, OutputTokens: 40, TotalCost: 0.5}}
+	stream <- providers.StreamChunk{CostInfo: &types.CostInfo{InputTokens: 12, OutputTokens: 40, TotalCost: 0.5,
+		Quantities: map[string]float64{"cache_write_token": 7}}}
 	close(stream)
 
 	// The bus delivers through a worker pool, so delivery order is not publish
@@ -123,8 +124,8 @@ func TestProviderStage_CutTurnEndsAtOnceAndItsUsageFollows(t *testing.T) {
 	require.NotNil(t, usage, "no provider.call.usage")
 	assert.Equal(t, completed.CallID, usage.CallID)
 	assert.NotEmpty(t, usage.CallID)
-	assert.Equal(t, []any{12, 40, 0.5, "p", "m"},
-		[]any{usage.InputTokens, usage.OutputTokens, usage.Cost, usage.Provider, usage.Model})
+	assert.Equal(t, []any{12, 40, 7, 0.5, "p", "m"},
+		[]any{usage.InputTokens, usage.OutputTokens, usage.CacheWriteTokens, usage.Cost, usage.Provider, usage.Model})
 }
 
 // A final chunk that carries text the guardrails held releases all of it,

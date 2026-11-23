@@ -374,6 +374,21 @@ type CostInfo struct {
 	Breakdown []CostLineItem `json:"breakdown,omitempty"`
 }
 
+// costUnitCacheWrite is the Quantities unit for input written to a
+// provider's prompt cache (providers/base.UnitCacheWriteToken).
+const costUnitCacheWrite = "cache_write_token"
+
+// CacheWriteTokens returns the input tokens the call wrote to the provider's
+// prompt cache, as the provider reported them: Claude's
+// cache_creation_input_tokens, for one. Zero for a nil CostInfo or a provider
+// that reports no cache writes. Cache writes are not part of InputTokens.
+func (c *CostInfo) CacheWriteTokens() int {
+	if c == nil {
+		return 0
+	}
+	return int(c.Quantities[costUnitCacheWrite])
+}
+
 // CostLineItem is one row of a cost breakdown, suitable for surfacing in
 // reports. Carries provider + capability tags so consumers can group across
 // the conversation without re-deriving them.

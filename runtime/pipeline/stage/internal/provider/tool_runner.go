@@ -1200,6 +1200,9 @@ type ToolOffer struct {
 	// offered under its own name, false withheld or renamed
 	// (descriptorCollector.view).
 	view map[string]bool
+	// log is what tools.offer.rebuilt compares each provider call's tools
+	// array against (reportOfferSent).
+	log offerLog
 }
 
 // setView records describe's outcomes as the view last built.
@@ -1620,13 +1623,20 @@ func (r *ToolRunner) DescribedChanged(descriptors []*tools.ToolDescriptor) bool 
 // MarkBuilt records descriptors as the tools array last built, as
 // DescribeTool shaped it (DescribedChanged compares against it).
 func (r *ToolRunner) MarkBuilt(descriptors []*tools.ToolDescriptor) {
+	r.markBuilt(descriptors)
+}
+
+// markBuilt is MarkBuilt, returning the fingerprint it recorded ("" without
+// an offer state).
+func (r *ToolRunner) markBuilt(descriptors []*tools.ToolDescriptor) string {
 	if r.offers == nil {
-		return
+		return ""
 	}
 	key := r.describedToolsKey(descriptors)
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	r.offers.describedKey = key
+	return key
 }
 
 // markSent records descriptors as the tools the provider was last sent: none

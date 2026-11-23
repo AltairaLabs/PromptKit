@@ -814,6 +814,7 @@ func (s *DuplexProviderStage) emitRoundCompletedNow(
 		data.InputTokens = c.InputTokens
 		data.OutputTokens = c.OutputTokens
 		data.CachedTokens = c.CachedTokens
+		data.CacheWriteTokens = c.CacheWriteTokens()
 		data.Cost = c.TotalCost
 	}
 	s.emitter.ProviderCallCompletedCtx(ctx, data)

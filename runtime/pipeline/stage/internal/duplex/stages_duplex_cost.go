@@ -373,14 +373,15 @@ func (s *DuplexProviderStage) emitRoundUsage(ctx context.Context, cost *types.Co
 		return
 	}
 	data := &events.ProviderCallUsageData{
-		InputTokens:  cost.InputTokens,
-		OutputTokens: cost.OutputTokens,
-		CachedTokens: cost.CachedTokens,
-		Cost:         cost.TotalCost,
-		Source:       s.calls.source,
-		Labels:       s.calls.labels,
-		Round:        round.rr.Round,
-		CallID:       round.rr.ProviderCallID,
+		InputTokens:      cost.InputTokens,
+		OutputTokens:     cost.OutputTokens,
+		CachedTokens:     cost.CachedTokens,
+		CacheWriteTokens: cost.CacheWriteTokens(),
+		Cost:             cost.TotalCost,
+		Source:           s.calls.source,
+		Labels:           s.calls.labels,
+		Round:            round.rr.Round,
+		CallID:           round.rr.ProviderCallID,
 	}
 	if s.provider != nil {
 		data.Provider = s.provider.ID()

@@ -320,6 +320,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr RoundRef) {
 			completed.InputTokens = resp.CostInfo.InputTokens
 			completed.OutputTokens = resp.CostInfo.OutputTokens
 			completed.CachedTokens = resp.CostInfo.CachedTokens
+			completed.CacheWriteTokens = resp.CostInfo.CacheWriteTokens()
 			completed.Cost = resp.CostInfo.TotalCost
 		}
 		tl.stage.emitter.ProviderCallCompletedCtx(ctx, completed)
