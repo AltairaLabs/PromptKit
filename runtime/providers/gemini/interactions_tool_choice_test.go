@@ -245,15 +245,19 @@ func TestToolChoice_UndeclaredName_FallsBackToAny(t *testing.T) {
 // request's own values over them. They used to be dropped, so an
 // Interactions turn ran with the API's defaults and no output cap.
 func TestInteractions_SamplingParamsReachRequest(t *testing.T) {
+	set := providers.ProviderDefaults{Temperature: 0.3, TopP: 0.8, MaxTokens: 77}
 	for _, tc := range []struct {
-		name string
-		req  providers.PredictionRequest
-		want string
+		name     string
+		defaults providers.ProviderDefaults
+		req      providers.PredictionRequest
+		want     string
 	}{
-		{"defaults", providers.PredictionRequest{},
+		{"defaults", set, providers.PredictionRequest{},
 			`{"max_output_tokens":77,"temperature":0.3,"top_p":0.8}`},
-		{"request overrides", providers.PredictionRequest{Temperature: 0.9, TopP: 0.5, MaxTokens: 33},
+		{"request overrides", set, providers.PredictionRequest{Temperature: 0.9, TopP: 0.5, MaxTokens: 33},
 			`{"max_output_tokens":33,"temperature":0.9,"top_p":0.5}`},
+		// Unset top_p and max_tokens are left to the API, not sent as 0.
+		{"unset", providers.ProviderDefaults{}, providers.PredictionRequest{}, `{"temperature":0}`},
 	} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%v", tc.name, stream), func(t *testing.T) {
@@ -262,7 +266,7 @@ func TestInteractions_SamplingParamsReachRequest(t *testing.T) {
 				p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
 					ID: "test-gemini-int", Type: "gemini", Model: "gemini-2.5-flash", BaseURL: srv.url,
 					AdditionalConfig: map[string]any{"api_mode": "interactions"},
-					Defaults:         providers.ProviderDefaults{Temperature: 0.3, TopP: 0.8, MaxTokens: 77},
+					Defaults:         tc.defaults,
 				})
 				if err != nil {
 					t.Fatalf("CreateProviderFromSpec: %v", err)
