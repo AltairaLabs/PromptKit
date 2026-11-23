@@ -102,7 +102,7 @@ func TestBuildInteractionsRequest_SystemLeadsTranscript(t *testing.T) {
 		System:         "be terse",
 		Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
 		ResponseFormat: schemaFormat(),
-	}, nil)
+	}, nil, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "gemini-3.7-flash", body.Model)
@@ -120,7 +120,7 @@ func TestBuildInteractionsRequest_NoSystemNoExtraTurn(t *testing.T) {
 		providers.ProviderDefaults{MaxTokens: 512}, false)
 	body, err := tp.buildInteractionsRequest(context.Background(), providers.PredictionRequest{
 		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
-	}, nil)
+	}, nil, "")
 	require.NoError(t, err)
 	assert.Len(t, body.Input, 1)
 	assert.Nil(t, body.ResponseFormat, "no schema asked for, none sent")
@@ -155,7 +155,7 @@ func TestPredictWithInteractions_ParsesAnswerToolCallsAndReasoning(t *testing.T)
 		providers.PredictionRequest{
 			Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
 			ResponseFormat: schemaFormat(),
-		}, nil)
+		}, nil, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, `{"ok":true}`, resp.Content)
@@ -211,7 +211,7 @@ func TestPredictWithInteractions_SurfacesErrors(t *testing.T) {
 			_, _, err := tp.predictWithInteractions(context.Background(),
 				providers.PredictionRequest{
 					Messages: []types.Message{{Role: roleUser, Content: "hi"}},
-				}, nil)
+				}, nil, "")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expect)
 		})

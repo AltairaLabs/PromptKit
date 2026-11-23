@@ -40,7 +40,7 @@ func TestInteractions_FinishReasonIsCanonical(t *testing.T) {
 			defer srv.Close()
 
 			resp, _, err := interactionsTestProvider(t, srv.URL).predictWithInteractions(context.Background(),
-				providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}, nil)
+				providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}, nil, "")
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, resp.FinishReason)
 		})

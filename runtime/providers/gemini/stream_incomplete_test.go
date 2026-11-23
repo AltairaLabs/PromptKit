@@ -74,7 +74,7 @@ func TestStreamIncomplete_InteractionsTruncatedEndsInError(t *testing.T) {
 	defer srv.Close()
 
 	tp := newIncompleteInteractionsProvider(t, srv.URL)
-	ch, err := tp.predictStreamWithInteractions(context.Background(), textRequest(), nil)
+	ch, err := tp.predictStreamWithInteractions(context.Background(), textRequest(), nil, "")
 	require.NoError(t, err)
 
 	last := drainGemini(t, ch)

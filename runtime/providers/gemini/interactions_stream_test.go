@@ -35,7 +35,7 @@ func streamFromServer(t *testing.T, body string, req providers.PredictionRequest
 	tp := NewToolProvider("g-stream", "gemini-3.7-flash", srv.URL,
 		providers.ProviderDefaults{MaxTokens: 512}, false)
 
-	ch, err := tp.predictStreamWithInteractions(context.Background(), req, nil)
+	ch, err := tp.predictStreamWithInteractions(context.Background(), req, nil, "")
 	require.NoError(t, err)
 
 	var chunks []providers.StreamChunk
@@ -207,7 +207,7 @@ func TestInteractionsStream_HTTPErrorSurfaces(t *testing.T) {
 	tp := NewToolProvider("g-stream", "gemini-3.7-flash", srv.URL,
 		providers.ProviderDefaults{MaxTokens: 512}, false)
 
-	_, err := tp.predictStreamWithInteractions(context.Background(), textRequest(), nil)
+	_, err := tp.predictStreamWithInteractions(context.Background(), textRequest(), nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "call_id")
 }

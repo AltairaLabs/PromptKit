@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,9 +37,22 @@ const (
 	// Gemini function-calling modes (toolConfig.functionCallingConfig.mode).
 	functionCallingModeAuto = "AUTO"
 	functionCallingModeAny  = "ANY"
+	functionCallingModeNone = "NONE"
+
+	// wireKeyTemperature is the sampling temperature key on both APIs.
+	wireKeyTemperature = "temperature"
+
+	// wireKeyMode is functionCallingConfig's mode key.
+	wireKeyMode = "mode"
 
 	// toolChoiceNone is the PromptKit tool-choice value that disables tool calls.
 	toolChoiceNone = "none"
+	// toolChoiceAuto lets the model decide whether to call a tool.
+	toolChoiceAuto = "auto"
+	// toolChoiceRequired forces a call to some declared tool.
+	toolChoiceRequired = "required"
+	// toolChoiceAny is an alias of toolChoiceRequired.
+	toolChoiceAny = "any"
 
 	// logNameGemini identifies this provider in log lines.
 	logNameGemini = "Gemini"
@@ -194,7 +208,7 @@ func (p *ToolProvider) predictRound(
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	if p.resolveAPIMode() == APIModeInteractions {
-		return p.predictWithInteractions(ctx, req, tools)
+		return p.predictWithInteractions(ctx, req, tools, toolChoice)
 	}
 
 	// Build Gemini request with tools
@@ -412,26 +426,77 @@ func mediaMIMEType(part types.ContentPart) string {
 // addToolConfig adds tool configuration to the request based on toolChoice
 func addToolConfig(request map[string]any, tools any, toolChoice string) {
 	request["tools"] = []any{tools}
-
-	mode := functionCallingModeAuto // default
-	if toolChoice != "" {
-		switch toolChoice {
-		case "auto":
-			mode = functionCallingModeAuto
-		case "required", "any":
-			mode = functionCallingModeAny
-		case toolChoiceNone:
-			mode = "NONE"
-		default:
-			mode = functionCallingModeAny
-		}
+	cfg := map[string]any{wireKeyMode: functionCallingMode(toolChoice)}
+	if name := namedToolChoice(toolChoice); name != "" {
+		cfg["allowed_function_names"] = []string{name}
 	}
+	request["tool_config"] = map[string]any{"function_calling_config": cfg}
+}
 
-	request["tool_config"] = map[string]any{
-		"function_calling_config": map[string]any{
-			"mode": mode,
-		},
+// functionCallingMode maps a PromptKit tool choice to Gemini's
+// functionCallingConfig.mode.
+func functionCallingMode(toolChoice string) string {
+	switch toolChoice {
+	case "", toolChoiceAuto:
+		return functionCallingModeAuto
+	case toolChoiceNone:
+		return functionCallingModeNone
+	default: // "required", "any", or a specific tool name
+		return functionCallingModeAny
 	}
+}
+
+// namedToolChoice returns the tool a choice names, or "" when the choice is a
+// mode ("", "auto", "none", "required", "any"). Mode ANY alone lets the model
+// call any declared tool, so a named choice also has to restrict
+// allowedFunctionNames to that tool.
+func namedToolChoice(toolChoice string) string {
+	switch toolChoice {
+	case "", toolChoiceAuto, toolChoiceNone, toolChoiceRequired, toolChoiceAny:
+		return ""
+	default:
+		return toolChoice
+	}
+}
+
+// fitToolChoice returns the tool choice to send for the declared tools. A
+// choice naming a tool that is not declared falls back to "required" (call any
+// declared tool) with a warning: Gemini rejects allowed function names outside
+// the declared tools with HTTP 400 on both generateContent and Interactions.
+func (p *Provider) fitToolChoice(toolChoice string, declared []string) string {
+	name := namedToolChoice(toolChoice)
+	if name == "" || slices.Contains(declared, name) {
+		return toolChoice
+	}
+	logger.Warn("gemini: tool choice names a tool that is not declared on this request; "+
+		"forcing a call to any declared tool instead",
+		"provider", p.ID(), "tool", name, "declared", declared)
+	return toolChoiceRequired
+}
+
+// declaredToolNames returns the function names BuildTooling declared.
+func declaredToolNames(tools any) []string {
+	return interactionsToolNames(buildInteractionsTools(tools))
+}
+
+// interactionsToolNames returns the names of flat function declarations.
+func interactionsToolNames(tools []interactionsTool) []string {
+	names := make([]string, 0, len(tools))
+	for i := range tools {
+		names = append(names, tools[i].Name)
+	}
+	return names
+}
+
+// cachedToolConfig is the CachedContent toolConfig for a tool choice. A request
+// that references cachedContent may not carry tool_config, so the choice has to
+// live in the cached prefix (and therefore in its cache key).
+func cachedToolConfig(toolChoice string) map[string]any {
+	cfg := map[string]any{wireKeyMode: functionCallingMode(toolChoice)}
+	if name := namedToolChoice(toolChoice); name != "" {
+		cfg["allowedFunctionNames"] = []string{name}
+	}
+	return map[string]any{"functionCallingConfig": cfg}
 }
 
 // buildToolContents converts the request messages to Gemini contents, folding
@@ -620,8 +685,8 @@ func (p *ToolProvider) buildToolRequest(
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
 	genConfig := map[string]any{
-		"temperature": temperature,
-		"topP":        topP,
+		wireKeyTemperature: temperature,
+		"topP":             topP,
 	}
 	if req.TopK != nil && p.ParamSupported(providers.ParamTopK) {
 		genConfig["topK"] = *req.TopK
@@ -685,15 +750,25 @@ func (p *ToolProvider) buildToolRequest(
 	}
 
 	if tools != nil {
+		// Resolved once, so the inline tool_config and the cached toolConfig
+		// carry the same choice (and a bad name warns once).
+		toolChoice = p.fitToolChoice(toolChoice, declaredToolNames(tools))
 		addToolConfig(request, tools, toolChoice)
 	}
 
-	// Explicit context caching: move the stable system+tools prefix into a
-	// CachedContent resource and reference it. The API rejects cachedContent
-	// alongside systemInstruction / tools / tool_config, so drop the inline
+	// Explicit context caching: move the stable system+tools+tool-config prefix
+	// into a CachedContent resource and reference it. The API rejects
+	// cachedContent alongside systemInstruction / tools / tool_config (verified
+	// live: HTTP 400 "move those values to CachedContent"), so drop the inline
 	// prefix. request["tools"] is the wrapped []any{decl} that addToolConfig set;
-	// caching it keeps the cached and dropped tools identical.
-	if cc := p.resolveCachedContent(ctx, req.System, request["tools"]); cc != "" {
+	// caching it keeps the cached and dropped tools identical. The tool choice
+	// goes into the CachedContent too, or a forced or disabled choice would
+	// silently fall back to AUTO.
+	var toolConfig any
+	if tools != nil {
+		toolConfig = cachedToolConfig(toolChoice)
+	}
+	if cc := p.resolveCachedContent(ctx, req.System, request["tools"], toolConfig); cc != "" {
 		request["cachedContent"] = cc
 		delete(request, "systemInstruction")
 		delete(request, "tools")
@@ -929,7 +1004,7 @@ func (p *ToolProvider) streamRound(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	if p.resolveAPIMode() == APIModeInteractions {
-		return p.predictStreamWithInteractions(ctx, req, tools)
+		return p.predictStreamWithInteractions(ctx, req, tools, toolChoice)
 	}
 
 	// Build Gemini request with tools

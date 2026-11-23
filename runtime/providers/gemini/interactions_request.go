@@ -26,7 +26,7 @@ func (p *Provider) interactionsURL() string {
 // It fails, before any HTTP call, when a message's media cannot be loaded or
 // is a kind this API cannot carry.
 func (p *ToolProvider) buildInteractionsRequest(
-	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (interactionsRequest, error) {
 	// Converted from req.Messages as given, so the message index in an error
 	// or log line is the caller's index.
@@ -48,19 +48,67 @@ func (p *ToolProvider) buildInteractionsRequest(
 		Tools:          buildInteractionsTools(tools),
 		ResponseFormat: interactionsResponseFormat(req.ResponseFormat),
 	}
+	out.Generation = p.interactionsGenerationConfig(req)
+	if len(out.Tools) > 0 {
+		choice := interactionsToolChoice(p.fitToolChoice(toolChoice, interactionsToolNames(out.Tools)))
+		if choice != nil {
+			out.Generation["tool_choice"] = choice
+		}
+	}
 
 	// Thinking config has no equivalent field here — thought steps are returned
 	// by default — so it is deliberately not forwarded rather than guessed at.
 	return out, nil
 }
 
+// interactionsGenerationConfig carries the sampling parameters the
+// generateContent path sends (provider defaults, overridden per request) in
+// the Interactions API's generation_config. max_output_tokens counts thinking
+// tokens too, as maxOutputTokens does on generateContent.
+func (p *ToolProvider) interactionsGenerationConfig(req providers.PredictionRequest) map[string]any {
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
+	gen := map[string]any{wireKeyTemperature: temperature}
+	if topP > 0 {
+		gen["top_p"] = topP
+	}
+	if maxTokens > 0 {
+		gen["max_output_tokens"] = maxTokens
+	}
+	return gen
+}
+
+// interactionsModeAny is the Interactions API tool_choice mode that forces a
+// call (generateContent's ANY).
+const interactionsModeAny = "any"
+
+// interactionsToolChoice maps a PromptKit tool choice to the Interactions
+// API's generation_config.tool_choice: a mode string, or allowed_tools to
+// restrict the call to a named tool (mode "any" alone lets the model pick any
+// declared tool). It returns nil for auto, the API's default, so the request
+// carries no tool_choice.
+func interactionsToolChoice(toolChoice string) any {
+	if name := namedToolChoice(toolChoice); name != "" {
+		return map[string]any{
+			"allowed_tools": map[string]any{wireKeyMode: interactionsModeAny, "tools": []string{name}},
+		}
+	}
+	switch functionCallingMode(toolChoice) {
+	case functionCallingModeAny:
+		return interactionsModeAny
+	case functionCallingModeNone:
+		return toolChoiceNone
+	default:
+		return nil
+	}
+}
+
 // predictWithInteractions runs a non-streaming turn through the Interactions
 // API, for a provider configured with api_mode interactions.
 func (p *ToolProvider) predictWithInteractions(
-	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	predictResp := providers.PredictionResponse{}
-	body, err := p.buildInteractionsRequest(ctx, req, tools)
+	body, err := p.buildInteractionsRequest(ctx, req, tools, toolChoice)
 	if err != nil {
 		return predictResp, nil, err
 	}

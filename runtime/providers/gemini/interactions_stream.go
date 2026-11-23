@@ -81,9 +81,9 @@ type streamStep struct {
 // predictStreamWithInteractions runs a streaming turn through the Interactions
 // API, which is the only way a response schema can coexist with tools.
 func (p *ToolProvider) predictStreamWithInteractions(
-	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools,
+	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
-	body, err := p.buildInteractionsRequest(ctx, req, tools)
+	body, err := p.buildInteractionsRequest(ctx, req, tools, toolChoice)
 	if err != nil {
 		return nil, err
 	}
