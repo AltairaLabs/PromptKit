@@ -4,7 +4,7 @@ description: Task-focused guides for building and operating applications on the 
 sidebar:
   order: 0
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: fab3a060a311bd1abcad2ed0ca9669b3a89c203a
   sources:
     - runtime/a2a/bridge.go
     - runtime/a2a/mock/mock.go

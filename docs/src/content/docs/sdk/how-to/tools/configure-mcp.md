@@ -4,12 +4,13 @@ description: Connect MCP tool servers to a conversation with WithMCP and the MCP
 sidebar:
   order: 6
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: fab3a060a311bd1abcad2ed0ca9669b3a89c203a
   sources:
     - runtime/mcp/client.go
     - runtime/mcp/registry.go
     - runtime/mcp/types.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/tools/registry.go
     - runtime/tools/types.go
     - sdk/conversation_tools.go
@@ -98,7 +99,7 @@ The SDK registers each tool as `mcp__{serverName}__{toolName}`:
 | `github` | `search_repositories` | `mcp__github__search_repositories` |
 | `filesystem` | `read_file` | `mcp__filesystem__read_file` |
 
-The model sees an MCP tool only when the prompt lists it. In a pack, add the names, or a wildcard, to the prompt's `tools` array. A prompt config file uses `allowed_tools`:
+The model can call an MCP tool only when the prompt lists it. In a pack, add the names, or a wildcard, to the prompt's `tools` array. A prompt config file uses `allowed_tools`:
 
 ```yaml
 spec:
@@ -139,7 +140,7 @@ for _, name := range conv.ToolRegistry().List() {
 }
 ```
 
-Each MCP tool appears as `mcp__{serverName}__{toolName}`. A tool that is registered but missing from the prompt's `tools` is never offered to the model, and a call the model makes to it anyway is refused.
+Each MCP tool appears as `mcp__{serverName}__{toolName}`. A tool that is registered but missing from the prompt's `tools` cannot be called: a call the model makes to it is refused, and the tool does not run.
 
 ## Troubleshoot
 

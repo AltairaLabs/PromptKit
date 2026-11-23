@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/concepts/skills.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "fab3a060a311bd1abcad2ed0ca9669b3a89c203a",
  "claims": [
   {
    "id": 1,
@@ -69,9 +69,9 @@
    "claim": "A skill's allowed-tools extend the prompt's tool set, capped at the pack's tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/skills/executor.go:208",
-    "sdk/conversation.go:408"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:258-269",
+    "runtime/skills/executor.go:206-208",
+    "sdk/conversation.go:472"
    ]
   },
   {
@@ -95,10 +95,10 @@
    "claim": "skill__activate description includes the discovery index, listing only the skills the current workflow state admits; withheld when the state admits none",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/skills/executor.go:305",
-    "sdk/capability_skills.go:201",
-    "sdk/conversation.go:480"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:271-279",
+    "runtime/skills/executor.go:323",
+    "sdk/capability_skills.go:298",
+    "sdk/conversation.go:562-608"
    ]
   },
   {
@@ -108,9 +108,9 @@
    "evidence": [
     "runtime/packspec/types.go:2794",
     "runtime/skills/active_set.go:57",
-    "sdk/conversation.go:455",
-    "sdk/workflow.go:617",
-    "sdk/workflow.go:696"
+    "sdk/conversation.go:519",
+    "sdk/workflow.go:665",
+    "sdk/workflow.go:745"
    ]
   },
   {
@@ -135,8 +135,8 @@
    "claim": "sdk.WithSkillsDir and sdk.WithMaxActiveSkillsOption exist",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3958",
-    "sdk/options.go:4022"
+    "sdk/options.go:4284",
+    "sdk/options.go:4348"
    ]
   },
   {
@@ -144,8 +144,8 @@
    "claim": "Go snippet compiles against current API",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3958",
-    "sdk/sdk.go:1375"
+    "sdk/options.go:4284",
+    "sdk/sdk.go:1448"
    ]
   },
   {
@@ -168,7 +168,39 @@
    "verdict": "true",
    "evidence": [
     "runtime/skills/executor.go:153",
-    "sdk/conversation.go:438"
+    "sdk/conversation.go:502"
+   ]
+  },
+  {
+   "id": 21,
+   "claim": "In rebuild mode (default) a grant changes the tools array, costing the cache and reported as tool.offer.rebuilt reason skill_grant; WithToolLoading stable keeps one array holding every grantable pack tool",
+   "verdict": "true",
+   "evidence": [
+    "runtime/events/types.go:469-473",
+    "runtime/events/types.go:510-522",
+    "runtime/pipeline/stage/internal/provider/tool_offer_rebuilt.go:329",
+    "sdk/tool_loading.go:14-23",
+    "sdk/tool_loading.go:32-66",
+    "sdk/tool_loading.go:91-111"
+   ]
+  },
+  {
+   "id": 22,
+   "claim": "A call to a tool the model may not call is refused with 'Tool <name> was not run: it is not available this turn' and does not run; decided per round",
+   "verdict": "true",
+   "evidence": [
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:543-566",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:111-137",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:64-75"
+   ]
+  },
+  {
+   "id": 23,
+   "claim": "In stable tool loading mode the skill__activate index lists every skill whatever the state's filter; activating a skill the state does not admit is refused",
+   "verdict": "true",
+   "evidence": [
+    "sdk/conversation.go:584-598",
+    "sdk/tool_loading.go:50-53"
    ]
   }
  ]
