@@ -18,8 +18,7 @@
     "runtime/pipeline/stage/builder.go:135",
     "runtime/pipeline/stage/builder.go:20",
     "runtime/pipeline/stage/builder.go:72",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:186",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:402"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -36,8 +35,7 @@
    "claim": "types.Message{Role: \"user\"}.AddTextPart; stage.NewMessageElement(&msg); pipeline.Execute(ctx, input) returns (output, err); elem.Text is *string",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/element.go:358",
-    "runtime/pipeline/stage/internal/core/element.go:78",
+    "runtime/pipeline/stage/internal/core/element.go",
     "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/pipeline.go:99",
     "runtime/types/message.go:412"
@@ -48,7 +46,7 @@
    "claim": "Stage interface has Name, Type, Process(ctx, input, output)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:48"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -56,7 +54,7 @@
    "claim": "Stage types Transform, Accumulate, Generate, Sink with patterns 1:1/1:N, N:1, 0:N, N:0",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:97"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -72,7 +70,7 @@
    "claim": "Architecture diagram: SDK -> Pipeline -> Stages -> Providers/Tools/Hooks; Providers -> OpenAI, Anthropic; Tools -> MCP",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:402",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "sdk/internal/pipeline/builder.go:532"
    ]
   },
@@ -81,7 +79,7 @@
    "claim": "Text mode flow: StateStoreLoad -> PromptAssembly -> Provider -> StateStoreSave",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_save.go:60",
+    "runtime/pipeline/stage/internal/persist/stages_save.go",
     "sdk/internal/pipeline/builder.go:644",
     "sdk/internal/pipeline/builder.go:661",
     "sdk/internal/pipeline/builder.go:807"
@@ -103,7 +101,7 @@
    "claim": "ASM mode flow: DuplexProvider",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go:84",
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go",
     "sdk/internal/pipeline/builder.go:726-737"
    ]
   },
@@ -112,8 +110,7 @@
    "claim": "StreamElement struct fields (Text, Audio, Video, Image, Message, ToolCall, Part, MediaData, Sequence, Timestamp, Source, Priority, Meta, EndOfStream, EndOfTurn, Interrupt, Error)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/element.go:108",
-    "runtime/pipeline/stage/internal/core/element.go:96"
+    "runtime/pipeline/stage/internal/core/element.go"
    ]
   },
   {
@@ -137,7 +134,7 @@
    "claim": "Priority values Low, Normal, High, Critical",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/element.go:132-139"
+    "runtime/pipeline/stage/internal/core/element.go"
    ]
   },
   {

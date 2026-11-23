@@ -15,7 +15,6 @@ verified:
     - runtime/hooks/types.go
     - runtime/pipeline/stage/internal/duplex/stages_duplex_tools.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
-    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/providers/mock/mock.go
     - sdk/conversation.go
     - sdk/integration/duplex_tool_parity_test.go

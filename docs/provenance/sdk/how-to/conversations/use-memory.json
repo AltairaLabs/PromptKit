@@ -95,8 +95,7 @@
    "claim": "Unresolved placeholder fails the turn with the quoted error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/errors.go:108",
-    "runtime/pipeline/stage/internal/core/errors.go:130",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/pipeline/stage/stages_utilities.go:286",
     "runtime/template/renderer.go:63"
    ]
@@ -120,7 +119,7 @@
    "claim": "A turn that retrieves nothing renders the variable empty",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_memory.go:97-102"
+    "runtime/pipeline/stage/internal/persist/stages_memory.go"
    ]
   },
   {

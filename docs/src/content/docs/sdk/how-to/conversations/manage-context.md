@@ -9,6 +9,7 @@ verified:
     - runtime/events/types.go
     - runtime/pipeline/stage/internal/compaction/compactor.go
     - runtime/pipeline/stage/internal/compaction/compactor_fold.go
+    - runtime/pipeline/stage/internal/compaction/relevance_embedding_cache.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/providers/claude/context_window_table.go

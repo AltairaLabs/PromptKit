@@ -13,8 +13,7 @@
    "claim": "ask/runPipeline: NewProviderStage, ProviderConfig{MaxTokens}, StreamElement Message output with Role assistant",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:186",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:402"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -30,8 +29,7 @@
    "claim": "NewMapStage wraps a function transforming one element at a time",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:259",
-    "runtime/pipeline/stage/internal/core/stage.go:267"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -73,7 +71,7 @@
    "claim": "provider.Close() releases a provider (deferred in main)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:186",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/providers/base_provider.go:292"
    ]
   },
@@ -82,7 +80,7 @@
    "claim": "Repeated prompt hits cache; log shows one reply cost line per provider request",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:402"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {

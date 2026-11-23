@@ -39,8 +39,7 @@
    "claim": "stage.NewIncrementalSaveStage(&stage.IncrementalSaveConfig{StateStoreConfig: ...}) saves new messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_save.go:18",
-    "runtime/pipeline/stage/internal/persist/stages_save.go:67"
+    "runtime/pipeline/stage/internal/persist/stages_save.go"
    ]
   },
   {
@@ -155,7 +154,7 @@
    "claim": "diagram: load -> context builder -> provider -> save; load and save use statestore.Store",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_save.go:67",
+    "runtime/pipeline/stage/internal/persist/stages_save.go",
     "runtime/pipeline/stage/stages_core.go:166"
    ]
   }

@@ -144,7 +144,7 @@
    "claim": "the model does not receive the metadata by default",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:35"
+    "runtime/pipeline/stage/internal/history/message_metadata_template.go"
    ]
   },
   {
@@ -188,8 +188,7 @@
    "claim": "MessageMetadataTemplate on the provider renders {{key}} from message metadata",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:13",
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:79",
+    "runtime/pipeline/stage/internal/history/message_metadata_template.go",
     "runtime/providers/registry.go:549"
    ]
   },
@@ -208,8 +207,7 @@
    "claim": "rendered text appended after the user message as '<context>Selected: [\"s1\",\"s2\",\"s3\"]</context>'",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:17",
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:86"
+    "runtime/pipeline/stage/internal/history/message_metadata_template.go"
    ]
   },
   {
@@ -217,7 +215,7 @@
    "claim": "string inserted as is, other values compact JSON, missing key renders empty",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:86"
+    "runtime/pipeline/stage/internal/history/message_metadata_template.go"
    ]
   },
   {
@@ -225,7 +223,7 @@
    "claim": "every message with metadata is rendered, including earlier turns",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/history/message_metadata_template.go:39"
+    "runtime/pipeline/stage/internal/history/message_metadata_template.go"
    ]
   },
   {

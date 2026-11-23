@@ -33,8 +33,7 @@
    "claim": "Compact receives round input tokens as lastInputTokens",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/compaction/compactor.go:134-147",
-    "runtime/pipeline/stage/internal/compaction/compactor.go:36-37"
+    "runtime/pipeline/stage/internal/compaction/compactor.go"
    ]
   },
   {
@@ -42,7 +41,7 @@
    "claim": "Handoff.Call, ProviderBudgetedCompaction.ForProvider and WorkflowStateResolver exist",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/state_handoff.go:18-70"
+    "runtime/pipeline/stage/internal/provider/state_handoff.go"
    ]
   },
   {
@@ -204,7 +203,7 @@
    "claim": "A failing stage ends the turn; Send returns its error; ErrTemplateUnresolved",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/errors.go:126-132",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/pipeline/stage/pipeline.go:84-100"
    ]
   },
@@ -222,7 +221,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:42",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:274",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/skills/executor.go:283-337"
    ]
   },
@@ -383,7 +382,7 @@
    "claim": "MaxCallsPerMinute counts calls at admission in one window per conversation shared across workflow states; a refused call fails with CallRateLimitError; an approval over the limit wraps it",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:296",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/internal/provider/tool_call_rate.go",
     "runtime/tools/registry.go:592"
    ]
@@ -425,9 +424,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/config.go:135-147",
-    "runtime/pipeline/stage/internal/core/errors.go:13-25",
-    "runtime/pipeline/stage/internal/core/errors.go:94",
-    "runtime/pipeline/stage/internal/core/idle_timeout.go:12",
+    "runtime/pipeline/stage/internal/core/errors.go",
+    "runtime/pipeline/stage/internal/core/idle_timeout.go",
     "runtime/pipeline/stage/pipeline.go:1496-1507",
     "runtime/pipeline/stage/pipeline.go:84-100"
    ]

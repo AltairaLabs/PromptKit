@@ -7,8 +7,7 @@
    "claim": "Deny aborts with *hooks.HookDeniedError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3466"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -17,8 +16,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/types.go:75",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3363",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3468"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -100,8 +98,7 @@
    "claim": "Model, tool.call.completed and AfterExecution see the rewritten result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/internal/provider/tool_runner.go:653"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -221,8 +218,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/errors.go:13",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3466"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -239,8 +235,7 @@
    "claim": "HookDeniedError.HookName is the fixed string provider_hook, not the hook's Name()",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:48"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {

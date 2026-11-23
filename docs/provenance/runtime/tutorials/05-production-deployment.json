@@ -30,8 +30,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:20",
-    "runtime/pipeline/stage/internal/persist/stages_save.go:67",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:427",
+    "runtime/pipeline/stage/internal/persist/stages_save.go",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/stages_core.go:175"
    ]
   },
@@ -69,8 +69,8 @@
    "claim": "NewStateStoreLoadStage / NewProviderStageWithHooks / NewIncrementalSaveStage chain loads history, calls provider with hooks, saves new messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_save.go:67",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:427",
+    "runtime/pipeline/stage/internal/persist/stages_save.go",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/stages_core.go:262"
    ]
   },
@@ -79,7 +79,7 @@
    "claim": "StateStoreConfig names the conversation, so the pipeline is built per request",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_save.go:138",
+    "runtime/pipeline/stage/internal/persist/stages_save.go",
     "runtime/pipeline/types.go:193"
    ]
   },
@@ -97,7 +97,7 @@
    "claim": "Execute moves to the next provider only when a provider returns an error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:427"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {

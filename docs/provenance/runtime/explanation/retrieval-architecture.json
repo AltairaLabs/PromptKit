@@ -7,7 +7,7 @@
    "claim": "Pipeline retrieval writes the memory_context template variable the system template renders",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_memory.go:127",
+    "runtime/pipeline/stage/internal/persist/stages_memory.go",
     "sdk/options.go:1478-1484"
    ]
   },

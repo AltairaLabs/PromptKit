@@ -92,8 +92,7 @@
    "claim": "MaxParallelToolCalls default 10",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:36",
-    "runtime/pipeline/stage/internal/provider/tool_runner.go:207"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -163,7 +162,7 @@
    "claim": "Pipeline reference describes Stage and pipeline interfaces",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:48",
+    "runtime/pipeline/stage/internal/core/stage.go",
     "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
@@ -172,7 +171,7 @@
    "claim": "ToolPolicy MaxIdenticalToolCalls default 3 (a second identical-call loop after the self-correction nudge fails the turn), StopOnTool, and prompt tool_policy merge rules (smaller non-zero MaxRounds/MaxToolCallsPerTurn, union Blocklist, caller ToolChoice wins)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:37",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/types.go:39-48",
     "runtime/pipeline/types.go:86-101"
    ]
@@ -193,7 +192,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/internal/provider/tool_call_rate.go:45-60",
+    "runtime/pipeline/stage/internal/provider/tool_call_rate.go",
     "runtime/pipeline/types.go:21-36"
    ]
   }

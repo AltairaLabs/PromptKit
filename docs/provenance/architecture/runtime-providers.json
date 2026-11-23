@@ -296,7 +296,7 @@
    "claim": "ContextWindowProvider MaxContextTokens sizes the compactor",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/compaction/compactor.go:101",
+    "runtime/pipeline/stage/internal/compaction/compactor.go",
     "runtime/providers/provider.go:294-298"
    ]
   },

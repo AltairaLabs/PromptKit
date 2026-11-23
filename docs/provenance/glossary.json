@@ -46,8 +46,7 @@
    "claim": "Stages: ProviderStage, STTStage, TTSStage exist; LLMStage/VADStage do not",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:47",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:777"
+    "runtime/pipeline/stage/internal/voice/stages_speech.go"
    ]
   },
   {

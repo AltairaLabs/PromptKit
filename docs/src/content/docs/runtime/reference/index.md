@@ -13,7 +13,6 @@ verified:
     - runtime/pipeline/stage/internal/core/stage.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/internal/provider/tool_call_rate.go
-    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/types.go
     - runtime/providers/claude/claude.go

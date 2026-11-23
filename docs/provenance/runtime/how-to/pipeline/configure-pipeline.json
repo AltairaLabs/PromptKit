@@ -35,7 +35,7 @@
    "claim": "NewProviderStage(provider, toolRegistry, toolPolicy, config); nil tools and policy allowed",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:402"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -87,7 +87,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/pipeline/stage/builder.go:238-243",
-    "runtime/pipeline/stage/internal/core/errors.go:89-94",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/pipeline/stage/stages_core.go:62-69",
     "runtime/pipeline/stage/stages_utilities.go:195-201"
    ]
@@ -97,7 +97,7 @@
    "claim": "NewPromptAssemblyStageWithTurnState, NewTemplateStageWithTurnState, NewProviderStageWithTurnState share a TurnState and the system prompt reaches the provider",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:441",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/stages_core.go:51",
     "runtime/pipeline/stage/stages_utilities.go:186"
    ]
@@ -110,7 +110,7 @@
     "runtime/hooks/guardrails/factory.go:162",
     "runtime/hooks/registry.go:52",
     "runtime/hooks/registry.go:79",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:441"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -136,7 +136,7 @@
    "claim": "Provider stage copies TurnState.ProviderRequestMetadata into PredictionRequest.Metadata; no built-in provider reads session_id/tenant_id/user_id",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:780",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/providers/openai/realtime_session_integration.go:205"
    ]
   },
@@ -146,10 +146,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/audio/interruption.go:72",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:1020",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:1053",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:117",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:765"
+    "runtime/pipeline/stage/internal/voice/stages_speech.go"
    ]
   },
   {
@@ -157,7 +154,7 @@
    "claim": "NewDuplexProviderStageWithTurnState(provider StreamInputSupport, *StreamingInputConfig, emitter, turnState)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go:389"
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go"
    ]
   },
   {

@@ -15,7 +15,7 @@
    "claim": "Stage interface Name/Type/Process",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:48-64"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "Stage types: 5 StageType values; no Observe type",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:99-124"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "TemplateStage, RecordingStage and MessageBroadcastStage are StageTypeTransform",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_message_broadcast.go:81",
+    "runtime/pipeline/stage/internal/persist/stages_message_broadcast.go",
     "runtime/pipeline/stage/stages_utilities.go:166"
    ]
   },
@@ -99,7 +99,7 @@
    "claim": "A stage error ends the turn without canceling other stages; downstream stages get the error in-band; the caller gets a *StageError unless the stage emitted it as an error element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go:57-61",
+    "runtime/pipeline/stage/internal/core/stage.go",
     "runtime/pipeline/stage/pipeline.go:75-100"
    ]
   },
@@ -142,8 +142,7 @@
    "claim": "ProviderStage copies ProviderRequestMetadata each call",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:780",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:809-811"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -151,8 +150,7 @@
    "claim": "IncrementalSave merges metadata (only on full-save fallback)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/internal/persist/stages_save.go:306-310",
-    "runtime/pipeline/stage/internal/persist/stages_save.go:74-86"
+    "runtime/pipeline/stage/internal/persist/stages_save.go"
    ]
   },
   {
@@ -185,7 +183,7 @@
    "claim": "Element pooling available",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/element_pool.go:30-64"
+    "runtime/pipeline/stage/internal/core/element_pool.go"
    ]
   },
   {
@@ -193,10 +191,8 @@
    "claim": "Voice chain snippet constructors and signatures",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:402",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:1053",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:117",
-    "runtime/pipeline/stage/internal/voice/stages_speech.go:790"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go"
    ]
   },
   {

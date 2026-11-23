@@ -16,7 +16,7 @@
    "claim": "Handle provider and pipeline errors: StageError and providers.IsTransient",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/errors.go:101-105",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/providers/errors.go:65"
    ]
   },

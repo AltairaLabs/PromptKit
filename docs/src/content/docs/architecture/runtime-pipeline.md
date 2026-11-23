@@ -14,7 +14,6 @@ verified:
     - runtime/pipeline/stage/internal/core/idle_timeout.go
     - runtime/pipeline/stage/internal/core/stage.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
-    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/pipeline/types.go

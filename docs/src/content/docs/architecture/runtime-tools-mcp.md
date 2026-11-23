@@ -10,7 +10,6 @@ verified:
     - runtime/mcp/registry.go
     - runtime/mcp/types.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
-    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/pipeline/types.go
     - runtime/tools/child_registry.go
     - runtime/tools/exec_executor.go

@@ -36,7 +36,6 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3466",
     "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
@@ -62,7 +61,7 @@
    "claim": "Enforcement does not fail the turn; Deny does",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3419"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -96,7 +95,7 @@
    "claim": "Execution ordering diagram; session start at Open, update after turn, end at Close",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go:3454",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "sdk/conversation.go:1792",
     "sdk/conversation.go:348",
     "sdk/sdk.go:386"
@@ -176,8 +175,7 @@
    "claim": "Realtime duplex: BeforeCall runs on text bound for the session; enforcing hook blocks it and the blocked turn follows any in-progress reply; Deny ends the session",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go",
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go:328"
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go"
    ]
   },
   {
@@ -185,9 +183,7 @@
    "claim": "Realtime duplex: OnChunk runs on assistant text/transcript with the turn's text so far in Content; once enforced the rest of the turn's text and audio is dropped; AfterCall rewrites the completed turn; enforced turn drops tool calls and finishes with safety",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go:1075",
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go:1114",
-    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go:572"
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go"
    ]
   },
   {
