@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -147,7 +148,7 @@ func (s *IncrementalSaveStage) saveCollected(
 	// When MessageLog is NOT active, persist messages via the store.
 	// When MessageLog IS active, messages are already persisted per-round
 	// by the provider stage write-through — skip message append.
-	var storedFrom int
+	storedFrom := -1
 	if s.config.MessageLog == nil {
 		if s.config.MessageIndex != nil {
 			storedFrom = s.storedMessageCount(ctx, convID)
@@ -328,24 +329,25 @@ func (s *IncrementalSaveStage) fullSave(ctx context.Context, newMessages []types
 	return bulkWriter.Save(ctx, state)
 }
 
-// storedMessageCount returns how many messages the conversation holds, or 0
+// storedMessageCount returns how many messages the conversation holds, or -1
 // when the store cannot say. Read before the turn's append, it is a position
 // the turn's messages are stored at or after.
 func (s *IncrementalSaveStage) storedMessageCount(ctx context.Context, convID string) int {
 	reader, ok := s.config.StateStoreConfig.Store.(statestore.MessageReader)
 	if !ok {
-		return 0
+		return -1
 	}
 	count, err := reader.MessageCount(ctx, convID)
 	if err != nil {
-		return 0
+		return -1
 	}
 	return count
 }
 
 // indexNewMessages indexes new messages in the message index. storedFrom is
 // the message count read before the turn's append, a position at or before the
-// first of them in the transcript; it is unused when a MessageLog stored them.
+// first of them in the transcript, or -1 when there is none: the count could
+// not be read, or the provider stage's MessageLog stored the messages.
 func (s *IncrementalSaveStage) indexNewMessages(
 	ctx context.Context,
 	convID string,
@@ -379,12 +381,12 @@ func (s *IncrementalSaveStage) indexNewMessages(
 // storedTurnIndices returns a function giving the transcript position of
 // messages[i], which the turn has just stored. They are the last
 // len(messages) messages only while nothing else writes to the conversation:
-// another writer's append after them moves them back. Each message is found by
-// its id in the stored tail, read together with the count it ends at, and one
+// another writer's append after them moves them back. So each message is
+// found in a stored tail read together with the count it ends at, and one
 // that is not there has no position: indexing it at a guessed one would point
-// retrieval at another message. The tail reaches back to storedFrom, or, when
-// the provider stage's MessageLog stored the messages before this stage saw
-// them, to len(messages) before the count. A store that cannot read messages back
+// retrieval at another message. The tail reaches back to storedFrom, or
+// len(messages) when storedFrom is unknown; when that misses a message, it is
+// read once more, twice as far back. A store that cannot read messages back
 // puts the turn at position 0, as it always has.
 func (s *IncrementalSaveStage) storedTurnIndices(
 	ctx context.Context, convID string, messages []types.Message, storedFrom int,
@@ -393,39 +395,69 @@ func (s *IncrementalSaveStage) storedTurnIndices(
 	if !ok {
 		return func(i int) (int, bool) { return i, true }
 	}
-	notFound := func(int) (int, bool) { return 0, false }
-	count, err := reader.MessageCount(ctx, convID)
-	if err != nil {
-		logger.Warn("Incremental save: failed to count messages for indexing",
-			"conversation", convID, "error", err)
-		return notFound
+	size := func(count int) int {
+		if storedFrom < 0 {
+			return len(messages)
+		}
+		return count - storedFrom
 	}
-	if s.config.MessageLog != nil {
-		storedFrom = count - len(messages)
+	positions, err := locateStored(ctx, reader, convID, messages, size)
+	if err != nil || slices.Contains(positions, -1) {
+		wider := func(count int) int { return readBackWidening * size(count) }
+		positions, err = locateStored(ctx, reader, convID, messages, wider)
 	}
-	// The tail holds everything stored since storedFrom. It is at least one
-	// message long: a store may read a tail of none as the whole conversation.
-	tail, err := tailAtCount(ctx, reader, convID, count, max(count-storedFrom, 1))
 	if err != nil {
 		logger.Warn("Incremental save: could not read back the stored messages for indexing",
 			"conversation", convID, "error", err)
-		return notFound
+		return func(int) (int, bool) { return 0, false }
 	}
-	position := make(map[string]int, len(tail))
-	for j := range tail {
-		if id := tail[j].ID(); id != "" {
-			position[id] = count - len(tail) + j
+	return func(i int) (int, bool) { return positions[i], positions[i] >= 0 }
+}
+
+// readBackWidening is how many times further back the second read-back of a
+// turn's messages reaches than the first.
+const readBackWidening = 2
+
+// locateStored reads the last size(count) messages of the conversation and
+// returns the position of each of messages in it, -1 for one not found. The
+// turn's messages are matched from the end of the tail backward, in order, so
+// each is the latest stored message that matches it.
+func locateStored(
+	ctx context.Context, reader statestore.MessageReader, convID string,
+	messages []types.Message, size func(count int) int,
+) ([]int, error) {
+	count, err := reader.MessageCount(ctx, convID)
+	if err != nil {
+		return nil, fmt.Errorf("counting messages: %w", err)
+	}
+	// At least one message: a store may read a tail of none as the whole
+	// conversation.
+	tail, err := tailAtCount(ctx, reader, convID, count, max(size(count), 1))
+	if err != nil {
+		return nil, err
+	}
+	positions := make([]int, len(messages))
+	j := len(tail) - 1
+	for i := len(messages) - 1; i >= 0; i-- {
+		positions[i] = -1
+		for k := j; k >= 0; k-- {
+			if isStoredCopy(&tail[k], &messages[i]) {
+				positions[i] = count - len(tail) + k
+				j = k - 1
+				break
+			}
 		}
 	}
-	if len(position) == 0 {
-		// The store keeps no message ids, so the turn's messages are taken to
-		// be the tail the count ends at.
-		return func(i int) (int, bool) { return count - len(messages) + i, true }
+	return positions, nil
+}
+
+// isStoredCopy reports whether stored is the stored copy of msg: the same id,
+// or, from a store that keeps no ids, the same role and text.
+func isStoredCopy(stored, msg *types.Message) bool {
+	if id := stored.ID(); id != "" {
+		return id == msg.ID()
 	}
-	return func(i int) (int, bool) {
-		idx, found := position[messages[i].ID()]
-		return idx, found
-	}
+	return stored.Role == msg.Role && stored.GetContent() == msg.GetContent()
 }
 
 // errTailMoved reports a message tail that does not end at the count it was

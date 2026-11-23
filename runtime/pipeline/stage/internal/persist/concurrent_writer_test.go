@@ -2,6 +2,7 @@ package persist
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -222,22 +223,60 @@ func loggedTurnStage(t *testing.T, store *statestore.MemoryStore, idx statestore
 	}), turn
 }
 
-// A turn the MessageLog stored is indexed at the positions it holds.
+// A turn the MessageLog stored is indexed at the positions it holds, reading
+// back only the turn.
 func TestIncrementalSaveStage_IndexesALoggedTurnWhereItWasStored(t *testing.T) {
-	store := statestore.NewMemoryStore()
-	require.NoError(t, store.AppendMessages(context.Background(), "c", numberedMessages(3)))
+	store := &tailSizeStore{MemoryStore: statestore.NewMemoryStore()}
+	require.NoError(t, store.AppendMessages(context.Background(), "c", numberedMessages(30)))
 	idx := &positionIndex{}
-	s, turn := loggedTurnStage(t, store, idx)
+	s, turn := loggedTurnStage(t, store.MemoryStore, idx)
+	s.config.StateStoreConfig.Store = store
 
 	runTestStage(t, s, messageElements(turn))
 
-	assert.Equal(t, map[string]int{"q": 3, "a": 4}, idx.at)
+	assert.Equal(t, map[string]int{"q": 30, "a": 31}, idx.at)
+	assert.Equal(t, 2, store.largest, "the tail read is the turn's two messages")
 }
 
-// A logged turn another writer appended after has its messages indexed only
-// where they are found: the message the other writer's moved out of the turn's
-// tail is not indexed at the other writer's position.
-func TestIncrementalSaveStage_LoggedTurnIsNeverIndexedAtAnotherWritersPosition(t *testing.T) {
+// precountFailStore is a MemoryStore whose first MessageCount fails: the
+// count the stage reads before the turn's append.
+type precountFailStore struct {
+	tailSizeStore
+	counted bool
+}
+
+func (s *precountFailStore) MessageCount(ctx context.Context, id string) (int, error) {
+	if !s.counted {
+		s.counted = true
+		return 0, errors.New("count unavailable")
+	}
+	return s.MemoryStore.MessageCount(ctx, id)
+}
+
+// When the count before the turn's append cannot be read, the turn is still
+// indexed where it was stored, and reading it back does not read the whole
+// conversation.
+func TestIncrementalSaveStage_IndexingWithoutAPreAppendCountReadsBackOnlyTheTurn(t *testing.T) {
+	store := &precountFailStore{tailSizeStore: tailSizeStore{MemoryStore: statestore.NewMemoryStore()}}
+	require.NoError(t, store.AppendMessages(context.Background(), "c", numberedMessages(30)))
+	idx := &positionIndex{}
+	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+		MessageIndex:     idx,
+	})
+
+	runTestStage(t, s, messageElements([]types.Message{
+		{Role: "user", Content: "q"}, {Role: "assistant", Content: "a"},
+	}))
+
+	assert.Equal(t, map[string]int{"q": 30, "a": 31}, idx.at)
+	assert.Equal(t, 2, store.largest, "the tail read is the turn's two messages")
+}
+
+// A logged turn another writer appended after is still indexed where it was
+// stored: the read-back reaches further back for the message the other
+// writer's moved out of the turn's tail.
+func TestIncrementalSaveStage_IndexesALoggedTurnAnotherWriterAppendedAfter(t *testing.T) {
 	store := statestore.NewMemoryStore()
 	require.NoError(t, store.AppendMessages(context.Background(), "c", numberedMessages(3)))
 	idx := &positionIndex{}
@@ -247,5 +286,55 @@ func TestIncrementalSaveStage_LoggedTurnIsNeverIndexedAtAnotherWritersPosition(t
 
 	runTestStage(t, s, messageElements(turn))
 
+	assert.Equal(t, map[string]int{"q": 3, "a": 4}, idx.at)
+}
+
+// A logged turn that more messages were appended after than the read-back
+// reaches has only the messages it finds indexed, never one at another
+// writer's position.
+func TestIncrementalSaveStage_LoggedTurnIsNeverIndexedAtAnotherWritersPosition(t *testing.T) {
+	store := statestore.NewMemoryStore()
+	require.NoError(t, store.AppendMessages(context.Background(), "c", numberedMessages(3)))
+	idx := &positionIndex{}
+	s, turn := loggedTurnStage(t, store, idx)
+	// The other writer stores its messages with ids of their own, as a
+	// PromptKit pipeline does.
+	require.NoError(t, store.AppendMessages(context.Background(), "c", []types.Message{
+		types.EnsureMessageID(types.Message{Role: "user", Content: "other 1"}),
+		types.EnsureMessageID(types.Message{Role: "user", Content: "other 2"}),
+		types.EnsureMessageID(types.Message{Role: "user", Content: "other 3"}),
+	}))
+
+	runTestStage(t, s, messageElements(turn))
+
 	assert.Equal(t, map[string]int{"a": 4}, idx.at)
+}
+
+// idlessSharedStore is a store that keeps no message ids, shared with another
+// writer that appends right after the stage's own append.
+type idlessSharedStore struct {
+	appendAfterStore
+}
+
+func (s *idlessSharedStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {
+	return (&idlessStore{MemoryStore: s.MemoryStore}).LoadRecentMessages(ctx, id, n)
+}
+
+// In a store that keeps no ids, a turn's message is matched by role and text
+// together: another writer's message with the same role is not taken for it.
+func TestIncrementalSaveStage_IdlessStoreMatchesRoleAndText(t *testing.T) {
+	store := &idlessSharedStore{appendAfterStore{MemoryStore: statestore.NewMemoryStore()}}
+	require.NoError(t, store.MemoryStore.AppendMessages(context.Background(), "c", numberedMessages(3)))
+	store.other = []types.Message{{Role: "assistant", Content: "other writer"}}
+	idx := &positionIndex{}
+	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
+		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
+		MessageIndex:     idx,
+	})
+
+	runTestStage(t, s, messageElements([]types.Message{
+		{Role: "user", Content: "q"}, {Role: "assistant", Content: "a"},
+	}))
+
+	assert.Equal(t, map[string]int{"q": 3, "a": 4}, idx.at)
 }

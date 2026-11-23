@@ -3273,7 +3273,7 @@ func DefaultImageResizeStageConfig() ImageResizeStageConfig
 DefaultImageResizeStageConfig returns sensible defaults for image resizing.
 
 <a name="IncrementalSaveConfig"></a>
-## type [IncrementalSaveConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L18-L53>)
+## type [IncrementalSaveConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L19-L54>)
 
 IncrementalSaveConfig configures the IncrementalSaveStage.
 
@@ -3317,7 +3317,7 @@ type IncrementalSaveConfig struct {
 ```
 
 <a name="IncrementalSaveStage"></a>
-## type [IncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L60-L64>)
+## type [IncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L61-L65>)
 
 IncrementalSaveStage saves only new messages from the current turn using MessageAppender, avoiding the full load\+replace\+save cycle. When the store doesn't implement MessageAppender, it loads the state, appends the new messages and writes it back through BulkWriter. A store that implements neither makes the stage return an error.
 
@@ -3347,7 +3347,7 @@ func NewIncrementalSaveStageWithTurnState(config *IncrementalSaveConfig, turnSta
 NewIncrementalSaveStageWithTurnState creates an incremental save stage that also merges TurnState.ProviderRequestMetadata into the persisted state on the fallback fullSave path.
 
 <a name="IncrementalSaveStage.Process"></a>
-### func \(\*IncrementalSaveStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L89-L93>)
+### func \(\*IncrementalSaveStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L90-L94>)
 
 ```go
 func (s *IncrementalSaveStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
