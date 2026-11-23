@@ -12,8 +12,10 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -365,7 +367,7 @@ func TestStableTools_Streaming(t *testing.T) {
 // reported. One to a state naming a tool outside the catalog rebuilds it, as
 // a workflow state change.
 func TestStableTools_WorkflowHandoff(t *testing.T) {
-	run := func(catalog ...string) (*stableScriptProvider, []events.ToolOfferRebuiltData) {
+	run := func(catalog ...string) (*stableScriptProvider, []events.ToolOfferRebuiltData, *ProviderStage) {
 		ev := newOfferEvents(t)
 		prov := newStableScriptProvider([]types.MessageToolCall{offerCall("c1", "lookup_order")})
 		resolver := &fakeResolver{sequence: []Handoff{
@@ -378,10 +380,10 @@ func TestStableTools_WorkflowHandoff(t *testing.T) {
 			cfg:      &ProviderConfig{ToolLoading: stableLoading(catalog...)},
 		})
 		runOfferTurn(t, s, "refund my order")
-		return prov, ev.all()
+		return prov, ev.all(), s
 	}
 
-	prov, got := run("lookup_order", "refund")
+	prov, got, s := run("lookup_order", "refund")
 	calls := prov.sent(t)
 	require.Len(t, calls, 2)
 	assert.Equal(t, []string{"lookup_order", "refund"}, calls[0].tools)
@@ -389,8 +391,10 @@ func TestStableTools_WorkflowHandoff(t *testing.T) {
 	assert.Equal(t, []string{"lookup_order"}, calls[0].active)
 	assert.Equal(t, []string{"refund"}, calls[1].active)
 	assert.Empty(t, got)
+	assert.Equal(t, "REFUNDS", s.turnState.SystemPrompt, "the turn runs as the state it handed off to")
+	assert.Equal(t, []string{"refund"}, s.turnState.AllowedTools)
 
-	prov, got = run()
+	prov, got, _ = run()
 	calls = prov.sent(t)
 	require.Len(t, calls, 2)
 	assert.Equal(t, []string{"lookup_order"}, calls[0].tools)
@@ -400,4 +404,59 @@ func TestStableTools_WorkflowHandoff(t *testing.T) {
 		Reasons: []string{events.ToolOfferReasonWorkflowState}, Added: []string{"refund"},
 		Removed: []string{"lookup_order"}, Round: 2,
 	}}, got)
+}
+
+// A tool round that makes DescribeTool describe a tool differently rebuilds
+// the array, and is reported as a describe change.
+func TestStableTools_DescribeChangeRebuilds(t *testing.T) {
+	ev := newOfferEvents(t)
+	prov := newStableScriptProvider([]types.MessageToolCall{offerCall("c1", "lookup_order")})
+	desc := "first"
+	s := newOfferStage(t, prov, registryWithTools(t, "lookup_order", "skill__activate"), ev, offerStageOpts{
+		allowed: []string{"lookup_order"},
+		onRun:   func(string) { desc = "second" },
+		cfg: &ProviderConfig{ToolLoading: stableLoading(), DescribeTool: func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+			c := *d
+			if c.Name == "skill__activate" {
+				c.Description = desc
+			}
+			return &c
+		}},
+	})
+
+	runOfferTurn(t, s, "go")
+
+	assert.Equal(t, []events.ToolOfferRebuiltData{{Reasons: []string{events.ToolOfferReasonDescribe}, Round: 2}},
+		ev.all())
+}
+
+// A call sent no tools array is sent no tool choice, even when the history's
+// tool calls put it on the tool path.
+func TestStableTools_NoArrayNoChoice(t *testing.T) {
+	prov := newStableScriptProvider()
+	s := newOfferStage(t, prov, registryWithTools(t, "lookup_order"), nil, offerStageOpts{
+		allowed: []string{},
+		cfg:     &ProviderConfig{ToolLoading: stableLoading()},
+	})
+	history := []types.Message{
+		{Role: "user", Content: "where is ORD-1"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{offerCall("c0", "lookup_order")}},
+		types.NewToolResultMessage(types.NewTextToolResult("c0", "lookup_order", "shipped")),
+		{Role: "user", Content: "thanks"},
+	}
+	input := make(chan core.StreamElement, len(history))
+	for i := range history {
+		input <- core.NewMessageElement(&history[i])
+	}
+	close(input)
+	output := make(chan core.StreamElement, 64)
+	require.NoError(t, s.Process(context.Background(), input, output))
+	for range output { //nolint:revive // draining
+	}
+
+	calls := prov.sent(t)
+	require.Len(t, calls, 1)
+	assert.Nil(t, calls[0].tools)
+	assert.Equal(t, "", calls[0].choice)
+	assert.Nil(t, calls[0].active)
 }

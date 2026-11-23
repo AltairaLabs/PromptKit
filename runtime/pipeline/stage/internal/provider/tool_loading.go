@@ -93,8 +93,8 @@ func (s *ProviderStage) buildStableTools(
 	offer []*tools.ToolDescriptor, toolProvider providers.ToolSupport,
 ) (providerTools interface{}, toolChoice string, catalog offerSnapshot, err error) {
 	providerTools, toolChoice, err = s.buildProviderToolsFrom(offer, toolProvider)
-	if err != nil || providerTools == nil {
-		return providerTools, toolChoice, s.snapshotOf(nil), err
+	if err != nil {
+		return nil, "", s.snapshotOf(nil), err
 	}
 	return providerTools, toolChoice, s.snapshotOf(offer), nil
 }
@@ -108,7 +108,7 @@ func (tl *toolLoop) syncStable() (bool, error) {
 	s := tl.stage
 	offer, toolProvider := s.catalogOffer(tl.acc)
 	rebuilt := false
-	if snap := s.snapshotOf(offer); toolProvider == nil || !snap.equal(tl.catalog) {
+	if !s.snapshotOf(offer).equal(tl.catalog) {
 		providerTools, _, catalog, err := s.buildStableTools(offer, toolProvider)
 		if err != nil {
 			return false, err
@@ -146,9 +146,9 @@ func (tl *toolLoop) prepareActive() {
 
 // requestActiveTools is a provider call's PredictionRequest.ActiveTools: in
 // stable mode, the round's active tools when the tools array holds more;
-// otherwise nil.
+// otherwise nil, and always nil for a call sent no tools array.
 func (s *ProviderStage) requestActiveTools(providerTools interface{}) []string {
-	if providerTools == nil || !s.stableTools() {
+	if providerTools == nil {
 		return nil
 	}
 	return s.offerState().narrowedActive()
@@ -158,8 +158,8 @@ func (s *ProviderStage) requestActiveTools(providerTools interface{}) []string {
 // choice none: max_tool_calls_per_turn is spent, or the array holds tools
 // and the model may call none of them.
 func (tl *toolLoop) stableChoiceNone() bool {
-	if !tl.stage.stableTools() || tl.providerTools == nil {
-		return false
+	if tl.providerTools == nil {
+		return false // no tools array, so no tool choice to send
 	}
 	if tl.exhausted {
 		return true
@@ -194,7 +194,6 @@ func (s *ProviderStage) applyStableHandoff(
 	acc *providerInput, loop *toolLoop, handoff Handoff, providerChanged bool,
 ) error {
 	sameTools := s.runner().selectsSameTools(handoff.AllowedTools, acc.promptTools())
-	changed := providerChanged || !sameTools || handoff.SystemPrompt != acc.systemPrompt
 	if !sameTools {
 		acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
 	}
@@ -210,7 +209,7 @@ func (s *ProviderStage) applyStableHandoff(
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
 	}
-	if changed && s.turnState != nil {
+	if s.turnState != nil {
 		s.turnState.SystemPrompt = handoff.SystemPrompt
 		s.turnState.AllowedTools = handoff.AllowedTools
 	}
