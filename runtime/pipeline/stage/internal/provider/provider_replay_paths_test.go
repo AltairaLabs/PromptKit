@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/prompt"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -68,4 +69,37 @@ func TestToolTurn_OverBudgetCallDoesNotCountTowardTheBreaker(t *testing.T) {
 	assert.Equal(t, "c3", second.Results[0].ToolResult.ID)
 	assert.Equal(t, overBudget, second.Results[0].ToolResult.Error)
 	assert.False(t, second.Nudged, "the over-budget call never ran, so its repeat is not a loop")
+}
+
+// Call parameters are the same when every field is, the pointer fields by the
+// value they point at; any one field differing makes them differ.
+func TestSameCallParams_ComparesEveryFieldByValue(t *testing.T) {
+	f32 := func(v float32) *float32 { return &v }
+	i := func(v int) *int { return &v }
+	base := func() prompt.CallParams {
+		return prompt.CallParams{
+			MaxTokens: 100, Temperature: 0.5, TemperatureSet: true, TopP: 0.9,
+			FrequencyPenalty: f32(0.1), PresencePenalty: f32(0.2), TopK: i(40),
+		}
+	}
+	a, b := base(), base()
+	assert.True(t, sameCallParams(&a, &b), "equal values behind distinct pointers")
+	none := prompt.CallParams{}
+	assert.True(t, sameCallParams(&none, &prompt.CallParams{}), "unset pointers on both sides")
+
+	for name, change := range map[string]func(*prompt.CallParams){
+		"MaxTokens":        func(p *prompt.CallParams) { p.MaxTokens = 101 },
+		"Temperature":      func(p *prompt.CallParams) { p.Temperature = 0.6 },
+		"TemperatureSet":   func(p *prompt.CallParams) { p.TemperatureSet = false },
+		"TopP":             func(p *prompt.CallParams) { p.TopP = 0.8 },
+		"FrequencyPenalty": func(p *prompt.CallParams) { p.FrequencyPenalty = f32(0.3) },
+		"PresencePenalty":  func(p *prompt.CallParams) { p.PresencePenalty = f32(0.4) },
+		"TopK":             func(p *prompt.CallParams) { p.TopK = i(41) },
+		"TopK unset":       func(p *prompt.CallParams) { p.TopK = nil },
+	} {
+		c := base()
+		change(&c)
+		assert.False(t, sameCallParams(&a, &c), "%s differs", name)
+		assert.False(t, sameCallParams(&c, &a), "%s differs, the other way round", name)
+	}
 }
