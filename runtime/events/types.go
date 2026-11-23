@@ -67,8 +67,7 @@ const (
 	// rest of the tool loop (ToolExcludedData).
 	EventToolExcluded EventType = "tool.excluded"
 	// EventToolOfferRebuilt marks a provider call sent a tools array that
-	// differs from the one the provider stage's previous call was sent
-	// (ToolOfferRebuiltData).
+	// differs from the one the previous call was sent (ToolOfferRebuiltData).
 	EventToolOfferRebuilt EventType = "tool.offer.rebuilt"
 	// EventContextNoteAdded marks a note added to a realtime model's
 	// conversation that the caller neither hears nor sees, such as the note
@@ -509,15 +508,16 @@ const (
 )
 
 // ToolOfferRebuiltData is the payload of tool.offer.rebuilt: the provider
-// stage is sending a call a tools array that differs from the one its
+// stage is sending a call a tools array that differs from the one the
 // previous call was sent, and publishes this before the call's
-// provider.call.started. The SDK runs a conversation on one provider stage,
-// so there the previous call is the conversation's. A provider that caches the
+// provider.call.started. The previous call is the stage's, or that of any
+// stage sharing its ToolOfferHistory: in the SDK, the conversation's, or in
+// a workflow, any state's. A provider that caches the
 // request prefix (tools, then system prompt, then messages) cannot reuse the
 // cache past the change: Claude writes the whole prefix again and OpenAI
 // processes the prefix again from the first changed tool.
 //
-// The stage's first provider call is not a rebuild and is not reported,
+// The first provider call is not a rebuild and is not reported,
 // and neither is a call sent the same array as the call before it.
 type ToolOfferRebuiltData struct {
 	baseEventData
