@@ -504,6 +504,8 @@ What the model may call on a call is what `rebuild` mode would have sent it. A c
 | A workflow state change | The model may call the new state's tools. `workflow__transition`'s input schema lists the state's events, so the array changes and is reported. |
 | An MCP server's tool list, a client's frontend tools, or another provider | The array is rebuilt and reported as `tool.offer.rebuilt`. |
 
+A realtime session (`OpenDuplex` with a streaming provider) does not use `tool_loading`: its tools and the skill__activate index are those of `rebuild` mode. A VAD voice session uses it.
+
 OpenAI's own API (`api.openai.com`, Chat Completions and Responses) is also sent what the model may call as `tool_choice` `allowed_tools`, so the model does not try the other tools. Azure, Bedrock, Vertex and an `openai` provider whose `base_url` names another host (vLLM, OpenRouter, LiteLLM and other OpenAI-compatible servers) are not sent it. They, and every other provider, see every tool in the array and rely on the refusal.
 
 ---

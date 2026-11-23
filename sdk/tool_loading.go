@@ -53,6 +53,10 @@ type ToolLoading struct {
 // refused, as it always is. The array still changes when an MCP server's tool
 // list or a client's frontend tools change, and on a provider switch.
 //
+// A realtime session (OpenDuplex with a streaming provider) does not use the
+// setting: its tools, and the skill__activate index, are those of rebuild
+// mode. A VAD voice session uses it, as a text conversation does.
+//
 // The same setting is RuntimeConfig's spec.tool_loading.mode. An unknown
 // mode is an error.
 //
