@@ -20,6 +20,12 @@ The mechanical checks are the plugin's `docs-kit` tool, pinned in
 [uv](https://docs.astral.sh/uv/) installed. Bump the pin in the `Makefile`,
 both workflows and `.claude/settings.json` together.
 
+`docs-stale` only warns when a page cites a file that no longer exists.
+`make docs-sources-check` (`scripts/check-docs-sources.sh`, also run by the
+Docs Checks workflow) fails on it: a PR that moves or deletes a cited file
+repoints the page's `verified.sources` and its `docs/provenance/` sidecar at
+the new path.
+
 ## Product and reader
 
 PromptKit, the Go SDK and runtime libraries. Most "commands" in the docs are

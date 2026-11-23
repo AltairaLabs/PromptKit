@@ -5,6 +5,7 @@ name: Docs Checks
 # configured by docs-kit.toml:
 # - the voice check (fails only in directories listed in
 #   scripts/docs-voice-enforced.txt, warns elsewhere);
+# - cited sources that do not exist (scripts/check-docs-sources.sh): fails;
 # - pages whose verified facts this PR may have changed: warn-only, written to
 #   the job summary. Uncovered surface is reported weekly by docs-freshness.yml.
 # Runs on every PR, because a code change is what makes a page stale.
@@ -48,6 +49,13 @@ jobs:
             echo "$(grep -c '^warn ' "$RUNNER_TEMP/voice.txt" || true) warnings. See docs/STYLE.md."
           } >> "$GITHUB_STEP_SUMMARY"
           exit $status
+
+      # docs-stale only warns about a cited file that is gone ("missing"); a
+      # page citing a moved or deleted file must be repointed in the same PR.
+      - name: Check cited sources exist
+        run: |
+          ./scripts/test-check-docs-sources.sh
+          ./scripts/check-docs-sources.sh
 
       - name: Report stale pages
         if: github.event_name == 'pull_request'
