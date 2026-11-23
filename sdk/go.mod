@@ -3,9 +3,9 @@ module github.com/AltairaLabs/PromptKit/sdk/v2
 go 1.26.0
 
 require (
-	github.com/AltairaLabs/PromptKit/pkg/v2 v2.0.0
-	github.com/AltairaLabs/PromptKit/runtime/v2 v2.0.0
-	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.0.0
+	github.com/AltairaLabs/PromptKit/pkg/v2 v2.23.0
+	github.com/AltairaLabs/PromptKit/runtime/v2 v2.23.0
+	github.com/AltairaLabs/PromptKit/server/a2a/v2 v2.23.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261120232805-a6f2539a2ad9
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/google/uuid v1.6.0
@@ -105,9 +105,3 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 )
-
-replace github.com/AltairaLabs/PromptKit/pkg/v2 => ../pkg
-
-replace github.com/AltairaLabs/PromptKit/runtime/v2 => ../runtime
-
-replace github.com/AltairaLabs/PromptKit/server/a2a/v2 => ../server/a2a
