@@ -20,8 +20,8 @@ import (
 // through the array that is.
 
 // offerSnapshot is a tools array as a provider is sent it: the names of its
-// tools, sorted; DescribeTool's fingerprint of it (describedToolsKey); and
-// the provider it was built for. The zero value is no array.
+// tools, sorted; a fingerprint of the tools as described (descriptorsKey);
+// and the provider it was built for. The zero value is no array.
 type offerSnapshot struct {
 	names    []string
 	key      string
@@ -78,11 +78,13 @@ func (o *ToolOffer) addCauseLocked(reason string) {
 
 // noteTurn records the turn's offer as built from in, and, when the array
 // built for it differs from the one last sent, why: a turn's first build
-// has no single cause, so it is told apart by what it was built from.
+// has no single cause, so it is told apart by what it was built from. The
+// stage's first turn records a cause too, which takeSent drops with the
+// first call it reports nothing for.
 func (o *ToolOffer) noteTurn(in offerInputs, describes bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if o.log.sentAny && !o.log.current.equal(o.log.sent) {
+	if !o.log.current.equal(o.log.sent) {
 		o.addCauseLocked(o.turnCauseLocked(in, describes))
 	}
 	o.log.inputs = in
@@ -176,15 +178,16 @@ func diffNames(from, to []string) (added, removed []string) {
 
 // mcpToolPrefix starts the name of every tool an MCP server provides
 // (mcp__<server>__<tool>).
-const mcpToolPrefix = "mcp" + tools.NamespaceSep
+const mcpToolPrefix = "mcp__"
 
 // onlyMCP reports whether there is a change and every changed name is an MCP
 // tool's.
 func onlyMCP(added, removed []string) bool {
-	if len(added)+len(removed) == 0 {
+	changed := append(slices.Clone(added), removed...)
+	if len(changed) == 0 {
 		return false
 	}
-	for _, n := range append(slices.Clone(added), removed...) {
+	for _, n := range changed {
 		if !strings.HasPrefix(n, mcpToolPrefix) {
 			return false
 		}
@@ -192,15 +195,15 @@ func onlyMCP(added, removed []string) bool {
 	return true
 }
 
-// snapshotOf is the snapshot of an array built from offer, fingerprinted key,
-// for the stage's call provider.
-func (s *ProviderStage) snapshotOf(offer []*tools.ToolDescriptor, key string) offerSnapshot {
+// snapshotOf is the snapshot of an array built from offer for the stage's
+// call provider.
+func (s *ProviderStage) snapshotOf(offer []*tools.ToolDescriptor) offerSnapshot {
 	names := make([]string, 0, len(offer))
 	for _, d := range offer {
 		names = append(names, d.Name)
 	}
 	slices.Sort(names)
-	return offerSnapshot{names: names, key: key, provider: s.callProvider()}
+	return offerSnapshot{names: names, key: descriptorsKey(offer), provider: s.callProvider()}
 }
 
 // noteTurnOffer records the turn's first tools build, from acc.

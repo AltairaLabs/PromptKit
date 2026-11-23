@@ -3878,9 +3878,9 @@ func (s *ProviderStage) buildProviderToolsFrom(
 	offer []*tools.ToolDescriptor, toolProvider providers.ToolSupport,
 ) (providerTools interface{}, toolChoice string, err error) {
 	r := s.runner()
-	key := r.markBuilt(offer)
+	r.MarkBuilt(offer)
 	r.markSent(nil) // until a tools array is built for the provider
-	s.offerState().setCurrent(s.snapshotOf(nil, ""))
+	s.offerState().setCurrent(s.snapshotOf(nil))
 	if toolProvider == nil {
 		return nil, "", nil
 	}
@@ -3898,7 +3898,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 	r.markSent(offer)
-	s.offerState().setCurrent(s.snapshotOf(offer, key))
+	s.offerState().setCurrent(s.snapshotOf(offer))
 
 	// Determine tool choice from policy
 	toolChoice = toolChoiceAuto // default

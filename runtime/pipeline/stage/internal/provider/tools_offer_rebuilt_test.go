@@ -434,6 +434,27 @@ func TestToolsOfferRebuilt_RegistryChange(t *testing.T) {
 	}}, ev.all())
 }
 
+// A tool the registry describes differently between turns, with no
+// DescribeTool, is reported as a registry change with nothing added or
+// removed.
+func TestToolsOfferRebuilt_RegistryRedescribed(t *testing.T) {
+	ev := newOfferEvents(t)
+	prov := newOfferScriptProvider("p")
+	reg := registryWithTools(t, "lookup_order")
+	s := newOfferStage(t, prov, reg, ev, offerStageOpts{allowed: []string{"lookup_order"}})
+
+	runOfferTurn(t, s, "first")
+	require.NoError(t, reg.Register(&tools.ToolDescriptor{
+		Name: "lookup_order", Description: "Look up an order by id", InputSchema: json.RawMessage(`{"type":"object"}`),
+		Mode: "local",
+	}))
+	runOfferTurn(t, s, "second")
+
+	assert.Equal(t, []events.ToolsOfferRebuiltData{{
+		Reasons: []string{events.ToolsOfferReasonRegistry}, Round: 1,
+	}}, ev.all())
+}
+
 // A workflow transition to a state with other tools is reported on the
 // round that runs as the new state.
 func TestToolsOfferRebuilt_WorkflowState(t *testing.T) {

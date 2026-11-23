@@ -1596,6 +1596,12 @@ func (r *ToolRunner) describedToolsKey(descriptors []*tools.ToolDescriptor) stri
 	if r.Config.DescribeTool == nil {
 		return ""
 	}
+	return descriptorsKey(descriptors)
+}
+
+// descriptorsKey fingerprints descriptors: each one's name, description and
+// input schema, in order.
+func descriptorsKey(descriptors []*tools.ToolDescriptor) string {
 	var sb strings.Builder
 	for _, d := range descriptors {
 		sb.WriteString(d.Name)
@@ -1623,20 +1629,13 @@ func (r *ToolRunner) DescribedChanged(descriptors []*tools.ToolDescriptor) bool 
 // MarkBuilt records descriptors as the tools array last built, as
 // DescribeTool shaped it (DescribedChanged compares against it).
 func (r *ToolRunner) MarkBuilt(descriptors []*tools.ToolDescriptor) {
-	r.markBuilt(descriptors)
-}
-
-// markBuilt is MarkBuilt, returning the fingerprint it recorded ("" without
-// an offer state).
-func (r *ToolRunner) markBuilt(descriptors []*tools.ToolDescriptor) string {
 	if r.offers == nil {
-		return ""
+		return
 	}
 	key := r.describedToolsKey(descriptors)
 	r.offers.mu.Lock()
 	defer r.offers.mu.Unlock()
 	r.offers.describedKey = key
-	return key
 }
 
 // markSent records descriptors as the tools the provider was last sent: none
