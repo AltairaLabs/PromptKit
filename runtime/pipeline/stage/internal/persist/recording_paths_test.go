@@ -127,3 +127,55 @@ func TestRecordingStage_FailedAppendStillForwards(t *testing.T) {
 	assert.Equal(t, "hi", out[0].Message.Content)
 	assert.Equal(t, time.Unix(10, 0), out[0].Timestamp)
 }
+
+// A bare control signal records nothing.
+func TestRecordingStage_BareControlElementRecordsNothing(t *testing.T) {
+	store := &fakeEventStore{}
+	cfg := DefaultRecordingStageConfig()
+	cfg.Position = RecordingPositionOutput
+	runTestStage(t, NewRecordingStage(store, cfg), []core.StreamElement{
+		core.NewEndOfStreamElement(), {EndOfTurn: true}, {Interrupt: true},
+	})
+	assert.Empty(t, store.snapshot())
+}
+
+// Video is opt-in: a video element is not recorded without IncludeVideo, and
+// with it, only the video element is.
+func TestRecordingStage_VideoIsOptIn(t *testing.T) {
+	video := core.StreamElement{Video: &core.VideoData{Data: []byte{1}, MIMEType: "video/h264", Width: 4, Height: 2}}
+	text := core.NewTextElement("x")
+
+	off := &fakeEventStore{}
+	runTestStage(t, NewRecordingStage(off, RecordingStageConfig{Position: RecordingPositionOutput}),
+		[]core.StreamElement{video})
+	assert.Empty(t, off.snapshot())
+
+	on := &fakeEventStore{}
+	runTestStage(t, NewRecordingStage(on, RecordingStageConfig{Position: RecordingPositionOutput, IncludeVideo: true}),
+		[]core.StreamElement{video, text})
+	require.Len(t, on.snapshot(), 1)
+	assert.Equal(t, events.EventVideoFrame, on.snapshot()[0].Type)
+}
+
+// The output recorder marks nothing: the message it forwards keeps its Source.
+func TestRecordingStage_OutputRecorderForwardsTheMessageUnmarked(t *testing.T) {
+	rs := NewRecordingStage(&fakeEventStore{}, RecordingStageConfig{Position: RecordingPositionOutput})
+	msg := types.Message{Role: core.RoleUser, Content: "spoken"}
+	out := runTestStage(t, rs, []core.StreamElement{core.NewMessageElement(&msg)})
+	require.Len(t, out, 1)
+	assert.Equal(t, "", out[0].Message.Source)
+}
+
+// Stereo audio's duration counts both channels' bytes: 3200 bytes of 16 kHz
+// stereo is 50 ms.
+func TestRecordingStage_StereoAudioDuration(t *testing.T) {
+	store := &fakeEventStore{}
+	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionInput, IncludeAudio: true})
+	runTestStage(t, rs, []core.StreamElement{{Audio: &core.AudioData{
+		Samples: make([]byte, 3200), SampleRate: 16000, Channels: 2,
+	}}})
+
+	got := store.filterByType(events.EventAudioInput)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(50), got[0].Data.(*events.AudioEventData).Metadata.DurationMs)
+}

@@ -93,11 +93,3 @@ func TestRecordingStage_RecordsEveryContentFieldOfAnElement(t *testing.T) {
 		events.EventMessageTextDelta, events.EventAudioOutput, events.EventMessageCreated,
 	}, got)
 }
-
-// A bare control signal still records nothing.
-func TestRecordingStage_BareControlElementRecordsNothing(t *testing.T) {
-	store := recordElements(t, DefaultRecordingStageConfig(), []StreamElement{
-		NewEndOfStreamElement(), {EndOfTurn: true}, {Interrupt: true},
-	})
-	assert.Empty(t, store.snapshot())
-}
