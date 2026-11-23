@@ -108,8 +108,26 @@ func TestCompositionExecutor_StepCallsCountUnderTheConversation(t *testing.T) {
 	window := NewCallRateWindow()
 	policy := &pipeline.ToolPolicy{MaxCallsPerMinute: 1}
 
-	// A call of conv-a's own turn fills its window.
-	require.NoError(t, window.Admit("conv-a", "echo", policy.MaxCallsPerMinute))
+	// A turn of conv-a's own ProviderStage calls echo once, filling the window.
+	outerReg := tools.NewRegistry()
+	outerEcho := &countingEcho{}
+	outerReg.RegisterExecutor(outerEcho)
+	require.NoError(t, outerReg.Register(&tools.ToolDescriptor{
+		Name: "echo", Description: "echo", Mode: outerEcho.Name(), InputSchema: json.RawMessage(`{"type":"object"}`),
+	}))
+	outerTS := NewTurnState()
+	outerTS.ConversationID = "conv-a"
+	outerTS.AllowedTools = []string{"echo"}
+	outerProv := &loopingToolProvider{ToolProvider: mock.NewToolProvider("outer", "m", false, nil)}
+	outer := NewProviderStageWithTurnState(outerProv, outerReg,
+		&pipeline.ToolPolicy{MaxCallsPerMinute: 1, StopOnTool: "echo"},
+		&ProviderConfig{CallRate: window}, nil, nil, outerTS)
+	in := make(chan StreamElement, 1)
+	in <- NewMessageElement(&types.Message{Role: "user", Content: "go"})
+	close(in)
+	out := make(chan StreamElement, 16)
+	require.NoError(t, outer.Process(context.Background(), in, out))
+	require.Equal(t, int32(1), outerEcho.runs.Load(), "the outer turn ran echo once")
 
 	// A step of the same conversation's composition calls echo in the same minute.
 	reg := prompt.NewRegistryWithRepository(newMockRepo())
