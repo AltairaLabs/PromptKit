@@ -222,7 +222,27 @@ A page reviewed by `docs-review` carries a `verified` record in its
 frontmatter: the commit its claims were checked against, and the source
 files they were checked against. A sidecar in `docs/provenance/` maps each
 claim to its evidence. docs-kit's `docs-provenance` writes both; do not edit
-them by hand.
+them by hand, with one exception.
+
+**A cited file moves or is renamed.** The record's paths then name a file
+that no longer exists, and `make docs-sources-check` fails. Repoint the
+record in the PR that moves the file, the way `docs-provenance --merge`
+re-anchors a page. Do not edit the paths alone. A path that did not exist at
+the record's commit diffs as one added hunk, so docs-stale never reports a
+line cited in it.
+
+- If the page is current (`make docs-stale` lists it only as `missing`) and
+  every cited line of the moved file is unchanged in its new home, set the
+  record's commit to the PR's base on `main`. Translate each cited line
+  through the diff from the old commit: moved files through the move, and
+  every other file through `git diff <old> <base>`. A line that changed
+  becomes a file-level citation (the path with no line).
+- Otherwise the page keeps its commit and cites the moved file at file
+  level, with no line numbers. docs-stale then reports the page until
+  `/docs-review:docs-review --stale` re-verifies it.
+
+Compare `make docs-stale` before and after: no page that was stale may turn
+current.
 
 - `make docs-stale` lists pages whose facts may have changed since
   their verified commit: a change touched a line one of their claims cites,

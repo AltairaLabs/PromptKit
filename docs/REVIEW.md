@@ -22,9 +22,10 @@ both workflows and `.claude/settings.json` together.
 
 `docs-stale` only warns when a page cites a file that no longer exists.
 `make docs-sources-check` (`scripts/check-docs-sources.sh`, also run by the
-Docs Checks workflow) fails on it: a PR that moves or deletes a cited file
-repoints the page's `verified.sources` and its `docs/provenance/` sidecar at
-the new path.
+Docs Checks workflow) fails on it. A PR that moves a cited file repoints the
+page's `verified` record and its `docs/provenance/` sidecar as
+`docs/STYLE.md` ("Keeping pages true") describes: it re-anchors the page, or
+cites the file at file level. It never just rewrites the path.
 
 ## Product and reader
 
