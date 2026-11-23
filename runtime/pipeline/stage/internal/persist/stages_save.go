@@ -462,22 +462,21 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 	}
 }
 
-// passthrough forwards all input elements without saving.
+// passthrough forwards all input elements without saving. Like the saving
+// path, it reads the input to the end after ctx is canceled, so a canceled
+// turn's partial reply and error still reach the caller; see CancelForwarder.
 func (s *IncrementalSaveStage) passthrough(
 	ctx context.Context,
 	input <-chan core.StreamElement,
 	output chan<- core.StreamElement,
 ) error {
+	var fwd core.CancelForwarder
 	for elem := range input {
 		if elem.Error != nil {
 			output <- elem
 			continue
 		}
-		select {
-		case output <- elem:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		fwd.Forward(ctx, output, elem)
 	}
-	return nil
+	return ctx.Err()
 }

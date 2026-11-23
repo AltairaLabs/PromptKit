@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
@@ -991,6 +992,45 @@ func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 	// Third element is a message
 	assert.NotNil(t, results[2].Message)
 	assert.Equal(t, "After error", results[2].Message.Content)
+}
+
+// A save stage without a store still passes on what a canceled turn produced:
+// the partial reply the provider stage emits after the cancellation and its
+// error reach the caller, and the cancellation is returned.
+func TestIncrementalSaveStage_PassthroughForwardsACanceledTurn(t *testing.T) {
+	s := NewIncrementalSaveStage(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	partial := types.Message{Role: "assistant", Content: "Sure, I'll", FinishReason: types.FinishReasonInterrupted}
+	input := make(chan core.StreamElement, 2)
+	input <- core.NewMessageElement(&partial)
+	input <- core.NewErrorElement(context.Canceled)
+	close(input)
+
+	output := make(chan core.StreamElement)
+	got := make(chan []core.StreamElement, 1)
+	go func() {
+		// The caller starts reading after the stage has begun sending.
+		time.Sleep(20 * time.Millisecond)
+		var elems []core.StreamElement
+		for elem := range output {
+			elems = append(elems, elem)
+		}
+		got <- elems
+	}()
+
+	require.ErrorIs(t, s.Process(ctx, input, output), context.Canceled)
+	var elems []core.StreamElement
+	select {
+	case elems = <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stage's output was never closed")
+	}
+	require.Len(t, elems, 2)
+	assert.Equal(t, "Sure, I'll", elems[0].Message.Content)
+	assert.ErrorIs(t, elems[1].Error, context.Canceled)
 }
 
 // summaryAccessorOnlyStore implements Store + SummaryAccessor but NOT
