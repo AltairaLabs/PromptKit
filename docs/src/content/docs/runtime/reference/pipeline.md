@@ -6864,7 +6864,7 @@ type ToolCallRunner interface {
 ```
 
 <a name="ToolLoading"></a>
-## type [ToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L43-L52>)
+## type [ToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L44-L55>)
 
 ToolLoading is how the provider stage builds the tools array it sends.
 
@@ -6878,15 +6878,17 @@ type ToolLoading struct {
     Mode ToolLoadingMode
     // Catalog, in stable mode, returns tool names the conversation may be
     // offered later on, beyond the prompt's allowed tools: every tool a
-    // skill can grant, say. Each is sent from the first call, matched
-    // exactly, and called only once something grants it. A name no tool is
-    // registered under is skipped. Nil adds none.
+    // skill can grant, or another workflow state's tools, say. Each is sent
+    // from the first call, and called only once something lets the model
+    // call it. A name ending in "*" is a pattern, expanded against the
+    // registry as an allowed_tools entry is; any other is matched exactly,
+    // and skipped when no tool is registered under it. Nil adds none.
     Catalog func() []string
 }
 ```
 
 <a name="ToolLoading.Stable"></a>
-### func \(ToolLoading\) [Stable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L55>)
+### func \(ToolLoading\) [Stable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L58>)
 
 ```go
 func (l ToolLoading) Stable() bool
@@ -6895,7 +6897,7 @@ func (l ToolLoading) Stable() bool
 Stable reports whether l is stable mode.
 
 <a name="ToolLoadingMode"></a>
-## type [ToolLoadingMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L14>)
+## type [ToolLoadingMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L15>)
 
 ToolLoadingMode is how a conversation's tools array follows a change to what the model may call \(ProviderConfig.ToolLoading\).
 

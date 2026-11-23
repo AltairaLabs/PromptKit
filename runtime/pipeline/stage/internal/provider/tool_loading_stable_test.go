@@ -460,3 +460,31 @@ func TestStableTools_NoArrayNoChoice(t *testing.T) {
 	assert.Equal(t, "", calls[0].choice)
 	assert.Nil(t, calls[0].active)
 }
+
+// A catalog entry ending in "*" is a pattern, expanded against the registry
+// as an allowed_tools entry is: a handoff to a state that allows an MCP
+// server's tools by pattern keeps the array.
+func TestStableTools_WildcardCatalogEntryIsExpanded(t *testing.T) {
+	ev := newOfferEvents(t)
+	prov := newStableScriptProvider([]types.MessageToolCall{offerCall("c1", "lookup_order")})
+	resolver := &fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "ORDERS", AllowedTools: []string{"lookup_order"}},
+		{Valid: true, SystemPrompt: "CRM", AllowedTools: []string{"mcp__crm__*"}},
+	}}
+	s := newOfferStage(t, prov, registryWithTools(t, "lookup_order", "mcp__crm__find", "mcp__crm__update"), ev,
+		offerStageOpts{
+			allowed:  []string{"lookup_order"},
+			resolver: resolver,
+			cfg:      &ProviderConfig{ToolLoading: stableLoading("lookup_order", "mcp__crm__*")},
+		})
+
+	runOfferTurn(t, s, "update the customer")
+
+	calls := prov.sent(t)
+	require.Len(t, calls, 2)
+	all := []string{"lookup_order", "mcp__crm__find", "mcp__crm__update"}
+	assert.Equal(t, all, calls[0].tools)
+	assert.Equal(t, all, calls[1].tools)
+	assert.Equal(t, []string{"mcp__crm__find", "mcp__crm__update"}, calls[1].active)
+	assert.Empty(t, ev.all())
+}

@@ -3,6 +3,7 @@ package provider
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -45,9 +46,11 @@ type ToolLoading struct {
 	Mode ToolLoadingMode
 	// Catalog, in stable mode, returns tool names the conversation may be
 	// offered later on, beyond the prompt's allowed tools: every tool a
-	// skill can grant, say. Each is sent from the first call, matched
-	// exactly, and called only once something grants it. A name no tool is
-	// registered under is skipped. Nil adds none.
+	// skill can grant, or another workflow state's tools, say. Each is sent
+	// from the first call, and called only once something lets the model
+	// call it. A name ending in "*" is a pattern, expanded against the
+	// registry as an allowed_tools entry is; any other is matched exactly,
+	// and skipped when no tool is registered under it. Nil adds none.
 	Catalog func() []string
 }
 
@@ -82,7 +85,18 @@ func (s *ProviderStage) catalogOffer(acc *providerInput) ([]*tools.ToolDescripto
 	if r.ToolsDisabled() {
 		return nil, nil
 	}
-	return r.collectOffer(acc.promptTools(), append(r.grantedTools(), s.catalogExtras()...), nil), toolProvider
+	// A catalog entry ending in "*" is a pattern, expanded as an
+	// allowed_tools entry is; any other names exactly one tool, and one no
+	// tool is registered under is skipped.
+	allowed, exact := slices.Clone(acc.promptTools()), r.grantedTools()
+	for _, name := range s.catalogExtras() {
+		if strings.HasSuffix(name, "*") {
+			allowed = append(allowed, name)
+		} else {
+			exact = append(exact, name)
+		}
+	}
+	return r.collectOffer(allowed, exact, nil), toolProvider
 }
 
 // buildStableTools builds the stable-mode tools array from offer, the catalog
