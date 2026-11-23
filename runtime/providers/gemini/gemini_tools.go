@@ -232,6 +232,8 @@ func (p *ToolProvider) predictRound(
 		return p.predictWithInteractions(ctx, req, tools, toolChoice, partsForMedia)
 	}
 
+	start := time.Now()
+
 	// Build Gemini request with tools
 	geminiReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
 	if err != nil {
@@ -250,8 +252,11 @@ func (p *ToolProvider) predictRound(
 		return predictResp, nil, err
 	}
 
-	// Parse response and extract tool calls
-	return p.parseToolResponse(respBytes, predictResp)
+	// Parse response and extract tool calls. Latency runs from the start of
+	// the request, as on Predict; parseToolResponse alone sees only the parse.
+	resp, calls, err := p.parseToolResponse(respBytes, predictResp)
+	resp.Latency = time.Since(start)
+	return resp, calls, err
 }
 
 // processToolMessage converts a tool result message to Gemini's functionResponse
