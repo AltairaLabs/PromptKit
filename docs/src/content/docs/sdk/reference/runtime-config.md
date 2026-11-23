@@ -454,7 +454,7 @@ Map of external selector processes. Keys are selector names, which `skills.selec
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | string | no | Name of a selector under [`spec.selectors`](#specselectors) that narrows the skills offered to the LLM. Without it, every eligible skill is offered. |
+| `selector` | string | no | Name of a selector under [`spec.selectors`](#specselectors) that narrows the skills offered to the LLM. Without it, every eligible skill is offered. Under [`tool_loading.mode: stable`](#spectool_loading) it narrows nothing, and the model can activate any skill the state admits. |
 
 ---
 
@@ -500,7 +500,7 @@ What the model may call on a call is what `rebuild` mode would have sent it. A c
 | A tool is excluded after repeated rejection | The model may not call it for the rest of the turn. The array is unchanged. |
 | `max_tool_calls_per_turn` is spent | The array is unchanged, and the rest of the turn is sent tool choice `none`. |
 | A forced `tool_choice` names a tool the model may not call | The call is sent tool choice `auto`. |
-| The skill__activate index | Lists every skill. A workflow state's `skills` filter and `skills.selector` do not narrow it, and activating a skill the state does not admit is refused. |
+| The skill__activate index | Lists every skill. A workflow state's `skills` filter and `skills.selector` do not narrow it. Activating a skill the state does not admit is refused. A skill the selector did not choose can be activated: the selector chooses nothing in `stable` mode. |
 | A workflow state change | The model may call the new state's tools. `workflow__transition`'s input schema lists the state's events, so the array changes and is reported. |
 | An MCP server's tool list, a client's frontend tools, or another provider | The array is rebuilt and reported as `tool.offer.rebuilt`. |
 

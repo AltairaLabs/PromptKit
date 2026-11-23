@@ -206,7 +206,7 @@ A tool result with an error (a failed call, or one the pipeline refused) is sent
 |---|---|---|
 | Set the mode to `stable` | every tool a skill can grant, and every workflow state's tools, in the array from the first call; a call to one the model may not call yet gets `Tool <name> was not run: it is not available this turn` | none |
 | Set the mode to `stable` and use OpenAI's own API (`api.openai.com`) | `tool_choice` `allowed_tools` on calls the model may not use every tool on, where no `tool_choice` was sent for `auto` | none |
-| Set the mode to `stable` with a skills selector or a workflow state's `skills` filter | the skill__activate index lists every skill | none; activating a skill the state does not admit is still refused |
+| Set the mode to `stable` with a skills selector or a workflow state's `skills` filter | the skill__activate index lists every skill, so the model can activate a skill the selector did not choose | keep `rebuild` if the selector must restrict activation; activating a skill the state does not admit is still refused |
 | Set the mode to `stable` and spend `max_tool_calls_per_turn` | the rest of the turn sent the tools with tool choice `none`, where it was sent no tools | none |
 | Implement `providers.ToolSupport` | `PredictionRequest.ActiveTools` set on calls in stable mode, naming the tools the model may call | send it if your API can restrict a call to some of its tools; the pipeline refuses a call outside it either way |
 

@@ -6057,7 +6057,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithToolLoading"></a>
-### func [WithToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/tool_loading.go#L65>)
+### func [WithToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/tool_loading.go#L66>)
 
 ```go
 func WithToolLoading(loading ToolLoading) Option
@@ -6067,7 +6067,7 @@ WithToolLoading sets how the conversation builds the tools array it sends the pr
 
 ToolLoadingRebuild, the default, sends each call the tools the model may call on it: a ToolSelector's choice, a skill grant, a tool excluded after repeated rejection, a workflow state's tools, and none once max\_tool\_calls\_per\_turn is spent, each rebuild the array.
 
-ToolLoadingStable sends every call the same array: the prompt's tools, every pack tool a skill can grant, the tools of every workflow state's prompt, and the capability tools. What the model may call on a call is what rebuild mode would have sent; a call to any other tool gets the result "Tool \<name\> was not run: it is not available this turn" and does not run. OpenAI is also told the narrower set through tool\_choice allowed\_tools, so the model does not try; other providers see every tool and rely on the refusal. Once max\_tool\_calls\_per\_turn is spent, the rest of the turn keeps the array under tool choice none. The skill\_\_activate index lists every skill, whatever a workflow state's skills filter or a skills selector chose; activating a skill the state does not admit is refused, as it always is. The array still changes when an MCP server's tool list or a client's frontend tools change, and on a provider switch.
+ToolLoadingStable sends every call the same array: the prompt's tools, every pack tool a skill can grant, the tools of every workflow state's prompt, and the capability tools. What the model may call on a call is what rebuild mode would have sent; a call to any other tool gets the result "Tool \<name\> was not run: it is not available this turn" and does not run. OpenAI is also told the narrower set through tool\_choice allowed\_tools, so the model does not try; other providers see every tool and rely on the refusal. Once max\_tool\_calls\_per\_turn is spent, the rest of the turn keeps the array under tool choice none. The skill\_\_activate index lists every skill, whatever a workflow state's skills filter or a skills selector chose; activating a skill the state does not admit is refused, as it always is, but the model can activate a skill the selector did not choose. The array still changes when an MCP server's tool list or a client's frontend tools change, and on a provider switch.
 
 A realtime session \(OpenDuplex with a streaming provider\) does not use the setting: its tools, and the skill\_\_activate index, are those of rebuild mode. A VAD voice session uses it, as a text conversation does.
 

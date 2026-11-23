@@ -50,7 +50,8 @@ type ToolLoading struct {
 // of the turn keeps the array under tool choice none. The skill__activate
 // index lists every skill, whatever a workflow state's skills filter or a
 // skills selector chose; activating a skill the state does not admit is
-// refused, as it always is. The array still changes when an MCP server's tool
+// refused, as it always is, but the model can activate a skill the selector
+// did not choose. The array still changes when an MCP server's tool
 // list or a client's frontend tools change, and on a provider switch.
 //
 // A realtime session (OpenDuplex with a streaming provider) does not use the
