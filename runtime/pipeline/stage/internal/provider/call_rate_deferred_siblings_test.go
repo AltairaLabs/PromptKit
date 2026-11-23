@@ -75,7 +75,15 @@ func TestProviderStage_DeferredSiblingIsNotRefusedForAnInFlightCall(t *testing.T
 		Mode: exec.Name(),
 	}))
 
-	results, err := stage.executeToolCalls(context.Background(), kitCalls("p", 2), RoundRef{Round: 1})
+	type round struct {
+		results []types.Message
+		err     error
+	}
+	r := within(t, "the round", func() round {
+		results, err := stage.executeToolCalls(context.Background(), kitCalls("p", 2), RoundRef{Round: 1})
+		return round{results, err}
+	})
+	results, err := r.results, r.err
 	var pending *tools.ErrToolsPending
 	require.ErrorAs(t, err, &pending)
 	assert.Len(t, pending.Pending, 2, "both calls are deferred")

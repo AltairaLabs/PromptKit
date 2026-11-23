@@ -1640,7 +1640,7 @@ func TestProviderStage_ExecuteToolCalls_EmitsStartedCompleted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 
-	wg.Wait()
+	require.True(t, waitForWG(&wg, holdTestDeadline), "the started and completed events did not both arrive")
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -1774,7 +1774,7 @@ func TestProviderStage_ExecuteToolCalls_PendingEmitsRequestAndCompleted(t *testi
 	_, err := stage.executeToolCalls(context.Background(), toolCalls, RoundRef{Round: 1})
 	require.Error(t, err, "should return ErrToolsPending")
 
-	wg.Wait()
+	require.True(t, waitForWG(&wg, holdTestDeadline), "the three events did not all arrive")
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -2848,8 +2848,7 @@ func TestCompactBeforeRound_EmitsEvent(t *testing.T) {
 	require.NoError(t, err)
 	loop.compactBeforeRound(2)
 
-	// Wait for event delivery
-	wg.Wait()
+	require.True(t, waitForWG(&wg, holdTestDeadline), "no context.compacted event")
 	require.NotNil(t, receivedEvent, "should have received context.compacted event")
 	assert.Equal(t, events.EventContextCompacted, receivedEvent.Type)
 	data, ok := receivedEvent.Data.(*events.ContextCompactionData)

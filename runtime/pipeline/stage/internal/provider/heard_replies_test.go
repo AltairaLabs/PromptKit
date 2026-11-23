@@ -39,8 +39,14 @@ func TestProviderStage_NextTurnSeesWhatTheCallerHeard(t *testing.T) {
 
 	send(core.NewMessageElement(&types.Message{Role: core.RoleUser, Content: "tell me a story"}))
 	send(core.NewEndOfTurnElement())
-	for e := recvWithin(t, output); !e.EndOfTurn; e = recvWithin(t, output) {
-	}
+	require.True(t, within(t, "the first turn's end", func() bool {
+		for e := range output {
+			if e.EndOfTurn {
+				return true
+			}
+		}
+		return false
+	}), "the output closed before the first turn ended")
 	send(core.NewInterruptElement()) // the caller barges in on "reply-1"
 	recvWithin(t, output)
 

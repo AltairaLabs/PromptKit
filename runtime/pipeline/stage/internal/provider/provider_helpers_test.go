@@ -189,15 +189,19 @@ func runTestStage(t *testing.T, s core.Stage, inputs []core.StreamElement) []cor
 	close(input)
 
 	output := make(chan core.StreamElement, 100)
-	ctx := context.Background()
+	done := make(chan error, 1)
+	go func() { done <- s.Process(context.Background(), input, output) }()
 
-	err := s.Process(ctx, input, output)
-	require.NoError(t, err)
-
-	var results []core.StreamElement
-	for elem := range output {
-		results = append(results, elem)
-	}
+	// The output is read while the stage runs, so a stage that emits more than
+	// the buffer holds does not block, and the whole run is bounded.
+	results := within(t, "the stage's run", func() []core.StreamElement {
+		var got []core.StreamElement
+		for elem := range output {
+			got = append(got, elem)
+		}
+		return got
+	})
+	require.NoError(t, recvWithin(t, done))
 	return results
 }
 
