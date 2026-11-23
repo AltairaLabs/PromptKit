@@ -271,6 +271,39 @@ func NewCallRateWindow() *CallRateWindow {
 	return provider.NewCallRateWindow()
 }
 
+// ToolLoadingMode is how a conversation's tools array follows a change to
+// what the model may call (ProviderConfig.ToolLoading).
+type ToolLoadingMode = provider.ToolLoadingMode
+
+const (
+	// ToolLoadingRebuild sends each call the tools the model may call on it,
+	// so the array changes whenever they do. It is the default.
+	ToolLoadingRebuild ToolLoadingMode = provider.ToolLoadingRebuild
+	// ToolLoadingStable sends every call the same tools array, and gives
+	// what the model may call beside it (PredictionRequest.ActiveTools).
+	ToolLoadingStable ToolLoadingMode = provider.ToolLoadingStable
+)
+
+// ToolLoading is how the provider stage builds the tools array it sends.
+//
+// In rebuild mode, the default, each call is sent the tools the model may
+// call on it, and the array is rebuilt when they change: a ToolSelector's
+// choice, a skill grant, a tool excluded after repeated rejection, a
+// workflow state's tools, or max_tool_calls_per_turn spent. A provider that
+// caches the prompt then processes the prefix again (tool.offer.rebuilt).
+//
+// In stable mode every call is sent the conversation's catalog: the
+// prompt's allowed tools, Catalog's tools, the current grants and the
+// capability tools. What the model may call on a call is given beside it in
+// PredictionRequest.ActiveTools, which a provider that can restrict calls
+// sends (OpenAI's tool_choice allowed_tools), and the stage refuses a call
+// outside it with NotAvailableRefusal. With max_tool_calls_per_turn spent,
+// the last round keeps the array and is sent tool choice none. The array is
+// rebuilt only when the catalog itself changes: a grant or a workflow state
+// naming a tool outside it, an MCP server's tool list, a DescribeTool
+// change, or another provider.
+type ToolLoading = provider.ToolLoading
+
 // ToolOfferHistory is what tool.offer.rebuilt compares a provider call's
 // tools array against: the array the previous call was sent, what has
 // changed the array since, and whether the cache-cost warning was logged.

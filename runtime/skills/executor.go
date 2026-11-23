@@ -228,6 +228,24 @@ func (e *Executor) ToolsFor(set *ActiveSet) []string {
 	return tools
 }
 
+// GrantableTools returns every tool a registered skill can grant, each capped
+// by the pack's tools: what [Executor.ToolsFor] would return with every skill
+// active, whatever a set's filter admits. Deduplicated and sorted.
+func (e *Executor) GrantableTools() []string {
+	seen := make(map[string]bool)
+	for _, meta := range e.registry.List() {
+		for _, t := range e.intersectPackTools(meta.AllowedTools) {
+			seen[t] = true
+		}
+	}
+	tools := make([]string, 0, len(seen))
+	for t := range seen {
+		tools = append(tools, t)
+	}
+	sort.Strings(tools)
+	return tools
+}
+
 // SkillsIn returns the names of the skills active in the given set, sorted.
 func (e *Executor) SkillsIn(set *ActiveSet) []string {
 	if set == nil {

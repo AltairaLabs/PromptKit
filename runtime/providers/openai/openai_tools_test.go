@@ -657,7 +657,7 @@ func TestToolProvider_AddToolChoiceToRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			openaiReq := make(map[string]interface{})
-			provider.addToolChoiceToRequest(openaiReq, tt.toolChoice)
+			provider.addToolChoiceToRequest(openaiReq, tt.toolChoice, nil)
 
 			if tt.want == nil {
 				if _, exists := openaiReq["tool_choice"]; exists {

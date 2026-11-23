@@ -87,9 +87,9 @@ func applyExecHooks(c *config, hookBindings map[string]*pkgconfig.ExecHook, reso
 //
 // The file's providers, MCP servers, state store, logging, exec tools, eval
 // handlers, hooks, sandboxes and selectors are applied in that order. The file
-// does not replace an agent provider, state store or logger that an earlier
-// option already set, and options applied after WithRuntimeConfig replace what
-// the file set.
+// does not replace an agent provider, state store, logger or tool loading mode
+// that an earlier option already set, and options applied after
+// WithRuntimeConfig replace what the file set.
 //
 // Example:
 //
@@ -258,13 +258,17 @@ func applyMCPServerConfigs(c *config, specs []pkgconfig.MCPServerConfig) error {
 }
 
 // applySelectorBindings records which declared selectors drive skills and
-// tool selection.
+// tool selection, and how the tools array is loaded (spec.tool_loading).
 func applySelectorBindings(c *config, spec *pkgconfig.RuntimeConfigSpec) {
 	if spec.Skills != nil && spec.Skills.Selector != "" {
 		c.skillsSelectorName = spec.Skills.Selector
 	}
 	if spec.ToolSelector != "" {
 		c.toolSelectorName = spec.ToolSelector
+	}
+	// Only if not already set: an explicit WithToolLoading wins, before or after.
+	if spec.ToolLoading != nil && spec.ToolLoading.Mode != "" && c.toolLoading.Mode == "" {
+		c.toolLoading = ToolLoading{Mode: ToolLoadingMode(spec.ToolLoading.Mode)}
 	}
 }
 

@@ -465,6 +465,9 @@ Most stages are implemented in packages under stage/internal, one per subsystem 
   - [func \(s \*TokenBudgetStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TokenBudgetStage.Process>)
 - [type ToolCallRecorder](<#ToolCallRecorder>)
 - [type ToolCallRunner](<#ToolCallRunner>)
+- [type ToolLoading](<#ToolLoading>)
+  - [func \(l ToolLoading\) Stable\(\) bool](<#ToolLoading.Stable>)
+- [type ToolLoadingMode](<#ToolLoadingMode>)
 - [type ToolOfferHistory](<#ToolOfferHistory>)
   - [func NewToolOfferHistory\(\) \*ToolOfferHistory](<#NewToolOfferHistory>)
 - [type TranscriptReorderStage](<#TranscriptReorderStage>)
@@ -4672,7 +4675,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L191-L345>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L191-L350>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4831,11 +4834,16 @@ type ProviderConfig struct {
     // call's tools array against for tool.offer.rebuilt. Share one across the
     // stages of a conversation. Nil gives the stage one of its own.
     ToolOfferHistory *ToolOfferHistory
+
+    // ToolLoading is how the tools array follows a change to what the model
+    // may call: rebuilt on each change (the default), or kept the same and
+    // narrowed per call. See ToolLoading.
+    ToolLoading ToolLoading
 }
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L358>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L363>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4844,7 +4852,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L348>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L353>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4905,7 +4913,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L707-L711>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L722-L726>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4914,7 +4922,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L409>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L414>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -6855,6 +6863,61 @@ type ToolCallRunner interface {
 }
 ```
 
+<a name="ToolLoading"></a>
+## type [ToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L44-L55>)
+
+ToolLoading is how the provider stage builds the tools array it sends.
+
+In rebuild mode, the default, each call is sent the tools the model may call on it, and the array is rebuilt when they change: a ToolSelector's choice, a skill grant, a tool excluded after repeated rejection, a workflow state's tools, or max\_tool\_calls\_per\_turn spent. A provider that caches the prompt then processes the prefix again \(tool.offer.rebuilt\).
+
+In stable mode every call is sent the conversation's catalog: the prompt's allowed tools, Catalog's tools, the current grants and the capability tools. What the model may call on a call is given beside it in PredictionRequest.ActiveTools, which a provider that can restrict calls sends \(OpenAI's tool\_choice allowed\_tools\), and the stage refuses a call outside it with NotAvailableRefusal. With max\_tool\_calls\_per\_turn spent, the last round keeps the array and is sent tool choice none. The array is rebuilt only when the catalog itself changes: a grant or a workflow state naming a tool outside it, an MCP server's tool list, a DescribeTool change, or another provider.
+
+```go
+type ToolLoading struct {
+    // Mode is the mode; empty is ToolLoadingRebuild.
+    Mode ToolLoadingMode
+    // Catalog, in stable mode, returns tool names the conversation may be
+    // offered later on, beyond the prompt's allowed tools: every tool a
+    // skill can grant, or another workflow state's tools, say. Each is sent
+    // from the first call, and called only once something lets the model
+    // call it. A name ending in "*" is a pattern, expanded against the
+    // registry as an allowed_tools entry is; any other is matched exactly,
+    // and skipped when no tool is registered under it. Nil adds none.
+    Catalog func() []string
+}
+```
+
+<a name="ToolLoading.Stable"></a>
+### func \(ToolLoading\) [Stable](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L58>)
+
+```go
+func (l ToolLoading) Stable() bool
+```
+
+Stable reports whether l is stable mode.
+
+<a name="ToolLoadingMode"></a>
+## type [ToolLoadingMode](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_loading.go#L15>)
+
+ToolLoadingMode is how a conversation's tools array follows a change to what the model may call \(ProviderConfig.ToolLoading\).
+
+```go
+type ToolLoadingMode string
+```
+
+<a name="ToolLoadingRebuild"></a>
+
+```go
+const (
+    // ToolLoadingRebuild sends each call the tools the model may call on it,
+    // so the array changes whenever they do. It is the default.
+    ToolLoadingRebuild ToolLoadingMode = "rebuild"
+    // ToolLoadingStable sends every call the same tools array, and gives
+    // what the model may call beside it (PredictionRequest.ActiveTools).
+    ToolLoadingStable ToolLoadingMode = "stable"
+)
+```
+
 <a name="ToolOfferHistory"></a>
 ## type [ToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_offer_rebuilt.go#L61-L64>)
 
@@ -6867,7 +6930,7 @@ type ToolOfferHistory struct {
 ```
 
 <a name="NewToolOfferHistory"></a>
-### func [NewToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L285>)
+### func [NewToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L318>)
 
 ```go
 func NewToolOfferHistory() *ToolOfferHistory

@@ -566,10 +566,34 @@ func (c *Conversation) preloadedSkillInstructions() string {
 // admits none (#2326). Read per build, not fixed at registration, because a
 // transition the model makes mid-turn changes the filter between rounds.
 func (c *Conversation) describeTool(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+	return c.describeToolIn(d, c.stableTools())
+}
+
+// describeToolFor is the describe function of a pipeline built for
+// streamProvider: a realtime session's (streamProvider set) does not run tool
+// loading, so it keeps rebuild mode's view whatever the conversation's mode.
+func (c *Conversation) describeToolFor(
+	streamProvider providers.StreamInputSupport,
+) func(*tools.ToolDescriptor) *tools.ToolDescriptor {
+	if streamProvider != nil {
+		return func(d *tools.ToolDescriptor) *tools.ToolDescriptor { return c.describeToolIn(d, false) }
+	}
+	return c.describeTool
+}
+
+// describeToolIn is describeTool, with stable naming whether the stage it
+// describes for runs tool loading mode stable.
+func (c *Conversation) describeToolIn(d *tools.ToolDescriptor, stable bool) *tools.ToolDescriptor {
 	if d == nil {
 		return nil
 	}
 	if d.Name != skills.SkillActivateTool {
+		return d
+	}
+	if stable {
+		// Stable mode keeps the index of every skill, so the tools array is the
+		// same whatever the workflow state or the skills selector; activating
+		// a skill the state does not admit is still refused.
 		return d
 	}
 	sc := c.skillsCapability()
@@ -817,13 +841,14 @@ func (c *Conversation) buildPipelineConfig(
 		CompactionRules:       c.config.compactionRules,
 		ToolSelector:          c.config.selectors[c.config.toolSelectorName],
 		ToolGrants:            c.toolGrants,
-		DescribeTool:          c.describeTool,
+		DescribeTool:          c.describeToolFor(streamProvider),
 		SystemPromptSuffix:    c.preloadedSkillInstructions,
 		ApprovalGate:          c.newApprovalGate(),
 		Caller:                c.config.caller,
 		BlockedMessage:        c.blockedMessageFunc(),
 		CallRate:              c.callRateWindow(),
 		ToolOfferHistory:      c.toolOfferHistory(),
+		ToolLoading:           c.stageToolLoading(),
 		SkipContentValidation: c.config.skipContentValidation,
 		StreamHold:            c.config.streamHold,
 		ToolPolicy:            c.config.toolPolicy,

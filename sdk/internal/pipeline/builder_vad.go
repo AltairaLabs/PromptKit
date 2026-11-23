@@ -169,6 +169,8 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		CallRate: cfg.CallRate,
 		// The conversation's tool offer history, as text's.
 		ToolOfferHistory: cfg.ToolOfferHistory,
+		// Voice keeps its tools array as text does.
+		ToolLoading: cfg.ToolLoading,
 		// Voice tool calls act for the conversation's caller, as text ones do.
 		Caller: cfg.Caller,
 		// A blocked turn's text is the host's choice, as on text.

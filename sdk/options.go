@@ -356,6 +356,9 @@ type config struct {
 	selectors          map[string]selection.Selector
 	skillsSelectorName string
 	toolSelectorName   string
+	// toolLoading is how the conversation builds its tools array
+	// (WithToolLoading, RuntimeConfig spec.tool_loading).
+	toolLoading ToolLoading
 
 	// Telemetry: OTel TracerProvider for distributed tracing
 	tracerProvider trace.TracerProvider

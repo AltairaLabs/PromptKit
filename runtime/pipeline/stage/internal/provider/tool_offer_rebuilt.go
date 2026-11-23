@@ -255,6 +255,10 @@ func (s *ProviderStage) offerInputsFor(acc *providerInput) offerInputs {
 	if acc == nil {
 		return offerInputs{grants: s.runner().grantedTools()}
 	}
+	if s.stableTools() {
+		// A ToolSelector narrows what the model may call, not the array.
+		return offerInputs{prompt: acc.promptTools(), allowed: acc.promptTools(), grants: s.runner().grantedTools()}
+	}
 	return offerInputs{prompt: acc.promptTools(), allowed: acc.allowedTools, grants: s.runner().grantedTools()}
 }
 
@@ -317,7 +321,8 @@ func (s *ProviderStage) reportOfferSent(ctx context.Context, round int) {
 		logger.Warn("tools array changed mid-conversation: a provider that caches the prompt cannot reuse "+
 			"its cache past the first changed tool (Claude writes the whole prefix again), so this call "+
 			"pays for the prefix again; keep the offered tools the same across rounds and turns to keep "+
-			"the cache. Every further change is reported as a tool.offer.rebuilt event",
+			"the cache, or set tool_loading mode stable to narrow what the model may call without changing "+
+			"the array. Every further change is reported as a tool.offer.rebuilt event",
 			"reasons", change.Reasons, "added", change.Added, "removed", change.Removed, "round", round)
 	}
 	if s.emitter != nil {

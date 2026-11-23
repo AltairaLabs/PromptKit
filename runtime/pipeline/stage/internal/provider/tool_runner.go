@@ -1200,6 +1200,54 @@ type ToolOffer struct {
 	// offered under its own name, false withheld or renamed
 	// (descriptorCollector.view).
 	view map[string]bool
+	// stable holds, under tool_loading mode stable, what the model may call
+	// in the round being prepared and the names in the tools array; nil in
+	// rebuild mode (setStable).
+	stable *stableOffer
+}
+
+// stableOffer is a stable-mode round's offer: the tools the model may call
+// (active) out of those the tools array holds (catalog), each by name, sorted.
+type stableOffer struct {
+	active  []string
+	catalog []string
+}
+
+// setStable records the next round's active tools out of catalog.
+func (o *ToolOffer) setStable(active, catalog []string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.stable = &stableOffer{active: active, catalog: catalog}
+}
+
+// stableActive returns the stable-mode round's active tools as a set, and
+// whether the stage is in stable mode and has prepared a round.
+func (o *ToolOffer) stableActive() (map[string]bool, bool) {
+	if o == nil {
+		return nil, false
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.stable == nil {
+		return nil, false
+	}
+	set := make(map[string]bool, len(o.stable.active))
+	for _, name := range o.stable.active {
+		set[name] = true
+	}
+	return set, true
+}
+
+// narrowedActive returns the stable-mode round's active tools when they are
+// fewer than the tools array holds, and nil when the model may call every
+// tool in it (or the stage is not in stable mode).
+func (o *ToolOffer) narrowedActive() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.stable == nil || slices.Equal(o.stable.active, o.stable.catalog) {
+		return nil
+	}
+	return slices.Clone(o.stable.active)
 }
 
 // setView records describe's outcomes as the view last built.

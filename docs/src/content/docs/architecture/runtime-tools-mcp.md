@@ -277,6 +277,17 @@ The tools array is the first part of a request that a provider caches. A differe
 
 On a provider that advertises prompt caching, the stage also logs a warning at the first rebuild its history records, naming the reasons. A workflow therefore logs it once, whichever state the first rebuild happens in. `provider.call.completed` reports the cost as `CacheWriteTokens`, which is the size of the prefix written again.
 
+`ProviderConfig.ToolLoading` decides which of these changes rebuild the array. In `rebuild` mode, the default, every one does. In `stable` mode the stage sends each call a catalog: the prompt's (or workflow state's) tools before the `ToolSelector` narrows them, the grants, the names `ToolLoading.Catalog` returns, and the capability tools, none excluded. The SDK's catalog adds every pack tool a skill can grant and the tools of every workflow state's prompt. What the model may call on a call is what `rebuild` mode would have sent it. It rides beside the array as `PredictionRequest.ActiveTools`, which is nil when it is the whole array, and the stage refuses a call outside it with `Tool <name> was not run: it is not available this turn`.
+
+| Change | Stable mode |
+|---|---|
+| `selector`, `excluded`, a grant the catalog holds, a workflow state whose tools the catalog holds | What the model may call changes; the array does not, and no event is published |
+| `exhausted` | The array stays, and the rest of the turn is sent tool choice `none` |
+| A forced `tool_choice` | It must fit what the model may call, else the call is sent `auto` |
+| A grant or a state naming a tool outside the catalog, `describe`, `mcp_list_changed`, `provider_switch`, `registry` | The array is rebuilt and reported, as in `rebuild` mode |
+
+OpenAI's own API (`api.openai.com`) is sent `ActiveTools` as `tool_choice` `allowed_tools`. Azure, Bedrock, Vertex, an OpenAI-compatible server and every other provider see the whole array, and the refusal enforces the restriction. `types.MetaToolsOffered` records what the model may call. The realtime (duplex) stage ignores the setting.
+
 `MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. A workflow passes one window to every state's conversation, through `CallRateWindow.Scoped`, because each state's conversation has its own ID. A composition step counts under the enclosing conversation's ID.
 
 A call is checked against the limit, and counted, only when it is admitted to run. Nothing is reserved, so nothing can be left behind by an abandoned turn, an unanswered call, or a call resolved on another replica:

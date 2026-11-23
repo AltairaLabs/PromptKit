@@ -342,6 +342,11 @@ type ProviderConfig struct {
 	// call's tools array against for tool.offer.rebuilt. Share one across the
 	// stages of a conversation. Nil gives the stage one of its own.
 	ToolOfferHistory *ToolOfferHistory
+
+	// ToolLoading is how the tools array follows a change to what the model
+	// may call: rebuilt on each change (the default), or kept the same and
+	// narrowed per call. See ToolLoading.
+	ToolLoading ToolLoading
 }
 
 // CallParams returns c's sampling fields as one value.
@@ -540,9 +545,19 @@ func (s *ProviderStage) toolCallingProvider() (providers.ToolSupport, bool) {
 // ToolSelector narrows the request, without the turn's exclusions). A
 // provider that is never sent tools refuses nothing; one that is refuses
 // every tool outside the offer, all of them under tool_choice none.
+//
+// In tool_loading mode stable the tools array holds more than the model may
+// call, so every called tool outside the round's active tools is refused
+// (prepareActive): one the prompt does not allow, one a ToolSelector left out
+// or the turn excluded, and one only a later grant would let it call.
 func (s *ProviderStage) roundRefusals(r *ToolRunner, called []*tools.ToolDescriptor) RoundRefusals {
 	if _, ok := s.toolCallingProvider(); !ok {
 		return nil
+	}
+	if active, ok := r.offers.stableActive(); ok {
+		return RefuseAmong(called, func(name string) (string, bool) {
+			return NotAvailableRefusal(name), !active[name]
+		})
 	}
 	offered := r.OfferedAmong(r.offers.allowedTools(), called)
 	return RefuseAmong(called, func(name string) (string, bool) {
@@ -1378,6 +1393,9 @@ func (s *ProviderStage) applyStateHandoff(
 	// What the model may call follows the state every round, whether or not
 	// the tools array is rebuilt below.
 	s.offerState().setAllowed(handoff.AllowedTools)
+	if s.stableTools() {
+		return false, s.applyStableHandoff(acc, loop, handoff, providerChanged)
+	}
 	// Two states may also share a prompt and differ only in what the
 	// conversation's DescribeTool makes of the tools — a workflow state's
 	// skills filter, which the commit that resolving runs has just applied.
@@ -1439,6 +1457,12 @@ type toolLoop struct {
 	cachingSupported bool // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching  bool // one-time guard for the caching-stalled warning
 	excludedNoted    int  // len(Excluded) when the last rebuild was noted (noteRoundOffer)
+
+	// catalog is, in tool_loading mode stable, the tools array the loop
+	// sends (syncStable); exhausted marks max_tool_calls_per_turn spent, so
+	// the rest of the turn is sent tool choice none.
+	catalog   offerSnapshot
+	exhausted bool
 
 	// acc is the live turn input. Held as a pointer rather than copied because
 	// applyStateHandoff can swap the system prompt mid-loop, and the
@@ -1880,13 +1904,23 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	// MaxCostUSD per turn. History cost is carried on the input messages'
 	// CostInfo.
 	turn := s.runner().NewTurn(acc.messages, s.getMaxRounds())
-	providerTools, toolChoice, err := s.buildProviderTools(acc.allowedTools, turn.Excluded)
+	var (
+		providerTools interface{}
+		toolChoice    string
+		catalog       offerSnapshot
+		err           error
+	)
+	if s.stableTools() {
+		providerTools, toolChoice, catalog, err = s.buildStableTools(s.catalogOffer(acc))
+	} else {
+		providerTools, toolChoice, err = s.buildProviderTools(acc.allowedTools, turn.Excluded)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
 	s.noteTurnOffer(acc)
 	cachingSupported := supportsPromptCaching(s.callProvider())
-	return &toolLoop{
+	tl := &toolLoop{
 		ToolTurn:         turn,
 		stage:            s,
 		acc:              acc,
@@ -1897,7 +1931,13 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 		cachingSupported: cachingSupported,
 		lastPersistedSeq: len(acc.messages), // history already in store
 		persistedIdx:     len(acc.messages),
-	}, nil
+		catalog:          catalog,
+	}
+	if s.stableTools() {
+		tl.prepareActive()
+		tl.chooseTool(false, false)
+	}
+	return tl, nil
 }
 
 // afterRound handles tool execution, rejection tracking, and loop control after
@@ -1994,8 +2034,12 @@ func (tl *toolLoop) applyRound(
 	tl.chooseTool(true, out.Nudged)
 
 	// max_tool_calls_per_turn spent: offer no tools from here on, so the next
-	// round is the model's answer rather than more calls to reject.
-	if out.OfferExhausted {
+	// round is the model's answer rather than more calls to reject. In
+	// stable mode the array stays, under tool choice none (stableChoiceNone).
+	if out.OfferExhausted && tl.stage.stableTools() {
+		tl.exhausted = true
+		tl.chooseTool(true, out.Nudged)
+	} else if out.OfferExhausted {
 		tl.providerTools = nil
 		tl.invalidateReserve()
 		tl.toolChoice = ""
@@ -2025,13 +2069,17 @@ func (tl *toolLoop) useTools(rebuilt interface{}) {
 //   - after a round that was not nudged, the choice is auto;
 //   - a forced choice (required, any, or a tool's name) is kept, a nudged
 //     round's retry included, while the tools the provider was last sent fit
-//     it (ToolRunner.choiceFits), and falls back to auto when they do not.
+//     it (ToolRunner.choiceFits), and falls back to auto when they do not;
+//   - in tool_loading mode stable, none once the model may call no tool in
+//     the array (stableChoiceNone). There the tools a forced choice must fit
+//     are those the model may call, not the whole array.
 func (tl *toolLoop) chooseTool(roundEnded, nudged bool) {
-	if roundEnded && !nudged {
+	switch {
+	case tl.stableChoiceNone():
+		tl.toolChoice = ToolChoiceNone
+	case roundEnded && !nudged:
 		tl.toolChoice = toolChoiceAuto
-		return
-	}
-	if isForcedChoice(tl.toolChoice) && !tl.stage.runner().choiceFits(tl.toolChoice) {
+	case isForcedChoice(tl.toolChoice) && !tl.stage.runner().choiceFits(tl.toolChoice):
 		tl.toolChoice = toolChoiceAuto
 	}
 }
@@ -2057,7 +2105,21 @@ func (tl *toolLoop) addRoundTokens(cost *types.CostInfo) {
 // granted set moved), or DescribeTool now describes the tools differently (a
 // mid-turn workflow transition narrowing the skill index). Rebuilding busts the
 // provider's cached prefix, so it happens only on a real change.
+//
+// In tool_loading mode stable the array is rebuilt only when the catalog
+// changed, and what the model may call is prepared again either way
+// (syncStable).
 func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, out RoundOutcome) error {
+	if tl.stage.stableTools() {
+		rebuilt, err := tl.syncStable()
+		if err != nil {
+			return fmt.Errorf("provider stage: rebuild tools: %w", err)
+		}
+		if rebuilt {
+			tl.noteStableRoundOffer()
+		}
+		return nil
+	}
 	var offered *describedTools
 	if !out.OfferChanged {
 		var describedChanged bool
@@ -2292,6 +2354,7 @@ func (s *ProviderStage) executeRound(
 		Seed:           s.config.Seed,
 		ResponseFormat: s.roundResponseFormat(providerTools),
 		Metadata:       metadata,
+		ActiveTools:    s.requestActiveTools(providerTools),
 	}
 	s.applySampling(&req)
 
@@ -2427,6 +2490,7 @@ func (s *ProviderStage) executeStreamingRound(
 		Seed:           s.config.Seed,
 		Metadata:       params.metadata,
 		ResponseFormat: s.roundResponseFormat(params.providerTools),
+		ActiveTools:    s.requestActiveTools(params.providerTools),
 	}
 	s.applySampling(&req)
 
@@ -3900,7 +3964,9 @@ func (s *ProviderStage) buildProviderToolsFrom(
 	policy := s.policy()
 
 	descriptors := providerDescriptors(offer)
-	s.recordOffered(descriptors)
+	if !s.stableTools() { // stable mode records the tools the model may call (prepareActive)
+		s.recordOffered(descriptors)
+	}
 	if len(descriptors) == 0 {
 		return nil, "", nil
 	}

@@ -371,3 +371,17 @@ func (*allowingVoiceHook) AfterCall(
 }
 
 var _ hooks.ProviderHook = (*allowingVoiceHook)(nil)
+
+// The conversation's tool loading mode reaches VAD mode's provider stage, so
+// a voice session keeps its tools array as a text one does.
+func TestVADProviderConfig_CarriesToolLoading(t *testing.T) {
+	cfg := &Config{ToolLoading: stage.ToolLoading{
+		Mode: stage.ToolLoadingStable, Catalog: func() []string { return []string{"refund"} },
+	}}
+
+	got := vadProviderConfig(cfg)
+
+	assert.Equal(t, stage.ToolLoadingStable, got.ToolLoading.Mode)
+	require.NotNil(t, got.ToolLoading.Catalog)
+	assert.Equal(t, []string{"refund"}, got.ToolLoading.Catalog())
+}

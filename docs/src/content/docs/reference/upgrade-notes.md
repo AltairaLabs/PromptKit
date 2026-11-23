@@ -180,6 +180,36 @@ With `api_mode: interactions`, a reply cut off by `max_tokens` finished as `stop
 | Set `api_mode: interactions` and run a turn that does not take the tool path | the turn sent to generateContent, as before; `api_mode` applies only to turns that take the tool path (tools offered, or tool calls in the history) | none; the settings above apply to the turns that take the tool path |
 | Read the cost of an Interactions turn | thought tokens priced at the output rate and cached input priced as cache reads, as on generateContent, where thinking cost nothing and cached input was priced as full-price input | expect higher costs for thinking turns and lower ones for cached prompts |
 
+#### Claude sends tool choice `none`
+
+A tool choice of `none` with tools declared left Claude's `tool_choice` unset, so the model could call any tool it was sent. The provider now sends `{"type":"none"}`, and the model calls none of them.
+
+| If you | You will see | Change |
+|---|---|---|
+| Call the Claude provider's `PredictWithTools` or `PredictStreamWithTools` with tools and the choice `none` | no tool calls, where the model could make one | none |
+
+#### Claude marks failed tool results
+
+A tool result with an error (a failed call, or one the pipeline refused) is sent to Claude with `is_error: true`, which tells the model the call failed. It was sent as an ordinary result.
+
+| If you | You will see | Change |
+|---|---|---|
+| Send Claude a tool result whose `Error` is set | `is_error: true` on its `tool_result` block | none |
+
+### Tools
+
+#### Tool loading mode stable
+
+`sdk.WithToolLoading(sdk.ToolLoading{Mode: sdk.ToolLoadingStable})`, RuntimeConfig `spec.tool_loading.mode: stable`, or `stage.ProviderConfig.ToolLoading` keeps the tools array the same across a conversation's calls, so a provider that caches the prompt keeps its cache. A `ToolSelector`, a skill grant or an exclusion narrows what the model may call instead. The default, `rebuild`, is unchanged. See [`spec.tool_loading`](/sdk/reference/runtime-config/#spectool_loading).
+
+| If you | You will see | Change |
+|---|---|---|
+| Set the mode to `stable` | every tool a skill can grant, and every workflow state's tools, in the array from the first call; a call to one the model may not call yet gets `Tool <name> was not run: it is not available this turn` | none |
+| Set the mode to `stable` and use OpenAI's own API (`api.openai.com`) | `tool_choice` `allowed_tools` on calls the model may not use every tool on, where no `tool_choice` was sent for `auto` | none |
+| Set the mode to `stable` with a skills selector or a workflow state's `skills` filter | the skill__activate index lists every skill, so the model can activate a skill the selector did not choose | keep `rebuild` if the selector must restrict activation; activating a skill the state does not admit is still refused |
+| Set the mode to `stable` and spend `max_tool_calls_per_turn` | the rest of the turn sent the tools with tool choice `none`, where it was sent no tools | none |
+| Implement `providers.ToolSupport` | `PredictionRequest.ActiveTools` set on calls in stable mode, naming the tools the model may call | send it if your API can restrict a call to some of its tools; the pipeline refuses a call outside it either way |
+
 ## v2.22.0
 
 The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, streaming and AG-UI, caller identity, providers, retries, and the A2A server.

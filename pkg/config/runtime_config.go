@@ -129,6 +129,30 @@ type RuntimeConfigSpec struct {
 	// spec.tools map binds exec tool implementations.
 	//nolint:lll // jsonschema tags require single line
 	ToolSelector string `yaml:"tool_selector,omitempty" json:"tool_selector,omitempty" jsonschema:"title=ToolSelector,description=Name of a selector declared under spec.selectors used to narrow the LLM-visible tool set per turn"`
+
+	// ToolLoading sets how the tools array sent to the provider follows a
+	// change to what the model may call. Omitted, the array is rebuilt on
+	// each change.
+	//nolint:lll // jsonschema tags require single line
+	ToolLoading *ToolLoadingConfig `yaml:"tool_loading,omitempty" json:"tool_loading,omitempty" jsonschema:"title=Tool Loading,description=How the tools array sent to the provider follows a change to what the model may call"`
+}
+
+// Tool loading modes (ToolLoadingConfig.Mode).
+const (
+	// ToolLoadingModeRebuild sends each provider call the tools the model may
+	// call on it, so the tools array changes whenever they do. The default.
+	ToolLoadingModeRebuild = "rebuild"
+	// ToolLoadingModeStable sends every provider call of a conversation the
+	// same tools array and narrows what the model may call per call, so a
+	// provider that caches the prompt keeps the cached prefix.
+	ToolLoadingModeStable = "stable"
+)
+
+// ToolLoadingConfig is RuntimeConfig's spec.tool_loading.
+type ToolLoadingConfig struct {
+	// Mode is rebuild (the default) or stable.
+	//nolint:lll // jsonschema tags require single line
+	Mode string `yaml:"mode,omitempty" json:"mode,omitempty" jsonschema:"enum=rebuild,enum=stable,title=Mode,description=rebuild (default) rebuilds the tools array on each change; stable keeps it and narrows per call"`
 }
 
 // SelectorConfig declares an external selector process. Command, Args,
@@ -382,7 +406,26 @@ func (s *RuntimeConfigSpec) Validate() error {
 	if err := s.validateHooks(); err != nil {
 		return err
 	}
+	if err := s.validateToolLoading(); err != nil {
+		return err
+	}
 	return s.validateSelectors()
+}
+
+// validateToolLoading checks spec.tool_loading.mode names a mode.
+func (s *RuntimeConfigSpec) validateToolLoading() error {
+	if s.ToolLoading == nil {
+		return nil
+	}
+	switch s.ToolLoading.Mode {
+	case "", ToolLoadingModeRebuild, ToolLoadingModeStable:
+		return nil
+	}
+	return &ValidationError{
+		Field:   "tool_loading.mode",
+		Message: `must be "rebuild" or "stable"`,
+		Value:   s.ToolLoading.Mode,
+	}
 }
 
 // completionRoles are the roles built through the chat-completion provider

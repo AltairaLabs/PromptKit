@@ -318,7 +318,7 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	// same reason as the completions builder — it is only valid alongside a
 	// declared tools array.
 	if tools != nil {
-		p.addResponsesTools(responsesReq, tools, toolChoice)
+		p.addResponsesTools(responsesReq, tools, toolChoice, req.ActiveTools)
 	}
 
 	// Seed is deliberately NOT sent. The Responses API rejects the parameter
@@ -363,11 +363,14 @@ func (p *Provider) buildResponsesRequest(req providers.PredictionRequest, tools 
 	return responsesReq
 }
 
-// addResponsesTools adds the tools, a non-auto tool_choice and
+// addResponsesTools adds the tools, a non-auto tool_choice (or one restricted
+// to active, PredictionRequest.ActiveTools: restrictedToolChoice) and
 // parallel_tool_calls to a Responses API request that declares tools.
-func (p *Provider) addResponsesTools(responsesReq map[string]any, tools any, toolChoice string) {
+func (p *Provider) addResponsesTools(responsesReq map[string]any, tools any, toolChoice string, active []string) {
 	responsesReq["tools"] = p.convertToolsToResponsesFormat(tools)
-	if toolChoice != "" && toolChoice != toolChoiceAuto {
+	if restricted, ok := p.restrictedToolChoice(toolChoice, active, true); ok {
+		responsesReq["tool_choice"] = restricted
+	} else if toolChoice != "" && toolChoice != toolChoiceAuto {
 		responsesReq["tool_choice"] = responsesToolChoice(toolChoice)
 	}
 	if p.parallelToolCalls != nil {
