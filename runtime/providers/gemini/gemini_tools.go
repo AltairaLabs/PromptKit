@@ -61,8 +61,6 @@ const (
 // ToolProvider extends GeminiProvider with tool support
 type ToolProvider struct {
 	*Provider
-	currentTools   providers.ProviderTools      // Store current tools for continuation
-	currentRequest *providers.PredictionRequest // Store current request context for continuation
 }
 
 // NewToolProvider creates a new Gemini provider with tool support
@@ -164,6 +162,33 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	}, nil
 }
 
+// Predict runs a turn with no tools on the configured API. On the
+// Interactions API it takes the same path as a tool turn, with no tools;
+// otherwise it is the embedded Provider's generateContent call.
+func (p *ToolProvider) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	if p.resolveAPIMode() != APIModeInteractions {
+		return p.Provider.Predict(ctx, req)
+	}
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			resp, _, err := p.predictWithInteractions(ctx, r, nil, "", partsAlways)
+			return resp, err
+		})
+}
+
+// PredictStream streams a turn with no tools from the configured API, as
+// Predict does.
+func (p *ToolProvider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	if p.resolveAPIMode() != APIModeInteractions {
+		return p.Provider.PredictStream(ctx, req)
+	}
+	return p.PredictStreamWithTools(ctx, req, nil, "")
+}
+
 // PredictWithTools runs predictWithToolsOnce, retrying without any sampling
 // parameter the API rejects for this model.
 func (p *ToolProvider) PredictWithTools(
@@ -190,10 +215,6 @@ func (p *ToolProvider) predictWithToolsOnce(
 	tools providers.ProviderTools,
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	// Store tools and request context for potential continuation
-	p.currentTools = tools
-	p.currentRequest = &req
-
 	if tools != nil && wantsSchema(req.ResponseFormat) {
 		return p.predictSchemaAfterTools(ctx, req, tools, toolChoice)
 	}
@@ -208,8 +229,10 @@ func (p *ToolProvider) predictRound(
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	if p.resolveAPIMode() == APIModeInteractions {
-		return p.predictWithInteractions(ctx, req, tools, toolChoice)
+		return p.predictWithInteractions(ctx, req, tools, toolChoice, partsForMedia)
 	}
+
+	start := time.Now()
 
 	// Build Gemini request with tools
 	geminiReq, err := p.buildToolRequest(ctx, req, tools, toolChoice)
@@ -229,8 +252,11 @@ func (p *ToolProvider) predictRound(
 		return predictResp, nil, err
 	}
 
-	// Parse response and extract tool calls
-	return p.parseToolResponse(respBytes, predictResp)
+	// Parse response and extract tool calls. Latency runs from the start of
+	// the request, as on Predict; parseToolResponse alone sees only the parse.
+	resp, calls, err := p.parseToolResponse(respBytes, predictResp)
+	resp.Latency = time.Since(start)
+	return resp, calls, err
 }
 
 // processToolMessage converts a tool result message to Gemini's functionResponse
@@ -1088,7 +1114,9 @@ func init() {
 				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
-				applyAPIModeConfig(tp.Provider, spec)
+				if err := applyAPIModeConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
 				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {
@@ -1107,7 +1135,9 @@ func init() {
 				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
-				applyAPIModeConfig(tp.Provider, spec)
+				if err := applyAPIModeConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
 				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {

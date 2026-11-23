@@ -1,0 +1,642 @@
+package gemini
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+// With api_mode interactions every turn goes to the Interactions API, a turn
+// with no tools (Predict / PredictStream) as well as a tool turn. These tests
+// drive the public entry points of a provider built from a spec, as a host
+// builds it, against a server that records where each request went.
+
+// routeServer records each request's path and body and answers the
+// Interactions endpoint with unary or SSE bodies, and generateContent with a
+// minimal candidate.
+type routeServer struct {
+	url string
+
+	mu     sync.Mutex
+	paths  []string
+	bodies [][]byte
+}
+
+func newRouteServer(t *testing.T, unary, stream string) *routeServer {
+	t.Helper()
+	s := &routeServer{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		s.mu.Lock()
+		s.paths = append(s.paths, r.URL.Path)
+		s.bodies = append(s.bodies, body)
+		s.mu.Unlock()
+		switch {
+		case strings.HasSuffix(r.URL.Path, ":streamGenerateContent"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `[{"candidates":[{"content":{"role":"model","parts":[{"text":"GC"}]},`+
+				`"finishReason":"STOP"}]}]`)
+		case strings.HasSuffix(r.URL.Path, ":generateContent"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"candidates":[{"content":{"role":"model","parts":[{"text":"GC"}]},`+
+				`"finishReason":"STOP"}]}`)
+		case strings.Contains(string(body), `"stream":true`):
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, stream)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, unary)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	s.url = srv.URL
+	return s
+}
+
+func (s *routeServer) sentPaths() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.paths...)
+}
+
+// lastBody decodes the last request body.
+func (s *routeServer) lastBody(t *testing.T) map[string]any {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.bodies) == 0 {
+		t.Fatal("no request reached the server")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(s.bodies[len(s.bodies)-1], &body); err != nil {
+		t.Fatalf("body not JSON: %v", err)
+	}
+	return body
+}
+
+// newSpecProvider builds a gemini provider from a spec with the given
+// additional_config, as a host does.
+func newSpecProvider(t *testing.T, url string, cfg map[string]any) providers.Provider {
+	t.Helper()
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: uniqueProviderID("int-all"), Type: "gemini", Model: "gemini-3.7-flash", BaseURL: url,
+		AdditionalConfig: cfg,
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	return p
+}
+
+var interactionsMode = map[string]any{"api_mode": "interactions"}
+
+// streamTurn drains a stream into a response: the final content, finish
+// reason and cost, the concatenated reasoning and opaque reasoning.
+func streamTurn(t *testing.T, ch <-chan providers.StreamChunk) providers.PredictionResponse {
+	t.Helper()
+	var out providers.PredictionResponse
+	for c := range ch {
+		if c.Error != nil {
+			t.Fatalf("stream chunk error: %v", c.Error)
+		}
+		out.Content = c.Content
+		if c.FinishReason != nil {
+			out.FinishReason = *c.FinishReason
+		}
+		if c.CostInfo != nil {
+			out.CostInfo = c.CostInfo
+		}
+		if len(c.OpaqueReasoning) > 0 {
+			if out.Reasoning == nil {
+				out.Reasoning = &types.ReasoningTrace{}
+			}
+			out.Reasoning.Opaque = append(out.Reasoning.Opaque, c.OpaqueReasoning...)
+		}
+	}
+	return out
+}
+
+// predictTurn runs one tool-less turn through Predict or PredictStream.
+func predictTurn(
+	t *testing.T, p providers.Provider, req providers.PredictionRequest, stream bool,
+) providers.PredictionResponse {
+	t.Helper()
+	if !stream {
+		resp, err := p.Predict(context.Background(), req)
+		if err != nil {
+			t.Fatalf("Predict: %v", err)
+		}
+		return resp
+	}
+	ch, err := p.PredictStream(context.Background(), req)
+	if err != nil {
+		t.Fatalf("PredictStream: %v", err)
+	}
+	return streamTurn(t, ch)
+}
+
+const (
+	allTurnsUnary = `{"id":"i1","status":"completed","steps":[
+	  {"type":"thought","signature":"SIG"},
+	  {"type":"model_output","content":[{"type":"text","text":"OK"}]}],
+	  "usage":{"total_input_tokens":7,"total_output_tokens":2,"total_thought_tokens":5}}`
+	allTurnsStream = "event: step.start\n" +
+		`data: {"index":0,"step":{"type":"thought"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":0,"delta":{"type":"thought_signature","signature":"SIG"}}` + "\n\n" +
+		"event: step.start\n" +
+		`data: {"index":1,"step":{"type":"model_output"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":1,"delta":{"type":"text","text":"OK"}}` + "\n\n" +
+		"event: interaction.completed\n" +
+		`data: {"interaction":{"id":"i1","status":"completed","usage":{"total_input_tokens":7,` +
+		`"total_output_tokens":2,"total_thought_tokens":5}}}` + "\n\n"
+)
+
+// A turn with no tools reaches the Interactions endpoint, with the same
+// answer, finish reason, cost and replayable reasoning a tool turn gets.
+// Without api_mode it still goes to generateContent.
+func TestInteractions_ToolLessTurnsUseTheConfiguredAPI(t *testing.T) {
+	req := providers.PredictionRequest{
+		System:   "be terse",
+		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
+	}
+	for _, stream := range []bool{false, true} {
+		name := map[bool]string{false: "unary", true: "stream"}[stream]
+
+		t.Run(name+"/interactions", func(t *testing.T) {
+			srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+			resp := predictTurn(t, newSpecProvider(t, srv.url, interactionsMode), req, stream)
+
+			if got := strings.Join(srv.sentPaths(), ","); got != "/interactions" {
+				t.Fatalf("requests went to %q, want one to /interactions", got)
+			}
+			body := srv.lastBody(t)
+			if got, want := canonicalJSON(t, body["input"]),
+				`[{"content":[{"text":"hi","type":"text"}],"type":"user_input"}]`; got != want {
+				t.Errorf("input = %s, want %s", got, want)
+			}
+			if body["system_instruction"] != "be terse" {
+				t.Errorf("system_instruction = %v, want %q", body["system_instruction"], "be terse")
+			}
+			if _, hasTools := body["tools"]; hasTools {
+				t.Errorf("a tool-less turn sent tools: %v", body["tools"])
+			}
+			if resp.Content != "OK" || resp.FinishReason != types.FinishReasonStop {
+				t.Errorf("content, finish = %q, %q; want %q, %q",
+					resp.Content, resp.FinishReason, "OK", types.FinishReasonStop)
+			}
+			if resp.CostInfo == nil || resp.CostInfo.InputTokens != 7 || resp.CostInfo.OutputTokens != 2 {
+				t.Errorf("cost = %+v, want 7 input and 2 output tokens", resp.CostInfo)
+			}
+			if resp.Reasoning == nil || len(resp.Reasoning.Opaque) != 1 ||
+				resp.Reasoning.Opaque[0] != (types.OpaqueReasoning{
+					Provider: providerNameGemini, Kind: kindInteractionsThought, Data: "SIG"}) {
+				t.Errorf("reasoning = %+v, want the thought signature to replay", resp.Reasoning)
+			}
+		})
+
+		t.Run(name+"/default", func(t *testing.T) {
+			srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+			resp := predictTurn(t, newSpecProvider(t, srv.url, nil), req, stream)
+			action := map[bool]string{false: ":generateContent", true: ":streamGenerateContent"}[stream]
+			if got, want := strings.Join(srv.sentPaths(), ","), "/models/gemini-3.7-flash"+action; got != want {
+				t.Errorf("requests went to %q, want %q", got, want)
+			}
+			if resp.Content != "GC" {
+				t.Errorf("content = %q, want %q", resp.Content, "GC")
+			}
+		})
+	}
+}
+
+// A JSON-schema turn with no tools carries the schema in response_format.
+func TestInteractions_ToolLessTurnCarriesTheResponseSchema(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unary", true: "stream"}[stream], func(t *testing.T) {
+			srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+			predictTurn(t, newSpecProvider(t, srv.url, interactionsMode), providers.PredictionRequest{
+				Messages:       []types.Message{{Role: roleUser, Content: "capital of France?"}},
+				ResponseFormat: schemaFormat(),
+			}, stream)
+			want := `{"mime_type":"application/json","schema":{"properties":{"a":{"type":"string"}},` +
+				`"type":"object"},"type":"text"}`
+			if got := canonicalJSON(t, srv.lastBody(t)["response_format"]); got != want {
+				t.Errorf("response_format = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+// A document the Interactions API does not accept (it reads PDF, CSV, Office
+// and OpenDocument only) fails a tool-less turn before any request, with an
+// UnsupportedContentError naming it. generateContent reads it as text.
+func TestInteractions_ToolLessTurnRefusesUnacceptedDocument(t *testing.T) {
+	msg := types.Message{Role: roleUser}
+	msg.AddTextPart("summarize")
+	msg.AddPart(types.ContentPart{Type: types.ContentTypeDocument, Media: &types.MediaContent{
+		Data: strRef("aGVsbG8="), MIMEType: "text/markdown"}})
+	req := providers.PredictionRequest{Messages: []types.Message{msg}}
+
+	for _, stream := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unary", true: "stream"}[stream], func(t *testing.T) {
+			srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+			p := newSpecProvider(t, srv.url, interactionsMode)
+			var err error
+			if stream {
+				_, err = p.PredictStream(context.Background(), req)
+			} else {
+				_, err = p.Predict(context.Background(), req)
+			}
+			var unsupported *providers.UnsupportedContentError
+			if !errors.As(err, &unsupported) {
+				t.Fatalf("want UnsupportedContentError, got %v", err)
+			}
+			if unsupported.ContentType != types.ContentTypeDocument || unsupported.MIMEType != "text/markdown" ||
+				unsupported.PartIndex != 1 {
+				t.Errorf("error = %+v, want the text/markdown document at part 1", unsupported)
+			}
+			if want := "the Gemini Interactions API does not accept document format text/markdown"; !strings.Contains(
+				err.Error(), want) {
+				t.Errorf("error %q does not say %q", err, want)
+			}
+			if paths := srv.sentPaths(); len(paths) != 0 {
+				t.Errorf("requests went out without the document: %v", paths)
+			}
+		})
+	}
+}
+
+// An image or audio the model generates comes back as a model_output content
+// item (captured live: gemini-3.1-flash-lite-image returned image/jpeg, a TTS
+// model audio/wav). It reaches the response's Parts beside the text, as an
+// inline-data part does on generateContent.
+func TestInteractions_GeneratedMediaReachesParts(t *testing.T) {
+	// The thought's text is reasoning and stays out of Parts.
+	unary := `{"id":"i1","status":"completed","steps":[
+	  {"type":"thought","signature":"SIG","content":[{"type":"text","text":"planning"}]},
+	  {"type":"model_output","content":[{"type":"text","text":"Here:"},
+	    {"type":"image","mime_type":"image/jpeg","data":"aW1n"},
+	    {"type":"audio","mime_type":"audio/wav","data":"YXVk"}]}]}`
+	srv := newRouteServer(t, unary, "")
+	resp := predictTurn(t, newSpecProvider(t, srv.url, interactionsMode), providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "draw a red square"}},
+	}, false)
+
+	want := []types.ContentPart{
+		types.NewTextPart("Here:"),
+		types.NewImagePartFromData("aW1n", "image/jpeg", nil),
+		types.NewAudioPartFromData("YXVk", "audio/wav"),
+	}
+	if got, w := canonicalJSON(t, resp.Parts), canonicalJSON(t, want); got != w {
+		t.Errorf("parts = %s, want %s", got, w)
+	}
+	if resp.Content != "Here:" {
+		t.Errorf("content = %q, want %q", resp.Content, "Here:")
+	}
+}
+
+// The Interactions API has no explicit context caching: it answers a
+// cached_content field with HTTP 400 "Unknown parameter" (probed live). A
+// config that asks for both is refused when the provider is built, rather
+// than every turn paying the full input price the caller meant to cache.
+func TestInteractions_ExplicitCachingIsRefusedAtConstruction(t *testing.T) {
+	build := func(cfg map[string]any) error {
+		t.Setenv("GEMINI_API_KEY", "test-key")
+		_, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+			ID: "gemini-cache-mode", Type: "gemini", Model: "gemini-3.7-flash",
+			BaseURL: "http://unused.invalid", AdditionalConfig: cfg,
+		})
+		return err
+	}
+
+	err := build(map[string]any{"api_mode": "interactions", "explicit_caching": true})
+	want := `gemini provider "gemini-cache-mode": additional_config.explicit_caching is not supported ` +
+		`with api_mode interactions: the Interactions API has no explicit context caching; ` +
+		`remove explicit_caching or use api_mode generate_content`
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %q", err, want)
+	}
+
+	for _, ok := range []map[string]any{
+		{"api_mode": "interactions", "explicit_caching": false},
+		{"api_mode": "generate_content", "explicit_caching": true},
+		{"explicit_caching": true},
+		{"api_mode": "interactions"},
+	} {
+		if err := build(ok); err != nil {
+			t.Errorf("config %v: unexpected error %v", ok, err)
+		}
+	}
+}
+
+// A streamed turn does not deliver generated media on either API: the stream
+// carries text, reasoning and tool calls only. Media the model generates is
+// not dropped silently: one warning per stream names the API and the first
+// item's MIME type, and the text still arrives. The Interactions API streams
+// it as a delta ({"type":"image","mime_type":…,"data":…}, captured live), and
+// generateContent as an inlineData part.
+func TestStreamedGeneratedMediaWarnsOncePerStream(t *testing.T) {
+	interactionsStream := "event: step.start\n" +
+		`data: {"index":0,"step":{"type":"model_output"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":0,"delta":{"type":"text","text":"Here:"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":0,"delta":{"type":"image","mime_type":"image/jpeg","data":"aW1n"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":0,"delta":{"type":"image","mime_type":"image/png","data":"aW1n"}}` + "\n\n" +
+		"event: interaction.completed\n" +
+		`data: {"interaction":{"id":"i1","status":"completed"}}` + "\n\n"
+	generateStream := `[{"candidates":[{"content":{"role":"model","parts":[{"text":"Here:"},` +
+		`{"inlineData":{"mimeType":"image/jpeg","data":"aW1n"}}]}}]},` +
+		`{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"aW1n"}}]},` +
+		`"finishReason":"STOP"}]}]`
+
+	for _, tc := range []struct {
+		name, api string
+		cfg       map[string]any
+	}{
+		{"interactions", "interactions", interactionsMode},
+		{"generateContent", "generate_content", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := captureWarnings(t)
+			srv := newMediaStreamServer(t, interactionsStream, generateStream)
+			resp := predictTurn(t, newSpecProvider(t, srv.URL, tc.cfg), providers.PredictionRequest{
+				Messages: []types.Message{{Role: roleUser, Content: "draw"}},
+			}, true)
+			if resp.Content != "Here:" {
+				t.Errorf("content = %q, want %q", resp.Content, "Here:")
+			}
+			want := "gemini: generated media is not delivered on a stream"
+			if n := strings.Count(logs.String(), want); n != 1 {
+				t.Errorf("warning logged %d times, want once: %q", n, logs.String())
+			}
+			for _, attr := range []string{"api=" + tc.api, "mime_type=image/jpeg"} {
+				if !strings.Contains(logs.String(), attr) {
+					t.Errorf("warning lacks %q: %q", attr, logs.String())
+				}
+			}
+		})
+	}
+}
+
+// newMediaStreamServer answers the Interactions endpoint with an SSE body and
+// streamGenerateContent with a JSON-array body.
+func newMediaStreamServer(t *testing.T, interactions, generate string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if strings.HasSuffix(r.URL.Path, ":streamGenerateContent") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, generate)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, interactions)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// The provider stage checks a request's media against what the provider can
+// send (providers.ValidateMultimodalRequest) before calling it. With every
+// turn on the Interactions API, that is the Interactions API's list: a BMP
+// image it takes passes, and a Markdown document it refuses fails before the
+// provider is called. Without api_mode the generateContent list applies.
+func TestInteractions_SendableFormatsFollowTheAPI(t *testing.T) {
+	part := func(kind, mime string) types.ContentPart {
+		return types.ContentPart{Type: kind, Media: &types.MediaContent{Data: strRef("eA=="), MIMEType: mime}}
+	}
+	validate := func(cfg map[string]any, p types.ContentPart) error {
+		msg := types.Message{Role: roleUser}
+		msg.AddTextPart("look")
+		msg.AddPart(p)
+		return providers.ValidateMultimodalRequest(newSpecProvider(t, "http://unused.invalid", cfg),
+			&providers.PredictionRequest{Messages: []types.Message{msg}})
+	}
+	errText := func(err error) string {
+		if err == nil {
+			return "<nil>"
+		}
+		return err.Error()
+	}
+
+	for _, tc := range []struct {
+		name string
+		cfg  map[string]any
+		part types.ContentPart
+		want string
+	}{
+		{"interactions takes BMP", interactionsMode, part(types.ContentTypeImage, "image/bmp"), "<nil>"},
+		{"interactions takes PDF", interactionsMode, part(types.ContentTypeDocument, types.MIMETypePDF), "<nil>"},
+		{"interactions refuses Markdown", interactionsMode, part(types.ContentTypeDocument, "text/markdown"),
+			"unsupported document format: text/markdown"},
+		{"interactions refuses video/flv", interactionsMode, part(types.ContentTypeVideo, "video/flv"),
+			"unsupported video format: video/flv"},
+		{"generateContent reads Markdown", nil, part(types.ContentTypeDocument, "text/markdown"), "<nil>"},
+		{"generateContent refuses BMP", nil, part(types.ContentTypeImage, "image/bmp"),
+			"unsupported image format: image/bmp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := errText(validate(tc.cfg, tc.part))
+			if tc.want == "<nil>" && got != "<nil>" || !strings.Contains(got, tc.want) {
+				t.Errorf("validation = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Vertex serves the Interactions API at
+// {host}/v1/projects/{project}/locations/{location}/interactions (probed live
+// on the global, us and eu locations; v1beta1 answers too), beside the
+// publisher models path generateContent uses. The provider sent Vertex turns to
+// {base}/publishers/google/models/interactions, which answers 404. A turn with
+// tools and one without now reach the location's interactions path, with the
+// Vertex credential.
+func TestInteractions_VertexUsesTheLocationInteractionsPath(t *testing.T) {
+	srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+	cred := &mockBearerCredential{}
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: uniqueProviderID("int-vertex"), Type: "gemini", Model: "gemini-3.7-flash",
+		BaseURL:          srv.url + "/v1/projects/p1/locations/global/publishers/google/models",
+		Platform:         vertexPlatform,
+		PlatformConfig:   &providers.PlatformConfig{Project: "p1", Region: "global"},
+		Credential:       cred,
+		AdditionalConfig: interactionsMode,
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	tp := p.(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{Name: "probe", Description: "p"}})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+	predictTurn(t, p, req, false)
+	predictTurn(t, p, req, true)
+	if _, _, err := tp.PredictWithTools(context.Background(), req, tools, ""); err != nil {
+		t.Fatalf("PredictWithTools: %v", err)
+	}
+
+	want := "/v1/projects/p1/locations/global/interactions"
+	if got := strings.Join(srv.sentPaths(), ","); got != want+","+want+","+want {
+		t.Errorf("requests went to %q, want three to %q", got, want)
+	}
+	if !cred.applied {
+		t.Error("the Vertex credential was not applied")
+	}
+}
+
+// On Vertex the interactions path is derived from the publisher models base
+// URL. A base URL of another shape gives no location to send to, so a Vertex
+// provider with api_mode interactions and such a base URL fails when it is
+// built, rather than at the first turn with a 404.
+func TestInteractions_VertexWithoutAModelsBaseURLIsRefused(t *testing.T) {
+	_, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "gemini-vertex-gw", Type: "gemini", Model: "gemini-3.7-flash",
+		BaseURL: "https://gateway.example/gemini", Platform: vertexPlatform,
+		Credential: &mockBearerCredential{}, AdditionalConfig: interactionsMode,
+	})
+	want := `gemini provider "gemini-vertex-gw": api_mode interactions on Vertex needs a base URL ending in ` +
+		`/projects/{project}/locations/{location}/publishers/google/models, ` +
+		`from which the Interactions endpoint is derived; got "https://gateway.example/gemini"`
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %q", err, want)
+	}
+}
+
+// A turn with no tools returns its answer in Parts as well as Content on
+// generateContent (extractCandidateContent), one text part per output part and
+// a markdown data-URI image split into an image part. The Interactions API returns the
+// same answer as content items, which map to the same Parts. A tool turn sets
+// no Parts for a text answer on either API.
+func TestInteractions_PartsMatchGenerateContentPerPath(t *testing.T) {
+	const md = "see ![chart](data:image/png;base64,aW1n) now"
+	interactionsBody := `{"id":"i1","status":"completed","steps":[{"type":"model_output","content":[` +
+		`{"type":"text","text":"Hi. "},{"type":"text","text":"` + md + `"}]}]}`
+	generateBody := `{"candidates":[{"content":{"role":"model","parts":[{"text":"Hi. "},{"text":"` + md + `"}]},` +
+		`"finishReason":"STOP"}]}`
+	serve := func(body string) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+	predict := func(p providers.Provider) providers.PredictionResponse {
+		resp, err := p.Predict(context.Background(), req)
+		if err != nil {
+			t.Fatalf("Predict: %v", err)
+		}
+		return resp
+	}
+	withTools := func(p providers.Provider) providers.PredictionResponse {
+		tp := p.(*ToolProvider)
+		tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{Name: "probe", Description: "p"}})
+		if err != nil {
+			t.Fatalf("BuildTooling: %v", err)
+		}
+		resp, _, err := tp.PredictWithTools(context.Background(), req, tools, "")
+		if err != nil {
+			t.Fatalf("PredictWithTools: %v", err)
+		}
+		return resp
+	}
+
+	gc := predict(newSpecProvider(t, serve(generateBody), nil))
+	in := predict(newSpecProvider(t, serve(interactionsBody), interactionsMode))
+	want := canonicalJSON(t, []types.ContentPart{
+		types.NewTextPart("Hi. "),
+		types.NewTextPart("see "),
+		types.NewImagePartFromData("aW1n", "image/png", nil),
+		types.NewTextPart(" now"),
+	})
+	if got := canonicalJSON(t, gc.Parts); got != want {
+		t.Fatalf("generateContent parts = %s, want %s (the reference this test compares with)", got, want)
+	}
+	if got := canonicalJSON(t, in.Parts); got != want {
+		t.Errorf("interactions parts = %s, want %s", got, want)
+	}
+
+	gcTool := withTools(newSpecProvider(t, serve(generateBody), nil))
+	inTool := withTools(newSpecProvider(t, serve(interactionsBody), interactionsMode))
+	if gcTool.Parts != nil || inTool.Parts != nil {
+		t.Errorf("tool-turn parts = %v (generateContent), %v (interactions); want none on both",
+			gcTool.Parts, inTool.Parts)
+	}
+}
+
+// A unary turn reports its latency, the time from sending to the parsed
+// answer, on the Interactions API as on generateContent, with tools and
+// without. (A stream chunk carries no latency on either API.)
+func TestInteractions_ReportsLatency(t *testing.T) {
+	const delay = 30 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		time.Sleep(delay)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, allTurnsUnary)
+	}))
+	t.Cleanup(srv.Close)
+	p := newSpecProvider(t, srv.URL, interactionsMode)
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+
+	resp, err := p.Predict(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	if resp.Latency < delay {
+		t.Errorf("tool-less latency = %v, want at least the server's %v", resp.Latency, delay)
+	}
+
+	tp := p.(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{Name: "probe", Description: "p"}})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	resp, _, err = tp.PredictWithTools(context.Background(), req, tools, "")
+	if err != nil {
+		t.Fatalf("PredictWithTools: %v", err)
+	}
+	if resp.Latency < delay {
+		t.Errorf("tool-turn latency = %v, want at least the server's %v", resp.Latency, delay)
+	}
+}
+
+// A Vertex base URL with a trailing slash names the same location, so it
+// builds and its turns reach the same interactions path.
+func TestInteractions_VertexBaseURLTrailingSlash(t *testing.T) {
+	srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: uniqueProviderID("int-vertex-slash"), Type: "gemini", Model: "gemini-3.7-flash",
+		BaseURL:          srv.url + "/v1/projects/p1/locations/eu/publishers/google/models/",
+		Platform:         vertexPlatform,
+		Credential:       &mockBearerCredential{},
+		AdditionalConfig: interactionsMode,
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	predictTurn(t, p, providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
+	}, false)
+	if got, want := strings.Join(srv.sentPaths(), ","), "/v1/projects/p1/locations/eu/interactions"; got != want {
+		t.Errorf("request went to %q, want %q", got, want)
+	}
+}

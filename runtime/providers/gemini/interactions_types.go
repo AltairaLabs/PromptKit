@@ -25,6 +25,7 @@ const (
 	stepTypeText           = "text"
 	stepTypeThought        = "thought"
 	stepTypeModelOutput    = "model_output"
+	stepTypeUserInput      = "user_input"
 	stepTypeFunctionCall   = "function_call"
 	stepTypeFunctionResult = "function_result"
 )
@@ -38,12 +39,21 @@ type interactionsRequest struct {
 	Model string `json:"model"`
 	// Input is the replayed transcript. A plain string is accepted for the
 	// simplest case, but this provider always sends the typed list.
-	Input          []any                  `json:"input"`
-	Tools          []interactionsTool     `json:"tools,omitempty"`
-	ResponseFormat *interactionsRespFmt   `json:"response_format,omitempty"`
-	Stream         bool                   `json:"stream,omitempty"`
-	Generation     map[string]any         `json:"generation_config,omitempty"`
-	Extra          map[string]interface{} `json:"-"`
+	Input []any `json:"input"`
+	// SystemInstruction is the system prompt, a plain string on this API.
+	SystemInstruction string                 `json:"system_instruction,omitempty"`
+	Tools             []interactionsTool     `json:"tools,omitempty"`
+	SafetySettings    []interactionsSafety   `json:"safety_settings,omitempty"`
+	ResponseFormat    *interactionsRespFmt   `json:"response_format,omitempty"`
+	Stream            bool                   `json:"stream,omitempty"`
+	Generation        map[string]any         `json:"generation_config,omitempty"`
+	Extra             map[string]interface{} `json:"-"`
+}
+
+// interactionsSafety is one safety setting: {"type":"harassment","threshold":"off"}.
+type interactionsSafety struct {
+	Type      string `json:"type"`
+	Threshold string `json:"threshold"`
 }
 
 // interactionsTool is a flat function declaration, unlike generateContent's
@@ -77,7 +87,14 @@ type interactionsThoughtStep struct {
 	Signature string `json:"signature"`
 }
 
-// interactionsTextStep is a plain user turn.
+// interactionsTurnStep is a replayed turn: the user's (user_input) or the
+// model's reply (model_output), holding its text and media content items.
+type interactionsTurnStep struct {
+	Type    string `json:"type"`
+	Content []any  `json:"content"`
+}
+
+// interactionsTextStep is a text content item.
 type interactionsTextStep struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
@@ -137,10 +154,14 @@ type interactionsFunctionResult struct {
 	Result any `json:"result"`
 }
 
-// interactionsContent is a content item inside a step.
+// interactionsContent is a content item inside a step. A model_output step's
+// generated image or audio arrives with Data (base64) and MIMEType set, as
+// {"type":"image","mime_type":"image/jpeg","data":"…"} (captured live).
 type interactionsContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MIMEType string `json:"mime_type,omitempty"`
 }
 
 // interactionsResponse is a completed (non-streaming) interaction.

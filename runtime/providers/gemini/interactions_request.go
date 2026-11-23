@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
+	"regexp"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -15,12 +17,28 @@ import (
 // interactionsURL builds the endpoint for the Interactions API.
 //
 // Unlike generateContent the model is a request field rather than part of the
-// path, so this is a single collection endpoint.
+// path, so this is a single collection endpoint. On AI Studio it sits under
+// the API version; on Vertex under the project's location,
+// {host}/v1/projects/{project}/locations/{location}/interactions, beside the
+// publisher models path generateContent uses (probed live: the models path
+// answers 404). applyAPIModeConfig refuses a Vertex base URL it cannot be
+// derived from.
 func (p *Provider) interactionsURL() string {
 	// No credential in the URL on either platform — auth is applied as a
 	// header by authCredential.
+	if p.isVertex() {
+		return strings.TrimSuffix(strings.TrimRight(p.baseURL, "/"), vertexModelsSuffix) + interactionsPath
+	}
 	return p.baseURL + interactionsPath
 }
+
+// vertexModelsSuffix ends a Vertex base URL for Google's models.
+const vertexModelsSuffix = "/publishers/google/models"
+
+// vertexModelsBaseURL matches a Vertex base URL for Google's models, the shape
+// vertexGeminiEndpoint builds: …/projects/{project}/locations/{location}
+// followed by vertexModelsSuffix.
+var vertexModelsBaseURL = regexp.MustCompile(`/projects/[^/]+/locations/[^/]+` + vertexModelsSuffix + `$`)
 
 // buildInteractionsRequest assembles one stateless Interactions call: the whole
 // transcript as input, the tools, and the caller's schema.
@@ -37,18 +55,16 @@ func (p *ToolProvider) buildInteractionsRequest(
 		return interactionsRequest{}, err
 	}
 
-	// generateContent carries the system prompt in a dedicated field. This API
-	// has no such field, so it leads the transcript as ordinary text — the
-	// alternative is dropping it, which would silently change behavior.
-	if req.System != "" {
-		input = slices.Insert(input, 0, any(interactionsTextStep{Type: stepTypeText, Text: req.System}))
-	}
-
 	out := interactionsRequest{
-		Model:          p.model,
-		Input:          input,
-		Tools:          buildInteractionsTools(tools),
-		ResponseFormat: interactionsResponseFormat(req.ResponseFormat),
+		Model: p.model,
+		Input: input,
+		// The system prompt goes in system_instruction, as generateContent's
+		// systemInstruction. As a turn of the transcript the model would read
+		// it as something the user said.
+		SystemInstruction: req.System,
+		Tools:             buildInteractionsTools(tools),
+		ResponseFormat:    interactionsResponseFormat(req.ResponseFormat),
+		SafetySettings:    interactionsSafetySettings(),
 	}
 	out.Generation = p.interactionsGenerationConfig(req)
 	if len(out.Tools) > 0 {
@@ -59,6 +75,26 @@ func (p *ToolProvider) buildInteractionsRequest(
 	}
 
 	return out, nil
+}
+
+// interactionsSafetyOff is the Interactions API threshold that blocks nothing.
+// The API has no BLOCK_NONE and answers it with HTTP 400 (probed live).
+const interactionsSafetyOff = "off"
+
+// interactionsSafetySettings is defaultSafetySettings, which every
+// generateContent request carries, in this API's shape: the category
+// lowercased without its HARM_CATEGORY_ prefix, under "type", and "off" for
+// BLOCK_NONE. Built from defaultSafetySettings so the two APIs cannot drift.
+func interactionsSafetySettings() []interactionsSafety {
+	defaults := defaultSafetySettings()
+	out := make([]interactionsSafety, 0, len(defaults))
+	for _, s := range defaults {
+		out = append(out, interactionsSafety{
+			Type:      strings.ToLower(strings.TrimPrefix(s.Category, "HARM_CATEGORY_")),
+			Threshold: interactionsSafetyOff,
+		})
+	}
+	return out
 }
 
 // interactionsGenerationConfig carries the sampling parameters the
@@ -146,11 +182,25 @@ func interactionsToolChoice(toolChoice string) any {
 	}
 }
 
+// outputParts says when a turn's answer goes in PredictionResponse.Parts.
+type outputParts int
+
+const (
+	// partsForMedia sets Parts only for an answer with generated media: a tool
+	// turn, whose text answer generateContent carries in Content alone.
+	partsForMedia outputParts = iota
+	// partsAlways sets Parts for every answer: a turn with no tools, as
+	// generateContent's Predict does.
+	partsAlways
+)
+
 // predictWithInteractions runs a non-streaming turn through the Interactions
 // API, for a provider configured with api_mode interactions.
 func (p *ToolProvider) predictWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
+	parts outputParts,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	start := time.Now()
 	predictResp := providers.PredictionResponse{}
 	body, err := p.buildInteractionsRequest(ctx, req, tools, toolChoice)
 	if err != nil {
@@ -181,8 +231,10 @@ func (p *ToolProvider) predictWithInteractions(
 	}
 
 	content, toolCalls, reasoning := parseInteractionsResponse(&resp)
+	predictResp.Latency = time.Since(start)
 
 	predictResp.Content = content
+	predictResp.Parts = interactionsOutputParts(&resp, parts == partsAlways)
 	predictResp.Reasoning = reasoning
 	predictResp.FinishReason = finishReasonForInteraction(resp.Status, len(toolCalls) > 0)
 	if p.ShouldIncludeRawOutput() {

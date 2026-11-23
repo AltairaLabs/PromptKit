@@ -50,8 +50,13 @@ func (p *Provider) buildInteractionsInput(ctx context.Context, messages []types.
 	return input, nil
 }
 
-// interactionsSteps converts one message to the steps and content items that
-// replay it.
+// interactionsSteps converts one message to the steps that replay it.
+//
+// A message's text and media go out inside a user_input or model_output step
+// by role. Bare content items in the input are all read as the user's, so an
+// assistant reply sent that way reads to the model as something the user said
+// (verified live: asked to quote its last reply, the model answered that it
+// had sent none).
 func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message, msgIndex int) ([]any, error) {
 	switch msg.Role {
 	case roleToolMessage:
@@ -62,22 +67,30 @@ func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message, ms
 		return []any{step}, nil
 
 	case roleAssistant:
-		// The model's thought steps must precede its function calls. A
-		// history with a function_call and no thought is rejected outright,
-		// so these are replayed from the opaque signatures captured when
-		// the round was parsed.
+		// Replayed in the order the API returns a reply: thought, then the
+		// text (a preamble, when the reply also calls tools), then the
+		// function calls (captured live). A history with a function_call and
+		// no thought is rejected outright, so thoughts are replayed from the
+		// opaque signatures captured when the round was parsed.
 		steps := thoughtSteps(msg.Reasoning)
-		for j := range msg.ToolCalls {
-			steps = append(steps, functionCallStep(&msg.ToolCalls[j]))
-		}
 		content, err := p.interactionsContentItems(ctx, msg, msgIndex)
 		if err != nil {
 			return nil, err
 		}
-		return append(steps, content...), nil
+		if len(content) > 0 {
+			steps = append(steps, interactionsTurnStep{Type: stepTypeModelOutput, Content: content})
+		}
+		for j := range msg.ToolCalls {
+			steps = append(steps, functionCallStep(&msg.ToolCalls[j]))
+		}
+		return steps, nil
 
 	default:
-		return p.interactionsContentItems(ctx, msg, msgIndex)
+		content, err := p.interactionsContentItems(ctx, msg, msgIndex)
+		if err != nil || len(content) == 0 {
+			return nil, err
+		}
+		return []any{interactionsTurnStep{Type: stepTypeUserInput, Content: content}}, nil
 	}
 }
 
@@ -382,4 +395,37 @@ func parseInteractionsResponse(resp *interactionsResponse) (
 		reasoning = &types.ReasoningTrace{Text: thoughts, Opaque: opaque}
 	}
 	return content, toolCalls, reasoning
+}
+
+// interactionsOutputParts returns the model's output as content parts, in
+// order: the text, markdown images and media, mapped as generateContent maps
+// a candidate's parts. Without always, a text-only answer returns nil, as a
+// tool turn on generateContent does: Content carries it.
+func interactionsOutputParts(resp *interactionsResponse, always bool) []types.ContentPart {
+	var parts []geminiPart
+	hasMedia := false
+	for i := range resp.Steps {
+		step := &resp.Steps[i]
+		if step.Type != stepTypeModelOutput && step.Type != stepTypeText {
+			continue
+		}
+		if step.Text != "" {
+			parts = append(parts, geminiPart{Text: step.Text})
+			continue
+		}
+		for j := range step.Content {
+			item := &step.Content[j]
+			if item.Data == "" {
+				parts = append(parts, geminiPart{Text: item.Text})
+				continue
+			}
+			hasMedia = true
+			parts = append(parts, geminiPart{InlineData: &geminiInlineData{MimeType: item.MIMEType, Data: item.Data}})
+		}
+	}
+	if !hasMedia && !always {
+		return nil
+	}
+	out, _ := extractCandidateContent(parts)
+	return out
 }

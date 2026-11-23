@@ -44,6 +44,10 @@ const (
 	deltaTypeText      = "text"
 	deltaTypeArguments = "arguments_delta"
 	deltaTypeSignature = "thought_signature"
+	// deltaTypeImage and deltaTypeAudio carry generated media as
+	// {"type":"image","mime_type":"image/jpeg","data":"…"} (verified live).
+	deltaTypeImage = "image"
+	deltaTypeAudio = "audio"
 	// deltaTypeThoughtSummary carries a thought summary's text as
 	// {"type":"thought_summary","content":{"text":"…"}} (verified live).
 	deltaTypeThoughtSummary = "thought_summary"
@@ -68,6 +72,7 @@ type interactionsStreamEvent struct {
 		Text      string `json:"text"`
 		Arguments string `json:"arguments"`
 		Signature string `json:"signature"`
+		MIMEType  string `json:"mime_type"`
 		// Content is decoded only for a thought_summary delta, so a delta of
 		// another type whose content has another shape still decodes.
 		Content json.RawMessage `json:"content"`
@@ -85,7 +90,7 @@ type streamStep struct {
 }
 
 // predictStreamWithInteractions runs a streaming turn through the Interactions
-// API, which is the only way a response schema can coexist with tools.
+// API, for a provider configured with api_mode interactions.
 func (p *ToolProvider) predictStreamWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
@@ -158,6 +163,7 @@ func (p *ToolProvider) consumeInteractionsStream(
 	scanner.Buffer(make([]byte, 0, sseInitialBuffer), sseMaxBuffer)
 
 	var eventName string
+	var media streamedMediaWarning
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -183,7 +189,7 @@ func (p *ToolProvider) consumeInteractionsStream(
 			}
 
 		case evStepDelta:
-			if !applyStepDelta(&ev, steps, &content, emit) {
+			if !applyStepDelta(&ev, steps, &content, &media, emit) {
 				// emit only fails once ctx is done.
 				out <- interruptedInteractionChunk(steps, content.String(), ctx.Err())
 				return
@@ -256,6 +262,7 @@ func applyStepDelta(
 	ev *interactionsStreamEvent,
 	steps map[int]*streamStep,
 	content *strings.Builder,
+	media *streamedMediaWarning,
 	emit func(providers.StreamChunk) bool,
 ) bool {
 	step := steps[ev.Index]
@@ -289,6 +296,10 @@ func applyStepDelta(
 		// Reasoning streams beside the answer, as a thought part's text does on
 		// generateContent, and never into Content.
 		return emit(providers.StreamChunk{Content: content.String(), Reasoning: summary.Text})
+
+	case deltaTypeImage, deltaTypeAudio:
+		media.warn(APIModeInteractions, ev.Delta.MIMEType)
+		return true
 
 	case deltaTypeSignature:
 		// A thought's signature is opaque and must be replayed on later rounds,

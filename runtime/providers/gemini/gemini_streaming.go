@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -266,6 +267,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 
 	var sb strings.Builder
 	var toolCalls []types.MessageToolCall
+	var media streamedMediaWarning
 
 	// Decode each element incrementally as it arrives
 	for dec.More() {
@@ -290,6 +292,7 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 			return
 		}
 
+		media.warnChunk(&chunk)
 		var finished bool
 		toolCalls, finished = p.processGeminiStreamChunk(chunk, &sb, toolCalls, outChan)
 		if finished {
@@ -314,5 +317,34 @@ func (p *Provider) streamResponse(ctx context.Context, body io.ReadCloser, outCh
 		Content:      sb.String(),
 		ToolCalls:    toolCalls,
 		FinishReason: providers.StringPtr("stop"),
+	}
+}
+
+// streamedMediaWarning reports, once per stream, generated media that the
+// stream does not deliver. A stream on either Gemini API carries text,
+// reasoning and tool calls only, so an image or audio the model generates
+// reaches the caller only on a turn that does not stream. Without the warning
+// it would be dropped silently.
+type streamedMediaWarning struct{ warned bool }
+
+func (w *streamedMediaWarning) warn(api APIMode, mimeType string) {
+	if w.warned {
+		return
+	}
+	w.warned = true
+	logger.Warn("gemini: generated media is not delivered on a stream; use a non-streaming turn to receive it",
+		"api", string(api), "mime_type", mimeType)
+}
+
+// warnChunk warns for the first inline media part of a generateContent chunk.
+func (w *streamedMediaWarning) warnChunk(chunk *geminiResponse) {
+	if len(chunk.Candidates) == 0 {
+		return
+	}
+	for _, part := range chunk.Candidates[0].Content.Parts {
+		if part.InlineData != nil {
+			w.warn(APIModeGenerateContent, part.InlineData.MimeType)
+			return
+		}
 	}
 }

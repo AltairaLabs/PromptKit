@@ -50,7 +50,7 @@ func TestBuildInteractionsInput_ReplaysThoughtBeforeFunctionCall(t *testing.T) {
 	steps := marshalInput(t, msgs)
 	require.Len(t, steps, 3)
 
-	assert.Equal(t, stepTypeText, steps[0]["type"])
+	assert.Equal(t, stepTypeUserInput, steps[0]["type"])
 	assert.Equal(t, stepTypeThought, steps[1]["type"],
 		"the thought must be replayed, and must come BEFORE the call it preceded")
 	assert.Equal(t, "SIG-ABC", steps[1]["signature"])
@@ -132,18 +132,24 @@ func TestToolResultStep_PresenceChangesTheWire(t *testing.T) {
 }
 
 // TestBuildInteractionsInput_AssistantTextAndUserTurns covers the ordinary
-// shapes, including that an assistant turn with text but no tools still replays.
+// shapes, including that an assistant turn with text but no tools still
+// replays, as the model's output, and that a message with nothing to send
+// contributes no empty turn.
 func TestBuildInteractionsInput_AssistantTextAndUserTurns(t *testing.T) {
 	steps := marshalInput(t, []types.Message{
 		{Role: roleUser, Content: "hello"},
 		{Role: roleAssistant, Content: "hi there"},
+		{Role: roleUser},
 		{Role: roleUser, Content: "again"},
 	})
-	require.Len(t, steps, 3)
-	for _, s := range steps {
-		assert.Equal(t, stepTypeText, s["type"])
+	turn := func(kind, text string) map[string]any {
+		return map[string]any{"type": kind, "content": []any{map[string]any{"type": "text", "text": text}}}
 	}
-	assert.Equal(t, "hi there", steps[1]["text"])
+	assert.Equal(t, []map[string]any{
+		turn(stepTypeUserInput, "hello"),
+		turn(stepTypeModelOutput, "hi there"),
+		turn(stepTypeUserInput, "again"),
+	}, steps)
 }
 
 // TestThoughtSteps_SkipsForeignOpaque keeps a trace that travelled through

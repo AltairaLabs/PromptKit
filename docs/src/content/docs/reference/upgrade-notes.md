@@ -177,8 +177,27 @@ With `api_mode: interactions`, a reply cut off by `max_tokens` finished as `stop
 | Set `include_thoughts: true` | `generation_config.thinking_summaries: auto` sent, and the thought summary returned as the turn's reasoning, streamed as reasoning chunks | none |
 | Set `thinking_budget` without `thinking_level` | the budget not sent, with one warning per provider; the Interactions API has no budget field, so `thinking_budget: 0` does not turn thinking off there | set `thinking_level` instead. The lowest level is `minimal` on a model that takes it (it produced no thought tokens when probed), else `low`. To turn thinking off on Gemini 2.5, use generateContent with `thinking_budget: 0` |
 | Set `top_k`, `frequency_penalty` or `presence_penalty` | the parameter not sent, with one warning per provider and parameter; the Interactions API answers each with HTTP 400 | none, or use generateContent for `top_k` |
-| Set `api_mode: interactions` and run a turn that does not take the tool path | the turn sent to generateContent, as before; `api_mode` applies only to turns that take the tool path (tools offered, or tool calls in the history) | none; the settings above apply to the turns that take the tool path |
 | Read the cost of an Interactions turn | thought tokens priced at the output rate and cached input priced as cache reads, as on generateContent, where thinking cost nothing and cached input was priced as full-price input | expect higher costs for thinking turns and lower ones for cached prompts |
+
+#### Gemini `api_mode: interactions` applies to every turn
+
+With `api_mode: interactions`, only a turn that took the tool path (tools offered, or tool calls in the history) went to the Interactions API. A turn with no tools, such as a plain chat or a first turn, went to generateContent. Every turn now goes to the Interactions API. generateContent is still the default when `api_mode` is not set.
+
+The Interactions request also changed in three ways. Each fixes a difference from generateContent. Before, the transcript went out as bare content items, which the API reads as the user's, so the model read its own earlier replies as something the user had said. The system prompt went out as the first of those items. No safety settings were sent.
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `api_mode: interactions` and run a turn with no tools | the turn sent to the Interactions API, where it went to generateContent; the settings and limits in the section above apply to it | none, or use generateContent for the turns that need what the Interactions API does not take |
+| Set `api_mode: interactions` with `explicit_caching: true` | an error when the provider is built: the Interactions API has no explicit context caching | remove `explicit_caching`, or use `api_mode: generate_content` |
+| Send a document that is not PDF, CSV, Microsoft Office or OpenDocument, such as plain text, Markdown, JSON or XML, with `api_mode: interactions` | the turn fails before any request, with `unsupported document format: <mime>`, where a turn with no tools read it as text on generateContent | send the file's contents as message text |
+| Send a BMP or TIFF image with `api_mode: interactions` | the image sent, where the check before the call refused it | none |
+| Replay a history with assistant replies on the Interactions API | each reply sent as a `model_output` step and each user message as a `user_input` step | none |
+| Set a system prompt with `api_mode: interactions` | the prompt sent in `system_instruction`, where it was sent as the first turn of the transcript | none |
+| Run a turn with `api_mode: interactions` | `safety_settings` sent with every category `off`, as generateContent sends `BLOCK_NONE` | none |
+| Ask a model that generates images or audio for one with `api_mode: interactions` | a unary turn returns the image or audio in the response's parts, beside the text | none |
+| Stream a turn in which the model generates an image or audio, on either API | one warning per stream that the media is not delivered, where it was dropped without one | use a turn that does not stream to receive generated media |
+| Set `api_mode: interactions` on Vertex | requests sent to `{host}/v1/projects/{project}/locations/{location}/interactions`, where they went to `…/publishers/google/models/interactions` and failed with HTTP 404. Vertex serves the Interactions API in the `global`, `us` and `eu` locations only, and answers another location, or a Gemini 2.5 model, with HTTP 400 | use location `global`, `us` or `eu` and a model the API serves |
+| Set `api_mode: interactions` on Vertex with a base URL that does not end in `/projects/{project}/locations/{location}/publishers/google/models` | an error when the provider is built, since the Interactions endpoint cannot be derived from it | use the Vertex publisher models URL, or let the provider build it from `platform.project` and `platform.region` |
 
 #### Claude sends tool choice `none`
 
