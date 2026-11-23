@@ -378,3 +378,51 @@ func TestInteractions_StreamedGeneratedMediaWarns(t *testing.T) {
 		t.Errorf("logs %q lack %q for image/jpeg", logs.String(), want)
 	}
 }
+
+// The provider stage checks a request's media against what the provider can
+// send (providers.ValidateMultimodalRequest) before calling it. With every
+// turn on the Interactions API, that is the Interactions API's list: a BMP
+// image it takes passes, and a Markdown document it refuses fails before the
+// provider is called. Without api_mode the generateContent list applies.
+func TestInteractions_SendableFormatsFollowTheAPI(t *testing.T) {
+	part := func(kind, mime string) types.ContentPart {
+		return types.ContentPart{Type: kind, Media: &types.MediaContent{Data: strRef("eA=="), MIMEType: mime}}
+	}
+	validate := func(cfg map[string]any, p types.ContentPart) error {
+		msg := types.Message{Role: roleUser}
+		msg.AddTextPart("look")
+		msg.AddPart(p)
+		return providers.ValidateMultimodalRequest(newSpecProvider(t, "http://unused.invalid", cfg),
+			&providers.PredictionRequest{Messages: []types.Message{msg}})
+	}
+	errText := func(err error) string {
+		if err == nil {
+			return "<nil>"
+		}
+		return err.Error()
+	}
+
+	for _, tc := range []struct {
+		name string
+		cfg  map[string]any
+		part types.ContentPart
+		want string
+	}{
+		{"interactions takes BMP", interactionsMode, part(types.ContentTypeImage, "image/bmp"), "<nil>"},
+		{"interactions takes PDF", interactionsMode, part(types.ContentTypeDocument, types.MIMETypePDF), "<nil>"},
+		{"interactions refuses Markdown", interactionsMode, part(types.ContentTypeDocument, "text/markdown"),
+			"unsupported document format: text/markdown"},
+		{"interactions refuses video/flv", interactionsMode, part(types.ContentTypeVideo, "video/flv"),
+			"unsupported video format: video/flv"},
+		{"generateContent reads Markdown", nil, part(types.ContentTypeDocument, "text/markdown"), "<nil>"},
+		{"generateContent refuses BMP", nil, part(types.ContentTypeImage, "image/bmp"),
+			"unsupported image format: image/bmp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := errText(validate(tc.cfg, tc.part))
+			if tc.want == "<nil>" && got != "<nil>" || !strings.Contains(got, tc.want) {
+				t.Errorf("validation = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -97,8 +97,22 @@ func (p *Provider) GetMultimodalCapabilities() providers.MultimodalCapabilities 
 }
 
 // SendableMultimodalCapabilities returns what the adapter sends whatever the
-// config declares: every image, audio, video and document part, as inlineData.
+// config declares: every image, audio, video and document part, inline. The
+// MIME types are those of the API the provider sends every turn to: the
+// Interactions API's lists with api_mode interactions, else generateContent's.
 func (p *Provider) SendableMultimodalCapabilities() providers.MultimodalCapabilities {
+	caps := p.generateContentSendable()
+	if p.resolveAPIMode() == APIModeInteractions {
+		caps.ImageFormats = slices.Clone(interactionsMIMETypes[types.ContentTypeImage])
+		caps.AudioFormats = slices.Clone(interactionsMIMETypes[types.ContentTypeAudio])
+		caps.VideoFormats = slices.Clone(interactionsMIMETypes[types.ContentTypeVideo])
+		caps.DocumentFormats = slices.Clone(interactionsMIMETypes[types.ContentTypeDocument])
+	}
+	return caps
+}
+
+// generateContentSendable is what the adapter sends on generateContent.
+func (p *Provider) generateContentSendable() providers.MultimodalCapabilities {
 	return providers.MultimodalCapabilities{
 		SupportsImages:    true,
 		SupportsAudio:     true,
