@@ -444,3 +444,31 @@ func assertLevelWarning(t *testing.T, logs, level string) {
 		t.Errorf("thinking_level warning for %q = %v, want %v (logs %q)", level, warned, want, logs)
 	}
 }
+
+// Every generateContent request carries safety settings that block nothing
+// (defaultSafetySettings). The Interactions API takes safety_settings too, in
+// its own shape: lowercase categories under "type", and thresholds of which
+// "off" blocks nothing (it answers generateContent's BLOCK_NONE with HTTP 400,
+// probed live). Without them a turn would be filtered by the API's default
+// thresholds on one API and not on the other.
+func TestInteractions_SendsSafetySettingsThatBlockNothing(t *testing.T) {
+	want := `[{"threshold":"off","type":"harassment"},{"threshold":"off","type":"hate_speech"},` +
+		`{"threshold":"off","type":"sexually_explicit"},{"threshold":"off","type":"dangerous_content"}]`
+	for _, stream := range []bool{false, true} {
+		name := map[bool]string{false: "unary", true: "stream"}[stream]
+		t.Run(name, func(t *testing.T) {
+			srv := newInteractionsParityServer(t, okUnaryBody, okStreamBody)
+			tp := newInteractionsParityProvider(t, uniqueProviderID("int-safety"), srv.url, nil)
+			runInteractionsTurn(t, tp, providers.PredictionRequest{}, stream)
+			var body struct {
+				Safety any `json:"safety_settings"`
+			}
+			if err := json.Unmarshal(srv.lastBody, &body); err != nil {
+				t.Fatalf("body not JSON: %v", err)
+			}
+			if got := canonicalJSON(t, body.Safety); got != want {
+				t.Errorf("safety_settings = %s, want %s", got, want)
+			}
+		})
+	}
+}

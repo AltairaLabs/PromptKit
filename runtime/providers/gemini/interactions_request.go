@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -45,6 +46,7 @@ func (p *ToolProvider) buildInteractionsRequest(
 		SystemInstruction: req.System,
 		Tools:             buildInteractionsTools(tools),
 		ResponseFormat:    interactionsResponseFormat(req.ResponseFormat),
+		SafetySettings:    interactionsSafetySettings(),
 	}
 	out.Generation = p.interactionsGenerationConfig(req)
 	if len(out.Tools) > 0 {
@@ -55,6 +57,26 @@ func (p *ToolProvider) buildInteractionsRequest(
 	}
 
 	return out, nil
+}
+
+// interactionsSafetyOff is the Interactions API threshold that blocks nothing.
+// The API has no BLOCK_NONE and answers it with HTTP 400 (probed live).
+const interactionsSafetyOff = "off"
+
+// interactionsSafetySettings is defaultSafetySettings, which every
+// generateContent request carries, in this API's shape: the category
+// lowercased without its HARM_CATEGORY_ prefix, under "type", and "off" for
+// BLOCK_NONE. Built from defaultSafetySettings so the two APIs cannot drift.
+func interactionsSafetySettings() []interactionsSafety {
+	defaults := defaultSafetySettings()
+	out := make([]interactionsSafety, 0, len(defaults))
+	for _, s := range defaults {
+		out = append(out, interactionsSafety{
+			Type:      strings.ToLower(strings.TrimPrefix(s.Category, "HARM_CATEGORY_")),
+			Threshold: interactionsSafetyOff,
+		})
+	}
+	return out
 }
 
 // interactionsGenerationConfig carries the sampling parameters the

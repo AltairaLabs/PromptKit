@@ -43,10 +43,17 @@ type interactionsRequest struct {
 	// SystemInstruction is the system prompt, a plain string on this API.
 	SystemInstruction string                 `json:"system_instruction,omitempty"`
 	Tools             []interactionsTool     `json:"tools,omitempty"`
+	SafetySettings    []interactionsSafety   `json:"safety_settings,omitempty"`
 	ResponseFormat    *interactionsRespFmt   `json:"response_format,omitempty"`
 	Stream            bool                   `json:"stream,omitempty"`
 	Generation        map[string]any         `json:"generation_config,omitempty"`
 	Extra             map[string]interface{} `json:"-"`
+}
+
+// interactionsSafety is one safety setting: {"type":"harassment","threshold":"off"}.
+type interactionsSafety struct {
+	Type      string `json:"type"`
+	Threshold string `json:"threshold"`
 }
 
 // interactionsTool is a flat function declaration, unlike generateContent's
