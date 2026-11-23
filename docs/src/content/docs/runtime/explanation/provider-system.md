@@ -76,7 +76,7 @@ Bedrock, Vertex and Azure are hosting platforms, not provider types. Set `Provid
 
 `PredictionResponse` returns the content and any tool calls, plus cost information, latency, reasoning and a normalized `FinishReason`.
 
-A provider whose API takes no `top_k` or no penalties drops the field and logs one warning per provider and parameter. Gemini's Interactions API, which `api_mode: interactions` selects for turns that take the tool path (tools offered, or tool calls in the history), takes neither. OpenAI's Chat Completions API takes `seed`; its Responses API has no `seed` parameter, so a seed set on that path is dropped with a warning.
+A provider whose API takes no `top_k` or no penalties drops the field and logs one warning per provider and parameter. Gemini's Interactions API, which `api_mode: interactions` selects for every turn, takes neither. OpenAI's Chat Completions API takes `seed`; its Responses API has no `seed` parameter, so a seed set on that path is dropped with a warning.
 
 ### Defaults
 
