@@ -180,3 +180,57 @@ func onePagePDF(word string) []byte {
 	fmt.Fprintf(&b, "trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", len(objs)+1, xref)
 	return []byte(b.String())
 }
+
+// TestGemini_Interactions_PreambleThenToolCall_Live replays a reply that has
+// both a preamble and a tool call: the next round must accept the history
+// (thought, model_output, function_call, function_result) and use the result.
+// Runs twice.
+func TestGemini_Interactions_PreambleThenToolCall_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	model := "gemini-3.7-flash"
+	if m := os.Getenv("GEMINI_INTERACTIONS_MODELS"); m != "" {
+		model = m
+	}
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "gemini-int-preamble", Type: "gemini", Model: model,
+		BaseURL:          "https://generativelanguage.googleapis.com/v1beta",
+		Defaults:         providers.ProviderDefaults{MaxTokens: 2048},
+		AdditionalConfig: map[string]any{"api_mode": "interactions"},
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+	tp := p.(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+		Name: "get_temperature", Description: "Current temperature in a city, in Celsius.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+	}})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	ctx := context.Background()
+
+	for run := 1; run <= 2; run++ {
+		t.Run(fmt.Sprintf("%d", run), func(t *testing.T) {
+			msgs := []types.Message{{Role: roleUser, Content: "First write one short sentence saying you will " +
+				"look it up, THEN call get_temperature for Bristol. Write the sentence before the call."}}
+			first, calls, err := tp.PredictWithTools(ctx, providers.PredictionRequest{Messages: msgs}, tools, "auto")
+			require.NoError(t, err)
+			require.Len(t, calls, 1)
+			require.NotEmpty(t, first.Content, "the model wrote no preamble, so the order under test was not exercised")
+			t.Logf("round 1: %q then %s(%s)", first.Content, calls[0].Name, calls[0].Args)
+
+			msgs = append(msgs,
+				types.Message{Role: roleAssistant, Content: first.Content, Reasoning: first.Reasoning, ToolCalls: calls},
+				types.NewToolResultMessage(types.NewTextToolResult(calls[0].ID, calls[0].Name, `{"celsius":17.5}`)))
+			second, more, err := tp.PredictWithTools(ctx, providers.PredictionRequest{Messages: msgs}, tools, "auto")
+			require.NoError(t, err)
+			assert.Empty(t, more)
+			assert.Contains(t, second.Content, "17.5")
+			t.Logf("round 2: %q", second.Content)
+		})
+	}
+}

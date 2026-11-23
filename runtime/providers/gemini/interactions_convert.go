@@ -67,20 +67,21 @@ func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message, ms
 		return []any{step}, nil
 
 	case roleAssistant:
-		// The model's thought steps must precede its function calls. A
-		// history with a function_call and no thought is rejected outright,
-		// so these are replayed from the opaque signatures captured when
-		// the round was parsed.
+		// Replayed in the order the API returns a reply: thought, then the
+		// text (a preamble, when the reply also calls tools), then the
+		// function calls (captured live). A history with a function_call and
+		// no thought is rejected outright, so thoughts are replayed from the
+		// opaque signatures captured when the round was parsed.
 		steps := thoughtSteps(msg.Reasoning)
-		for j := range msg.ToolCalls {
-			steps = append(steps, functionCallStep(&msg.ToolCalls[j]))
-		}
 		content, err := p.interactionsContentItems(ctx, msg, msgIndex)
 		if err != nil {
 			return nil, err
 		}
 		if len(content) > 0 {
 			steps = append(steps, interactionsTurnStep{Type: stepTypeModelOutput, Content: content})
+		}
+		for j := range msg.ToolCalls {
+			steps = append(steps, functionCallStep(&msg.ToolCalls[j]))
 		}
 		return steps, nil
 
