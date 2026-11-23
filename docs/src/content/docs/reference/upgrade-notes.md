@@ -37,17 +37,17 @@ verified:
     - runtime/media/image.go
     - runtime/metrics/collector.go
     - runtime/persistence/common/repository.go
-    - runtime/pipeline/stage/compactor.go
     - runtime/pipeline/stage/composition_executor.go
     - runtime/pipeline/stage/config.go
-    - runtime/pipeline/stage/errors.go
-    - runtime/pipeline/stage/idle_timeout.go
+    - runtime/pipeline/stage/internal/compaction/compactor.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/core/idle_timeout.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go
+    - runtime/pipeline/stage/internal/persist/stages_recording.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/state_handoff.go
+    - runtime/pipeline/stage/internal/provider/tool_call_rate.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_duplex_provider_hooks.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_recording.go
-    - runtime/pipeline/stage/state_handoff.go
-    - runtime/pipeline/stage/tool_call_rate.go
     - runtime/prompt/pack.go
     - runtime/prompt/registry.go
     - runtime/providers/base/factory.go

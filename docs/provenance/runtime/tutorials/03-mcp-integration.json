@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/03-mcp-integration.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "956bd4a211f40367ac162754370cb41c84f8fc3f",
  "claims": [
   {
    "id": 1,
@@ -28,8 +28,8 @@
    "evidence": [
     "runtime/tools/mcp_executor.go:106",
     "runtime/tools/mcp_executor.go:42",
-    "runtime/tools/registry.go:170",
-    "runtime/tools/registry.go:404"
+    "runtime/tools/registry.go:175",
+    "runtime/tools/registry.go:409"
    ]
   },
   {
@@ -37,7 +37,7 @@
    "claim": "stage.NewProviderStage(provider, toolReg, &pipeline.ToolPolicy{ToolChoice,MaxRounds}, &ProviderConfig); MaxRounds caps tool rounds",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:314",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:402",
     "runtime/pipeline/types.go:16"
    ]
   },
@@ -71,7 +71,7 @@
    "claim": "Tool registry holds one descriptor per name; later registration replaces",
    "verdict": "true",
    "evidence": [
-    "runtime/tools/registry.go:170"
+    "runtime/tools/registry.go:175"
    ]
   },
   {
@@ -79,9 +79,9 @@
    "claim": "Tutorial 2 pipeline stages NewStateStoreLoadStage and NewIncrementalSaveStage, pipeline.StateStoreConfig, ExecuteSync, result.Response.Content",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:175",
-    "runtime/pipeline/stage/stages_core.go:190",
-    "runtime/pipeline/stage/stages_save.go:64",
+    "runtime/pipeline/stage/internal/persist/stages_save.go:67",
+    "runtime/pipeline/stage/stages_core.go:203",
+    "runtime/pipeline/stage/stages_core.go:218",
     "runtime/pipeline/types.go:193"
    ]
   },

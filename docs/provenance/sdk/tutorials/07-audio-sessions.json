@@ -69,7 +69,7 @@
    "claim": "turn ends after 800ms of silence by default, measured in audio time",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_speech.go:510",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:556",
     "sdk/options.go:3017"
    ]
   },
@@ -95,7 +95,7 @@
    "claim": "VAD default voice alloy; reply audio at TTS service PCM rate 24 kHz",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_speech.go:973",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:1069",
     "sdk/options.go:3023"
    ]
   }

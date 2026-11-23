@@ -8,8 +8,8 @@ verified:
   sources:
     - runtime/metrics/collector.go
     - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/base/aggregate.go
     - runtime/providers/base/priceusage.go
     - runtime/providers/mock/mock.go

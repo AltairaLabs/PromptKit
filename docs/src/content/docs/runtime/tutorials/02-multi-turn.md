@@ -6,9 +6,9 @@ sidebar:
 verified:
   commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
+    - runtime/pipeline/stage/internal/persist/stages_save.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_save.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/pipeline/types.go
     - runtime/providers/openai/openai.go

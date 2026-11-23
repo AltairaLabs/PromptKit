@@ -7,7 +7,7 @@
    "claim": "Stage interface has Name, Type, Process(ctx,input,output)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:49"
+    "runtime/pipeline/stage/internal/core/stage.go:48"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "StreamElement carries one content type plus Sequence/EndOfStream/EndOfTurn/Interrupt",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:76"
+    "runtime/pipeline/stage/internal/core/element.go:76"
    ]
   },
   {
@@ -39,12 +39,12 @@
    "claim": "Constructors NewAudioTurnStage(cfg) (stage,error), NewSTTStage, NewStateStoreLoadStage, NewProviderStage, NewIncrementalSaveStage, NewTTSStage compile",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:175",
-    "runtime/pipeline/stage/stages_provider.go:314",
-    "runtime/pipeline/stage/stages_save.go:64",
-    "runtime/pipeline/stage/stages_speech.go:115",
-    "runtime/pipeline/stage/stages_speech.go:742",
-    "runtime/pipeline/stage/stages_tts.go:52"
+    "runtime/pipeline/stage/internal/persist/stages_save.go:67",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:402",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:117",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:790",
+    "runtime/pipeline/stage/internal/voice/stages_tts.go:53",
+    "runtime/pipeline/stage/stages_core.go:175"
    ]
   },
   {
@@ -53,8 +53,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:10",
-    "runtime/pipeline/stage/stages_provider.go:2594",
-    "runtime/pipeline/stage/stages_provider.go:3181"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:3461"
    ]
   },
   {
@@ -72,8 +72,8 @@
    "claim": "final_turn withholds schema from tool rounds, re-asks under schema; one extra provider call; every_round restores",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/structured_output_mode.go:186",
-    "runtime/pipeline/stage/structured_output_mode.go:92",
+    "runtime/pipeline/stage/internal/provider/structured_output_mode.go",
+    "runtime/pipeline/stage/internal/provider/structured_output_mode.go:98",
     "sdk/options.go:3419"
    ]
   },
@@ -82,7 +82,7 @@
    "claim": "NewProviderStageWithHooks(provider,tools,policy,config,emitter,hookRegistry)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:339"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:427"
    ]
   },
   {
@@ -108,7 +108,7 @@
    "claim": "StageType values Transform/Accumulate/Generate/Sink/Bidirectional",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:102"
+    "runtime/pipeline/stage/internal/core/stage.go:99"
    ]
   },
   {
@@ -125,9 +125,9 @@
    "claim": "Stage-type examples: AudioTurnStage accumulate, ProviderStage generate, IncrementalSaveStage sink, DuplexProviderStage bidirectional, STT/Template transform, ContextBuilder accumulate",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:375",
-    "runtime/pipeline/stage/stages_save.go:66",
-    "runtime/pipeline/stage/stages_speech.go:744",
+    "runtime/pipeline/stage/internal/persist/stages_save.go:69",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:463",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:792",
     "runtime/pipeline/stage/stages_utilities.go:789"
    ]
   },
@@ -152,8 +152,8 @@
    "claim": "MessageBroadcastStage publishes message.created; RecordingStage writes to EventStore",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_message_broadcast.go:71-85",
-    "runtime/pipeline/stage/stages_recording.go:110"
+    "runtime/pipeline/stage/internal/persist/stages_message_broadcast.go:72-86",
+    "runtime/pipeline/stage/internal/persist/stages_recording.go:109"
    ]
   },
   {
@@ -161,8 +161,8 @@
    "claim": "IncrementalSaveStage uses MessageAppender else BulkWriter full save",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:168",
-    "runtime/pipeline/stage/stages_save.go:240"
+    "runtime/pipeline/stage/internal/persist/stages_save.go:171",
+    "runtime/pipeline/stage/internal/persist/stages_save.go:271"
    ]
   },
   {
@@ -186,7 +186,7 @@
    "claim": "RouterStage routes to names returned by RouterFunc; MultiOutputStage single-Execute caveat",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:74-92",
+    "runtime/pipeline/stage/internal/core/stage.go:73-91",
     "runtime/pipeline/stage/stages_advanced.go:14"
    ]
   },
@@ -221,7 +221,7 @@
    "claim": "Execute(ctx,input) returns (output channel, error); NewErrorElement exists",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:388",
+    "runtime/pipeline/stage/internal/core/element.go:394",
     "runtime/pipeline/stage/pipeline.go:105-110"
    ]
   },

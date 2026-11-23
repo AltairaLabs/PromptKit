@@ -1,13 +1,13 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/voice/handle-turns-and-barge-in.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "956bd4a211f40367ac162754370cb41c84f8fc3f",
  "claims": [
   {
    "id": 1,
    "claim": "Response must be drained or it back-pressures",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:1148"
+    "sdk/conversation.go:1479"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "turn completion rules in audio time",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_speech.go:510"
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:556"
    ]
   },
   {
@@ -23,9 +23,9 @@
    "claim": "NewSilenceDetector and WithTurnDetector wired in VAD mode",
    "verdict": "true",
    "evidence": [
-    "runtime/audio/silence.go:99",
-    "sdk/conversation.go:846",
-    "sdk/options.go:2541"
+    "runtime/audio/silence.go:100",
+    "sdk/conversation.go:1046",
+    "sdk/options.go:2931"
    ]
   },
   {
@@ -33,8 +33,8 @@
    "claim": "WithVAD sets the VAD analyzer",
    "verdict": "true",
    "evidence": [
-    "sdk/conversation.go:853",
-    "sdk/options.go:2561"
+    "sdk/conversation.go:1053",
+    "sdk/options.go:2953"
    ]
   },
   {
@@ -42,8 +42,8 @@
    "claim": "barge-in window and Interrupted chunk",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_speech.go:300",
-    "sdk/session/duplex_session.go:877"
+    "runtime/pipeline/stage/internal/voice/stages_speech.go:323",
+    "sdk/session/duplex_session.go:1273"
    ]
   },
   {
@@ -51,9 +51,9 @@
    "claim": "transcript, turn-complete and finish_reason metadata",
    "verdict": "true",
    "evidence": [
-    "sdk/session/duplex_session.go:890",
-    "sdk/session/duplex_session.go:905",
-    "sdk/session/duplex_session.go:909"
+    "sdk/session/duplex_session.go:1286",
+    "sdk/session/duplex_session.go:1301",
+    "sdk/session/duplex_session.go:1305"
    ]
   }
  ]

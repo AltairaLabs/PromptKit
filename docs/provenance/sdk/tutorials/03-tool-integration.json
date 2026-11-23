@@ -41,7 +41,7 @@
    "claim": "The model receives `Tool execution failed: no weather data for \"Atlantis\"` as the tool result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3520"
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:693"
    ]
   },
   {

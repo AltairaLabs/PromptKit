@@ -9,7 +9,7 @@ verified:
     - runtime/memory/corpus/corpus.go
     - runtime/memory/retriever.go
     - runtime/memory/tools.go
-    - runtime/pipeline/stage/stages_memory.go
+    - runtime/pipeline/stage/internal/persist/stages_memory.go
     - sdk/internal/pipeline/builder.go
     - sdk/options.go
 ---

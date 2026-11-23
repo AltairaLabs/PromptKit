@@ -18,9 +18,9 @@ verified:
     - runtime/hooks/registry.go
     - runtime/hooks/types.go
     - runtime/pipeline/stage/composition_executor.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_duplex_provider_hooks.go
-    - runtime/pipeline/stage/stages_provider.go
     - sdk/conversation.go
     - sdk/options.go
     - sdk/runtime_config.go

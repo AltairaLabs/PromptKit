@@ -9,7 +9,7 @@ verified:
     - pkg/config/types.go
     - runtime/events/redact.go
     - runtime/events/types.go
-    - runtime/pipeline/stage/message_metadata_template.go
+    - runtime/pipeline/stage/internal/history/message_metadata_template.go
     - runtime/providers/registry.go
     - runtime/types/message.go
     - sdk/conversation.go

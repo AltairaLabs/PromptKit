@@ -69,7 +69,7 @@
    "claim": "A skill's allowed-tools extend the prompt's tool set, capped at the pack's tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3867",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:3774",
     "runtime/skills/executor.go:208",
     "sdk/conversation.go:408"
    ]
@@ -95,7 +95,7 @@
    "claim": "skill__activate description includes the discovery index, listing only the skills the current workflow state admits; withheld when the state admits none",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3724",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/skills/executor.go:305",
     "sdk/capability_skills.go:201",
     "sdk/conversation.go:480"

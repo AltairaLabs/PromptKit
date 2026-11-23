@@ -8,8 +8,8 @@ verified:
   sources:
     - runtime/events/bus.go
     - runtime/events/types.go
-    - runtime/pipeline/stage/errors.go
-    - runtime/pipeline/stage/stages_memory.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/persist/stages_memory.go
     - runtime/pipeline/stage/stages_utilities.go
     - sdk/conversation.go
     - sdk/options.go

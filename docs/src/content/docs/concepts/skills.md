@@ -7,7 +7,7 @@ verified:
   commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/packspec/types.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/skills/active_set.go
     - runtime/skills/executor.go

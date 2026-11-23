@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/sdk/how-to/multimodal/preprocess-images.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "956bd4a211f40367ac162754370cb41c84f8fc3f",
  "claims": [
   {
    "id": 1,
@@ -8,7 +8,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/media/image.go:74-84",
-    "sdk/options.go:3345-3354"
+    "sdk/options.go:3586-3595"
    ]
   },
   {
@@ -16,7 +16,7 @@
    "claim": "WithAutoResize(w,h) sets max dimensions",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:3364-3372"
+    "sdk/options.go:3605-3613"
    ]
   },
   {
@@ -25,7 +25,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/media/image.go:45-72",
-    "runtime/pipeline/stage/stages_image_preprocess.go:16-23"
+    "runtime/pipeline/stage/internal/media/stages_image_preprocess.go:17-24"
    ]
   },
   {
@@ -34,7 +34,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/media/image.go:36-80",
-    "runtime/pipeline/stage/stages_image_preprocess.go:26-31"
+    "runtime/pipeline/stage/internal/media/stages_image_preprocess.go:27-32"
    ]
   },
   {
@@ -51,7 +51,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/media/image.go:100-180",
-    "runtime/pipeline/stage/stages_image_preprocess.go:184-191"
+    "runtime/pipeline/stage/internal/media/stages_image_preprocess.go:185-192"
    ]
   },
   {
@@ -78,8 +78,8 @@
    "claim": "Preprocessing runs as a pipeline stage StateStoreLoad -> PromptAssembly -> Template -> ContextBuilder -> ImagePreprocess -> Provider -> StateStoreSave",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:525",
-    "sdk/internal/pipeline/builder.go:587-612"
+    "sdk/internal/pipeline/builder.go:577",
+    "sdk/internal/pipeline/builder.go:742-767"
    ]
   },
   {
@@ -87,7 +87,7 @@
    "claim": "sdk.WithImageFile(path) sends an image that is auto resized; example compiles",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:607-609"
+    "sdk/internal/pipeline/builder.go:762-764"
    ]
   },
   {

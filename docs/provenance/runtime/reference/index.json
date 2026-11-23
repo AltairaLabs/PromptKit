@@ -76,8 +76,7 @@
    "claim": "MaxRounds default 50",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1377",
-    "runtime/pipeline/stage/stages_provider.go:34"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -85,8 +84,7 @@
    "claim": "MaxToolCallsPerTurn caps tool calls per LLM response",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1382",
-    "runtime/pipeline/stage/stages_provider.go:1698"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -94,8 +92,8 @@
    "claim": "MaxParallelToolCalls default 10",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2790",
-    "runtime/pipeline/stage/stages_provider.go:35"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:36",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:207"
    ]
   },
   {
@@ -103,7 +101,7 @@
    "claim": "MaxCostUSD stops after budget; 0 = unlimited",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1642",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/types.go:37"
    ]
   },
@@ -165,8 +163,8 @@
    "claim": "Pipeline reference describes Stage and pipeline interfaces",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:99",
-    "runtime/pipeline/stage/stage.go:49"
+    "runtime/pipeline/stage/internal/core/stage.go:48",
+    "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
   {
@@ -174,7 +172,7 @@
    "claim": "ToolPolicy MaxIdenticalToolCalls default 3 (a second identical-call loop after the self-correction nudge fails the turn), StopOnTool, and prompt tool_policy merge rules (smaller non-zero MaxRounds/MaxToolCallsPerTurn, union Blocklist, caller ToolChoice wins)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:36",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:37",
     "runtime/pipeline/types.go:39-48",
     "runtime/pipeline/types.go:86-101"
    ]
@@ -194,8 +192,8 @@
    "claim": "ToolPolicy.MaxCallsPerMinute caps each tool's calls in a one-minute window of a conversation; 0 is unlimited; a call over the limit is not executed and the model is told the limit is reached",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2934-2947",
-    "runtime/pipeline/stage/tool_call_rate.go:45-60",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/internal/provider/tool_call_rate.go:45-60",
     "runtime/pipeline/types.go:21-36"
    ]
   }

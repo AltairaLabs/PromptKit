@@ -8,12 +8,12 @@ verified:
   sources:
     - runtime/credentials/resolver.go
     - runtime/pipeline/stage/builder.go
-    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/internal/core/element.go
+    - runtime/pipeline/stage/internal/core/stage.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go
+    - runtime/pipeline/stage/internal/persist/stages_save.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stage.go
-    - runtime/pipeline/stage/stages_duplex_provider_session.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_save.go
     - runtime/providers/openai/openai.go
     - runtime/providers/provider.go
     - runtime/storage/instrumented.go

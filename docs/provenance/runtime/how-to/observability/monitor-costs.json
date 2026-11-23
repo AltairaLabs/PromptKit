@@ -130,7 +130,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:20",
-    "runtime/pipeline/stage/stages_provider.go:314"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:402"
    ]
   },
   {
@@ -146,7 +146,7 @@
    "claim": "Original: complete example calls openai.NewProvider(id, model, baseURL, defaults, includeRawOutput) and stage.NewProviderStage(provider, nil, nil, &stage.ProviderConfig{})",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:314-319",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:402-407",
     "runtime/providers/openai/openai.go:199"
    ]
   },

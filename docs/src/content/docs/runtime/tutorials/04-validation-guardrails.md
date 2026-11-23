@@ -14,7 +14,7 @@ verified:
     - runtime/hooks/guardrails/spec.go
     - runtime/hooks/registry.go
     - runtime/hooks/types.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/prompt/registry.go
     - runtime/types/message.go
 ---

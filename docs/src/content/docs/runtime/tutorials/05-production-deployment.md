@@ -10,11 +10,11 @@ verified:
     - runtime/hooks/guardrails/adapter.go
     - runtime/hooks/guardrails/factory.go
     - runtime/pipeline/stage/builder.go
+    - runtime/pipeline/stage/internal/persist/stages_save.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_context.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_save.go
     - runtime/pipeline/types.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go

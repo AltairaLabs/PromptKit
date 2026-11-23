@@ -12,8 +12,8 @@ verified:
     - runtime/mcp/types.go
     - runtime/packspec/types.go
     - runtime/pipeline/stage/composition_executor.go
-    - runtime/pipeline/stage/errors.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/types.go
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/tools/mcp_executor.go
@@ -21,6 +21,7 @@ verified:
     - runtime/tools/types.go
     - runtime/workflow/machine.go
     - sdk/conversation.go
+    - sdk/integration/duplex_tool_parity_test.go
     - sdk/internal/pack/tool_policy_keys.go
     - sdk/internal/pipeline/builder.go
     - sdk/options.go

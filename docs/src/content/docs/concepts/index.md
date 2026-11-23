@@ -4,11 +4,11 @@ description: Fundamental concepts that apply across all PromptKit components
 sidebar:
   order: 0
 verified:
-  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
+  commit: 956bd4a211f40367ac162754370cb41c84f8fc3f
   sources:
+    - runtime/pipeline/stage/internal/persist/stages_save.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_save.go
     - runtime/pipeline/stage/stages_utilities.go
 ---
 The concept pages explain what each PromptKit building block is and why it exists. They apply to the runtime, the SDK, PromptArena and PackC alike.

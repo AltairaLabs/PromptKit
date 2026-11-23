@@ -8,12 +8,12 @@ verified:
     - runtime/events/bus.go
     - runtime/events/emitter.go
     - runtime/events/types.go
-    - runtime/pipeline/stage/audio_offbus_regression_test.go
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/event_route_boundary_test.go
+    - runtime/pipeline/stage/internal/persist/stages_message_broadcast_test.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/voice/audio_offbus_regression_test.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_message_broadcast_test.go
-    - runtime/pipeline/stage/stages_provider.go
     - sdk/agui/adapter.go
     - sdk/hooks/events.go
     - sdk/options.go

@@ -13,7 +13,7 @@ verified:
     - runtime/events/redact.go
     - runtime/events/store.go
     - runtime/events/types.go
-    - runtime/pipeline/stage/stages_message_broadcast.go
+    - runtime/pipeline/stage/internal/persist/stages_message_broadcast.go
     - sdk/conversation.go
     - sdk/eval_middleware.go
     - sdk/hooks/events.go

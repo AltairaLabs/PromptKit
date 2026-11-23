@@ -61,7 +61,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:47",
-    "runtime/pipeline/stage/stages_provider.go:326"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:414"
    ]
   },
   {
@@ -83,8 +83,8 @@
    "claim": "Guard tests TestMessageBroadcastStage_NeverPutsBinaryOnTheBus and TestAudioTelemetry_NeverPublishesToBus exist",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/audio_offbus_regression_test.go:19",
-    "runtime/pipeline/stage/stages_message_broadcast_test.go:357"
+    "runtime/pipeline/stage/internal/persist/stages_message_broadcast_test.go:315",
+    "runtime/pipeline/stage/internal/voice/audio_offbus_regression_test.go:24"
    ]
   },
   {

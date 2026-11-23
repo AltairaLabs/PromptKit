@@ -95,8 +95,8 @@
    "claim": "Unresolved placeholder fails the turn with the quoted error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:111",
-    "runtime/pipeline/stage/errors.go:133",
+    "runtime/pipeline/stage/internal/core/errors.go:108",
+    "runtime/pipeline/stage/internal/core/errors.go:130",
     "runtime/pipeline/stage/stages_utilities.go:286",
     "runtime/template/renderer.go:63"
    ]
@@ -106,7 +106,7 @@
    "claim": "The retriever's output replaces {{memory_context}} before each turn renders",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_memory.go:79-115"
+    "runtime/pipeline/stage/internal/persist/stages_memory.go"
    ]
   },
   {
@@ -120,7 +120,7 @@
    "claim": "A turn that retrieves nothing renders the variable empty",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_memory.go:84-89"
+    "runtime/pipeline/stage/internal/persist/stages_memory.go:97-102"
    ]
   },
   {

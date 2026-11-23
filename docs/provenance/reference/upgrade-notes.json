@@ -33,8 +33,8 @@
    "claim": "Compact receives round input tokens as lastInputTokens",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor.go:133-146",
-    "runtime/pipeline/stage/compactor.go:35-36"
+    "runtime/pipeline/stage/internal/compaction/compactor.go:134-147",
+    "runtime/pipeline/stage/internal/compaction/compactor.go:36-37"
    ]
   },
   {
@@ -42,7 +42,7 @@
    "claim": "Handoff.Call, ProviderBudgetedCompaction.ForProvider and WorkflowStateResolver exist",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/state_handoff.go:18-70"
+    "runtime/pipeline/stage/internal/provider/state_handoff.go:18-70"
    ]
   },
   {
@@ -204,7 +204,7 @@
    "claim": "A failing stage ends the turn; Send returns its error; ErrTemplateUnresolved",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:135-141",
+    "runtime/pipeline/stage/internal/core/errors.go:126-132",
     "runtime/pipeline/stage/pipeline.go:84-100"
    ]
   },
@@ -222,7 +222,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:42",
-    "runtime/pipeline/stage/stages_provider.go:225",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:274",
     "runtime/skills/executor.go:283-337"
    ]
   },
@@ -383,8 +383,8 @@
    "claim": "MaxCallsPerMinute counts calls at admission in one window per conversation shared across workflow states; a refused call fails with CallRateLimitError; an approval over the limit wraps it",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:247",
-    "runtime/pipeline/stage/tool_call_rate.go:32-116",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:296",
+    "runtime/pipeline/stage/internal/provider/tool_call_rate.go",
     "runtime/tools/registry.go:592"
    ]
   },
@@ -425,9 +425,9 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/config.go:135-147",
-    "runtime/pipeline/stage/errors.go:13-25",
-    "runtime/pipeline/stage/errors.go:94",
-    "runtime/pipeline/stage/idle_timeout.go:12",
+    "runtime/pipeline/stage/internal/core/errors.go:13-25",
+    "runtime/pipeline/stage/internal/core/errors.go:94",
+    "runtime/pipeline/stage/internal/core/idle_timeout.go:12",
     "runtime/pipeline/stage/pipeline.go:1496-1507",
     "runtime/pipeline/stage/pipeline.go:84-100"
    ]
@@ -479,7 +479,7 @@
    "evidence": [
     "runtime/hooks/guardrails/adapter.go",
     "runtime/hooks/registry.go:88-100",
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:31-69",
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go",
     "sdk/internal/pipeline/builder.go:734-746"
    ]
   },
@@ -488,7 +488,7 @@
    "claim": "RecordingStage records every content field of an element, including control-flagged ones",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:158-236"
+    "runtime/pipeline/stage/internal/persist/stages_recording.go"
    ]
   },
   {

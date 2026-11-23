@@ -10,10 +10,11 @@ verified:
     - runtime/mcp/registry.go
     - runtime/mcp/types.go
     - runtime/memory/types.go
+    - runtime/pipeline/stage/internal/core/stage.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/tool_call_rate.go
+    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stage.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/tool_call_rate.go
     - runtime/pipeline/types.go
     - runtime/providers/claude/claude.go
     - runtime/providers/gemini/gemini.go

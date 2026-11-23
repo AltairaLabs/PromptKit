@@ -16,7 +16,7 @@
    "claim": "A stage returning an error without emitting it arrives as *stage.StageError (StageName, StageType, Err)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:98-118",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/pipeline/stage/pipeline.go:79-83"
    ]
   },
@@ -25,8 +25,8 @@
    "claim": "The provider stage emits its own error, so provider failures reach ExecuteSync callers as the provider error, not a *StageError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:79-82",
-    "runtime/pipeline/stage/stages_provider.go:62-67"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:68-73",
+    "runtime/pipeline/stage/pipeline.go:79-82"
    ]
   },
   {
@@ -34,7 +34,7 @@
    "claim": "errors.Is works through StageError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:116-118"
+    "runtime/pipeline/stage/internal/core/errors.go:113-115"
    ]
   },
   {
@@ -42,7 +42,7 @@
    "claim": "stage.ErrMaxRoundsExceeded is returned when the tool loop reaches its round limit",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:135-157"
+    "runtime/pipeline/stage/internal/core/errors.go:132-154"
    ]
   },
   {
@@ -85,7 +85,7 @@
    "claim": "ExecutionTimeout expiry fails the running stage with context.DeadlineExceeded",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:22-25",
+    "runtime/pipeline/stage/internal/core/errors.go:22-25",
     "runtime/pipeline/stage/pipeline.go:391-410",
     "runtime/pipeline/stage/pipeline.go:84-86"
    ]
@@ -104,7 +104,7 @@
    "claim": "ErrTemplateUnresolved fails the turn when a system prompt variable is unsupplied",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:129-133"
+    "runtime/pipeline/stage/internal/core/errors.go:126-130"
    ]
   },
   {

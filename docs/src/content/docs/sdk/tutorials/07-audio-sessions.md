@@ -5,7 +5,7 @@ sidebar:
 verified:
   commit: 885cafa787a84bfba66f158fe51cda15a077ec23
   sources:
-    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
     - runtime/tts/openai.go
     - runtime/tts/service.go
     - sdk/conversation.go

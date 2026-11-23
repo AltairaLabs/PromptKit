@@ -11,12 +11,12 @@ verified:
     - runtime/hooks/registry.go
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
-    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_duplex_provider_session.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_speech.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/pipeline/types.go
     - runtime/providers/claude/claude.go

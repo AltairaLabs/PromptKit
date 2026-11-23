@@ -9,12 +9,13 @@ verified:
     - runtime/hooks/hooks.go
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
-    - runtime/pipeline/stage/element.go
-    - runtime/pipeline/stage/errors.go
-    - runtime/pipeline/stage/idle_timeout.go
+    - runtime/pipeline/stage/internal/core/element.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/core/idle_timeout.go
+    - runtime/pipeline/stage/internal/core/stage.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stage.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/pipeline/types.go
     - sdk/internal/pipeline/builder.go

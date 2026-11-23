@@ -7,7 +7,7 @@
    "claim": "Pipeline retrieval writes the memory_context template variable the system template renders",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_memory.go:114",
+    "runtime/pipeline/stage/internal/persist/stages_memory.go:127",
     "sdk/options.go:1478-1484"
    ]
   },
@@ -16,7 +16,7 @@
    "claim": "Retriever error is logged and the turn proceeds with empty context",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_memory.go:80"
+    "runtime/pipeline/stage/internal/persist/stages_memory.go"
    ]
   },
   {

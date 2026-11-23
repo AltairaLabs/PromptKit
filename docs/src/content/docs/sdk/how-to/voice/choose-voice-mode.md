@@ -6,15 +6,17 @@ sidebar:
 verified:
   commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
-    - runtime/pipeline/stage/cue_bank.go
-    - runtime/pipeline/stage/cue_sources.go
-    - runtime/pipeline/stage/stages_cue.go
-    - runtime/pipeline/stage/stages_duplex_provider_hooks.go
-    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/internal/cue/cue_bank.go
+    - runtime/pipeline/stage/internal/cue/cue_sources.go
+    - runtime/pipeline/stage/internal/cue/stages_cue.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_tool_offer.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
     - runtime/providers/gemini/finish_reason.go
     - runtime/providers/gemini/setup.go
     - runtime/providers/gemini/streaming_support.go
     - runtime/providers/openai/realtime_interrupt.go
+    - runtime/providers/openai/realtime_tools_integration.go
     - runtime/providers/openai/streaming_support.go
     - runtime/stt/cartesia.go
     - runtime/stt/elevenlabs.go

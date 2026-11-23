@@ -15,9 +15,8 @@
    "claim": "ProviderStage streams on its own when its provider supports streaming, emitting each fragment as a text element then the complete assistant message",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2652",
-    "runtime/pipeline/stage/stages_provider.go:2707",
-    "runtime/pipeline/stage/stages_provider.go:871"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:1175"
    ]
   },
   {
@@ -34,7 +33,7 @@
    "claim": "stage.NewMessageElement(&types.Message{...}) builds an input element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:352"
+    "runtime/pipeline/stage/internal/core/element.go:358"
    ]
   },
   {
@@ -42,8 +41,8 @@
    "claim": "elem.Text carries one fragment, not the accumulated reply; elem.Message carries the complete assistant message with token counts and cost",
    "verdict": "true",
    "evidence": [
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/pipeline.go:1436",
-    "runtime/pipeline/stage/stages_provider.go:2652",
     "runtime/types/message.go:35"
    ]
   },
@@ -52,9 +51,9 @@
    "claim": "Execute returns an error only when the pipeline is shutting down; a failure during the call arrives as an element with Error set",
    "verdict": "true",
    "evidence": [
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:1198-1200",
     "runtime/pipeline/stage/pipeline.go:109-116",
-    "runtime/pipeline/stage/pipeline.go:90-93",
-    "runtime/pipeline/stage/stages_provider.go:894-896"
+    "runtime/pipeline/stage/pipeline.go:90-93"
    ]
   },
   {
@@ -71,7 +70,7 @@
    "claim": "Complete streamReply function compiles against the stage API",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:352",
+    "runtime/pipeline/stage/internal/core/element.go:358",
     "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
@@ -109,7 +108,7 @@
     "runtime/pipeline/stage/builder.go:41",
     "runtime/pipeline/stage/config.go:101-109",
     "runtime/pipeline/stage/config.go:149-159",
-    "runtime/pipeline/stage/stages_provider.go:313-321"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:401-409"
    ]
   },
   {
@@ -171,8 +170,8 @@
    "claim": "A provider called directly bypasses the pipeline: idle timeout, history and hooks do not apply",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:133-141",
-    "runtime/pipeline/stage/stages_provider.go:871-875"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:1175-1179",
+    "runtime/pipeline/stage/pipeline.go:133-141"
    ]
   },
   {
@@ -180,8 +179,8 @@
    "claim": "With a non-streaming provider no text elements precede the message; elem.Message.Content holds the reply",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:871",
-    "runtime/pipeline/stage/stages_provider.go:874"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:1175",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:1178"
    ]
   }
  ]

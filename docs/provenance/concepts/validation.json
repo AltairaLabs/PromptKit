@@ -142,7 +142,7 @@
    "claim": "A triggered guardrail does not return an error; the round loop stops either way; only provider work in the turn's ProviderStage is affected, downstream stages still run",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3258"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -177,7 +177,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/guardrails/adapter.go:498",
-    "runtime/pipeline/stage/stages_provider.go:3435"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -185,8 +185,7 @@
    "claim": "On enforcement the round loop stops; tool calls requested by an enforced output response are dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3258",
-    "runtime/pipeline/stage/stages_provider.go:3266"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -194,8 +193,8 @@
    "claim": "All violations recorded in message.Validations and emitted as validation.failed events",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3320",
-    "runtime/pipeline/stage/stages_provider.go:3328"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:3558",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:3566"
    ]
   },
   {

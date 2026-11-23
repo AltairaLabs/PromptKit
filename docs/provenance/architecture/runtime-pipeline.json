@@ -25,8 +25,8 @@
    "claim": "Default max 50 tool rounds; MaxRoundsError matches ErrMaxRoundsExceeded",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:142",
-    "runtime/pipeline/stage/stages_provider.go:33"
+    "runtime/pipeline/stage/internal/core/errors.go:139",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -34,8 +34,8 @@
    "claim": "Tool calls run in parallel up to 10 by default",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2807",
-    "runtime/pipeline/stage/stages_provider.go:34"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:36",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:254"
    ]
   },
   {
@@ -43,7 +43,7 @@
    "claim": "A tool with errored result twice is excluded from later rounds",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3654"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -51,10 +51,10 @@
    "claim": "A failing stage ends the turn via input-gate turn-failure signal; provider skips model; nothing canceled; error reaches caller as last output element",
    "verdict": "true",
    "evidence": [
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/pipeline/stage/pipeline.go:184",
     "runtime/pipeline/stage/pipeline.go:367",
-    "runtime/pipeline/stage/pipeline.go:575",
-    "runtime/pipeline/stage/stages_provider.go:508"
+    "runtime/pipeline/stage/pipeline.go:575"
    ]
   },
   {
@@ -96,8 +96,8 @@
    "claim": "RouterStage pipelines support one Execute at a time",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:1048",
-    "runtime/pipeline/stage/stage.go:92"
+    "runtime/pipeline/stage/internal/core/stage.go:91",
+    "runtime/pipeline/stage/pipeline.go:1048"
    ]
   },
   {
@@ -106,8 +106,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:10",
-    "runtime/pipeline/stage/element.go:76",
-    "runtime/pipeline/stage/stages_provider.go:1641"
+    "runtime/pipeline/stage/internal/core/element.go:76",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -124,8 +124,8 @@
    "claim": "Failure: caller cancel is not a failure; ExecutionTimeout/IdleTimeout fail the turn with ErrExecutionTimeout/ErrIdleTimeout; provider error delivered as emitted; gate signals unless a signal already passed",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:25",
-    "runtime/pipeline/stage/idle_timeout.go:12",
+    "runtime/pipeline/stage/internal/core/errors.go:25",
+    "runtime/pipeline/stage/internal/core/idle_timeout.go:12",
     "runtime/pipeline/stage/pipeline.go:184",
     "runtime/pipeline/stage/pipeline.go:575"
    ]
@@ -137,7 +137,7 @@
    "evidence": [
     "runtime/pipeline/stage/config.go:22",
     "runtime/pipeline/stage/config.go:40-62",
-    "runtime/pipeline/stage/errors.go:13",
+    "runtime/pipeline/stage/internal/core/errors.go:13",
     "runtime/pipeline/stage/pipeline.go:1504"
    ]
   },
@@ -146,7 +146,7 @@
    "claim": "Provider stage validates request media parts before each call; SkipContentValidation disables; ToolPolicy.MaxCallsPerMinute",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2015",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:2283",
     "runtime/pipeline/types.go:36"
    ]
   },
