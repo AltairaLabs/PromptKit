@@ -468,7 +468,7 @@ A turn whose selection differs from the previous turn's sends the provider a dif
 
 ### spec.tool_loading
 
-How the tools array sent to the provider follows a change to what the model may call. The tools array comes first in the prompt a provider caches, so a call sent a different array cannot reuse the cache. The same setting is the SDK option `sdk.WithToolLoading`.
+How the tools array sent to the provider follows a change to what the model may call. The tools array comes first in the prompt a provider caches, so a call sent a different array cannot reuse the cache. The same setting is the SDK option `sdk.WithToolLoading`, which wins when both are set, in either order.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

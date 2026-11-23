@@ -181,3 +181,25 @@ func TestToolLoadingStable_WorkflowStatesShareTheArray(t *testing.T) {
 	assert.Equal(t, []events.ToolOfferRebuiltData{{Reasons: []string{events.ToolOfferReasonWorkflowState}, Round: 1}},
 		got(), "the same tools, one of them described differently")
 }
+
+// An explicit WithToolLoading wins over RuntimeConfig's spec.tool_loading,
+// whichever comes first.
+func TestToolLoading_OptionWinsOverRuntimeConfig(t *testing.T) {
+	rc := filepath.Join(t.TempDir(), "runtime.yaml")
+	require.NoError(t, os.WriteFile(rc, []byte("apiVersion: promptkit.altairalabs.ai/v1alpha1\n"+
+		"kind: RuntimeConfig\nspec:\n  tool_loading:\n    mode: stable\n"), 0o600))
+	rebuild := WithToolLoading(ToolLoading{Mode: ToolLoadingRebuild})
+	for name, opts := range map[string][]Option{
+		"option first": {rebuild, WithRuntimeConfig(rc)},
+		"file first":   {WithRuntimeConfig(rc), rebuild},
+	} {
+		provider := newNudgeScriptProvider()
+		conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{},
+			append([]Option{WithSkillsDir(writeToolGrantSkill(t))}, opts...)...)
+
+		_, err := conv.Send(context.Background(), "refund ORD-1")
+		require.NoError(t, err)
+
+		assert.NotContains(t, provider.offeredOn(t, 0), "refund", "%s: rebuild mode sends no ungranted tool", name)
+	}
+}

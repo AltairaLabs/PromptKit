@@ -5510,7 +5510,7 @@ func WithRuntimeConfig(path string) Option
 
 WithRuntimeConfig loads a RuntimeConfig YAML file and applies its settings to the SDK conversation. This provides a declarative alternative to programmatic configuration via individual With\* options.
 
-The file's providers, MCP servers, state store, logging, exec tools, eval handlers, hooks, sandboxes and selectors are applied in that order. The file does not replace an agent provider, state store or logger that an earlier option already set, and options applied after WithRuntimeConfig replace what the file set.
+The file's providers, MCP servers, state store, logging, exec tools, eval handlers, hooks, sandboxes and selectors are applied in that order. The file does not replace an agent provider, state store, logger or tool loading mode that an earlier option already set, and options applied after WithRuntimeConfig replace what the file set.
 
 Example:
 
@@ -6057,7 +6057,7 @@ conv, _ := sdk.Open("./chat.pack.json", "assistant",
 ```
 
 <a name="WithToolLoading"></a>
-### func [WithToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/tool_loading.go#L64>)
+### func [WithToolLoading](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/tool_loading.go#L65>)
 
 ```go
 func WithToolLoading(loading ToolLoading) Option
@@ -6071,7 +6071,7 @@ ToolLoadingStable sends every call the same array: the prompt's tools, every pac
 
 A realtime session \(OpenDuplex with a streaming provider\) does not use the setting: its tools, and the skill\_\_activate index, are those of rebuild mode. A VAD voice session uses it, as a text conversation does.
 
-The same setting is RuntimeConfig's spec.tool\_loading.mode. An unknown mode is an error.
+The same setting is RuntimeConfig's spec.tool\_loading.mode; this option wins over it, before or after WithRuntimeConfig. An unknown mode is an error.
 
 ```
 sdk.WithToolLoading(sdk.ToolLoading{Mode: sdk.ToolLoadingStable})

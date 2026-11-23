@@ -57,8 +57,9 @@ type ToolLoading struct {
 // setting: its tools, and the skill__activate index, are those of rebuild
 // mode. A VAD voice session uses it, as a text conversation does.
 //
-// The same setting is RuntimeConfig's spec.tool_loading.mode. An unknown
-// mode is an error.
+// The same setting is RuntimeConfig's spec.tool_loading.mode; this option
+// wins over it, before or after WithRuntimeConfig. An unknown mode is an
+// error.
 //
 //	sdk.WithToolLoading(sdk.ToolLoading{Mode: sdk.ToolLoadingStable})
 func WithToolLoading(loading ToolLoading) Option {
