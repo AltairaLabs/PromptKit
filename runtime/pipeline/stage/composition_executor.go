@@ -9,7 +9,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
+	providerstage "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/composition/engine"
@@ -49,7 +49,7 @@ func (s *toolScopeStage) Process(ctx context.Context, in <-chan StreamElement, o
 	applied := false
 	for elem := range in {
 		if !applied {
-			s.turnState.AllowedTools = provider.IntersectInOrder(s.turnState.AllowedTools, s.stepTools)
+			s.turnState.AllowedTools = providerstage.IntersectInOrder(s.turnState.AllowedTools, s.stepTools)
 			applied = true
 		}
 		select {

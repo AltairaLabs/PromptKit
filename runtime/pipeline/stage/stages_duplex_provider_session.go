@@ -15,7 +15,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
+	providerstage "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -242,7 +242,7 @@ type DuplexProviderStage struct {
 	// cleared yet, and liveHolds each chunk interceptor's hold on the end of
 	// the turn's text from the last chunk they judged (holdLiveText).
 	// Response goroutine only.
-	liveHeld  provider.HoldController
+	liveHeld  providerstage.HoldController
 	liveHolds []int
 	// streamHold is how a reply is held for the guardrails whose stream_hold
 	// holds it (SetStreamHold), and replyHold the hold on the reply streaming
