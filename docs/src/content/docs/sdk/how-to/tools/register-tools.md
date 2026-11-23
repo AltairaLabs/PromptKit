@@ -6,7 +6,7 @@ sidebar:
 verified:
   commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
-    - runtime/pipeline/stage/tool_call_rate.go
+    - runtime/pipeline/stage/internal/provider/tool_call_rate.go
     - runtime/pipeline/types.go
     - sdk/a2a.go
     - sdk/conversation.go

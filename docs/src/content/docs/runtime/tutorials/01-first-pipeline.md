@@ -7,9 +7,9 @@ verified:
   commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
     - runtime/pipeline/stage/builder.go
-    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/internal/core/element.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/openai/openai.go
     - runtime/providers/provider.go
     - runtime/types/message.go

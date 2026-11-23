@@ -12,6 +12,72 @@ The stage architecture introduces a new way to build pipelines using a Directed 
 - **Flexible topologies**: Support for branching, fan-in, fan-out patterns
 - **Backward compatibility**: Existing middleware can be wrapped as stages
 
+## Package layout
+
+`stage` is the public package: callers import it, and its exported API is the
+contract. Most of the code behind that API lives in packages under
+`stage/internal/`, which only `stage` and its internal packages can import.
+`stage` re-exports what each of them owns under the names callers already use:
+
+| Package | Holds |
+|---|---|
+| `internal/core` | `StreamElement` and its metadata, `Stage`/`BaseStage` and the basic stages, `TurnState`, format capabilities, the errors, the idle timeout, the `Cue` type, the flow helpers, role and metadata-key constants |
+| `internal/history` | blocked-turn filtering of the history a model sees, the message-metadata template |
+| `internal/compaction` | `CompactionStrategy`, `ContextCompactor` and its rules, cosine similarity, the relevance embedding cache |
+| `internal/heard` | `HeardReplies` (what the caller heard of a reply a barge-in cut) |
+| `internal/segment` | the stream and speech segmenters |
+| `internal/media` | media extract/compose/convert, image resize and preprocess, video frames, frame-rate limiting |
+| `internal/voice` | `AudioTurnStage`, STT, TTS (and TTS with interruption), response VAD, pacing, resampling |
+| `internal/cue` | the cue stage, its clip bank and sources, `PrewarmClips` |
+| `internal/persist` | recording, incremental save, memory retrieval/extraction, message broadcast |
+| `internal/provider` | `ProviderStage`: the LLM call, the tool loop (tool runner, call-rate window, structured-output mode, schema resolution, state handoff), output guardrails and the stream_hold engine |
+| `internal/duplex` | `DuplexProviderStage`, its tools, guardrails, cost and reply holds; `NewDuplexCueStage`, transcript reordering, the playout hold |
+| `internal/stagetest` | test helpers shared by the tests of `stage` and its internal packages (a fake idle timer and a fake ticker); it imports only `core` |
+
+`stage` itself keeps the composition roots: `pipeline.go` (`StreamPipeline`),
+`builder.go`, the context and core stages (`stages_core.go`,
+`stages_context.go`, `stages_utilities.go`, `stages_token_budget.go`),
+composition (`stages_composition.go`, `composition_executor.go`),
+`realtime_chain.go` (`NewRealtimeChain`), the router and advanced stages, and
+the integration tests that chain stages from several internal packages.
+
+### Rules
+
+- **Imports point down.** An internal package imports `core` and the internal
+  packages below it, never `stage`, not even from a `_test.go` file.
+  `TestInternalPackagesDoNotImportStage` (`internal_guards_test.go`) enforces
+  it. A helper two packages need goes in `internal/core`, or in
+  `internal/stagetest` when only tests need it.
+- **`stage`'s API does not grow.** Only the names `stage` exported before a
+  move are re-exported; what an internal package exports for `stage` and its
+  sibling packages stays out of `stage`'s API.
+  `TestInternalTypesReachableFromAPIHaveAliases` fails when the API reaches an
+  internal type that `stage` does not alias under the same name.
+- **No methods for the facade.** A type `stage` aliases cannot get methods
+  from `stage`, and gets no new exported method so `stage` can reach its
+  unexported state. Cross-package access goes through a package-level function
+  in the package that owns the state: `NewRealtimeChain` calls
+  `duplex.DetachCues(provider)`, and the duplex stage reaches the cue stage's
+  clip bank with `cue.BankOf`. `stage` does not re-export these functions.
+
+### Generated re-exports
+
+Each `<pkg>_aliases.go` in `stage` is written by `tools/stage-aliases-gen` and
+must not be edited by hand. A type becomes an alias (`type X = core.X`), a
+function a wrapper function, a sentinel error a `var`, and a constant a
+`const`; each keeps its declaration's doc comment, so the comment you write in
+the internal package is the one `stage`'s reference page shows.
+
+| Command | Does |
+|---|---|
+| `make stage-aliases PKG=<pkg>` | Regenerates `<pkg>_aliases.go`, re-exporting the names `stage` exported at `BASE` (default `origin/main`) |
+| `make stage-aliases-check` | Tests the generator and fails if any `*_aliases.go` differs from what it writes |
+| `make stage-api-check` | Runs apidiff on `stage` and the packages that expose its types against `BASE`, then compares each aliased type with its old declaration (the PR's "Stage API Compatibility" job) |
+
+After changing an exported declaration's doc comment or signature in an
+internal package, run `make stage-aliases PKG=<pkg>`, then
+`make docs-reference`.
+
 ## Core Concepts
 
 ### StreamElement
@@ -150,12 +216,12 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
    - Marks historical messages with `from_history` flag
    - Prepends history to current messages
 
-3. **IncrementalSaveStage** (`stages_save.go`)
+3. **IncrementalSaveStage** (`internal/persist/stages_save.go`)
    - Saves new messages via `MessageAppender` when the state store supports it
    - Falls back to a full state save when it does not
    - Replaces the original `StateStoreSaveStage` (removed)
 
-4. **ProviderStage** (`stages_provider.go`)
+4. **ProviderStage** (`internal/provider/stages_provider.go`)
    - Request/response LLM execution
    - Multi-round tool call support
    - Full tool execution via `toolRegistry.ExecuteAsync()`
@@ -171,19 +237,19 @@ result, err := pipeline.ExecuteSync(ctx, elements...)
 
 ### ✅ Completed (Phase 4: Streaming Stages)
 
-1. **AudioTurnStage** (`stages_speech.go`)
+1. **AudioTurnStage** (`internal/voice/stages_speech.go`)
    - Buffers audio chunks until the turn is complete
    - VAD-based silence detection and turn-boundary detection
    - Emits one audio utterance per turn
    - Configurable thresholds and durations
 
-2. **TTSStage** (`stages_tts.go`)
+2. **TTSStage** (`internal/voice/stages_tts.go`)
    - Synthesizes audio for text elements
    - Adds AudioData to StreamElements
    - Configurable min text length and empty handling
    - Resilient error handling
 
-3. **DuplexProviderStage** (`stages_duplex_provider_session.go`)
+3. **DuplexProviderStage** (`internal/duplex/stages_duplex_provider_session.go`)
    - Bidirectional WebSocket streaming
    - Concurrent input/output forwarding
    - StreamElement ⟷ StreamChunk conversion
@@ -459,5 +525,5 @@ if err != nil {
 
 ## References
 
-- [Current Pipeline Implementation](../pipeline.go)
+- [Current Pipeline Implementation](./pipeline.go)
 - [Stage Types Definition](../types.go)

@@ -10,19 +10,19 @@ verified:
     - runtime/events/types.go
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
-    - runtime/pipeline/stage/element.go
-    - runtime/pipeline/stage/element_pool.go
+    - runtime/pipeline/stage/internal/core/element.go
+    - runtime/pipeline/stage/internal/core/element_pool.go
+    - runtime/pipeline/stage/internal/core/stage.go
+    - runtime/pipeline/stage/internal/persist/stages_message_broadcast.go
+    - runtime/pipeline/stage/internal/persist/stages_recording.go
+    - runtime/pipeline/stage/internal/persist/stages_save.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/router_strategies.go
     - runtime/pipeline/stage/router_strategies_pipeline_test.go
-    - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_advanced.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_message_broadcast.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_recording.go
-    - runtime/pipeline/stage/stages_save.go
-    - runtime/pipeline/stage/stages_speech.go
     - runtime/pipeline/stage/stages_utilities.go
     - sdk/internal/pipeline/builder.go
     - sdk/internal/pipeline/builder_vad.go

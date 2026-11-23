@@ -11,8 +11,8 @@ verified:
     - runtime/hooks/hooks.go
     - runtime/inference/factory.go
     - runtime/inference/provider.go
-    - runtime/pipeline/stage/stage.go
-    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/internal/core/stage.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/providers/gemini/audio_encoder.go
     - runtime/providers/replay/provider.go

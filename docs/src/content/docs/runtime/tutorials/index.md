@@ -4,11 +4,11 @@ description: A learning path for the PromptKit runtime, from a first pipeline to
 sidebar:
   order: 0
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 956bd4a211f40367ac162754370cb41c84f8fc3f
   sources:
     - runtime/a2a/client.go
     - runtime/hooks/guardrails/factory.go
-    - runtime/pipeline/stage/stage.go
+    - runtime/pipeline/stage/internal/core/stage.go
     - sdk/examples/mcp-tools/main_interactive.go
 ---
 The runtime tutorials build on each other.

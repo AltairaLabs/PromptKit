@@ -8,9 +8,9 @@ verified:
   sources:
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
-    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/internal/core/element.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/provider.go
     - runtime/providers/streaming.go
     - runtime/types/message.go

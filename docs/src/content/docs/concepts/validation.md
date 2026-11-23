@@ -22,7 +22,7 @@ verified:
     - runtime/hooks/guardrails/factory.go
     - runtime/hooks/hooks.go
     - runtime/packspec/types.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/prompt/schema/promptpack.schema.json
 ---
 

@@ -4,10 +4,10 @@ description: Resize and compress images in the SDK before they reach the provide
 sidebar:
   order: 7
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: 956bd4a211f40367ac162754370cb41c84f8fc3f
   sources:
     - runtime/media/image.go
-    - runtime/pipeline/stage/stages_image_preprocess.go
+    - runtime/pipeline/stage/internal/media/stages_image_preprocess.go
     - sdk/examples/image-preprocessing/main.go
     - sdk/internal/pipeline/builder.go
     - sdk/options.go

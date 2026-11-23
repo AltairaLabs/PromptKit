@@ -60,10 +60,14 @@ jobs:
       run: ./scripts/check-weak-assertions.sh "${{ github.event.pull_request.base.sha }}"
 
   # Each mutant recompiles its package with the package's tests and reruns
-  # them: 23 CPU-seconds for one runtime/pipeline/stage mutant on this 4-vCPU
-  # runner, so one runner gets through ~250 mutants in 30 minutes however many
-  # workers it runs. The shards split the changed files between them (see
-  # "Sharding" in scripts/check-mutation-diff.sh); the Mutation Gate job below
+  # them, so a runner's 30 minutes hold a fixed number of mutants however many
+  # workers it runs: ~250 runtime/pipeline/stage mutants (23 CPU-seconds each
+  # on this 4-vCPU runner) before stage was split into stage/internal/<pkg>
+  # packages, which cut a stage mutant's cost by about 60% and made a mutant
+  # of an internal package cheaper still (see "Cost" in
+  # scripts/check-mutation-diff.sh). A PR can still change many packages, so
+  # the shards split the changed files between them (see "Sharding" in
+  # scripts/check-mutation-diff.sh); the Mutation Gate job below
   # scores their mutants together.
   mutation-shard:
     name: Mutation Gate shard ${{ matrix.shard }}/4

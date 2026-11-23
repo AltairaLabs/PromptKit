@@ -8,7 +8,7 @@ verified:
   sources:
     - runtime/a2a/bridge.go
     - runtime/a2a/client.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/tools/types.go
     - sdk/capability_a2a.go
     - sdk/options.go

@@ -60,8 +60,7 @@
    "claim": "max_rounds defaults to 50",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1372",
-    "runtime/pipeline/stage/stages_provider.go:33"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -69,8 +68,8 @@
    "claim": "A turn still wanting tools at the limit fails with error text 'max rounds (N) exceeded'",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:151",
-    "runtime/pipeline/stage/stages_provider.go:1716"
+    "runtime/pipeline/stage/internal/core/errors.go",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -78,8 +77,7 @@
    "claim": "errors.Is matches stage.ErrMaxRoundsExceeded; errors.As *stage.MaxRoundsError gives the limit",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:140",
-    "runtime/pipeline/stage/errors.go:144"
+    "runtime/pipeline/stage/internal/core/errors.go"
    ]
   },
   {
@@ -87,9 +85,7 @@
    "claim": "max_tool_calls_per_turn: calls over the limit are not run, get an error result, next round offers no tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1697",
-    "runtime/pipeline/stage/stages_provider.go:1792",
-    "runtime/pipeline/stage/stages_provider.go:1808"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -97,7 +93,7 @@
    "claim": "tool_choice is auto, required or none; none sends no tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3924",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/prompt/schema/promptpack.schema.json:884"
    ]
   },
@@ -106,7 +102,7 @@
    "claim": "blocklist: tools the prompt may not run even when listed in tools",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2860"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -293,9 +289,9 @@
    "verdict": "true",
    "evidence": [
     "sdk/conversation.go:744",
+    "sdk/integration/duplex_tool_parity_test.go:118",
     "sdk/internal/pipeline/builder.go:716",
     "sdk/internal/pipeline/builder.go:754",
-    "sdk/integration/duplex_tool_parity_test.go:118",
     "sdk/options.go:1376"
    ]
   },
@@ -323,8 +319,7 @@
    "claim": "MaxCostUSD sums cost recorded on the history given to the loop; the round that crosses it fails with 'provider stage: cost budget exceeded'",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1595",
-    "runtime/pipeline/stage/stages_provider.go:1641"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -332,8 +327,7 @@
    "claim": "MaxIdenticalToolCalls defaults to 3 and MaxParallelToolCalls defaults to 10",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:34",
-    "runtime/pipeline/stage/stages_provider.go:35"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {

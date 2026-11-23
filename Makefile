@@ -506,6 +506,10 @@ docs-stale: ## List docs pages whose verified sources changed (warn-only)
 docs-coverage: ## List public-surface files no docs page cites (warn-only)
 	@uvx -q --with pyyaml --from "$(DOCS_KIT)" docs-coverage
 
+docs-sources-check: ## Fail if a docs page's verified sources or provenance cite a file that does not exist
+	@./scripts/test-check-docs-sources.sh
+	@./scripts/check-docs-sources.sh
+
 # Code Quality targets
 sonar-install: ## Install SonarScanner locally
 	@echo "📊 Installing SonarScanner..."

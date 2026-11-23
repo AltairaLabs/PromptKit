@@ -13,8 +13,8 @@ verified:
     - runtime/memory/store.go
     - runtime/memory/tools.go
     - runtime/memory/types.go
-    - runtime/pipeline/stage/errors.go
-    - runtime/pipeline/stage/stages_memory.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/persist/stages_memory.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/template/renderer.go
     - sdk/capability_memory.go

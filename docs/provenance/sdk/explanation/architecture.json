@@ -41,8 +41,8 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/types.go:19",
-    "runtime/pipeline/stage/pipeline.go:198",
-    "runtime/pipeline/stage/stages_provider.go:3055"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/pipeline.go:198"
    ]
   },
   {

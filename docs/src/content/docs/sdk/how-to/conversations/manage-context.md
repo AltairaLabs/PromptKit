@@ -7,10 +7,10 @@ verified:
   commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
     - runtime/events/types.go
-    - runtime/pipeline/stage/compactor.go
-    - runtime/pipeline/stage/compactor_fold.go
-    - runtime/pipeline/stage/relevance_embedding_cache.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/compaction/compactor.go
+    - runtime/pipeline/stage/internal/compaction/compactor_fold.go
+    - runtime/pipeline/stage/internal/compaction/relevance_embedding_cache.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/providers/claude/context_window_table.go
     - runtime/providers/gemini/embedding.go

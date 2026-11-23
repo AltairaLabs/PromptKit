@@ -27,8 +27,7 @@
    "verdict": "false",
    "evidence": [
     "runtime/hooks/hooks.go:42",
-    "runtime/pipeline/stage/stages_provider.go:2873",
-    "runtime/pipeline/stage/stages_provider.go:3522"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -36,9 +35,8 @@
    "claim": "Deny produces HookDeniedError and fails the turn: the provider stage returns the error, delivered to the caller as the last output element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:99",
-    "runtime/pipeline/stage/stages_provider.go:3129",
-    "runtime/pipeline/stage/stages_provider.go:3192"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
   {
@@ -46,7 +44,7 @@
    "claim": "AfterCall Enforced picks up rewritten resp.Message; tool calls dropped",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3258"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -55,7 +53,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/types.go:75",
-    "runtime/pipeline/stage/stages_provider.go:3435"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -63,7 +61,7 @@
    "claim": "Enforcement does not fail the turn; Deny does",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3146"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -97,7 +95,7 @@
    "claim": "Execution ordering diagram; session start at Open, update after turn, end at Close",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3181",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "sdk/conversation.go:1792",
     "sdk/conversation.go:348",
     "sdk/sdk.go:386"
@@ -177,8 +175,7 @@
    "claim": "Realtime duplex: BeforeCall runs on text bound for the session; enforcing hook blocks it and the blocked turn follows any in-progress reply; Deny ends the session",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go",
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:200"
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go"
    ]
   },
   {
@@ -186,9 +183,7 @@
    "claim": "Realtime duplex: OnChunk runs on assistant text/transcript with the turn's text so far in Content; once enforced the rest of the turn's text and audio is dropped; AfterCall rewrites the completed turn; enforced turn drops tool calls and finishes with safety",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:430",
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:537",
-    "runtime/pipeline/stage/stages_duplex_provider_hooks.go:578"
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go"
    ]
   },
   {

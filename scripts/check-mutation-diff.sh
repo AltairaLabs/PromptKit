@@ -23,14 +23,20 @@
 # left out.
 #
 # Cost: each mutant recompiles its package together with the package's tests,
-# relinks the test binary and reruns the package's tests. Measured on a
-# GitHub-hosted ubuntu-latest runner (4 vCPU = 2 cores x 2 threads), one
-# mutant of runtime/pipeline/stage costs 23 CPU-seconds, 17 of them compiling
-# the package (~100k lines with its tests); with the build cache working, that
-# compile, two tiny ones, vet and the link are the only build steps a mutant
-# runs. Four workers keep the runner's CPUs busy, so a mutant takes ~7s of
-# wall time whatever the worker count, and ~250 of them fill 30 minutes.
-# CI therefore splits the changed files over parallel shards (see Sharding).
+# relinks the test binary and reruns the package's tests, so a package's size
+# (with its tests) sets what each of its mutants costs. With the build cache
+# working, that compile, two tiny ones, vet and the link are the only build
+# steps a mutant runs. Four workers keep a 4-vCPU runner's CPUs busy, so a
+# mutant's wall time is the same whatever the worker count. Before
+# runtime/pipeline/stage was split (#2876), one stage mutant (~100k lines
+# with its tests) cost 23 CPU-seconds on a GitHub-hosted ubuntu-latest runner
+# (4 vCPU = 2 cores x 2 threads), 17 of them compiling the package: ~7s of
+# wall time, so ~250 mutants filled 30 minutes. The split moved most of stage into stage/internal/<pkg> packages:
+# scripts/mutant-cost-probe.sh (on Apple silicon, 4 workers on 4 vCPUs) puts a
+# stage mutant at ~1.06s, down from ~2.9s before the split (~2.4s just before
+# the provider stage moved), and a mutant of an internal package at
+# ~0.14-1.3s (duplex and provider the largest). A PR can still change many
+# packages, so CI splits the changed files over parallel shards (see Sharding).
 #
 # Usage: scripts/check-mutation-diff.sh [base-ref]
 #        scripts/check-mutation-diff.sh --score <mutants.tsv>...

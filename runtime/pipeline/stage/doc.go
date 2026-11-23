@@ -36,4 +36,13 @@
 // A provider error arrives as the provider stage emitted it. The error of any
 // other stage arrives as a *StageError, which unwraps to the stage's own error.
 // ExecuteSync returns the error alongside the result.
+//
+// # Package layout
+//
+// Most stages are implemented in packages under stage/internal, one per
+// subsystem (core, provider, duplex, voice, media, persist, cue and others).
+// This package re-exports their API under the names documented here: types as
+// aliases, functions as wrappers, and errors and constants as variables and
+// constants of the same value. Import this package; the internal packages
+// cannot be imported from outside it.
 package stage

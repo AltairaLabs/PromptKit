@@ -57,7 +57,7 @@
    "claim": "Unresolved placeholder fails send; error text format",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:112",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/pipeline/stage/stages_utilities.go:286"
    ]
   },
@@ -66,7 +66,7 @@
    "claim": "Error lists names not values; ErrTemplateUnresolved in runtime/pipeline/stage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:133",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/pipeline/stage/stages_utilities.go:287"
    ]
   },
@@ -86,8 +86,7 @@
    "claim": "memory_context written as ordinary variable before render, every turn including empty",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_memory.go:114",
-    "runtime/pipeline/stage/stages_memory.go:84"
+    "runtime/pipeline/stage/internal/persist/stages_memory.go"
    ]
   }
  ]

@@ -7,8 +7,7 @@
    "claim": "Deny aborts with *hooks.HookDeniedError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3129",
-    "runtime/pipeline/stage/stages_provider.go:3192"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -17,8 +16,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/types.go:75",
-    "runtime/pipeline/stage/stages_provider.go:3085",
-    "runtime/pipeline/stage/stages_provider.go:3194"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -35,7 +33,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:19",
-    "runtime/pipeline/stage/stages_provider.go:2592"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -43,7 +41,7 @@
    "claim": "A streaming denial surfaces as *providers.ValidationAbortError, not *hooks.HookDeniedError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2619"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -51,8 +49,7 @@
    "claim": "AfterExecution runs after the result is built so it can't change it",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2981",
-    "runtime/pipeline/stage/stages_provider.go:3522"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -60,8 +57,7 @@
    "claim": "Tool BeforeExecution deny gates the call",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2873",
-    "runtime/pipeline/stage/stages_provider.go:2875"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -78,7 +74,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/registry.go:227",
-    "runtime/pipeline/stage/stages_provider.go:3587"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -94,9 +90,7 @@
    "claim": "Whole text of plain result before size limit; limit applies to returned; multimodal one text part at a time; media left; no text not rewritten",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3587",
-    "runtime/pipeline/stage/stages_provider.go:3594",
-    "runtime/pipeline/stage/stages_provider.go:3614"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -104,9 +98,7 @@
    "claim": "Model, tool.call.completed and AfterExecution see the rewritten result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2965",
-    "runtime/pipeline/stage/stages_provider.go:2981",
-    "runtime/pipeline/stage/stages_provider.go:3518"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -114,10 +106,7 @@
    "claim": "Failed call isn't rewritten; rewriter error fails the call: error result to model, tool.call.failed, original not passed on",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2960",
-    "runtime/pipeline/stage/stages_provider.go:2962",
-    "runtime/pipeline/stage/stages_provider.go:3555",
-    "runtime/pipeline/stage/stages_provider.go:3589"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -134,7 +123,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:40",
-    "runtime/pipeline/stage/stages_duplex_tools.go:187",
+    "runtime/pipeline/stage/internal/duplex/stages_duplex_tools.go",
     "sdk/integration/duplex_tool_parity_test.go:167"
    ]
   },
@@ -229,8 +218,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/errors.go:13",
-    "runtime/pipeline/stage/stages_provider.go:3129",
-    "runtime/pipeline/stage/stages_provider.go:3192"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -239,7 +227,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/hooks/errors.go:11",
-    "runtime/pipeline/stage/stages_provider.go:3129"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -247,8 +235,7 @@
    "claim": "HookDeniedError.HookName is the fixed string provider_hook, not the hook's Name()",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3130",
-    "runtime/pipeline/stage/stages_provider.go:44"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {

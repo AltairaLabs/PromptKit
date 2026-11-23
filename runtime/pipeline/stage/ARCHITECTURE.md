@@ -4,7 +4,7 @@ This document is the architectural contract for `runtime/pipeline/stage` and the
 
 PR reviewers should cite specific sections of this document when challenging design choices in stage / pipeline / service-injection PRs. New stages and services are reviewed against the principles below; deviations require updating this document first.
 
-For an introduction to the package and how stages compose, see [`README.md`](README.md). This document is the architectural reference; the README is the operational guide.
+For an introduction to the package and how stages compose, see [`README.md`](README.md). This document is the architectural reference; the README is the operational guide, and its [Package layout](README.md#package-layout) section says which `stage/internal/<pkg>` package holds each subsystem's code behind `stage`'s API.
 
 ---
 
@@ -178,6 +178,7 @@ Anything that extends the architecture at any layer requires updating this docum
 2. Stages do not look up services dynamically — dependencies are injected at construction.
 3. If the stage performs side effects on a service (Load, Save, Render, Emit, Execute), add a contract test in `sdk/integration/probes/` pinning the per-Send budget. See [the contract regime](../../../sdk/integration/probes/) for the pattern.
 4. Add the stage to the pipeline builder in `sdk/internal/pipeline/builder.go` and (if PromptArena uses it) its engine builder.
+5. Put its code in the `stage/internal/<pkg>` package of its subsystem and re-export it from `stage` through the generated alias file, following the import and export rules in the README's [Package layout](README.md#package-layout). The package boundary is a code-organization rule, not an architectural layer: everything above applies to a stage wherever its code lives.
 
 ### 5.5 Adding a new authoring layer for hooks
 
@@ -193,7 +194,7 @@ The principles above represent the target architecture. As of this document's da
 | Section | Status | Tracking |
 |---|---|---|
 | §1.1 Run-level services | In place. SDK adoption of `providers.Registry` pending. | PR 2 (`feat/sdk-provider-pool`) |
-| §1.2 `TurnState` | In place. Defined in `runtime/pipeline/stage/turn_state.go` and populated by the pipeline builder in `sdk/internal/pipeline/builder.go`. | landed |
+| §1.2 `TurnState` | In place. Defined in `runtime/pipeline/stage/internal/core/turn_state.go` (re-exported as `stage.TurnState`) and populated by the pipeline builder in `sdk/internal/pipeline/builder.go`. | landed |
 | §1.2 Event emitter / bus | In place. |  |
 | §3 Hook authoring layers | In place. Documented here for the first time. |  |
 | §4 Per-Turn data flow | Partially migrated. `TurnState` is the authoritative path for new code; legacy `StreamElement.Metadata map[string]any` still populated in some call sites and consumed where keys haven't moved yet. Final removal tracked separately. | in-flight |

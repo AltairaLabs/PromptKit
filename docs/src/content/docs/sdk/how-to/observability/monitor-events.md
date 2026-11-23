@@ -10,7 +10,7 @@ verified:
     - runtime/events/message_created_data.go
     - runtime/events/types.go
     - runtime/metrics/collector.go
-    - runtime/pipeline/stage/stages_message_broadcast.go
+    - runtime/pipeline/stage/internal/persist/stages_message_broadcast.go
     - sdk/conversation.go
     - sdk/hooks/events.go
     - sdk/internal/pipeline/builder.go

@@ -16,7 +16,7 @@
    "claim": "Handle provider and pipeline errors: StageError and providers.IsTransient",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/errors.go:104-108",
+    "runtime/pipeline/stage/internal/core/errors.go",
     "runtime/providers/errors.go:65"
    ]
   },
@@ -25,8 +25,8 @@
    "claim": "Read a reply as it is generated: StreamPipeline.Execute emits text fragments",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:99",
-    "runtime/pipeline/stage/stages_provider.go:2652"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/pipeline.go:99"
    ]
   },
   {

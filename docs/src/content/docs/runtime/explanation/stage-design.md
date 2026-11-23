@@ -11,19 +11,19 @@ verified:
     - runtime/hooks/hooks.go
     - runtime/pipeline/stage/builder.go
     - runtime/pipeline/stage/config.go
-    - runtime/pipeline/stage/element.go
+    - runtime/pipeline/stage/internal/core/element.go
+    - runtime/pipeline/stage/internal/core/stage.go
+    - runtime/pipeline/stage/internal/persist/stages_message_broadcast.go
+    - runtime/pipeline/stage/internal/persist/stages_recording.go
+    - runtime/pipeline/stage/internal/persist/stages_save.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/structured_output_mode.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
+    - runtime/pipeline/stage/internal/voice/stages_tts.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stage.go
     - runtime/pipeline/stage/stages_advanced.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_message_broadcast.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_recording.go
-    - runtime/pipeline/stage/stages_save.go
-    - runtime/pipeline/stage/stages_speech.go
-    - runtime/pipeline/stage/stages_tts.go
     - runtime/pipeline/stage/stages_utilities.go
-    - runtime/pipeline/stage/structured_output_mode.go
     - sdk/options.go
     - sdk/sdk.go
 ---

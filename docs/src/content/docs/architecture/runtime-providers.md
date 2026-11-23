@@ -6,7 +6,7 @@ sidebar:
 verified:
   commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
   sources:
-    - runtime/pipeline/stage/compactor.go
+    - runtime/pipeline/stage/internal/compaction/compactor.go
     - runtime/providers/base_provider.go
     - runtime/providers/claude/claude.go
     - runtime/providers/claude/claude_multimodal.go

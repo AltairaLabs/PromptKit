@@ -7,7 +7,7 @@
    "claim": "StreamElement fields (incl. Reasoning)",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:76-125"
+    "runtime/pipeline/stage/internal/core/element.go"
    ]
   },
   {
@@ -15,7 +15,7 @@
    "claim": "Stage interface Name/Type/Process",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:49-65"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -23,7 +23,7 @@
    "claim": "Stage types: 5 StageType values; no Observe type",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:102-127"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -31,7 +31,7 @@
    "claim": "TemplateStage, RecordingStage and MessageBroadcastStage are StageTypeTransform",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_message_broadcast.go:80",
+    "runtime/pipeline/stage/internal/persist/stages_message_broadcast.go",
     "runtime/pipeline/stage/stages_utilities.go:166"
    ]
   },
@@ -99,8 +99,8 @@
    "claim": "A stage error ends the turn without canceling other stages; downstream stages get the error in-band; the caller gets a *StageError unless the stage emitted it as an error element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:75-100",
-    "runtime/pipeline/stage/stage.go:58-62"
+    "runtime/pipeline/stage/internal/core/stage.go",
+    "runtime/pipeline/stage/pipeline.go:75-100"
    ]
   },
   {
@@ -117,7 +117,7 @@
    "claim": "RecordingStage re-captures history each turn (N copies)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:276-278"
+    "runtime/pipeline/stage/internal/persist/stages_recording.go"
    ]
   },
   {
@@ -125,7 +125,7 @@
    "claim": "RecordingStage event mapping message/audio/image/video/toolcall/error",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:158-225"
+    "runtime/pipeline/stage/internal/persist/stages_recording.go"
    ]
   },
   {
@@ -142,8 +142,7 @@
    "claim": "ProviderStage copies ProviderRequestMetadata each call",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:589",
-    "runtime/pipeline/stage/stages_provider.go:618-620"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -151,8 +150,7 @@
    "claim": "IncrementalSave merges metadata (only on full-save fallback)",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:275-279",
-    "runtime/pipeline/stage/stages_save.go:71-83"
+    "runtime/pipeline/stage/internal/persist/stages_save.go"
    ]
   },
   {
@@ -185,7 +183,7 @@
    "claim": "Element pooling available",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element_pool.go:26-60"
+    "runtime/pipeline/stage/internal/core/element_pool.go"
    ]
   },
   {
@@ -193,10 +191,8 @@
    "claim": "Voice chain snippet constructors and signatures",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:315",
-    "runtime/pipeline/stage/stages_speech.go:115",
-    "runtime/pipeline/stage/stages_speech.go:742",
-    "runtime/pipeline/stage/stages_speech.go:958"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
+    "runtime/pipeline/stage/internal/voice/stages_speech.go"
    ]
   },
   {
@@ -242,7 +238,7 @@
    "claim": "RecordingStage records every content field an element carries (streaming first, Message last) and does not skip elements for a control flag; a bare control signal records nothing",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_recording.go:158-225"
+    "runtime/pipeline/stage/internal/persist/stages_recording.go"
    ]
   }
  ]

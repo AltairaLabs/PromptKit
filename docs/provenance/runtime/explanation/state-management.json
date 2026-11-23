@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/explanation/state-management.md",
- "commit": "8489bf3d95c7498f9de0f024769db9399c24e884",
+ "commit": "956bd4a211f40367ac162754370cb41c84f8fc3f",
  "claims": [
   {
    "id": 1,
@@ -15,8 +15,8 @@
    "claim": "StateStoreLoadStage loads history, emits before input; ErrNotFound is empty history; other errors fail",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_core.go:189",
-    "runtime/pipeline/stage/stages_core.go:262"
+    "runtime/pipeline/stage/stages_core.go:217",
+    "runtime/pipeline/stage/stages_core.go:279"
    ]
   },
   {
@@ -24,7 +24,7 @@
    "claim": "IncrementalSaveStage persists only new messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_save.go:200"
+    "runtime/pipeline/stage/internal/persist/stages_save.go:203"
    ]
   },
   {
@@ -32,8 +32,8 @@
    "claim": "Without a state store each Open creates private memory store",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1012",
-    "sdk/sdk.go:849"
+    "sdk/options.go:1053",
+    "sdk/sdk.go:887"
    ]
   },
   {
@@ -41,8 +41,8 @@
    "claim": "WithStateStore, WithConversationID options",
    "verdict": "true",
    "evidence": [
-    "sdk/options.go:1021",
-    "sdk/options.go:972"
+    "sdk/options.go:1013",
+    "sdk/options.go:1062"
    ]
   },
   {
@@ -150,8 +150,8 @@
    "claim": "WithContextWindow(n) uses ContextAssemblyStage with MessageReader, falls back to full load",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_context.go:63",
-    "sdk/options.go:1830"
+    "runtime/pipeline/stage/stages_context.go:66",
+    "sdk/options.go:2007"
    ]
   },
   {
@@ -159,8 +159,8 @@
    "claim": "ContextAssemblyStage keeps at most 200 messages by default, preserving leading system messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_context.go:18",
-    "runtime/pipeline/stage/stages_context.go:44"
+    "runtime/pipeline/stage/stages_context.go:21",
+    "runtime/pipeline/stage/stages_context.go:47"
    ]
   },
   {
@@ -168,9 +168,9 @@
    "claim": "WithTokenBudget/WithTruncation truncate or summarize",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:646",
-    "sdk/options.go:1708",
-    "sdk/options.go:1735"
+    "runtime/pipeline/stage/stages_utilities.go:675",
+    "sdk/options.go:1885",
+    "sdk/options.go:1912"
    ]
   },
   {

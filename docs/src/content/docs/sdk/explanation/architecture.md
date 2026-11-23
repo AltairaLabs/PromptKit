@@ -17,8 +17,8 @@ verified:
     - runtime/evals/trigger.go
     - runtime/evals/types.go
     - runtime/events/types.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/pipeline/stage/stages_utilities.go
     - sdk/conversation.go
     - sdk/conversation_tools.go

@@ -9,7 +9,7 @@ verified:
     - runtime/mcp/client.go
     - runtime/mcp/registry.go
     - runtime/mcp/types.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/tools/registry.go
     - runtime/tools/types.go
     - sdk/conversation_tools.go

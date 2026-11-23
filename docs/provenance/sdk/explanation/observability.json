@@ -43,7 +43,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/message_created_data.go:30",
-    "runtime/pipeline/stage/stages_message_broadcast.go:78-95"
+    "runtime/pipeline/stage/internal/persist/stages_message_broadcast.go"
    ]
   },
   {

@@ -13,7 +13,7 @@
    "claim": "Middleware term describes a removed architecture",
    "verdict": "dead",
    "evidence": [
-    "runtime/pipeline/stage/stage.go"
+    "runtime/pipeline/stage/internal/core/stage.go"
    ]
   },
   {
@@ -46,8 +46,7 @@
    "claim": "Stages: ProviderStage, STTStage, TTSStage exist; LLMStage/VADStage do not",
    "verdict": "false",
    "evidence": [
-    "runtime/pipeline/stage/stages_speech.go:45",
-    "runtime/pipeline/stage/stages_speech.go:729"
+    "runtime/pipeline/stage/internal/voice/stages_speech.go"
    ]
   },
   {

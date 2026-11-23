@@ -92,9 +92,7 @@
    "claim": "Call order: blocklist, BeforeToolExecution hook, ApprovalChecker, ExecuteAsync, result rewriters, AfterToolExecution",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2860",
-    "runtime/pipeline/stage/stages_provider.go:2872",
-    "runtime/pipeline/stage/stages_provider.go:2944"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -102,7 +100,7 @@
    "claim": "Errors yield error results for the call, not an aborted turn",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2998"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -118,7 +116,7 @@
    "claim": "Pending call held out; loop returns ErrToolsPending",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2847"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -126,8 +124,7 @@
    "claim": "Parallel up to MaxParallelToolCalls default 10; results in model order",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2832",
-    "runtime/pipeline/stage/stages_provider.go:34"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -135,7 +132,7 @@
    "claim": "Results over MaxToolResultSize (1 MB default) truncated with notice",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3593",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/tools/registry.go:33"
    ]
   },
@@ -263,7 +260,7 @@
    "claim": "MCP tools not implicit; need allowed_tools entry or wildcard; capability tools implicit",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3782",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/tools/types.go:90"
    ]
   },
@@ -308,8 +305,7 @@
    "claim": "tool_choice none sends no tools; MaxRounds default 50 -> MaxRoundsError",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1711",
-    "runtime/pipeline/stage/stages_provider.go:3924"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -317,7 +313,7 @@
    "claim": "MaxToolCallsPerTurn across rounds; once spent no tools offered",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1697"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -325,8 +321,7 @@
    "claim": "MaxCostUSD bounds whole run, checked after each provider round",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1595",
-    "runtime/pipeline/stage/stages_provider.go:1641"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -334,8 +329,7 @@
    "claim": "Identical calls threshold 3: one synthetic nudge, abort on repeat",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1732",
-    "runtime/pipeline/stage/stages_provider.go:35"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -343,7 +337,7 @@
    "claim": "StopOnTool ends loop after round calling named tool",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:1706"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -351,7 +345,7 @@
    "claim": "Blocklist exact-name match",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3618"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -359,7 +353,7 @@
    "claim": "Tool excluded from later rounds after second error result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3654"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -367,7 +361,7 @@
    "claim": "Limits enforced by provider stage, not Registry.Execute",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:2860",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/tools/registry.go:464"
    ]
   }

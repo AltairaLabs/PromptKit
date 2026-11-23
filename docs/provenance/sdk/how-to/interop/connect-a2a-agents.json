@@ -78,7 +78,7 @@
    "claim": "Reference tool names in allowed_tools (spec.allowed_tools YAML) to control LLM access",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:3777-3786",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go",
     "runtime/tools/types.go:83-91"
    ]
   },

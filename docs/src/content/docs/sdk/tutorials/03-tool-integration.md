@@ -5,7 +5,7 @@ sidebar:
 verified:
   commit: 8489bf3d95c7498f9de0f024769db9399c24e884
   sources:
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/prompt/schema/promptpack.schema.json
     - sdk/conversation.go
     - sdk/conversation_tools.go

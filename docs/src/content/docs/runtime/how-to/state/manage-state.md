@@ -4,11 +4,11 @@ description: Persist conversation history across pipeline executions with a stat
 sidebar:
   order: 4
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: 956bd4a211f40367ac162754370cb41c84f8fc3f
   sources:
+    - runtime/pipeline/stage/internal/persist/stages_save.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/stages_core.go
-    - runtime/pipeline/stage/stages_provider.go
-    - runtime/pipeline/stage/stages_save.go
     - runtime/pipeline/types.go
     - runtime/statestore/interface.go
     - runtime/statestore/memory.go

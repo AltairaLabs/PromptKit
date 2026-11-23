@@ -84,7 +84,7 @@
    "claim": "An approval counts toward ToolPolicy.MaxCallsPerMinute; at the limit the handler does not run and the model receives the limit error as the call's result",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/tool_call_rate.go:34",
+    "runtime/pipeline/stage/internal/provider/tool_call_rate.go",
     "runtime/pipeline/types.go:36",
     "sdk/conversation_tools.go:293"
    ]

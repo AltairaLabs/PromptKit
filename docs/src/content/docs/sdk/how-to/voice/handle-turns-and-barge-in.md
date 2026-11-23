@@ -4,11 +4,11 @@ description: Stream live audio into a duplex voice session, tune when a turn end
 sidebar:
   order: 2
 verified:
-  commit: 885cafa787a84bfba66f158fe51cda15a077ec23
+  commit: 956bd4a211f40367ac162754370cb41c84f8fc3f
   sources:
     - runtime/audio/silence.go
-    - runtime/pipeline/stage/playout_hold.go
-    - runtime/pipeline/stage/stages_speech.go
+    - runtime/pipeline/stage/internal/duplex/playout_hold.go
+    - runtime/pipeline/stage/internal/voice/stages_speech.go
     - sdk/conversation.go
     - sdk/options.go
     - sdk/session/duplex_session.go

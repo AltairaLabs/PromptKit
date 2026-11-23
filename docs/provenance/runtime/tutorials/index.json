@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/runtime/tutorials/index.md",
- "commit": "885cafa787a84bfba66f158fe51cda15a077ec23",
+ "commit": "956bd4a211f40367ac162754370cb41c84f8fc3f",
  "claims": [
   {
    "id": 1,
@@ -61,7 +61,7 @@
    "claim": "Tutorial 6 builds response caching, a custom stage with a spend budget, buffered streaming and parallel batching",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stage.go:261"
+    "runtime/pipeline/stage/internal/core/stage.go:259"
    ]
   }
  ]

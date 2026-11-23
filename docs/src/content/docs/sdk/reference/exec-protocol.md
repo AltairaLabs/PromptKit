@@ -19,7 +19,7 @@ verified:
     - runtime/hooks/registry.go
     - runtime/hooks/sandbox/direct/direct.go
     - runtime/hooks/types.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/tools/exec_executor.go
     - runtime/tools/registry.go
     - runtime/tools/server_executor.go

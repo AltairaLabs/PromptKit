@@ -12,9 +12,9 @@ verified:
     - runtime/mcp/registry.go
     - runtime/metrics/collector.go
     - runtime/pipeline/stage/builder.go
-    - runtime/pipeline/stage/errors.go
+    - runtime/pipeline/stage/internal/core/errors.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/pipeline/stage/pipeline.go
-    - runtime/pipeline/stage/stages_provider.go
     - runtime/providers/claude/claude.go
     - runtime/providers/errors.go
     - runtime/providers/gemini/gemini.go

@@ -61,7 +61,7 @@
    "claim": "stage.NewProviderStage(provider, toolRegistry, toolPolicy, *ProviderConfig) with nil registry and policy",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:314"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -69,7 +69,7 @@
    "claim": "ProviderConfig has MaxTokens and Temperature",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_provider.go:143"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -93,7 +93,7 @@
    "claim": "stage.NewMessageElement takes *types.Message",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/element.go:352"
+    "runtime/pipeline/stage/internal/core/element.go"
    ]
   },
   {
@@ -161,7 +161,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/pipeline/stage/builder.go:72",
-    "runtime/pipeline/stage/stages_provider.go:314"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   }
  ]

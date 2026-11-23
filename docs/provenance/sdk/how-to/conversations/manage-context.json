@@ -108,7 +108,7 @@
    "claim": "Cache embeddings: enabled by default in RelevanceConfig",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/relevance_embedding_cache.go:49",
+    "runtime/pipeline/stage/stages_utilities.go",
     "runtime/pipeline/stage/stages_utilities.go:724",
     "sdk/conversation.go:2063"
    ]
@@ -204,7 +204,7 @@
    "claim": "compaction folds stale tool results to summaries like [name: preview... \u2014 N bytes compacted]",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor_fold.go:82"
+    "runtime/pipeline/stage/internal/compaction/compactor_fold.go"
    ]
   },
   {
@@ -221,8 +221,7 @@
    "claim": "triggers above 70% of the budget",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor.go:11",
-    "runtime/pipeline/stage/compactor.go:144"
+    "runtime/pipeline/stage/internal/compaction/compactor.go"
    ]
   },
   {
@@ -230,8 +229,7 @@
    "claim": "folds oldest tool results first, preserving the 4 most recent messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor.go:12",
-    "runtime/pipeline/stage/compactor.go:178"
+    "runtime/pipeline/stage/internal/compaction/compactor.go"
    ]
   },
   {
@@ -239,8 +237,7 @@
    "claim": "never modifies error results, system messages, or non-tool messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor_fold.go:30",
-    "runtime/pipeline/stage/compactor_fold.go:33"
+    "runtime/pipeline/stage/internal/compaction/compactor_fold.go"
    ]
   },
   {
@@ -249,7 +246,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/types.go:161",
-    "runtime/pipeline/stage/stages_provider.go:1267"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go"
    ]
   },
   {
@@ -257,8 +254,7 @@
    "claim": "budget auto-detected from the provider via ContextWindowProvider, else 128K; Claude, OpenAI and Gemini report per-model limits, additional_config.context_window overrides, Ollama/vLLM only via that setting, unknown model reports 0",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/compactor.go:100",
-    "runtime/pipeline/stage/compactor.go:14",
+    "runtime/pipeline/stage/internal/compaction/compactor.go",
     "runtime/providers/claude/context_window_table.go:132",
     "runtime/providers/ollama/context_window.go:16"
    ]

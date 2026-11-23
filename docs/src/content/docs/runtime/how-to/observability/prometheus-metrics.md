@@ -2,13 +2,13 @@
 title: Expose Prometheus Metrics
 description: Expose PromptKit pipeline, provider, tool and audio metrics to Prometheus and chart them in Grafana
 verified:
-  commit: ffbed7c4b0fff266953352be5e73d4e308a97acf
+  commit: 956bd4a211f40367ac162754370cb41c84f8fc3f
   sources:
     - runtime/events/types.go
     - runtime/metrics/collector.go
     - runtime/metrics/eventbus_health.go
     - runtime/metrics/grafana/pipeline-dashboard.json
-    - runtime/pipeline/stage/stages_pacing.go
+    - runtime/pipeline/stage/internal/voice/stages_pacing.go
     - runtime/providers/stream_metrics.go
     - sdk/evaluate.go
     - sdk/options.go

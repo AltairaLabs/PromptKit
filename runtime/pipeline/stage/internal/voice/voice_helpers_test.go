@@ -11,9 +11,11 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tts"
 )
 
-// The helpers below are copies of stage's test helpers (cue_voice_test.go,
-// playout_hold_test.go, stream_hold_test.go). A test in voice cannot import
-// stage's, and stage keeps its own for the tests that stayed there.
+// The helpers below are copies of test helpers that were stage's when voice
+// moved out of it, and now live with the tests that use them: in cue
+// (cue_voice_test.go), duplex (playout_hold_test.go) and provider
+// (stream_hold_test.go). One package's test helpers cannot be imported by
+// another's tests, and nothing under stage/internal may import stage.
 
 // fakeTTS is a TTS service that records each synthesis and answers with
 // audio(text).

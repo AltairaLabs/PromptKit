@@ -13,9 +13,11 @@ verified:
     - runtime/hooks/hooks.go
     - runtime/hooks/registry.go
     - runtime/hooks/types.go
-    - runtime/pipeline/stage/stages_provider.go
+    - runtime/pipeline/stage/internal/duplex/stages_duplex_tools.go
+    - runtime/pipeline/stage/internal/provider/stages_provider.go
     - runtime/providers/mock/mock.go
     - sdk/conversation.go
+    - sdk/integration/duplex_tool_parity_test.go
     - sdk/options.go
     - sdk/sdk.go
     - sdk/session_hooks.go
