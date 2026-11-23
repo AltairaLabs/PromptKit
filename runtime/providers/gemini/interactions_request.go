@@ -27,7 +27,7 @@ func (p *Provider) interactionsURL() string {
 	// No credential in the URL on either platform — auth is applied as a
 	// header by authCredential.
 	if p.isVertex() {
-		return strings.TrimSuffix(p.baseURL, vertexModelsSuffix) + interactionsPath
+		return strings.TrimSuffix(strings.TrimRight(p.baseURL, "/"), vertexModelsSuffix) + interactionsPath
 	}
 	return p.baseURL + interactionsPath
 }

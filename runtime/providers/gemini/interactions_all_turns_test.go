@@ -618,3 +618,25 @@ func TestInteractions_ReportsLatency(t *testing.T) {
 		t.Errorf("tool-turn latency = %v, want at least the server's %v", resp.Latency, delay)
 	}
 }
+
+// A Vertex base URL with a trailing slash names the same location, so it
+// builds and its turns reach the same interactions path.
+func TestInteractions_VertexBaseURLTrailingSlash(t *testing.T) {
+	srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: uniqueProviderID("int-vertex-slash"), Type: "gemini", Model: "gemini-3.7-flash",
+		BaseURL:          srv.url + "/v1/projects/p1/locations/eu/publishers/google/models/",
+		Platform:         vertexPlatform,
+		Credential:       &mockBearerCredential{},
+		AdditionalConfig: interactionsMode,
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	predictTurn(t, p, providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
+	}, false)
+	if got, want := strings.Join(srv.sentPaths(), ","), "/v1/projects/p1/locations/eu/interactions"; got != want {
+		t.Errorf("request went to %q, want %q", got, want)
+	}
+}
