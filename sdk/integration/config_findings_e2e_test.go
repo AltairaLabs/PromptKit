@@ -50,6 +50,20 @@ func TestRuntimeConfigErrors_NameTheirSection(t *testing.T) {
 	}
 }
 
+// TestRuntimeConfig_MisspelledKeyFailsOpen opens a conversation with a runtime
+// config whose provider block misspells base_url. Open fails, naming the key,
+// its line and the file, instead of running against the default endpoint.
+func TestRuntimeConfig_MisspelledKeyFailsOpen(t *testing.T) {
+	path := writeRuntimeConfig(t,
+		"  providers:\n    - id: main\n      type: mock\n      model: m\n      base_ulr: https://gateway.internal/v1\n")
+	_, err := sdk.Open(writePackFile(t, minimalPackJSON), "chat",
+		sdk.WithSkipSchemaValidation(),
+		sdk.WithRuntimeConfig(path))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "loading runtime config: parsing runtime config \""+path+
+		"\": yaml: unmarshal errors:\n  line 10: field base_ulr not found in type config.Provider")
+}
+
 // brokenWorkflowPackJSON has findings in several states.
 const brokenWorkflowPackJSON = `{
 	"id": "broken-workflow", "version": "1.0.0", "description": "workflow with several findings",

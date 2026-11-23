@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"reflect"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -14,7 +17,7 @@ const (
 	kindEval = "Eval"
 
 	// schemaKey is the top-level key editors read to find a file's JSON
-	// schema. It is not part of any manifest type, so the strict decode drops it.
+	// schema. It is not part of any manifest type, so the strict decode allows it.
 	schemaKey = "$schema"
 
 	// fieldAPIVersion and fieldKind are the manifest keys naming the config
@@ -77,34 +80,54 @@ func decodeManifest[T any](data []byte) (T, error) {
 	root := doc.Content[0]
 
 	present := map[string]bool{}
-	kept := root.Content[:0]
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		key := root.Content[i].Value
-		if key == schemaKey {
-			continue
-		}
-		present[key] = true
-		kept = append(kept, root.Content[i], root.Content[i+1])
+	for i := 0; i < len(root.Content); i += 2 { // a mapping node holds key, value pairs
+		present[root.Content[i].Value] = true
 	}
-	root.Content = kept
 	for _, key := range manifestRequiredKeys {
 		if !present[key] {
 			return zero, fmt.Errorf("missing required field %q", key)
 		}
 	}
+	return decodeStrict[T](data)
+}
 
-	// yaml.Node.Decode has no strict mode, so re-encode and decode with one.
-	stripped, err := yaml.Marshal(root)
-	if err != nil {
-		return zero, err
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(stripped))
-	dec.KnownFields(true)
+// decodeStrict decodes a YAML document into T, rejecting every key, at any
+// depth, that is not a field of the type it lands in. Map-typed fields and
+// `,inline` maps still take any key. Each unknown key is reported as
+// "line N: field K not found in type X", with lines counted in data. A
+// top-level $schema key, which editors read and no manifest type carries, is
+// allowed. An empty document decodes to the zero value.
+func decodeStrict[T any](data []byte) (T, error) {
 	var out T
-	if err := dec.Decode(&out); err != nil {
-		return zero, err
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	err := dec.Decode(&out)
+	if errors.Is(err, io.EOF) {
+		return out, nil
 	}
-	return out, nil
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return out, err
+	}
+
+	// yaml.v3 keeps decoding past an unknown key and collects one message per
+	// key, so dropping the top-level $schema message leaves the rest intact.
+	top := reflect.TypeOf(&out).Elem()
+	for top.Kind() == reflect.Pointer {
+		top = top.Elem()
+	}
+	schemaSuffix := fmt.Sprintf(": field %s not found in type %s", schemaKey, top)
+	kept := typeErr.Errors[:0]
+	for _, msg := range typeErr.Errors {
+		if !strings.HasSuffix(msg, schemaSuffix) {
+			kept = append(kept, msg)
+		}
+	}
+	if len(kept) == 0 {
+		return out, nil
+	}
+	typeErr.Errors = kept
+	return out, typeErr
 }
 
 // K8sManifestWithID is implemented by manifests whose spec carries an explicit

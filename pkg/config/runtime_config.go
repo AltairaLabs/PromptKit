@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/execconfig"
 )
 
@@ -308,14 +306,20 @@ const (
 )
 
 // LoadRuntimeConfig loads and validates a RuntimeConfig from a YAML file.
+//
+// The decode is strict: a key that is not a RuntimeConfig field, at any depth,
+// fails the load with an error naming the key and its line, rather than being
+// silently ignored. Fields that are maps by design (additional_config,
+// headers, extensions, sandbox settings, metadata labels, ...) take any key,
+// and a top-level $schema key is allowed.
 func LoadRuntimeConfig(path string) (*RuntimeConfig, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is caller-controlled
 	if err != nil {
 		return nil, fmt.Errorf("reading runtime config %q: %w", path, err)
 	}
 
-	var rc RuntimeConfig
-	if err := yaml.Unmarshal(data, &rc); err != nil {
+	rc, err := decodeStrict[RuntimeConfig](data)
+	if err != nil {
 		return nil, fmt.Errorf("parsing runtime config %q: %w", path, err)
 	}
 
