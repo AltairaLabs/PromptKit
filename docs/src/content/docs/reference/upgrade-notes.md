@@ -123,7 +123,18 @@ Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
 
-Nothing yet.
+### Providers
+
+#### Gemini honors the tool choice on every path
+
+The Gemini provider ignored the tool choice in three cases, and the model was free to call any tool or none. With explicit caching on, `required`, a named tool and `none` all ran as `auto`, because a request that references a cache cannot carry a tool config and the cache did not hold one. A named tool forced a call but did not restrict it to that tool. With `api_mode: interactions`, the choice was not sent at all. The provider now stores the choice in the cache, restricts a named choice to that tool, and sends it to the Interactions API as `tool_choice`.
+
+| If you | You will see | Change |
+|---|---|---|
+| Pass `required` or a tool name with explicit caching or `api_mode: interactions` | a tool call on every such round, where the model could answer in text | pass `auto` where a text answer is acceptable |
+| Pass a tool name | a call to that tool only, where the model could call any declared tool | none, unless you relied on it calling another tool |
+| Pass `none` with explicit caching or `api_mode: interactions` | no tool calls, where the model could still call one | none |
+| Change the tool choice between rounds with explicit caching on | one cache per tool choice, where all choices shared one | none; each cache expires on its TTL |
 
 ## v2.22.0
 

@@ -45,6 +45,8 @@ const (
 	toolChoiceNone = "none"
 	// toolChoiceAuto lets the model decide whether to call a tool.
 	toolChoiceAuto = "auto"
+	// toolChoiceAny forces a call to some tool (alias of "required").
+	toolChoiceAny = "any"
 
 	// logNameGemini identifies this provider in log lines.
 	logNameGemini = "Gemini"
@@ -200,7 +202,7 @@ func (p *ToolProvider) predictRound(
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	if p.resolveAPIMode() == APIModeInteractions {
-		return p.predictWithInteractions(ctx, req, tools)
+		return p.predictWithInteractions(ctx, req, tools, toolChoice)
 	}
 
 	// Build Gemini request with tools
@@ -444,7 +446,7 @@ func functionCallingMode(toolChoice string) string {
 // allowedFunctionNames to that tool.
 func namedToolChoice(toolChoice string) string {
 	switch toolChoice {
-	case "", toolChoiceAuto, toolChoiceNone, "required", "any":
+	case "", toolChoiceAuto, toolChoiceNone, "required", toolChoiceAny:
 		return ""
 	default:
 		return toolChoice
@@ -964,7 +966,7 @@ func (p *ToolProvider) streamRound(
 	toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
 	if p.resolveAPIMode() == APIModeInteractions {
-		return p.predictStreamWithInteractions(ctx, req, tools)
+		return p.predictStreamWithInteractions(ctx, req, tools, toolChoice)
 	}
 
 	// Build Gemini request with tools

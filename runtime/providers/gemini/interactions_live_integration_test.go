@@ -5,6 +5,7 @@ package gemini
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 
@@ -228,4 +229,70 @@ func streamingToolLoopReturnsJSON(t *testing.T, tp *ToolProvider, model string) 
 	}
 	t.Fatalf("%s: streaming loop never produced a final answer in %d rounds", model, maxRounds)
 	return 0
+}
+
+// TestGemini_ToolChoice_Live proves the tool choice reaches the model on both
+// APIs, unary and streaming: naming get_status yields a get_status call even
+// though get_weather is the obvious fit, and none yields no call.
+//
+//	GEMINI_API_KEY=... go test -tags integration ./runtime/providers/gemini/ \
+//	    -run TestGemini_ToolChoice_Live -v
+func TestGemini_ToolChoice_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	model := "gemini-3.7-flash"
+	if m := os.Getenv("GEMINI_INTERACTIONS_MODELS"); m != "" {
+		model = m
+	}
+	req := providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "What is the weather in Paris right now?"}},
+	}
+	for _, mode := range []APIMode{APIModeGenerateContent, APIModeInteractions} {
+		for _, tc := range []struct {
+			choice   string
+			wantCall string
+		}{{"get_status", "get_status"}, {"none", ""}} {
+			for _, stream := range []bool{false, true} {
+				name := fmt.Sprintf("%s/%s/stream=%v", mode, tc.choice, stream)
+				t.Run(name, func(t *testing.T) {
+					tp := NewToolProvider("gemini-tool-choice", model,
+						"https://generativelanguage.googleapis.com/v1beta",
+						providers.ProviderDefaults{MaxTokens: 4096}, false)
+					defer func() { _ = tp.Close() }()
+					tp.apiMode = mode
+					tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
+						{Name: "get_weather", Description: "Get the current weather for a city",
+							InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`)},
+						{Name: "get_status", Description: "Get the build status",
+							InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+					})
+					require.NoError(t, err)
+
+					var calls []types.MessageToolCall
+					if stream {
+						ch, err := tp.PredictStreamWithTools(context.Background(), req, tools, tc.choice)
+						require.NoError(t, err)
+						for chunk := range ch {
+							require.NoError(t, chunk.Error)
+							if len(chunk.ToolCalls) > 0 {
+								calls = chunk.ToolCalls
+							}
+						}
+					} else {
+						_, calls, err = tp.PredictWithTools(context.Background(), req, tools, tc.choice)
+						require.NoError(t, err)
+					}
+
+					if tc.wantCall == "" {
+						assert.Empty(t, calls, "tool choice none must yield no call")
+						return
+					}
+					require.NotEmpty(t, calls, "named tool choice must yield a call")
+					assert.Equal(t, tc.wantCall, calls[0].Name)
+					t.Logf("%s: called %s", name, calls[0].Name)
+				})
+			}
+		}
+	}
 }

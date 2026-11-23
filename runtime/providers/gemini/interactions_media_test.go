@@ -321,7 +321,7 @@ func TestInteractions_ErrorNamesTheCallersMessageIndex(t *testing.T) {
 
 	_, err := tp.buildInteractionsRequest(context.Background(), providers.PredictionRequest{
 		System: "be terse", Messages: []types.Message{msg},
-	}, nil)
+	}, nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to convert message 0:")
 }
