@@ -26,12 +26,12 @@
 # relinks the test binary and reruns the package's tests, so a package's size
 # (with its tests) sets what each of its mutants costs. With the build cache
 # working, that compile, two tiny ones, vet and the link are the only build
-# steps a mutant runs, and four workers keep a 4-vCPU runner's CPUs busy
-# whatever the worker count. Before runtime/pipeline/stage was split (#2876),
-# one stage mutant (~100k lines with its tests) cost 23 CPU-seconds on a
-# GitHub-hosted ubuntu-latest runner (4 vCPU = 2 cores x 2 threads), 17 of
-# them compiling the package: ~7s of wall time, so ~250 mutants filled 30
-# minutes. The split moved most of stage into stage/internal/<pkg> packages:
+# steps a mutant runs. Four workers keep a 4-vCPU runner's CPUs busy, so a
+# mutant's wall time is the same whatever the worker count. Before
+# runtime/pipeline/stage was split (#2876), one stage mutant (~100k lines
+# with its tests) cost 23 CPU-seconds on a GitHub-hosted ubuntu-latest runner
+# (4 vCPU = 2 cores x 2 threads), 17 of them compiling the package: ~7s of
+# wall time, so ~250 mutants filled 30 minutes. The split moved most of stage into stage/internal/<pkg> packages:
 # scripts/mutant-cost-probe.sh (on Apple silicon, 4 workers on 4 vCPUs) puts a
 # stage mutant at ~1.06s, down from ~2.9s before the split (~2.4s just before
 # the provider stage moved), and a mutant of an internal package at
