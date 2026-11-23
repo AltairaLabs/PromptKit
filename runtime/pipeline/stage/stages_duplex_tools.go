@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -127,8 +128,8 @@ type duplexTools struct {
 	// (stages_duplex_tool_offer.go).
 	offer sessionOffer
 	// view holds what DescribeTool made of each tool the session's last
-	// sync offered (toolRunner.views).
-	view toolOffer
+	// sync offered (provider.ToolRunner.Views).
+	view provider.ToolOffer
 	// jobs carries rounds from the response goroutine to the worker.
 	jobs chan *duplexToolJob
 	// results carries finished rounds from the worker to the input goroutine.
@@ -164,7 +165,7 @@ type duplexTools struct {
 // duplexRound is a realtime provider call in progress: the round it is and
 // when it started.
 type duplexRound struct {
-	rr    roundRef
+	rr    provider.RoundRef
 	start time.Time
 	// turn is the tool turn the call belongs to; gen is the provider
 	// generation it is for (0 until a chunk names it); pending is cost the
@@ -180,7 +181,7 @@ type duplexRound struct {
 
 // duplexToolTurn is a tool turn on a realtime session.
 type duplexToolTurn struct {
-	*toolTurn
+	*provider.ToolTurn
 	// stopErr is set once a limit stopped the turn: its later calls are
 	// refused. refusals counts the batches refused for it. Both are guarded
 	// by callTracker.mu.
@@ -197,7 +198,7 @@ type duplexToolTurn struct {
 type duplexToolJob struct {
 	turn     *duplexToolTurn
 	calls    []types.MessageToolCall
-	rr       roundRef
+	rr       provider.RoundRef
 	refuse   error
 	report   error
 	terminal bool
@@ -227,27 +228,27 @@ func (s *DuplexProviderStage) toolPolicy() *pipeline.ToolPolicy {
 }
 
 // toolRunner builds the tool runner from the stage's current fields.
-func (s *DuplexProviderStage) toolRunner() *toolRunner {
+func (s *DuplexProviderStage) toolRunner() *provider.ToolRunner {
 	dt := s.tools
-	r := &toolRunner{
-		registry:     dt.registry,
-		policy:       s.toolPolicy,
-		emitter:      s.emitter,
-		hookRegistry: s.hookRegistry,
-		turnState:    s.turnState,
-		cfg: toolRunnerConfig{
+	r := &provider.ToolRunner{
+		Registry:     dt.registry,
+		Policy:       s.toolPolicy,
+		Emitter:      s.emitter,
+		HookRegistry: s.hookRegistry,
+		TurnState:    s.turnState,
+		Config: provider.ToolRunnerConfig{
 			ApprovalGate: dt.cfg.ApprovalGate,
 			CallRate:     dt.cfg.CallRate,
 			Caller:       dt.cfg.Caller,
 			ToolGrants:   dt.cfg.ToolGrants,
 			DescribeTool: dt.cfg.DescribeTool,
 		},
-		stateResolver: dt.resolver,
+		StateResolver: dt.resolver,
 		// The session's syncs record what DescribeTool made of each tool they
 		// offered (descriptorCollector.view), so a round's check reuses it.
-		views: &dt.view,
+		Views: &dt.view,
 	}
-	r.availability = func(called []*tools.ToolDescriptor, excluded map[string]bool) roundRefusals {
+	r.Availability = func(called []*tools.ToolDescriptor, excluded map[string]bool) provider.RoundRefusals {
 		return s.roundRefusals(r, called, excluded)
 	}
 	return r
@@ -276,20 +277,20 @@ func (s *DuplexProviderStage) toolRunner() *toolRunner {
 // hold up the round, and the host's ToolGrants and DescribeTool run under no
 // lock of the stage's.
 func (s *DuplexProviderStage) roundRefusals(
-	r *toolRunner, called []*tools.ToolDescriptor, excluded map[string]bool,
-) roundRefusals {
+	r *provider.ToolRunner, called []*tools.ToolDescriptor, excluded map[string]bool,
+) provider.RoundRefusals {
 	wanted := s.sessionOffers(r, called)
 	o := &s.tools.offer
 	held := o.heldSet()
 	fixed := !s.sessionCanUpdateTools() || o.updateFailed.Load()
-	return refuseAmong(called, func(name string) (string, bool) {
+	return provider.RefuseAmong(called, func(name string) (string, bool) {
 		switch {
 		case wanted[name] && (held[name] || excluded[name]):
 			return "", false
 		case fixed && wanted[name] != held[name]:
 			return o.sessionSyncRefusal(name, wanted[name]), true
 		default:
-			return notAvailableRefusal(name), true
+			return provider.NotAvailableRefusal(name), true
 		}
 	})
 }
@@ -303,11 +304,11 @@ func (s *DuplexProviderStage) sessionCanUpdateTools() bool {
 
 // sessionOffers reports which of called the session is offered, by the
 // rules its sync applies (sessionTools): the called tools the conversation
-// offers (offeredAmong, without the turn's exclusions), merged with the
+// offers (provider.ToolRunner.OfferedAmong, without the turn's exclusions), merged with the
 // host's tools. Only called is resolved, and DescribeTool's outcome for a
 // tool is taken from the session's last sync where it described it.
-func (s *DuplexProviderStage) sessionOffers(r *toolRunner, called []*tools.ToolDescriptor) map[string]bool {
-	offered := r.offeredAmong(s.allowedTools(), called)
+func (s *DuplexProviderStage) sessionOffers(r *provider.ToolRunner, called []*tools.ToolDescriptor) map[string]bool {
+	offered := r.OfferedAmong(s.allowedTools(), called)
 	offer := make([]*tools.ToolDescriptor, 0, len(offered))
 	for _, tool := range called {
 		if offered[tool.Name] {
@@ -326,7 +327,7 @@ func (s *DuplexProviderStage) maxToolRounds() int {
 	if p := s.toolPolicy(); p != nil && p.MaxRounds > 0 {
 		return p.MaxRounds
 	}
-	return defaultMaxRounds
+	return provider.DefaultMaxRounds
 }
 
 // seedToolSpend counts a resumed conversation's spend toward MaxCostUSD, so
@@ -334,7 +335,7 @@ func (s *DuplexProviderStage) maxToolRounds() int {
 func (s *DuplexProviderStage) seedToolSpend(prior []types.Message) {
 	s.calls.mu.Lock()
 	defer s.calls.mu.Unlock()
-	s.calls.spent = sumHistoryCost(prior)
+	s.calls.spent = provider.SumHistoryCost(prior)
 }
 
 // startToolTurnLocked starts a new tool turn, which has offered the tools
@@ -356,7 +357,7 @@ func (s *DuplexProviderStage) startToolTurnLocked(offered []string) *duplexToolT
 func (ct *callTracker) openRoundLocked() *duplexRound {
 	ct.round++
 	ct.open = &duplexRound{
-		rr:        roundRef{round: ct.round, providerCallID: newProviderCallID()},
+		rr:        provider.RoundRef{Round: ct.round, ProviderCallID: provider.NewProviderCallID()},
 		start:     time.Now(),
 		turn:      ct.turn,
 		startedCh: make(chan struct{}),
@@ -504,10 +505,10 @@ func (s *DuplexProviderStage) emitCompletion(ctx context.Context, c *completion,
 // completeRound closes the chunk's call and reports it at once.
 func (s *DuplexProviderStage) completeRound(
 	ctx context.Context, msg *types.Message, noMessage bool,
-) (*duplexToolTurn, roundRef, bool) {
+) (*duplexToolTurn, provider.RoundRef, bool) {
 	c, ok := s.closeRound(ctx, msg)
 	if !ok {
-		return nil, roundRef{}, false
+		return nil, provider.RoundRef{}, false
 	}
 	s.emitCompletion(ctx, c, noMessage)
 	return c.turn, c.round.rr, true
@@ -520,16 +521,16 @@ func (s *DuplexProviderStage) charge(turn *duplexToolTurn, cost *types.CostInfo)
 	ct := s.calls
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
-	t := turn.toolTurn
+	t := turn.ToolTurn
 	if t == nil {
 		if cost != nil {
 			ct.spent += cost.TotalCost
 		}
 		return nil
 	}
-	t.cumulativeCost = ct.spent
+	t.CumulativeCost = ct.spent
 	err := t.AddCost(cost)
-	ct.spent = t.cumulativeCost
+	ct.spent = t.CumulativeCost
 	return err
 }
 
@@ -627,7 +628,7 @@ func (s *DuplexProviderStage) toolRoundResults() <-chan *duplexToolResult {
 // cost hit.
 type settledCall struct {
 	turn      *duplexToolTurn
-	rr        roundRef
+	rr        provider.RoundRef
 	msg       *types.Message
 	chargeErr error
 	// done is the call's completion, reported once the turn's message is
@@ -663,7 +664,7 @@ func (s *DuplexProviderStage) settleTurnCall(ctx context.Context, elem *StreamEl
 	if !noMessage {
 		s.calls.stampToolsOffered(turn, msg)
 		if s.tools != nil {
-			stampWorkflowStateMeta(s.tools.resolver, msg)
+			provider.StampWorkflowStateMeta(s.tools.resolver, msg)
 		}
 	}
 	settled := &settledCall{turn: turn, rr: rr, chargeErr: s.charge(turn, msg.CostInfo), done: done}
@@ -709,7 +710,7 @@ var errSessionClosing = errors.New("a limit is closing the session")
 // closingRefusal is the job for calls made once a limit is closing the
 // session: they are refused, recorded and not sent, so each still has its
 // result. Nil without calls.
-func closingRefusal(turn *duplexToolTurn, calls []types.MessageToolCall, rr roundRef) *duplexToolJob {
+func closingRefusal(turn *duplexToolTurn, calls []types.MessageToolCall, rr provider.RoundRef) *duplexToolJob {
 	if len(calls) == 0 {
 		return nil
 	}
@@ -720,7 +721,7 @@ func closingRefusal(turn *duplexToolTurn, calls []types.MessageToolCall, rr roun
 // MaxCostUSD: its calls are refused, the budget is reported once, and the
 // session is closed so no further paid turn follows.
 func (s *DuplexProviderStage) budgetSpent(
-	turn *duplexToolTurn, calls []types.MessageToolCall, rr roundRef, err error,
+	turn *duplexToolTurn, calls []types.MessageToolCall, rr provider.RoundRef, err error,
 ) *duplexToolJob {
 	if !s.calls.setTerminal() {
 		return closingRefusal(turn, calls, rr)
@@ -774,8 +775,8 @@ func (s *DuplexProviderStage) emitRoundStarted(ctx context.Context, round *duple
 	data := &events.ProviderCallStartedData{
 		ToolCount: len(s.heldToolNames()),
 		Labels:    s.calls.labels,
-		Round:     rr.round,
-		CallID:    rr.providerCallID,
+		Round:     rr.Round,
+		CallID:    rr.ProviderCallID,
 	}
 	if s.provider != nil {
 		data.Provider = s.provider.ID()
@@ -801,8 +802,8 @@ func (s *DuplexProviderStage) emitRoundCompletedNow(
 		FinishReason:  msg.FinishReason,
 		Source:        s.calls.source,
 		Labels:        s.calls.labels,
-		Round:         round.rr.round,
-		CallID:        round.rr.providerCallID,
+		Round:         round.rr.Round,
+		CallID:        round.rr.ProviderCallID,
 		NoMessage:     noMessage,
 	}
 	if s.provider != nil {
@@ -978,7 +979,7 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 	if err := s.calls.stopped(job.turn); err != nil {
 		return s.refuseStoppedTurn(job, err)
 	}
-	if limit := job.turn.maxRounds; job.rr.round > limit {
+	if limit := job.turn.MaxRounds; job.rr.Round > limit {
 		// Past the limit without having stopped on it: the limit round held
 		// every call it made, or did not reach the worker first.
 		err := &MaxRoundsError{Rounds: limit}
@@ -1001,7 +1002,7 @@ func (s *DuplexProviderStage) runToolJob(ctx context.Context, job *duplexToolJob
 // refusal cap (refuseStoppedTurn).
 func (s *DuplexProviderStage) runRound(ctx context.Context, job *duplexToolJob) *duplexToolResult {
 	out := job.turn.RunRoundPastPending(ctx, job.calls, job.rr)
-	s.syncSessionTools(ctx, job.turn, job.turn.excluded, true)
+	s.syncSessionTools(ctx, job.turn, job.turn.Excluded, true)
 	if out.AllRefused {
 		if res, stopped := s.countRefusedRound(job); stopped {
 			return res
@@ -1082,7 +1083,7 @@ func refuseUnanswered(
 			continue
 		}
 		errMsg := fmt.Sprintf("Tool %s not executed: the turn's tool calls were stopped: %v", tc.Name, cause)
-		out = append(out, toolRefusal(tc, errMsg))
+		out = append(out, provider.ToolRefusal(tc, errMsg))
 	}
 	return out
 }

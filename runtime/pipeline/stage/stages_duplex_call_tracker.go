@@ -63,5 +63,5 @@ func (s *DuplexProviderStage) newCallTurn(maxRounds int) *duplexToolTurn {
 	if s.tools == nil {
 		return &duplexToolTurn{}
 	}
-	return &duplexToolTurn{toolTurn: s.toolRunner().newTurn(nil, maxRounds)}
+	return &duplexToolTurn{ToolTurn: s.toolRunner().NewTurn(nil, maxRounds)}
 }

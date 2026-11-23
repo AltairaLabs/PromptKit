@@ -536,7 +536,7 @@ func (sc *costScenario) assertDelivered(elems []StreamElement, ev *callEvents, l
 			return false, false
 		}
 		for _, d := range done {
-			if d.CallID == r.rr.providerCallID {
+			if d.CallID == r.rr.ProviderCallID {
 				return d.NoMessage, true
 			}
 		}

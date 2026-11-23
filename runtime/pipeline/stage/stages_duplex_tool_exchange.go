@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -225,7 +226,7 @@ func (o *toolExchangeOrder) closeOut(ctx context.Context, output chan<- StreamEl
 	for len(o.awaiting)+len(o.held) > 0 {
 		for _, tc := range o.awaiting {
 			errMsg := fmt.Sprintf("Tool %s not executed: %s", tc.Name, errSessionClosedBeforeRun)
-			refusal := toolRefusal(tc, errMsg)
+			refusal := provider.ToolRefusal(tc, errMsg)
 			refusal.ToolResult.ErrorType = types.ToolErrorExecution
 			if sendElement(ctx, StreamElement{Message: &refusal}, output, mode) != nil {
 				o.dropLocked()

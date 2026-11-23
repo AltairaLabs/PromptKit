@@ -13,6 +13,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -404,7 +405,7 @@ type duplexBlockedTurn struct {
 // validation on the Message, and the validation event) at the current turn
 // index.
 func (s *DuplexProviderStage) recordBlockedFiring(turn *duplexBlockedTurn) {
-	s.guardrailOutcomeAt(turn.turn).record(
+	s.guardrailOutcomeAt(turn.turn).Record(
 		&turn.msg.Validations, turn.decision, hooks.DirectionInput, turn.duration)
 }
 
@@ -563,7 +564,7 @@ func (s *DuplexProviderStage) emitBlockedTurn(
 }
 
 // guardOutputChunk has the output guardrails judge a response chunk's
-// assistant text (guardrailOutcome) before it is accumulated or forwarded, and
+// assistant text (provider.GuardrailOutcome) before it is accumulated or forwarded, and
 // drops the chunk's text and audio once the turn is blocked. A firing blocks
 // the turn: a truncation keeps what it leaves of the model's text, and any
 // other firing (a replacement, a deny, a failed check) replaces the turn's
@@ -586,21 +587,21 @@ func (s *DuplexProviderStage) guardOutputChunk(
 	}
 
 	probe := &providers.StreamChunk{Content: s.accumulatedText.String() + text, Delta: text}
-	v := s.guardrailOutcomeAt(s.hookTurnIndex()).judgeChunk(ctx, probe)
-	if !v.blocks() {
-		s.liveHolds = v.holds
+	v := s.guardrailOutcomeAt(s.hookTurnIndex()).JudgeChunk(ctx, probe)
+	if !v.Blocks() {
+		s.liveHolds = v.Holds
 		return
 	}
 	// What the caller has of the turn's text: the held end never went out.
-	sent := strings.TrimSuffix(s.accumulatedText.String(), s.liveHeld.pending)
-	s.liveHeld.reset()
-	for _, f := range v.firings {
+	sent := strings.TrimSuffix(s.accumulatedText.String(), s.liveHeld.Pending)
+	s.liveHeld.Reset()
+	for _, f := range v.Firings {
 		s.noteBlock(f, hooks.DirectionOutput, s.replyGeneration())
 	}
-	s.turnGuard.validations = append(s.turnGuard.validations, v.validations...)
-	if v.replaces() {
+	s.turnGuard.validations = append(s.turnGuard.validations, v.Validations...)
+	if v.Replaces() {
 		// The guardrail's text is the turn's, whatever a later block adds.
-		s.blockTurnWithMessage(types.Message{Content: v.text, Meta: decisionMessageMeta(v.decision)})
+		s.blockTurnWithMessage(types.Message{Content: v.Text, Meta: provider.DecisionMessageMeta(v.Decision)})
 	} else {
 		// A truncation keeps a prefix of the model's own text: that is the
 		// turn's text from here on. It is shown, not spoken, and the
@@ -608,7 +609,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		// forwarded: only what follows it is sent. Under a hold the caller
 		// has only what was released, with its audio: the turn keeps that,
 		// and nothing they did not hear is shown.
-		kept, held := v.text, s.replyHold != nil
+		kept, held := v.Text, s.replyHold != nil
 		if heard := s.heardReply(); held && strings.HasPrefix(kept, heard) {
 			kept = heard
 		}
@@ -616,7 +617,7 @@ func (s *DuplexProviderStage) guardOutputChunk(
 		s.accumulatedText.WriteString(kept)
 		s.blockTurn()
 		if !held { // under a hold nothing beyond what was heard is shown
-			s.showTruncatedText(v.text, sent)
+			s.showTruncatedText(v.Text, sent)
 		}
 	}
 	dropAssistantOutput(chunk, isOutputTranscription)
@@ -668,7 +669,7 @@ func (s *DuplexProviderStage) replyGeneration() int64 {
 
 // blockTurnWith blocks the current reply for a decision that supplies no text
 // for it (a deny, or a blocked spoken input): its text is the blocked message,
-// as a blocked typed input's is (blockedTurnMessage). The text is kept on the
+// as a blocked typed input's is (provider.BlockedTurnMessage). The text is kept on the
 // guard, not accumulated: the reply's first chunk may still be to come, and
 // starting its generation clears the accumulation (turnText).
 //
@@ -682,7 +683,7 @@ func (s *DuplexProviderStage) blockTurnWith(
 	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
 ) {
 	if s.turnGuard.spoken {
-		s.turnGuard.blockedMeta = history.MergeMeta(s.turnGuard.blockedMeta, blockedTurnMessage(req, *d).Meta)
+		s.turnGuard.blockedMeta = history.MergeMeta(s.turnGuard.blockedMeta, provider.BlockedTurnMessage(req, *d).Meta)
 		return
 	}
 	s.blockTurnWithMessage(s.blockedTurnMessage(ctx, req, d, direction))
@@ -704,7 +705,7 @@ func (s *DuplexProviderStage) blockTurnWithMessage(blocked types.Message) {
 	s.showBlockedText(live, true, replaces)
 }
 
-// blockedTurnMessage is blockedTurnMessage with its text chosen by the
+// blockedTurnMessage is provider.BlockedTurnMessage with its text chosen by the
 // stage's BlockedMessageFunc for a firing in direction.
 func (s *DuplexProviderStage) blockedTurnMessage(
 	ctx context.Context, req *hooks.ProviderRequest, d *hooks.Decision, direction string,
@@ -713,18 +714,18 @@ func (s *DuplexProviderStage) blockedTurnMessage(
 	if req != nil {
 		turn = req.TurnIndex
 	}
-	return s.guardrailOutcomeAt(turn).blockedMessage(ctx, req, d, direction)
+	return s.guardrailOutcomeAt(turn).BlockedMessage(ctx, req, d, direction)
 }
 
 // guardrailOutcomeAt is the stage's judge of its guardrails' firings
-// (guardrailOutcome) on turn, with the stage's choice of blocked text.
-func (s *DuplexProviderStage) guardrailOutcomeAt(turn int) guardrailOutcome {
-	return guardrailOutcome{
-		registry: s.hookRegistry,
-		emitter:  s.emitter,
-		caller:   s.caller,
-		turn:     turn,
-		choose: func(ctx context.Context, d *hooks.Decision, direction, text string) string {
+// (provider.GuardrailOutcome) on turn, with the stage's choice of blocked text.
+func (s *DuplexProviderStage) guardrailOutcomeAt(turn int) provider.GuardrailOutcome {
+	return provider.GuardrailOutcome{
+		Registry: s.hookRegistry,
+		Emitter:  s.emitter,
+		Caller:   s.caller,
+		Turn:     turn,
+		Choose: func(ctx context.Context, d *hooks.Decision, direction, text string) string {
 			return s.chooseBlocked(ctx, d, direction, text, turn)
 		},
 	}
@@ -736,8 +737,8 @@ func (s *DuplexProviderStage) guardrailOutcomeAt(turn int) guardrailOutcome {
 func (s *DuplexProviderStage) chooseBlocked(
 	ctx context.Context, d *hooks.Decision, direction, text string, turn int,
 ) string {
-	return chooseBlockedText(ctx, s.blockedMessage, cue.HoldBudget(s.cues), blockedFiring{
-		d: d, direction: direction, text: text, turn: turn, caller: s.caller,
+	return provider.ChooseBlockedText(ctx, s.blockedMessage, cue.HoldBudget(s.cues), provider.BlockedFiring{
+		Decision: d, Direction: direction, Text: text, Turn: turn, Caller: s.caller,
 	})
 }
 
@@ -886,13 +887,13 @@ func (s *DuplexProviderStage) applySpokenInputDecision(
 		if !late.alreadyCut {
 			s.cutReplyOf(late.cutGen)
 		}
-		g.record(nil, d, hooks.DirectionInput, dur)
+		g.Record(nil, d, hooks.DirectionInput, dur)
 		return true
 	}
 	// The blocked text is chosen before the firing is recorded, which records
 	// the choice.
 	s.blockTurnWith(ctx, req, &d, hooks.DirectionInput)
-	g.record(&s.turnGuard.validations, d, hooks.DirectionInput, dur)
+	g.Record(&s.turnGuard.validations, d, hooks.DirectionInput, dur)
 	// The reply that replaces the turn is a blocked input turn's canned reply.
 	s.turnGuard.blockedMeta = history.WithBlockedInputMark(s.turnGuard.blockedMeta)
 	return true
@@ -919,20 +920,20 @@ func (s *DuplexProviderStage) holdLiveText(chunk *providers.StreamChunk, isOutpu
 		return
 	}
 	if chunk.Interrupted {
-		s.liveHeld.reset()
+		s.liveHeld.Reset()
 		return
 	}
 	text := assistantChunkText(chunk, isOutputTranscription)
-	s.liveHeld.add(text)
+	s.liveHeld.Add(text)
 	var out string
 	if chunk.FinishReason != nil {
 		// The turn has ended, so nothing can complete what is held.
-		s.liveHeld.clearAll()
-		out = s.liveHeld.release()
-		s.liveHeld.reset()
+		s.liveHeld.ClearAll()
+		out = s.liveHeld.Release()
+		s.liveHeld.Reset()
 	} else {
-		s.liveHeld.clearTails(s.liveHolds)
-		out = s.liveHeld.release()
+		s.liveHeld.ClearTails(s.liveHolds)
+		out = s.liveHeld.Release()
 	}
 	if isOutputTranscription {
 		chunk.Delta = out
@@ -1075,8 +1076,8 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 	defer core.KeepIdleAlive(ctx)()
 
 	req := s.hookRequest(s.history.snapshot())
-	v := s.guardrailOutcomeAt(req.TurnIndex).judgeResponse(ctx, req, msg, 0, msg.LatencyMs, false)
-	if !v.blocks() {
+	v := s.guardrailOutcomeAt(req.TurnIndex).JudgeResponse(ctx, req, msg, 0, msg.LatencyMs, false)
+	if !v.Blocks() {
 		return false
 	}
 	if s.replyHoldInterrupted() {
@@ -1085,16 +1086,16 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 		// keeps the reply in its context, the session unable to cut it, is
 		// still told it was withheld.
 		if _, cuts := s.session.(providers.ResponseInterrupter); !cuts {
-			s.noteBlock(v.decision, hooks.DirectionOutput, s.replyGeneration())
+			s.noteBlock(v.Decision, hooks.DirectionOutput, s.replyGeneration())
 		}
 		return false
 	}
-	s.noteBlock(v.decision, hooks.DirectionOutput, s.replyGeneration())
+	s.noteBlock(v.Decision, hooks.DirectionOutput, s.replyGeneration())
 	// An output block replaces the turn's Meta with its own; a turn an input
 	// block already replaced stays marked as one.
 	blockedInput := history.IsMarkedBlockedInput(msg)
-	msg.Validations = append(msg.Validations, v.validations...)
-	v.enforce(msg)
+	msg.Validations = append(msg.Validations, v.Validations...)
+	v.Enforce(msg)
 	if blockedInput {
 		history.MarkBlockedInput(msg)
 	}
@@ -1103,7 +1104,7 @@ func (s *DuplexProviderStage) runTurnAfterCallHooks(
 }
 
 // markEnforcedTurn marks a duplex turn's Message enforced, as
-// outputVerdict.enforce marks a text one: tool calls and reasoning dropped,
+// provider.OutputVerdict.Enforce marks a text one: tool calls and reasoning dropped,
 // finish reason safety. The duplex Message also carries its text as a part and its finish
 // reason in Meta and on the element, which are brought in line here: the text
 // part follows Content so no reader of Parts sees the original text, while

@@ -1,0 +1,60 @@
+package provider
+
+import (
+	"encoding/json"
+	"reflect"
+	"sort"
+	"testing"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
+)
+
+func descriptorNames(ds []*providers.ToolDescriptor) []string {
+	out := make([]string, len(ds))
+	for i, d := range ds {
+		out[i] = d.Name
+	}
+	return out
+}
+
+// Tools sent to a provider MUST be in a stable, sorted order across calls within
+// a run. The tools array is part of the provider's cached prefix (Anthropic
+// caches tools+system+first-message); capability tools are gathered in
+// randomized Go map-iteration order, so without the sort the prefix changes
+// every round, prompt caching never engages, and the full context is re-billed
+// at full price every round (this cost a live codegen run ~$10). This guards the
+// sort.
+func TestCollectProviderDescriptors_DeterministicSortedOrder(t *testing.T) {
+	reg := tools.NewRegistry()
+	// a2a__ tools are implicitly surfaced (no allowed_tools entry needed), so this
+	// exercises the auto-surface loop's map-iteration order. MCP tools are no
+	// longer implicit (issue #1578) — see the wildcard determinism test for that
+	// path.
+	for _, n := range []string{
+		"a2a__zebra", "a2a__alpha", "a2a__mike", "a2a__bravo",
+		"a2a__yankee", "a2a__delta", "a2a__oscar", "a2a__charlie",
+	} {
+		if err := reg.Register(&tools.ToolDescriptor{
+			Name: n, Description: "d", InputSchema: json.RawMessage(`{"type":"object"}`),
+		}); err != nil {
+			t.Fatalf("register %s: %v", n, err)
+		}
+	}
+	s := &ProviderStage{toolRegistry: reg}
+
+	first := descriptorNames(s.collectProviderDescriptors(nil, nil))
+	if len(first) != 8 {
+		t.Fatalf("expected 8 descriptors, got %d: %v", len(first), first)
+	}
+	if !sort.StringsAreSorted(first) {
+		t.Fatalf("descriptors must be sorted by name (cache stability), got %v", first)
+	}
+	// Map iteration order is randomized per range; every call must still agree.
+	for i := range 100 {
+		got := descriptorNames(s.collectProviderDescriptors(nil, nil))
+		if !reflect.DeepEqual(got, first) {
+			t.Fatalf("non-deterministic tool order on call %d:\n got %v\nwant %v", i, got, first)
+		}
+	}
+}

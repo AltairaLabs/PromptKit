@@ -156,7 +156,7 @@ func persistedHistory(pairs ...string) []types.Message {
 // The unit test passes history elements straight to the broadcast stage, where
 // Meta.FromHistory survives. In the real pipeline the broadcast stage sits
 // DOWNSTREAM of ProviderStage, which rebuilds every message with
-// NewMessageElement (stages_provider.go:561) — producing a zero Meta — and
+// NewMessageElement (internal/provider/stages_provider.go) — producing a zero Meta — and
 // emits the whole accumulated transcript, not just the new reply. So the
 // FromHistory skip never fires and every turn re-broadcasts the conversation.
 func TestMessageBroadcast_DoesNotRepublishHistoryThroughProvider(t *testing.T) {

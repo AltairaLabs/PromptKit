@@ -7,6 +7,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -332,7 +333,7 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 		round.pending = addCost(round.pending, cost)
 	}
 	turn := ct.turn
-	var rr roundRef
+	var rr provider.RoundRef
 	if round != nil {
 		rr = round.rr
 		if round.turn != nil {
@@ -349,7 +350,9 @@ func (s *DuplexProviderStage) attributeCost(ctx context.Context, chunk *provider
 // chargeLate charges a late cost against turn (a fresh one when nil), or
 // only to the spend once a limit is closing the session. A budget it
 // exceeds refuses on rr, the call the cost belongs to.
-func (s *DuplexProviderStage) chargeLate(turn *duplexToolTurn, cost *types.CostInfo, rr roundRef) *duplexToolJob {
+func (s *DuplexProviderStage) chargeLate(
+	turn *duplexToolTurn, cost *types.CostInfo, rr provider.RoundRef,
+) *duplexToolJob {
 	if s.calls.isTerminal() {
 		s.chargeSpend(cost)
 		return nil
@@ -376,8 +379,8 @@ func (s *DuplexProviderStage) emitRoundUsage(ctx context.Context, cost *types.Co
 		Cost:         cost.TotalCost,
 		Source:       s.calls.source,
 		Labels:       s.calls.labels,
-		Round:        round.rr.round,
-		CallID:       round.rr.providerCallID,
+		Round:        round.rr.Round,
+		CallID:       round.rr.ProviderCallID,
 	}
 	if s.provider != nil {
 		data.Provider = s.provider.ID()

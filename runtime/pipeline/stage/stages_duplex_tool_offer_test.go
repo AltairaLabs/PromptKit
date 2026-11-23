@@ -14,6 +14,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -284,7 +285,7 @@ func TestDuplexToolOffer_HostToolChoiceNoneRefusesTheCall(t *testing.T) {
 	reg := registryWithTools(t, "weather")
 	reg.RegisterExecutor(exec)
 	h := startRealtime(t, realtimeOpts{
-		registry: reg, turnState: &TurnState{AllowedTools: []string{"weather"}}, hostToolChoice: toolChoiceNone,
+		registry: reg, turnState: &TurnState{AllowedTools: []string{"weather"}}, hostToolChoice: provider.ToolChoiceNone,
 	})
 
 	h.emit(toolCallTurn(namedCall("c1", "weather")))
@@ -305,7 +306,7 @@ func TestDuplexToolOffer_PolicyToolChoiceNoneRefusesAHostTool(t *testing.T) {
 	reg.RegisterExecutor(exec)
 	h := startRealtime(t, realtimeOpts{
 		registry:     reg,
-		policy:       &pipeline.ToolPolicy{ToolChoice: toolChoiceNone},
+		policy:       &pipeline.ToolPolicy{ToolChoice: provider.ToolChoiceNone},
 		turnState:    &TurnState{},
 		sessionTools: []providers.StreamingToolDefinition{{Name: "host_only", Description: "host tool"}},
 	})
@@ -947,20 +948,20 @@ func TestDuplexToolOffer_RoundRefusalsDoNotWaitOnTheSessionSync(t *testing.T) {
 
 	o := &h.stage.tools.offer
 	o.mu.Lock()
-	decided := make(chan roundRefusals, 1)
+	decided := make(chan provider.RoundRefusals, 1)
 	go func() {
-		decided <- h.stage.toolRunner().classifyRound([]types.MessageToolCall{
+		decided <- h.stage.toolRunner().ClassifyRound([]types.MessageToolCall{
 			namedCall("c1", "refund"), namedCall("c2", "weather"),
-		}, nil).refused
+		}, nil).Refused
 	}()
-	var got roundRefusals
+	var got provider.RoundRefusals
 	select {
 	case got = <-decided:
 	case <-time.After(2 * time.Second):
 	}
 	o.mu.Unlock()
 
-	assert.Equal(t, roundRefusals{"refund": "Tool refund was not run: it is not available this turn"}, got)
+	assert.Equal(t, provider.RoundRefusals{"refund": "Tool refund was not run: it is not available this turn"}, got)
 }
 
 // recoveringUpdateSession is an updating session whose first update fails.
@@ -1052,8 +1053,8 @@ func TestDuplexToolOffer_RoundReusesTheSyncsDescription(t *testing.T) {
 	before := described.count("weather")
 	require.Positive(t, before, "the session's syncs describe the tool")
 
-	got := h.stage.toolRunner().classifyRound([]types.MessageToolCall{namedCall("c1", "weather")}, nil)
+	got := h.stage.toolRunner().ClassifyRound([]types.MessageToolCall{namedCall("c1", "weather")}, nil)
 
-	assert.Empty(t, got.refused)
+	assert.Empty(t, got.Refused)
 	assert.Equal(t, before, described.count("weather"), "the round described the tool again")
 }

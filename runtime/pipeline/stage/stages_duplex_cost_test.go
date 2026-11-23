@@ -16,6 +16,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -180,7 +181,7 @@ func TestDuplexCost_LateUsageLandsOnItsCallAfterTheToolFinished(t *testing.T) {
 	assert.Nil(t, msgs[0].CostInfo)
 	assertCostInfo(t, usd(620, 17), msgs[1].CostInfo)
 	assert.InDelta(t, 0.637, h.spent(), 1e-12)
-	assert.InDelta(t, h.spent(), sumHistoryCost(derefMessages(msgs)), 1e-12)
+	assert.InDelta(t, h.spent(), provider.SumHistoryCost(derefMessages(msgs)), 1e-12)
 }
 
 // Two barge-ins in a row: each interrupted call's completion, arriving after
