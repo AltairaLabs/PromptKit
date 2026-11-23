@@ -1,9 +1,9 @@
-package stage_test
+package provider
 
 import (
 	"testing"
 
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,13 +17,13 @@ func TestStreamMediaToElement_Audio(t *testing.T) {
 		Channels:   1,
 	}
 
-	elem := stage.StreamMediaToElement(media)
+	elem := StreamMediaToElement(media)
 
 	require.NotNil(t, elem.Audio)
 	assert.Equal(t, media.Data, elem.Audio.Samples)
 	assert.Equal(t, 24000, elem.Audio.SampleRate)
 	assert.Equal(t, 1, elem.Audio.Channels)
-	assert.Equal(t, stage.AudioFormatPCM16, elem.Audio.Format)
+	assert.Equal(t, core.AudioFormatPCM16, elem.Audio.Format)
 	assert.Nil(t, elem.Video)
 	assert.Nil(t, elem.Image)
 }
@@ -35,7 +35,7 @@ func TestStreamMediaToElement_AudioDefaults(t *testing.T) {
 		// SampleRate and Channels are zero — should default
 	}
 
-	elem := stage.StreamMediaToElement(media)
+	elem := StreamMediaToElement(media)
 
 	require.NotNil(t, elem.Audio)
 	assert.Equal(t, 16000, elem.Audio.SampleRate)
@@ -53,7 +53,7 @@ func TestStreamMediaToElement_Video(t *testing.T) {
 		FrameNum:   42,
 	}
 
-	elem := stage.StreamMediaToElement(media)
+	elem := StreamMediaToElement(media)
 
 	require.NotNil(t, elem.Video)
 	assert.Equal(t, media.Data, elem.Video.Data)
@@ -63,7 +63,7 @@ func TestStreamMediaToElement_Video(t *testing.T) {
 	assert.Equal(t, 30.0, elem.Video.FrameRate)
 	assert.True(t, elem.Video.IsKeyFrame)
 	assert.Equal(t, int64(42), elem.Video.FrameNum)
-	assert.Equal(t, stage.PriorityHigh, elem.Priority)
+	assert.Equal(t, core.PriorityHigh, elem.Priority)
 	assert.Nil(t, elem.Audio)
 	assert.Nil(t, elem.Image)
 }
@@ -77,7 +77,7 @@ func TestStreamMediaToElement_Image(t *testing.T) {
 		FrameNum: 7,
 	}
 
-	elem := stage.StreamMediaToElement(media)
+	elem := StreamMediaToElement(media)
 
 	require.NotNil(t, elem.Image)
 	assert.Equal(t, media.Data, elem.Image.Data)
