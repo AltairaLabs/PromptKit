@@ -79,6 +79,15 @@ func (s *interactionsMediaServer) sentInput(t *testing.T) []map[string]any {
 	return body.Input
 }
 
+// turnContent returns the content items of a user_input or model_output step.
+func turnContent(t *testing.T, step map[string]any, kind string) []any {
+	t.Helper()
+	require.Equal(t, kind, step["type"], "step %v", step)
+	content, ok := step["content"].([]any)
+	require.True(t, ok, "step has no content list: %v", step)
+	return content
+}
+
 func imageMessage() types.Message {
 	msg := types.Message{Role: roleUser}
 	msg.AddTextPart("what is in this picture?")
@@ -93,9 +102,11 @@ func TestInteractions_SendsMessageMedia(t *testing.T) {
 			require.NoError(t, predictInteractions(t, srv.URL, stream, []types.Message{imageMessage()}))
 
 			input := srv.sentInput(t)
-			require.Len(t, input, 2, "the text and the image, in part order")
-			assert.Equal(t, map[string]any{"type": "text", "text": "what is in this picture?"}, input[0])
-			assert.Equal(t, map[string]any{"type": "image", "data": "aW1n", "mime_type": "image/png"}, input[1])
+			require.Len(t, input, 1, "one user turn")
+			assert.Equal(t, []any{
+				map[string]any{"type": "text", "text": "what is in this picture?"},
+				map[string]any{"type": "image", "data": "aW1n", "mime_type": "image/png"},
+			}, turnContent(t, input[0], stepTypeUserInput), "the text and the image, in part order")
 		})
 	}
 }
@@ -116,12 +127,14 @@ func TestInteractions_SendsEachModality(t *testing.T) {
 	srv := newInteractionsMediaServer(t)
 	require.NoError(t, predictInteractions(t, srv.URL, false, []types.Message{msg}))
 
-	assert.Equal(t, []map[string]any{
-		{"type": "audio", "data": "YXVk", "mime_type": "audio/wav"},
-		{"type": "video", "data": "dmlk", "mime_type": "video/mp4"},
-		{"type": "document", "data": "ZG9j", "mime_type": "application/pdf"},
-		{"type": "image", "data": "aW1n", "mime_type": "image/png"},
-	}, srv.sentInput(t))
+	input := srv.sentInput(t)
+	require.Len(t, input, 1)
+	assert.Equal(t, []any{
+		map[string]any{"type": "audio", "data": "YXVk", "mime_type": "audio/wav"},
+		map[string]any{"type": "video", "data": "dmlk", "mime_type": "video/mp4"},
+		map[string]any{"type": "document", "data": "ZG9j", "mime_type": "application/pdf"},
+		map[string]any{"type": "image", "data": "aW1n", "mime_type": "image/png"},
+	}, turnContent(t, input[0], stepTypeUserInput))
 }
 
 // An assistant message's media is replayed too, so a generated image is not
@@ -137,8 +150,11 @@ func TestInteractions_ReplaysAssistantMedia(t *testing.T) {
 	}))
 
 	input := srv.sentInput(t)
-	require.Len(t, input, 4)
-	assert.Equal(t, map[string]any{"type": "image", "data": "Z2Vu", "mime_type": "image/png"}, input[2])
+	require.Len(t, input, 3)
+	assert.Equal(t, []any{
+		map[string]any{"type": "text", "text": "here it is"},
+		map[string]any{"type": "image", "data": "Z2Vu", "mime_type": "image/png"},
+	}, turnContent(t, input[1], stepTypeModelOutput))
 }
 
 // A tool result's image goes out in function_result's list form, the only
@@ -256,7 +272,10 @@ func TestInteractions_MediaCapsArePerMessage(t *testing.T) {
 		require.NoError(t, predictInteractions(t, srv.URL, false, []types.Message{
 			full, {Role: roleAssistant, Content: "ok"}, full,
 		}))
-		assert.Len(t, srv.sentInput(t), 2*providers.MaxMediaItems+1)
+		input := srv.sentInput(t)
+		require.Len(t, input, 3)
+		assert.Len(t, turnContent(t, input[0], stepTypeUserInput), providers.MaxMediaItems)
+		assert.Len(t, turnContent(t, input[2], stepTypeUserInput), providers.MaxMediaItems)
 	})
 }
 
@@ -293,10 +312,13 @@ func TestInteractions_AssistantMediaWithUnlistedMIMEIsSkipped(t *testing.T) {
 			require.NoError(t, predictInteractions(t, srv.URL, stream, []types.Message{
 				{Role: roleUser, Content: "say hi"}, pcm(roleAssistant), {Role: roleUser, Content: "again"},
 			}))
+			turn := func(kind, text string) map[string]any {
+				return map[string]any{"type": kind, "content": []any{map[string]any{"type": "text", "text": text}}}
+			}
 			assert.Equal(t, []map[string]any{
-				{"type": "text", "text": "say hi"},
-				{"type": "text", "text": "the transcript"},
-				{"type": "text", "text": "again"},
+				turn(stepTypeUserInput, "say hi"),
+				turn(stepTypeModelOutput, "the transcript"),
+				turn(stepTypeUserInput, "again"),
 			}, srv.sentInput(t))
 		})
 

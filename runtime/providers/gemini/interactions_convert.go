@@ -50,8 +50,13 @@ func (p *Provider) buildInteractionsInput(ctx context.Context, messages []types.
 	return input, nil
 }
 
-// interactionsSteps converts one message to the steps and content items that
-// replay it.
+// interactionsSteps converts one message to the steps that replay it.
+//
+// A message's text and media go out inside a user_input or model_output step
+// by role. Bare content items in the input are all read as the user's, so an
+// assistant reply sent that way reads to the model as something the user said
+// (verified live: asked to quote its last reply, the model answered that it
+// had sent none).
 func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message, msgIndex int) ([]any, error) {
 	switch msg.Role {
 	case roleToolMessage:
@@ -74,10 +79,17 @@ func (p *Provider) interactionsSteps(ctx context.Context, msg *types.Message, ms
 		if err != nil {
 			return nil, err
 		}
-		return append(steps, content...), nil
+		if len(content) > 0 {
+			steps = append(steps, interactionsTurnStep{Type: stepTypeModelOutput, Content: content})
+		}
+		return steps, nil
 
 	default:
-		return p.interactionsContentItems(ctx, msg, msgIndex)
+		content, err := p.interactionsContentItems(ctx, msg, msgIndex)
+		if err != nil || len(content) == 0 {
+			return nil, err
+		}
+		return []any{interactionsTurnStep{Type: stepTypeUserInput, Content: content}}, nil
 	}
 }
 

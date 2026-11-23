@@ -25,6 +25,7 @@ const (
 	stepTypeText           = "text"
 	stepTypeThought        = "thought"
 	stepTypeModelOutput    = "model_output"
+	stepTypeUserInput      = "user_input"
 	stepTypeFunctionCall   = "function_call"
 	stepTypeFunctionResult = "function_result"
 )
@@ -79,7 +80,14 @@ type interactionsThoughtStep struct {
 	Signature string `json:"signature"`
 }
 
-// interactionsTextStep is a plain user turn.
+// interactionsTurnStep is a replayed turn: the user's (user_input) or the
+// model's reply (model_output), holding its text and media content items.
+type interactionsTurnStep struct {
+	Type    string `json:"type"`
+	Content []any  `json:"content"`
+}
+
+// interactionsTextStep is a text content item.
 type interactionsTextStep struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
