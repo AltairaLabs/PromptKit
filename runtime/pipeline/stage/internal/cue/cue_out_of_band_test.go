@@ -375,3 +375,16 @@ func TestCueOutOfBand_CancelledLeaderFlightKeepsTheClip(t *testing.T) {
 	assert.Equal(t, cueFaded(pcm, 24000), got.PCM)
 	assert.Equal(t, 1, sess.calls(text))
 }
+
+// A session that closes while it renders its own clip falls to the next
+// source after that one try: only a render joined from another session is
+// rendered again on this one.
+func TestCueOutOfBand_ClosingLeaderIsNotAskedAgain(t *testing.T) {
+	sess := newOOBSpeaker("alloy", cueRamp(4800))
+	sess.err = fmt.Errorf("render: %w", providers.ErrOutOfBandSessionClosed)
+	cue := cueStageForSession(t, Config{Cache: cueclip.NewMemoryCache(1 << 20)}, sess)
+	text := "Closed while leading."
+
+	assert.Equal(t, earconPCM(24000), playedFor(t, cue, text))
+	assert.Equal(t, 1, sess.calls(text))
+}

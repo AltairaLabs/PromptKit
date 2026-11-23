@@ -99,22 +99,32 @@ func (c *stageChain) next(t *testing.T) core.StreamElement {
 	}
 }
 
-// finish closes the input and returns everything still to come out.
+// maxChainOutput is more elements than any test's chain emits.
+const maxChainOutput = 1000
+
+// finish closes the input and returns everything still to come out. It
+// gives the chain 3 seconds in all, not per element, and fails at once past
+// maxChainOutput elements, so a stage that never stops emitting fails the
+// test instead of hanging it.
 func (c *stageChain) finish(t *testing.T) []core.StreamElement {
 	t.Helper()
 	close(c.in)
+	deadline := time.After(3 * time.Second)
 	var got []core.StreamElement
 	for {
 		select {
 		case e, ok := <-c.out:
 			if !ok {
-				for i := 0; i < c.n; i++ {
+				for range c.n {
 					require.NoError(t, <-c.errs)
 				}
 				return got
 			}
 			got = append(got, e)
-		case <-time.After(3 * time.Second):
+			if len(got) > maxChainOutput {
+				require.FailNow(t, "the chain kept emitting", "more than %d elements", maxChainOutput)
+			}
+		case <-deadline:
 			require.FailNow(t, "the chain never finished")
 			return nil
 		}

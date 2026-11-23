@@ -2,6 +2,7 @@ package cue
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -147,4 +148,20 @@ func TestCacheOf(t *testing.T) {
 	cache := cueclip.NewMemoryCache(1 << 20)
 	assert.Same(t, cache, CacheOf(NewStage(Config{Cache: cache})))
 	assert.Nil(t, CacheOf(NewStage(Config{})))
+}
+
+// A render that fails is not reported to OnStored, even from the render seam,
+// whose clips are otherwise the text's own.
+func TestOnStored_FailedRenderIsNotReported(t *testing.T) {
+	cue := NewStage(Config{})
+	SetRender(cue, func(context.Context, string) (Clip, error) {
+		return pcmClip(cueRamp(2400), cueTestRate), errors.New("render failed")
+	})
+	var stored []string
+	OnStored(BankOf(cue), func(text string, _ Clip) { stored = append(stored, text) })
+
+	awaitSeamRender(t, BankOf(cue), cue, brunoText)
+	assert.Empty(t, stored)
+	_, _, held := Held(BankOf(cue), brunoText)
+	assert.False(t, held)
 }
