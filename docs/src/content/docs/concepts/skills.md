@@ -92,6 +92,8 @@ Skills compose with the tool system in a hierarchy:
 
 When a skill activates, its `allowed-tools` extend the prompt's tool set, capped at the tools the pack declares. A skill cannot grant a tool the pack does not define. Deactivating a skill withdraws the tools it granted, unless another active skill still grants them.
 
+A grant that changes the tool set changes the tools array the next round sends the provider. A provider that caches the prompt cannot reuse its cache for that round: Claude writes the whole prefix to its cache again. The conversation's event bus reports the change as `tools.offer.rebuilt` with the reason `skill_grant`.
+
 Controlling which skills a conversation can activate therefore controls which extra tools the model can reach. A call to a skill's tool while the skill is not active is refused, with the result `Tool <name> was not run: it is not available this turn`, and the tool does not run. The check is made for every round, so a call in the round after `skill__activate` returns runs, and a call in the round after `skill__deactivate` returns is refused.
 
 ## Skill tools

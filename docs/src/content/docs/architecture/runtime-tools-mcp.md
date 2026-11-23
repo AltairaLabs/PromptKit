@@ -254,6 +254,28 @@ graph TD
 
 A model that repeats the same call with identical arguments three times (`MaxIdenticalToolCalls`) gets one synthetic result telling it to change course, and the turn aborts if it repeats again. The other calls in that round run as in any round: they count toward `MaxToolCallsPerTurn`, toward excluding a tool after repeated rejections, and toward `MaxRounds`, and a skill they activate is offered from the next round. The round's results keep the order the model made the calls in. A forced `tool_choice` (`required`, `any`, or a tool's name) is kept for the retry while the tools last sent to the provider still allow it, and falls back to `auto` when they do not; the same check applies whenever the tools array is rebuilt, a workflow handoff included. A call refused as over `MaxToolCallsPerTurn` did not run, so it does not count toward the repeated-call threshold. `StopOnTool` ends the loop after the round that called the named tool. The blocklist matches exact tool names.
 
+### When the tools array changes
+
+The tools array is the first part of a request that a provider caches. A different array costs a cache miss: Claude writes the whole prefix to its cache again, because PromptKit's cache breakpoints come after the tools, and OpenAI re-reads the prefix from the first tool that changed. The provider stage therefore rebuilds the array only on a real change. Before it sends a call an array that differs from the previous call's, the stage publishes `tools.offer.rebuilt`. Its `Reasons` name what changed the array since that call, each once and in the order the changes happened:
+
+| Reason | What changed the array |
+|---|---|
+| `skill_grant` | The conversation's tool grants moved during a tool round, as `skill__activate` and `skill__deactivate` move them |
+| `client_tools` | The grants differ between turns, as they do when a client sends a different set of frontend tools |
+| `selector` | The `ToolSelector` chose different tools for the turn |
+| `describe` | `DescribeTool` describes the tools differently, such as a workflow state narrowing the `skill__activate` index |
+| `excluded` | A tool was dropped after its calls failed twice (`tool.excluded`) |
+| `exhausted` | `MaxToolCallsPerTurn` is spent, so the rest of the turn is sent no tools |
+| `turn_reset` | A new turn offers again the tools the previous turn's loop withdrew |
+| `workflow_state` | The turn runs under a prompt or workflow state that declares different tools |
+| `provider_switch` | The call goes to another provider, which takes the tools in its own wire form |
+| `mcp_list_changed` | Only MCP tools (`mcp__*`) were added or removed |
+| `registry` | None of these: the tools registered for the conversation changed |
+
+`Added` and `Removed` name the tools the array gained and lost. Both are empty when only how the tools are described changed. `Round` is the round of the call first sent the new array. The stage keeps what it last sent for as long as it runs. The SDK builds one pipeline per conversation, so it reports changes across a conversation's turns; a host that builds a pipeline per turn sees only the changes within each turn.
+
+On a provider that advertises prompt caching, the stage also logs a warning at its first rebuild, naming the reasons. `provider.call.completed` reports the cost as `CacheWriteTokens`, which is the size of the prefix written again.
+
 `MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. A workflow passes one window to every state's conversation, through `CallRateWindow.Scoped`, because each state's conversation has its own ID. A composition step counts under the enclosing conversation's ID.
 
 A call is checked against the limit, and counted, only when it is admitted to run. Nothing is reserved, so nothing can be left behind by an abandoned turn, an unanswered call, or a call resolved on another replica:
