@@ -1,5 +1,10 @@
 package stage
 
+import (
+	"example.com/stage/internal/elem"
+	"example.com/stage/internal/media"
+)
+
 type Kind int
 
 const (
@@ -21,9 +26,17 @@ func Wrap(ctx context.Context, _ int, msg *types.Message) (Scored, error) { retu
 
 func Close(Scored) {}
 
-type Element struct{}
+type Element = elem.Element
 
-func Feed(e *Element, h elem.Hidden) []Element { return nil }
+type Other = media.Other
+
+func Feed(e *Element) []Element { return nil }
+
+func UseScored(s *Scored) {}
+
+func UseHidden(h elem.Hidden) {}
+
+func UseOther(o *Other) {}
 
 var ErrGone = errors.New("gone")
 
