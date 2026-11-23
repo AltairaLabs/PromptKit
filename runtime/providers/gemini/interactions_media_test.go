@@ -311,8 +311,7 @@ func TestInteractions_AssistantMediaWithUnlistedMIMEIsSkipped(t *testing.T) {
 	}
 }
 
-// The system prompt leads the input, but a failing message is still named by
-// its index in the caller's Messages, not one past it.
+// A failing message is named by its index in the caller's Messages.
 func TestInteractions_ErrorNamesTheCallersMessageIndex(t *testing.T) {
 	tp := interactionsTestProvider(t, "http://unused.invalid")
 	msg := types.Message{Role: roleUser}

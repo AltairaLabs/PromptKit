@@ -90,28 +90,52 @@ func TestInteractionsURL(t *testing.T) {
 	assert.NotContains(t, url, "key=", "no credential in the URL: %s", url)
 }
 
-// TestBuildInteractionsRequest_SystemLeadsTranscript covers a shape difference:
-// generateContent has a dedicated system field and this API does not, so the
-// system prompt leads the transcript rather than being dropped.
-func TestBuildInteractionsRequest_SystemLeadsTranscript(t *testing.T) {
-	tp := NewToolProvider("g", "gemini-3.7-flash",
-		"https://generativelanguage.googleapis.com/v1beta",
-		providers.ProviderDefaults{MaxTokens: 512}, false)
+// okUnaryBody and okStreamBody are a minimal completed interaction.
+const okUnaryBody = `{"id":"i1","status":"completed","steps":[
+  {"type":"model_output","content":[{"type":"text","text":"OK"}]}]}`
 
-	body, err := tp.buildInteractionsRequest(context.Background(), providers.PredictionRequest{
-		System:         "be terse",
-		Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
-		ResponseFormat: schemaFormat(),
-	}, nil, "")
-	require.NoError(t, err)
+const okStreamBody = "event: step.start\n" +
+	`data: {"index":0,"step":{"type":"model_output"}}` + "\n\n" +
+	"event: step.delta\n" +
+	`data: {"index":0,"delta":{"type":"text","text":"OK"}}` + "\n\n" +
+	"event: interaction.completed\n" +
+	`data: {"interaction":{"id":"i1","status":"completed"}}` + "\n\n"
 
-	assert.Equal(t, "gemini-3.7-flash", body.Model)
-	require.NotNil(t, body.ResponseFormat)
-	require.Len(t, body.Input, 2)
+// TestInteractions_SendsSystemPromptAsSystemInstruction pins that the system
+// prompt goes out in the API's system_instruction field (a string), as
+// generateContent's systemInstruction, and not as a turn of the transcript,
+// where the model reads it as something the user said.
+func TestInteractions_SendsSystemPromptAsSystemInstruction(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		name := map[bool]string{false: "unary", true: "stream"}[stream]
+		t.Run(name, func(t *testing.T) {
+			srv := newInteractionsParityServer(t, okUnaryBody, okStreamBody)
+			tp := newInteractionsParityProvider(t, uniqueProviderID("int-system"), srv.url, nil)
+			runInteractionsTurn(t, tp, providers.PredictionRequest{
+				System: "be terse", Messages: []types.Message{{Role: roleUser, Content: "hi"}},
+			}, stream)
 
-	first, ok := body.Input[0].(interactionsTextStep)
-	require.True(t, ok, "system prompt must survive as the leading turn")
-	assert.Equal(t, "be terse", first.Text)
+			var body struct {
+				System *string `json:"system_instruction"`
+				Input  []any   `json:"input"`
+			}
+			require.NoError(t, json.Unmarshal(srv.lastBody, &body))
+			require.NotNil(t, body.System, "no system_instruction in %s", srv.lastBody)
+			assert.Equal(t, "be terse", *body.System)
+			assert.NotContains(t, canonicalJSON(t, body.Input), "be terse",
+				"the system prompt must not also be a turn of the transcript")
+		})
+	}
+}
+
+// A request without a system prompt sends no system_instruction.
+func TestInteractions_NoSystemPromptNoSystemInstruction(t *testing.T) {
+	srv := newInteractionsParityServer(t, okUnaryBody, okStreamBody)
+	tp := newInteractionsParityProvider(t, uniqueProviderID("int-nosystem"), srv.url, nil)
+	runInteractionsTurn(t, tp, providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
+	}, false)
+	assert.NotContains(t, string(srv.lastBody), "system_instruction")
 }
 
 func TestBuildInteractionsRequest_NoSystemNoExtraTurn(t *testing.T) {

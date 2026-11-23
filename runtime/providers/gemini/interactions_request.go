@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -37,18 +36,15 @@ func (p *ToolProvider) buildInteractionsRequest(
 		return interactionsRequest{}, err
 	}
 
-	// generateContent carries the system prompt in a dedicated field. This API
-	// has no such field, so it leads the transcript as ordinary text — the
-	// alternative is dropping it, which would silently change behavior.
-	if req.System != "" {
-		input = slices.Insert(input, 0, any(interactionsTextStep{Type: stepTypeText, Text: req.System}))
-	}
-
 	out := interactionsRequest{
-		Model:          p.model,
-		Input:          input,
-		Tools:          buildInteractionsTools(tools),
-		ResponseFormat: interactionsResponseFormat(req.ResponseFormat),
+		Model: p.model,
+		Input: input,
+		// The system prompt goes in system_instruction, as generateContent's
+		// systemInstruction. As a turn of the transcript the model would read
+		// it as something the user said.
+		SystemInstruction: req.System,
+		Tools:             buildInteractionsTools(tools),
+		ResponseFormat:    interactionsResponseFormat(req.ResponseFormat),
 	}
 	out.Generation = p.interactionsGenerationConfig(req)
 	if len(out.Tools) > 0 {

@@ -38,12 +38,14 @@ type interactionsRequest struct {
 	Model string `json:"model"`
 	// Input is the replayed transcript. A plain string is accepted for the
 	// simplest case, but this provider always sends the typed list.
-	Input          []any                  `json:"input"`
-	Tools          []interactionsTool     `json:"tools,omitempty"`
-	ResponseFormat *interactionsRespFmt   `json:"response_format,omitempty"`
-	Stream         bool                   `json:"stream,omitempty"`
-	Generation     map[string]any         `json:"generation_config,omitempty"`
-	Extra          map[string]interface{} `json:"-"`
+	Input []any `json:"input"`
+	// SystemInstruction is the system prompt, a plain string on this API.
+	SystemInstruction string                 `json:"system_instruction,omitempty"`
+	Tools             []interactionsTool     `json:"tools,omitempty"`
+	ResponseFormat    *interactionsRespFmt   `json:"response_format,omitempty"`
+	Stream            bool                   `json:"stream,omitempty"`
+	Generation        map[string]any         `json:"generation_config,omitempty"`
+	Extra             map[string]interface{} `json:"-"`
 }
 
 // interactionsTool is a flat function declaration, unlike generateContent's
