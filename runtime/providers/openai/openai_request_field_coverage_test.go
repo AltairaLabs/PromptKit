@@ -226,6 +226,10 @@ func TestPredictionRequestFieldCoverageIsExhaustive(t *testing.T) {
 	notApplicable := map[string]string{
 		"Metadata": "provider-side routing context; never serialized to the API",
 		"TopK":     "neither OpenAI API takes top_k; it is dropped with a warning (providers.WarnUnsentParams)",
+		// Not a body field of its own, and meaningless without tools, so the
+		// non-tool builder above can never carry it.
+		"ActiveTools": "a restriction on the tools array, sent only with tools, as tool_choice " +
+			"allowed_tools on each API's tool builder (allowed_tools_test.go)",
 	}
 
 	rt := reflect.TypeOf(providers.PredictionRequest{})

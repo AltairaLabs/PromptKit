@@ -450,7 +450,7 @@ func (p *ToolProvider) buildToolRequest(
 	// builder since #1735 routes tool-carrying history down the tool path.
 	if tools != nil {
 		openaiReq["tools"] = tools
-		p.addToolChoiceToRequest(openaiReq, toolChoice)
+		p.addToolChoiceToRequest(openaiReq, toolChoice, req.ActiveTools)
 		if p.parallelToolCalls != nil {
 			openaiReq["parallel_tool_calls"] = *p.parallelToolCalls
 		}
@@ -575,8 +575,14 @@ func (p *Provider) convertToolCallsToOpenAI(toolCalls []types.MessageToolCall) [
 	return result
 }
 
-// addToolChoiceToRequest adds tool_choice parameter based on the choice string
-func (p *ToolProvider) addToolChoiceToRequest(openaiReq map[string]interface{}, toolChoice string) {
+// addToolChoiceToRequest adds tool_choice parameter based on the choice string,
+// restricted to active (PredictionRequest.ActiveTools) when it is set
+// (restrictedToolChoice).
+func (p *ToolProvider) addToolChoiceToRequest(openaiReq map[string]interface{}, toolChoice string, active []string) {
+	if restricted, ok := p.restrictedToolChoice(toolChoice, active, false); ok {
+		openaiReq["tool_choice"] = restricted
+		return
+	}
 	if toolChoice == "" || toolChoice == toolChoiceAuto {
 		return
 	}

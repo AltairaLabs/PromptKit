@@ -83,6 +83,16 @@ type PredictionRequest struct {
 	Seed           *int            `json:"seed,omitempty"`
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"` // Optional response format (JSON mode)
 	Metadata       map[string]any  `json:"metadata,omitempty"`        // Provider-specific context
+
+	// ActiveTools, when not nil, names the tools of the tools array the
+	// model may call on this request; the array itself is sent whole, so a
+	// provider that caches the prompt keeps its cached prefix. Nil means
+	// every tool in the array may be called. A provider whose API can
+	// restrict a call to some of the tools it was sent (OpenAI's
+	// tool_choice allowed_tools) sends it; others ignore it, and the
+	// pipeline refuses a call outside it. Set only with a tools array, under
+	// tool_loading mode stable.
+	ActiveTools []string `json:"active_tools,omitempty"`
 }
 
 // ResolveTemperature returns the temperature req sends: its own when it set
