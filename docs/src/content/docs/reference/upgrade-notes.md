@@ -4,6 +4,8 @@ description: Changes that need action when moving between PromptKit versions.
 verified:
   commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
+    - pkg/config/loader.go
+    - pkg/config/runtime_config.go
     - runtime/a2a/client.go
     - runtime/a2a/types.go
     - runtime/credentials/azure.go
@@ -106,10 +108,12 @@ verified:
     - sdk/azure_platform_integration_test.go
     - sdk/client_tools.go
     - sdk/errors.go
+    - sdk/evaluate.go
     - sdk/internal/pipeline/builder.go
     - sdk/internal/pipeline/builder_vad.go
     - sdk/options.go
     - sdk/provider_refs.go
+    - sdk/runtime_config.go
     - sdk/sdk.go
     - server/a2a/ownership.go
     - server/a2a/protocol.go
@@ -122,6 +126,27 @@ are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
 ## Unreleased
+
+### Configuration
+
+#### A RuntimeConfig with an unknown key fails to load
+
+`config.LoadRuntimeConfig` ignored any key it did not recognize, at any depth, so a misspelled setting was dropped without a word: `base_ulr` on a provider left it calling the default endpoint, and `state_stroe` left conversation state in memory. The loader now rejects the file, as `config.LoadProvider` already did. `sdk.WithRuntimeConfig` and the `RuntimeConfigPath` option of `sdk.Evaluate` and `sdk.ValidateEvalTypes` load through it.
+
+The error names every unknown key, its line in the file and the type it was looked up in:
+
+```text
+parsing runtime config "runtime.yaml": yaml: unmarshal errors:
+  line 8: field base_ulr not found in type config.Provider
+```
+
+Fields typed as a map take any key, as before: `metadata.labels` and `metadata.annotations`; a provider's `headers`, `additional_config` and `platform.additional_config`; a tool's `input_schema`, `output_schema`, `mock_result`, `extensions`, `action_scope.extensions`, and `http` header and static maps; an MCP server's `env`, `headers` and `source_args`; `logging.commonFields` and a module's `fields`; and a sandbox's settings beside `mode`. A top-level `$schema` key is still allowed.
+
+| If you | You will see | Change |
+|---|---|---|
+| Load a RuntimeConfig with a misspelled or unsupported key | the load fails, naming the key and its line, where the key was ignored | fix the spelling, or delete the key: it never had an effect |
+| Load a RuntimeConfig that carries keys for another tool | the load fails on the first of those keys | keep those keys in a separate file |
+| Load a Provider file with an unknown key | the reported line is the line in the file, where it was counted after dropping comments, blank lines and `$schema` | none |
 
 ### Providers
 

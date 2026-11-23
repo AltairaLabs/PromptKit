@@ -6,6 +6,7 @@ sidebar:
 verified:
   commit: 871dab9b182c410568ed21bad890a9d87d74b2c2
   sources:
+    - pkg/config/loader.go
     - pkg/config/logging.go
     - pkg/config/provider_tuning.go
     - pkg/config/role.go
@@ -80,6 +81,8 @@ verified:
 RuntimeConfig is a Kubernetes-style YAML manifest that declaratively configures the SDK runtime environment. It separates _what_ an agent does (defined in a pack) from _how_ to run it (providers, tool bindings, state store, logging). This makes packs portable across environments while RuntimeConfig adapts them to each deployment target.
 
 The Go types backing this schema live in `pkg/config/runtime_config.go` and `pkg/config/types.go`.
+
+The loader decodes strictly. A key that is not a field documented on this page, at any depth, fails the load with an error naming the key, its line and the type it was looked up in, such as `line 8: field base_ulr not found in type config.Provider`. Fields typed as a map take any key: `labels`, `annotations`, `headers`, `additional_config`, `extensions`, `env`, `source_args`, `commonFields`, the `http` header and static maps, and a sandbox's settings beside `mode`. A top-level `$schema` key is allowed.
 
 ---
 

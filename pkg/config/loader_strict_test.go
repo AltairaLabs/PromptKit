@@ -105,3 +105,18 @@ func TestLoadSimpleK8sManifest_HoldsAnyKindToItsType(t *testing.T) {
 		t.Errorf("unknown key: err = %v, want it to name stepz", err)
 	}
 }
+
+// The unknown-key error counts lines in the file as written: comments, blank
+// lines and a $schema key ahead of the typo all count.
+func TestLoadProvider_UnknownKeyLineIsTheFilesLine(t *testing.T) {
+	content := "# provider for tests\n" +
+		"$schema: https://example.com/provider.json\n\n" +
+		providerHeader + "spec:\n  type: openai\n  temprature: 0.2\n"
+	path := writeManifest(t, content)
+	_, err := LoadProvider(path)
+	want := "invalid Provider file " + path +
+		": yaml: unmarshal errors:\n  line 10: field temprature not found in type config.Provider"
+	if err == nil || err.Error() != want {
+		t.Errorf("error =\n%v\nwant\n%s", err, want)
+	}
+}
