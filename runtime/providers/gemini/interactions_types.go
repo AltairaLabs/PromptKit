@@ -164,6 +164,18 @@ type interactionsStep struct {
 	CallID    string                `json:"call_id,omitempty"`
 	Arguments json.RawMessage       `json:"arguments,omitempty"`
 	Signature string                `json:"signature,omitempty"`
+	// Summary is a thought step's summary, returned only when the request asks
+	// for one (generation_config.thinking_summaries "auto").
+	Summary []interactionsContent `json:"summary,omitempty"`
+}
+
+// summaryText returns a thought step's summary text.
+func (s *interactionsStep) summaryText() string {
+	var out string
+	for i := range s.Summary {
+		out += s.Summary[i].Text
+	}
+	return out
 }
 
 // text returns the step's text whether it arrives inline or as content items.

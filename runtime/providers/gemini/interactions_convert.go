@@ -347,9 +347,9 @@ func parseInteractionsResponse(resp *interactionsResponse) (
 			content += step.text()
 
 		case stepTypeThought:
-			// A thought carries an opaque signature rather than readable text.
-			// It is preserved so later rounds can replay it, which the API
-			// requires, and is NOT surfaced as reasoning text — there is none.
+			// A thought carries an opaque signature, preserved so later rounds
+			// can replay it, which the API requires. Its readable text is the
+			// summary, present only when thinking_summaries asked for one.
 			if step.Signature != "" {
 				opaque = append(opaque, types.OpaqueReasoning{
 					Provider: providerNameGemini,
@@ -357,7 +357,7 @@ func parseInteractionsResponse(resp *interactionsResponse) (
 					Data:     step.Signature,
 				})
 			}
-			thoughts += step.text()
+			thoughts += step.text() + step.summaryText()
 
 		case stepTypeFunctionCall:
 			callID := step.CallID

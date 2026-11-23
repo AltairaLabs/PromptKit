@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sync"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -56,8 +58,6 @@ func (p *ToolProvider) buildInteractionsRequest(
 		}
 	}
 
-	// Thinking config has no equivalent field here — thought steps are returned
-	// by default — so it is deliberately not forwarded rather than guessed at.
 	return out, nil
 }
 
@@ -65,6 +65,11 @@ func (p *ToolProvider) buildInteractionsRequest(
 // generateContent path sends (provider defaults, overridden per request) in
 // the Interactions API's generation_config. max_output_tokens counts thinking
 // tokens too, as maxOutputTokens does on generateContent.
+//
+// generation_config has no top_k, presence_penalty or frequency_penalty: the
+// API answers each with HTTP 400 "Unknown parameter" (probed live). A request
+// that sets one gets the warning generateContent gives for a parameter it
+// does not send.
 func (p *ToolProvider) interactionsGenerationConfig(req providers.PredictionRequest) map[string]any {
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 	gen := map[string]any{wireKeyTemperature: temperature}
@@ -74,7 +79,45 @@ func (p *ToolProvider) interactionsGenerationConfig(req providers.PredictionRequ
 	if maxTokens > 0 {
 		gen["max_output_tokens"] = maxTokens
 	}
+	providers.WarnUnsentParams(p.ID(), &req,
+		providers.ParamTopK, providers.ParamFrequencyPenalty, providers.ParamPresencePenalty)
+	p.applyInteractionsThinking(gen)
 	return gen
+}
+
+// interactionsThinkingSummariesAuto asks the API for thought summaries.
+const interactionsThinkingSummariesAuto = "auto"
+
+// interactionsBudgetWarned keys the provider IDs warned that thinking_budget
+// is not sent, so the warning is logged once per provider.
+var interactionsBudgetWarned sync.Map
+
+// applyInteractionsThinking sets the provider's thinking config on the
+// Interactions API's generation_config.
+//
+//   - thinking_level is sent as thinking_level. The API reference lists
+//     minimal, low, medium, high and xhigh, and each model accepts a subset
+//     (gemini-2.5-flash takes low and high only, and answers medium with HTTP
+//     400), as generateContent's thinkingLevel does.
+//   - include_thoughts is sent as thinking_summaries "auto". Without it the
+//     API returns thought steps with a signature and no summary.
+//   - thinking_budget has no field here (HTTP 400 "Unknown parameter
+//     'thinking_budget'") and no level it equals, so it is not sent and a
+//     warning says so. With a level configured the level wins and the budget
+//     is dropped, as on generateContent.
+func (p *Provider) applyInteractionsThinking(gen map[string]any) {
+	switch {
+	case p.thinkingLevel != nil:
+		gen["thinking_level"] = *p.thinkingLevel
+	case p.thinkingBudget != nil:
+		if _, warned := interactionsBudgetWarned.LoadOrStore(p.ID(), struct{}{}); !warned {
+			logger.Warn("gemini: thinking_budget is not sent: the Interactions API takes thinking_level instead",
+				"provider", p.ID(), "thinking_budget", *p.thinkingBudget)
+		}
+	}
+	if p.includeThoughts {
+		gen["thinking_summaries"] = interactionsThinkingSummariesAuto
+	}
 }
 
 // interactionsModeAny is the Interactions API tool_choice mode that forces a
@@ -140,7 +183,7 @@ func (p *ToolProvider) predictWithInteractions(
 
 	predictResp.Content = content
 	predictResp.Reasoning = reasoning
-	predictResp.FinishReason = finishReasonForInteraction(len(toolCalls) > 0)
+	predictResp.FinishReason = finishReasonForInteraction(resp.Status, len(toolCalls) > 0)
 	if p.ShouldIncludeRawOutput() {
 		predictResp.Raw = respBytes
 	}
