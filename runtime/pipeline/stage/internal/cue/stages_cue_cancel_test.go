@@ -1,17 +1,18 @@
-package stage
+package cue
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // runCanceledCue runs a cue stage on in and out, returning what Process
 // returned once it ends.
-func runCanceledCue(ctx context.Context, cue *cueStage, in chan StreamElement, out chan StreamElement) <-chan error {
+func runCanceledCue(ctx context.Context, cue *CueStage, in chan core.StreamElement, out chan core.StreamElement) <-chan error {
 	done := make(chan error, 1)
 	go func() { done <- cue.Process(ctx, in, out) }()
 	return done
@@ -31,7 +32,7 @@ func waitProcess(t *testing.T, done <-chan error) error {
 
 // replyTexts is the content of each message in elems, and whether any of
 // them carried a cue's audio.
-func replyTexts(elems []StreamElement) (texts []string, cueAudio bool) {
+func replyTexts(elems []core.StreamElement) (texts []string, cueAudio bool) {
 	for i := range elems {
 		if elems[i].Message != nil {
 			texts = append(texts, elems[i].Message.Content)
@@ -48,9 +49,9 @@ func replyTexts(elems []StreamElement) (texts []string, cueAudio bool) {
 // stage (#2847). It used to return at once and drop it.
 func TestCueStage_CancelPassesTheCanceledReplyThrough(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	in, out := make(chan StreamElement, 4), make(chan StreamElement, 8)
+	in, out := make(chan core.StreamElement, 4), make(chan core.StreamElement, 8)
 	cancel()
-	done := runCanceledCue(ctx, newCueStage(cueConfig{}), in, out)
+	done := runCanceledCue(ctx, NewStage(Config{}), in, out)
 	in <- replyEnd("half a")
 	close(in)
 
@@ -64,7 +65,7 @@ func TestCueStage_CancelPassesTheCanceledReplyThrough(t *testing.T) {
 func TestCueStage_CancelWhileRenderingReleasesWhatWaited(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	in, out := make(chan StreamElement, 4), make(chan StreamElement, 8)
+	in, out := make(chan core.StreamElement, 4), make(chan core.StreamElement, 8)
 	done := runCanceledCue(ctx, stuckRenderCue(t), in, out)
 
 	reply := cueRamp(2400)
@@ -90,13 +91,13 @@ func TestCueStage_CancelWhileRenderingReleasesWhatWaited(t *testing.T) {
 
 // stuckRenderCue is a cue stage whose clip renders never finish, even when
 // canceled, so only the stage's own cancellation can end its wait.
-func stuckRenderCue(t *testing.T) *cueStage {
+func stuckRenderCue(t *testing.T) *CueStage {
 	stuck := make(chan struct{})
 	t.Cleanup(func() { close(stuck) })
-	cue := newCueStage(cueConfig{OnDemandBudget: time.Minute})
-	cue.render = func(context.Context, string) (cueClip, error) {
+	cue := NewStage(Config{OnDemandBudget: time.Minute})
+	cue.render = func(context.Context, string) (Clip, error) {
 		<-stuck
-		return cueClip{}, context.Canceled
+		return Clip{}, context.Canceled
 	}
 	return cue
 }
@@ -106,7 +107,7 @@ func stuckRenderCue(t *testing.T) *cueStage {
 func TestCueStage_CancelAfterInputEndsReleasesWhatWaited(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	in, out := make(chan StreamElement, 4), make(chan StreamElement, 8)
+	in, out := make(chan core.StreamElement, 4), make(chan core.StreamElement, 8)
 	done := runCanceledCue(ctx, stuckRenderCue(t), in, out)
 
 	in <- guardrailCueElem(brunoText)
@@ -132,8 +133,8 @@ func TestCueStage_CancelAfterInputEndsReleasesWhatWaited(t *testing.T) {
 func TestCueStage_CancelDuringASendKeepsTheElement(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	in, out := make(chan StreamElement, 4), make(chan StreamElement)
-	done := runCanceledCue(ctx, newCueStage(cueConfig{}), in, out)
+	in, out := make(chan core.StreamElement, 4), make(chan core.StreamElement)
+	done := runCanceledCue(ctx, NewStage(Config{}), in, out)
 
 	in <- replyEnd("first")
 	// Let the stage block sending "first" to the reader that is not reading.
@@ -149,8 +150,8 @@ func TestCueStage_CancelDuringASendKeepsTheElement(t *testing.T) {
 }
 
 // collectCueOutput reads out until the stage closes it.
-func collectCueOutput(out <-chan StreamElement) []StreamElement {
-	var got []StreamElement
+func collectCueOutput(out <-chan core.StreamElement) []core.StreamElement {
+	var got []core.StreamElement
 	for elem := range out {
 		got = append(got, elem)
 	}

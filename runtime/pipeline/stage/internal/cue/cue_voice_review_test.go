@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func TestCueVoice_FailedSourceIsRetriedAfterBackoff(t *testing.T) {
 		}
 		return pcm, nil
 	}
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
 		spokenSession("alloy", 24000))
 	clock := &testClock{t: time.Unix(1000, 0)}
 	cue.bank.now = clock.now
@@ -86,8 +86,8 @@ func TestCueVoice_SessionWithoutReporterKeepsCueAudio(t *testing.T) {
 	logs := captureCueLogs(t)
 	pcm, static := cueRamp(4800), cueRamp(2400)
 	svc := newFakeTTS(pcm)
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20),
-		Clips: map[string]cueClip{"Static clip.": pcmClip(static, 24000)}},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20),
+		Clips: map[string]Clip{"Static clip.": pcmClip(static, 24000)}},
 		unreportedSession{providersmock.NewMockStreamSession()})
 
 	assert.Equal(t, cueFaded(static, 24000), playedFor(t, cue, "Static clip."))
@@ -95,7 +95,7 @@ func TestCueVoice_SessionWithoutReporterKeepsCueAudio(t *testing.T) {
 	cfg := svc.lastConfig()
 	assert.Equal(t, "", cfg.Voice)
 	assert.Equal(t, pcmAt24k, cfg.Format)
-	assert.True(t, cue.bank.voices("Anything."))
+	assert.True(t, cue.bank.Voices("Anything."))
 	assert.Equal(t, 1, strings.Count(logs.String(), "does not report its output audio"))
 	assert.Zero(t, strings.Count(logs.String(), "no voice matching"))
 }
@@ -124,8 +124,8 @@ func TestCueVoice_JoinedRenderFillsTheJoinersCache(t *testing.T) {
 
 	cache1 := &countingCache{Cache: cueclip.NewMemoryCache(1 << 20)}
 	cache2 := &countingCache{Cache: cueclip.NewMemoryCache(1 << 20)}
-	bank1 := cueStageForSession(t, cueConfig{TTS: svc, Cache: cache1}, spokenSession("alloy", 24000)).bank
-	bank2 := cueStageForSession(t, cueConfig{TTS: svc, Cache: cache2}, spokenSession("alloy", 24000)).bank
+	bank1 := cueStageForSession(t, Config{TTS: svc, Cache: cache1}, spokenSession("alloy", 24000)).bank
+	bank2 := cueStageForSession(t, Config{TTS: svc, Cache: cache2}, spokenSession("alloy", 24000)).bank
 	text := "Joined render."
 
 	f1 := bank1.render(context.Background(), text, nil)
@@ -162,12 +162,12 @@ func TestCueVoice_OwnCacheIsReadBeforeJoining(t *testing.T) {
 	t.Cleanup(func() { clipFlightJoined.Store(nil) })
 
 	text := "Own cache first."
-	bank1 := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+	bank1 := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
 		spokenSession("alloy", 24000)).bank
 	cache2 := cueclip.NewMemoryCache(1 << 20)
 	require.NoError(t, cache2.Put(context.Background(), cueclip.KeyFor(text, "alloy", "tts:fake", pcm24k),
 		toCached(readyClip(warm, 24000))))
-	bank2 := cueStageForSession(t, cueConfig{TTS: svc, Cache: cache2}, spokenSession("alloy", 24000)).bank
+	bank2 := cueStageForSession(t, Config{TTS: svc, Cache: cache2}, spokenSession("alloy", 24000)).bank
 
 	bank1.render(context.Background(), text, nil)
 	<-joined // bank1's render is running, held at the gate

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,15 +52,15 @@ func TestBlockedMessage_HostTextPastTheBudgetPlaysTheEarcon(t *testing.T) {
 	svc := newFakeTTS(speech)
 	svc.gate = make(chan struct{})
 	cache := cueclip.NewMemoryCache(1 << 20)
-	cue := newCueStageFor(s, cueConfig{TTS: svc, Cache: cache, OnDemandBudget: 20 * time.Millisecond})
-	stored := storedTexts(cue)
+	cs := newCueStageFor(s, cue.Config{TTS: svc, Cache: cache, OnDemandBudget: 20 * time.Millisecond})
+	stored := storedTexts(cs)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	s.cues.sessionStarted(ctx, spokenSession("alloy", cueTestRate), nil, nil)
+	s.cues.SessionStarted(ctx, spokenSession("alloy", cueTestRate), nil, nil)
 
 	elems, err := feedChunks(t, s, transcriptChunk("forbidden", pcm(20)), stopChunk())
 	require.NoError(t, err)
-	c := startChain(t, cue)
+	c := startChain(t, cs)
 	for _, e := range elems {
 		c.in <- e
 	}
@@ -67,7 +68,7 @@ func TestBlockedMessage_HostTextPastTheBudgetPlaysTheEarcon(t *testing.T) {
 
 	assert.Contains(t, cueTrace(got), "text:"+hostText)
 	assert.Contains(t, cueTrace(got), "end:"+hostText+"|safety")
-	assert.Equal(t, earconPCM(cueTestRate), cueAudioOf(got), "past the budget the earcon plays")
+	assert.Equal(t, cue.EarconPCM(cueTestRate), cueAudioOf(got), "past the budget the earcon plays")
 
 	close(svc.gate)
 	assert.Equal(t, hostText, waitStored(t, stored))
@@ -280,7 +281,7 @@ func TestBlockedMessage_RealtimeFunctionPastTheBudget(t *testing.T) {
 		close(canceled)
 		return "Too late."
 	})
-	newCueStageFor(s, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20), OnDemandBudget: 20 * time.Millisecond})
+	newCueStageFor(s, cue.Config{Cache: cueclip.NewMemoryCache(1 << 20), OnDemandBudget: 20 * time.Millisecond})
 
 	start := time.Now()
 	elems, err := feedChunks(t, s, transcriptChunk("forbidden", pcm(20)), stopChunk())

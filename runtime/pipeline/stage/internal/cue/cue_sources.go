@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"context"
@@ -29,7 +29,7 @@ type clipSource interface {
 	keyText(text string) string
 	// render renders text as a clip ready to play in format, and reports
 	// what the render cost, if it is billed.
-	render(ctx context.Context, text string, format cueclip.Format) (cueClip, *clipRenderCost, error)
+	render(ctx context.Context, text string, format cueclip.Format) (Clip, *clipRenderCost, error)
 }
 
 // clipRenderCost is what a billed render did, for its cost event: a TTS
@@ -75,7 +75,7 @@ func (earconSource) kind() string          { return "earcon" }
 func (earconSource) voice() string         { return "" }
 func (earconSource) keyText(string) string { return "" }
 
-func (earconSource) render(_ context.Context, _ string, format cueclip.Format) (cueClip, *clipRenderCost, error) {
+func (earconSource) render(_ context.Context, _ string, format cueclip.Format) (Clip, *clipRenderCost, error) {
 	return earconClip(format.SampleRate), nil, nil
 }
 
@@ -145,33 +145,33 @@ func (s *ttsClipSource) voice() string              { return s.voiceID }
 func (s *ttsClipSource) keyText(text string) string { return text }
 
 func (s *ttsClipSource) render(ctx context.Context, text string, format cueclip.Format) (
-	cueClip, *clipRenderCost, error,
+	Clip, *clipRenderCost, error,
 ) {
 	start := time.Now()
 	rc, err := s.svc.Synthesize(ctx, text, tts.SynthesisConfig{Voice: s.voiceID, Format: s.request})
 	if err != nil {
-		return cueClip{}, nil, err
+		return Clip{}, nil, err
 	}
 	pcm, err := io.ReadAll(rc)
 	_ = rc.Close()
 	if err != nil {
-		return cueClip{}, nil, err
+		return Clip{}, nil, err
 	}
 	cost := &clipRenderCost{svc: s.svc, text: text, duration: time.Since(start)}
 	if len(pcm)%core.BytesPerSamplePCM16 != 0 {
 		pcm = pcm[:len(pcm)-1]
 	}
-	ready := prepareCueAudio(&AudioData{Samples: pcm, SampleRate: s.request.SampleRate, Channels: 1,
-		Format: AudioFormatPCM16}, format.SampleRate)
+	ready := prepareCueAudio(&core.AudioData{Samples: pcm, SampleRate: s.request.SampleRate, Channels: 1,
+		Format: core.AudioFormatPCM16}, format.SampleRate)
 	if len(ready) == 0 {
-		return cueClip{}, cost, errors.New("the TTS service returned no audible audio")
+		return Clip{}, cost, errors.New("the TTS service returned no audible audio")
 	}
 	return readyClip(ready, format.SampleRate), cost, nil
 }
 
 // readyClip is pcm, ready to play at rate, as a clip.
-func readyClip(pcm []byte, rate int) cueClip {
-	return cueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16,
+func readyClip(pcm []byte, rate int) Clip {
+	return Clip{Audio: &core.AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: core.AudioFormatPCM16,
 		Duration: audio.PCM16Duration(len(pcm), rate, 1)}}
 }
 
@@ -237,7 +237,7 @@ func (s *sessionClipSource) keyText(text string) string { return text }
 // other than the text is rendered once more, then fails the text. Every
 // try's cost is reported.
 func (s *sessionClipSource) render(ctx context.Context, text string, format cueclip.Format) (
-	cueClip, *clipRenderCost, error,
+	Clip, *clipRenderCost, error,
 ) {
 	start := time.Now()
 	cost := &clipRenderCost{provider: s.family, text: text}
@@ -247,21 +247,21 @@ func (s *sessionClipSource) render(ctx context.Context, text string, format cuec
 		cost.add(speech.Cost)
 		cost.duration = time.Since(start)
 		if err != nil {
-			return cueClip{}, cost.billed(), err
+			return Clip{}, cost.billed(), err
 		}
 		if !sameSpeech(speech.Transcript, text) {
 			logger.Debug("CueStage: the session said other than the text", "said", speech.Transcript, "try", try+1)
 			lastErr = fmt.Errorf("the session said %q", speech.Transcript)
 			continue
 		}
-		ready := prepareCueAudio(&AudioData{Samples: speech.Audio, SampleRate: speech.SampleRate, Channels: 1,
-			Format: AudioFormatPCM16}, format.SampleRate)
+		ready := prepareCueAudio(&core.AudioData{Samples: speech.Audio, SampleRate: speech.SampleRate, Channels: 1,
+			Format: core.AudioFormatPCM16}, format.SampleRate)
 		if len(ready) == 0 {
-			return cueClip{}, cost.billed(), errors.New("the session returned no audible audio")
+			return Clip{}, cost.billed(), errors.New("the session returned no audible audio")
 		}
 		return readyClip(ready, format.SampleRate), cost.billed(), nil
 	}
-	return cueClip{}, cost.billed(), lastErr
+	return Clip{}, cost.billed(), lastErr
 }
 
 // sameSpeech reports whether said is text, case, punctuation and spacing
