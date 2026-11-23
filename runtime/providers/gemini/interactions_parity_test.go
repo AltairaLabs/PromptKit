@@ -344,3 +344,56 @@ func TestInteractions_CostPricesThoughtAndCachedTokens(t *testing.T) {
 		})
 	}
 }
+
+// thinking_level "minimal" reaches both APIs. Probed live: gemini-3.5-flash,
+// gemini-3.5-flash-lite, gemini-3-flash-preview and gemini-3.1-flash-lite take
+// it on generateContent and on the Interactions API (0 thought tokens), while
+// gemini-3.7-flash, gemini-3.8-flash and gemini-3.1-pro-preview answer it with
+// HTTP 400, as gemini-2.5-flash answers "medium" on Interactions. Which levels
+// a model takes is the model's business, so it is sent. "xhigh" is listed by
+// the Interactions reference but every model probed rejected it on both APIs,
+// so it is still dropped with a warning rather than failing the request.
+func TestThinkingLevel_MinimalReachesBothAPIs(t *testing.T) {
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+	for _, tc := range []struct {
+		level, wantGenerate, wantInteractions string
+	}{
+		{"minimal", `{"thinkingLevel":"minimal"}`, `{"temperature":0,"thinking_level":"minimal"}`},
+		{"xhigh", `null`, `{"temperature":0}`},
+	} {
+		t.Run(tc.level+"/generateContent", func(t *testing.T) {
+			logs := captureWarnings(t)
+			srv := newExplicitCacheServer(t, http.StatusOK)
+			tp, tools := twoToolProvider(t, srv, map[string]any{"thinking_level": tc.level})
+			if _, _, err := tp.PredictWithTools(context.Background(), req, tools, ""); err != nil {
+				t.Fatalf("PredictWithTools: %v", err)
+			}
+			gen, _ := srv.genBody(t)["generationConfig"].(map[string]any)
+			if got := canonicalJSON(t, gen["thinkingConfig"]); got != tc.wantGenerate {
+				t.Errorf("thinkingConfig = %s, want %s", got, tc.wantGenerate)
+			}
+			assertLevelWarning(t, logs.String(), tc.level)
+		})
+		t.Run(tc.level+"/interactions", func(t *testing.T) {
+			logs := captureWarnings(t)
+			srv := newInteractionsParityServer(t, incompleteUnaryBody, incompleteStreamBody)
+			tp := newInteractionsParityProvider(t, uniqueProviderID("int-level"), srv.url,
+				map[string]any{"thinking_level": tc.level})
+			runInteractionsTurn(t, tp, providers.PredictionRequest{}, false)
+			if got := srv.generationConfig(t); got != tc.wantInteractions {
+				t.Errorf("generation_config = %s, want %s", got, tc.wantInteractions)
+			}
+			assertLevelWarning(t, logs.String(), tc.level)
+		})
+	}
+}
+
+// assertLevelWarning checks that a dropped level (xhigh) is warned about and a
+// sent one (minimal) is not.
+func assertLevelWarning(t *testing.T, logs, level string) {
+	t.Helper()
+	warned := strings.Contains(logs, "unrecognized thinking_level") && strings.Contains(logs, "value="+level)
+	if want := level == "xhigh"; warned != want {
+		t.Errorf("thinking_level warning for %q = %v, want %v (logs %q)", level, warned, want, logs)
+	}
+}

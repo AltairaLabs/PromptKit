@@ -147,6 +147,7 @@ With `api_mode: interactions`, a reply cut off by `max_tokens` finished as `stop
 |---|---|---|
 | Run an Interactions turn that reaches `max_tokens` | finish reason `max_output_tokens`, where it was `stop` | treat `max_output_tokens` as a cut-off reply, as on generateContent |
 | Set `thinking_level` | `generation_config.thinking_level` sent; the model thinks at that level, where the API's default applied | pick a level the model accepts: Gemini 2.5 takes `low` and `high` only on this API and answers `medium` with HTTP 400 |
+| Set `thinking_level: minimal` | the level sent on generateContent and the Interactions API, where it was dropped with a warning; models such as gemini-3.5-flash take it, and gemini-3.7-flash answers it with HTTP 400 | use `minimal` only with a model that takes it; `xhigh` is still dropped with a warning |
 | Set `include_thoughts: true` | `generation_config.thinking_summaries: auto` sent, and the thought summary returned as the turn's reasoning, streamed as reasoning chunks | none |
 | Set `thinking_budget` without `thinking_level` | the budget not sent, with one warning per provider; the Interactions API has no budget field | set `thinking_level` instead |
 | Set `top_k`, `frequency_penalty` or `presence_penalty` | the parameter not sent, with one warning per provider and parameter; the Interactions API answers each with HTTP 400 | none, or use generateContent for `top_k` |

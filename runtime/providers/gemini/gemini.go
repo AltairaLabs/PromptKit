@@ -303,7 +303,8 @@ type geminiGenConfig struct {
 //   - ThinkingBudget (Gemini 2.5) is a TOKEN ceiling on internal reasoning
 //     (0 disables on flash, -1 lets the model decide); those tokens count
 //     toward maxOutputTokens.
-//   - ThinkingLevel (Gemini 3) is a qualitative setting: low, medium or high.
+//   - ThinkingLevel (Gemini 3) is a qualitative setting: minimal, low, medium
+//     or high, each model taking a subset (see thinkingLevels).
 //     Gemini 3 accepts ThinkingBudget but does not reliably return thought
 //     summaries for it — measured live on gemini-3.7-flash streaming,
 //     thinkingBudget produced thought parts in 0 of 6 runs where

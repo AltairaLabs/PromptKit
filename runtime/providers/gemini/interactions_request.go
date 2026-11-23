@@ -95,10 +95,11 @@ var interactionsBudgetWarned sync.Map
 // applyInteractionsThinking sets the provider's thinking config on the
 // Interactions API's generation_config.
 //
-//   - thinking_level is sent as thinking_level. The API reference lists
-//     minimal, low, medium, high and xhigh, and each model accepts a subset
-//     (gemini-2.5-flash takes low and high only, and answers medium with HTTP
-//     400), as generateContent's thinkingLevel does.
+//   - thinking_level is sent as thinking_level: minimal, low, medium or
+//     high (see thinkingLevels; xhigh is dropped). Each model takes a subset
+//     and answers another level with HTTP 400, as on generateContent:
+//     gemini-3.7-flash rejects minimal, and gemini-2.5-flash takes only low
+//     and high here.
 //   - include_thoughts is sent as thinking_summaries "auto". Without it the
 //     API returns thought steps with a signature and no summary.
 //   - thinking_budget has no field here (HTTP 400 "Unknown parameter

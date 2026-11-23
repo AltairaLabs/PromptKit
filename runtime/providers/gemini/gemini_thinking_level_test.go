@@ -27,7 +27,8 @@ func TestApplyThinkingConfig_ReadsThinkingLevel(t *testing.T) {
 		{"medium", "medium", "medium"},
 		{"high", "high", "high"},
 		{"uppercase is normalized", "HIGH", "high"},
-		{"unknown level ignored", "minimal", ""}, // rejected by the API with 400
+		{"minimal", "minimal", "minimal"},
+		{"unknown level ignored", "xhigh", ""}, // rejected by every model probed
 		{"non-string ignored", 3, ""},
 	}
 	for _, tc := range cases {
@@ -129,7 +130,7 @@ func TestThinkingConfig_WireShape(t *testing.T) {
 		},
 		{
 			name:       "unrecognized level is dropped, not forwarded",
-			cfg:        map[string]any{"thinking_level": "minimal"},
+			cfg:        map[string]any{"thinking_level": "xhigh"},
 			wantAbsent: []string{"thinkingLevel", "thinkingConfig"},
 		},
 	}
