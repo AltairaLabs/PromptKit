@@ -26,6 +26,8 @@ func Wrap(ctx context.Context, _ int, msg *types.Message) (Scored, error) { retu
 
 func Close(Scored) {}
 
+func Named(core Scored, n int) Scored { return core }
+
 type Element = elem.Element
 
 type Other = media.Other

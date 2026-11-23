@@ -101,6 +101,9 @@ func generate(dir, importPath string, before map[string]bool, aliases map[string
 	for _, p := range paths {
 		fmt.Fprintf(&head, "\t%q\n", p)
 	}
+	if g.shadowed {
+		fmt.Fprintf(&head, "\t%s %q\n", g.shadowQ(), importPath)
+	}
 	head.WriteString(")\n")
 	formatted, err := format.Source(append(head.Bytes(), g.body.Bytes()...))
 	if err != nil {
@@ -116,8 +119,30 @@ type generator struct {
 	before      map[string]bool
 	aliases     map[string]string // stage's alias name -> "importpath.Name" it aliases
 	imports     map[string]bool
+	shadowed    bool // a wrapper's parameter hides q: the package is imported again as shadowQ
 	body        bytes.Buffer
 	n           int
+}
+
+// shadowQ is the second name the internal package is imported by, for the
+// wrappers with a parameter named like the package (NewProviderStage's
+// provider): in them q is the parameter, and renaming the parameter instead
+// would change stage's documented signature.
+func (g *generator) shadowQ() string {
+	g.shadowed = true
+	return g.q + "pkg"
+}
+
+// paramNamed reports whether a parameter in list is named name.
+func paramNamed(list *ast.FieldList, name string) bool {
+	for _, field := range list.List {
+		for _, id := range field.Names {
+			if id.Name == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (g *generator) decl(f srcFile, d ast.Decl) error {
@@ -142,7 +167,11 @@ func (g *generator) decl(f srcFile, d ast.Decl) error {
 		}
 		g.n++
 		text := func(n ast.Node) string { return f.textUnqualified(g.fset, n, facade) }
-		g.body.WriteString("\n" + doc(d.Doc) + wrapper(text, d, g.q) + "\n")
+		q := g.q
+		if paramNamed(d.Type.Params, g.q) {
+			q = g.shadowQ()
+		}
+		g.body.WriteString("\n" + doc(d.Doc) + wrapper(text, d, q) + "\n")
 	case *ast.GenDecl:
 		return g.genDecl(f, d)
 	}

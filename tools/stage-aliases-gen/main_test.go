@@ -32,6 +32,8 @@ func runFixture(t *testing.T, pkg string) (string, string, error) {
 // type (also through iota), an untyped const, a lone typed const, wrappers for
 // plain, variadic, blank and unnamed parameters and for single and multiple
 // results, the imports their signatures need (a /v2 path by its package name),
+// a wrapper whose parameter is named like the internal package (Named's core)
+// keeping that name and calling through a second import of the package;
 // single and grouped vars, each with its doc; a sibling internal package's type
 // that stage aliases named as stage names it (Feed's Element); and nothing stage did not export
 // before (Helper, ErrInternal, kindHidden) nor any method.
@@ -53,8 +55,8 @@ func TestGenerate_MatchesGolden(t *testing.T) {
 	if got != string(want) {
 		t.Fatalf("generated file differs from %s (rerun with -update to accept):\n%s", golden, got)
 	}
-	if !strings.HasSuffix(stdout, ": 14 names re-exported from "+fixtureImport+"\n") {
-		t.Fatalf("report = %q, want 14 names", stdout)
+	if !strings.HasSuffix(stdout, ": 15 names re-exported from "+fixtureImport+"\n") {
+		t.Fatalf("report = %q, want 15 names", stdout)
 	}
 }
 
