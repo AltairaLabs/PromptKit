@@ -330,3 +330,202 @@ func TestGemini_Interactions_MaxTokens_Live(t *testing.T) {
 	t.Logf("400-token cap: %d words, usage %+v", words, resp.CostInfo)
 	assert.Less(t, words, 150, "the cap must cut a 200-word story short")
 }
+
+// interactionsLiveModel is the model the #2912 live tests run against:
+// GEMINI_INTERACTIONS_MODELS, else the Gemini 3 flash the other live tests use.
+func interactionsLiveModel() string {
+	if m := os.Getenv("GEMINI_INTERACTIONS_MODELS"); m != "" {
+		return m
+	}
+	return "gemini-3.7-flash"
+}
+
+// newInteractionsLiveProvider builds an api_mode interactions provider from a
+// spec, as a host does.
+func newInteractionsLiveProvider(t *testing.T, id string, maxTokens int, extra map[string]any) *ToolProvider {
+	t.Helper()
+	cfg := map[string]any{"api_mode": "interactions"}
+	for k, v := range extra {
+		cfg[k] = v
+	}
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: id, Type: "gemini", Model: interactionsLiveModel(),
+		BaseURL:          "https://generativelanguage.googleapis.com/v1beta",
+		Defaults:         providers.ProviderDefaults{MaxTokens: maxTokens},
+		AdditionalConfig: cfg, IncludeRawOutput: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Close() })
+	return p.(*ToolProvider)
+}
+
+// liveInteractionsTurn runs one unary or streamed turn and returns its content,
+// reasoning text and finish reason.
+func liveInteractionsTurn(t *testing.T, tp *ToolProvider, prompt string, stream bool) (string, string, string) {
+	t.Helper()
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: prompt}}}
+	if !stream {
+		resp, _, err := tp.PredictWithTools(context.Background(), req, nil, "")
+		require.NoError(t, err)
+		reasoning := ""
+		if resp.Reasoning != nil {
+			reasoning = resp.Reasoning.Text
+		}
+		return resp.Content, reasoning, resp.FinishReason
+	}
+	ch, err := tp.PredictStreamWithTools(context.Background(), req, nil, "")
+	require.NoError(t, err)
+	var content, finish string
+	var reasoning strings.Builder
+	for c := range ch {
+		require.NoError(t, c.Error)
+		content = c.Content
+		reasoning.WriteString(c.Reasoning)
+		if c.FinishReason != nil {
+			finish = *c.FinishReason
+		}
+	}
+	return content, reasoning.String(), finish
+}
+
+// TestGemini_Interactions_TruncationFinishReason_Live proves a reply the
+// output cap cuts off reports max_output_tokens, unary and streaming, and an
+// uncapped one stop (#2912).
+//
+//	GEMINI_API_KEY=... go test -tags integration ./runtime/providers/gemini/ \
+//	    -run TestGemini_Interactions_TruncationFinishReason_Live -v
+func TestGemini_Interactions_TruncationFinishReason_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	const prompt = "Write a 150-word story about a lighthouse."
+	for _, stream := range []bool{false, true} {
+		for rep := 1; rep <= 2; rep++ {
+			t.Run(fmt.Sprintf("stream=%v/capped/%d", stream, rep), func(t *testing.T) {
+				tp := newInteractionsLiveProvider(t, "gemini-int-trunc", 40, map[string]any{"thinking_level": "low"})
+				content, _, finish := liveInteractionsTurn(t, tp, prompt, stream)
+				t.Logf("finish=%q words=%d", finish, len(strings.Fields(content)))
+				assert.Equal(t, types.FinishReasonMaxOutputTokens, finish)
+			})
+		}
+		t.Run(fmt.Sprintf("stream=%v/uncapped", stream), func(t *testing.T) {
+			tp := newInteractionsLiveProvider(t, "gemini-int-trunc", 4000, map[string]any{"thinking_level": "low"})
+			content, _, finish := liveInteractionsTurn(t, tp, prompt, stream)
+			t.Logf("finish=%q words=%d", finish, len(strings.Fields(content)))
+			assert.Equal(t, types.FinishReasonStop, finish)
+		})
+	}
+}
+
+// TestGemini_Interactions_ThinkingLevel_Live proves thinking_level reaches the
+// API and changes how much the model thinks (usage.total_thought_tokens from
+// the raw response), and include_thoughts returns a thought summary as
+// reasoning, unary and streaming (#2912).
+//
+//	GEMINI_API_KEY=... go test -tags integration ./runtime/providers/gemini/ \
+//	    -run TestGemini_Interactions_ThinkingLevel_Live -v
+func TestGemini_Interactions_ThinkingLevel_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	const prompt = "How many positive integers below 200 are divisible by 3 or 7 but not by both? " +
+		"Answer with the number only."
+
+	thoughtTokens := func(t *testing.T, level string) int {
+		tp := newInteractionsLiveProvider(t, "gemini-int-level-"+level, 8000, map[string]any{"thinking_level": level})
+		resp, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+			Messages: []types.Message{{Role: roleUser, Content: prompt}},
+		}, nil, "")
+		require.NoError(t, err)
+		sent, ok := resp.RawRequest.(interactionsRequest)
+		require.True(t, ok, "raw request is %T", resp.RawRequest)
+		assert.Equal(t, level, sent.Generation["thinking_level"])
+		var raw interactionsResponse
+		require.NoError(t, json.Unmarshal(resp.Raw, &raw))
+		require.NotNil(t, raw.Usage)
+		return raw.Usage.TotalThoughtTokens
+	}
+	for rep := 1; rep <= 2; rep++ {
+		t.Run(fmt.Sprintf("low vs high/%d", rep), func(t *testing.T) {
+			low, high := thoughtTokens(t, "low"), thoughtTokens(t, "high")
+			t.Logf("thought tokens: low=%d high=%d", low, high)
+			assert.Greater(t, high, low, "thinking_level high must think more than low")
+		})
+	}
+
+	for _, stream := range []bool{false, true} {
+		for rep := 1; rep <= 2; rep++ {
+			t.Run(fmt.Sprintf("include_thoughts/stream=%v/%d", stream, rep), func(t *testing.T) {
+				tp := newInteractionsLiveProvider(t, "gemini-int-summaries", 8000,
+					map[string]any{"thinking_level": "high", "include_thoughts": true})
+				content, reasoning, finish := liveInteractionsTurn(t, tp, prompt, stream)
+				t.Logf("answer=%d chars reasoning=%d chars finish=%q", len(content), len(reasoning), finish)
+				assert.NotEmpty(t, reasoning, "include_thoughts must return a thought summary")
+				assert.Equal(t, types.FinishReasonStop, finish)
+			})
+		}
+	}
+}
+
+// TestGemini_Interactions_ThoughtSummaryToolLoop_Live proves a tool loop with
+// include_thoughts works: round 1 returns a thought summary as reasoning and a
+// tool call, and round 2 replays the thought as its signature alone (no
+// summary) and is accepted, answering from the tool result.
+//
+//	GEMINI_API_KEY=... go test -tags integration ./runtime/providers/gemini/ \
+//	    -run TestGemini_Interactions_ThoughtSummaryToolLoop_Live -v
+func TestGemini_Interactions_ThoughtSummaryToolLoop_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	for rep := 1; rep <= 2; rep++ {
+		t.Run(fmt.Sprintf("rep %d", rep), func(t *testing.T) {
+			tp := newInteractionsLiveProvider(t, "gemini-int-summary-loop", 8000,
+				map[string]any{"thinking_level": "high", "include_thoughts": true})
+			tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+				Name:        "get_temperature",
+				Description: "Get the current temperature for a city in Celsius",
+				InputSchema: json.RawMessage(
+					`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+			}})
+			require.NoError(t, err)
+			req := providers.PredictionRequest{Messages: []types.Message{{
+				Role: roleUser, Content: "What's the temperature in Bristol? Use the tool, then answer in one sentence.",
+			}}}
+
+			resp, calls, err := tp.PredictWithTools(context.Background(), req, tools, "auto")
+			require.NoError(t, err)
+			require.NotEmpty(t, calls, "round 1 must call the tool")
+			require.NotNil(t, resp.Reasoning)
+			t.Logf("round 1: %d call(s), summary %d chars, %d signature(s)",
+				len(calls), len(resp.Reasoning.Text), len(resp.Reasoning.Opaque))
+			assert.NotEmpty(t, resp.Reasoning.Text, "include_thoughts must return a thought summary")
+			require.NotEmpty(t, resp.Reasoning.Opaque, "the thought signature must be kept for replay")
+
+			req.Messages = append(req.Messages, types.Message{
+				Role: roleAssistant, ToolCalls: calls, Reasoning: resp.Reasoning,
+			})
+			for i := range calls {
+				req.Messages = append(req.Messages, types.NewToolResultMessage(
+					types.NewTextToolResult(calls[i].ID, calls[i].Name, `{"celsius": 21}`)))
+			}
+
+			resp2, calls2, err := tp.PredictWithTools(context.Background(), req, tools, "auto")
+			require.NoError(t, err, "round 2 replaying the signature-only thought must be accepted")
+			sent, ok := resp2.RawRequest.(interactionsRequest)
+			require.True(t, ok, "raw request is %T", resp2.RawRequest)
+			replayed := 0
+			for _, step := range sent.Input {
+				if th, ok := step.(interactionsThoughtStep); ok {
+					replayed++
+					raw, _ := json.Marshal(th)
+					assert.NotContains(t, string(raw), "summary", "a replayed thought carries its signature only")
+				}
+			}
+			t.Logf("round 2: %d thought step(s) replayed, %d call(s), answer %q", replayed, len(calls2), resp2.Content)
+			assert.Positive(t, replayed, "round 2 must replay the round-1 thought")
+			assert.Empty(t, calls2)
+			assert.Contains(t, resp2.Content, "21")
+		})
+	}
+}

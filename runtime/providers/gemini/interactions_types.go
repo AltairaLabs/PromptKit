@@ -164,6 +164,18 @@ type interactionsStep struct {
 	CallID    string                `json:"call_id,omitempty"`
 	Arguments json.RawMessage       `json:"arguments,omitempty"`
 	Signature string                `json:"signature,omitempty"`
+	// Summary is a thought step's summary, returned only when the request asks
+	// for one (generation_config.thinking_summaries "auto").
+	Summary []interactionsContent `json:"summary,omitempty"`
+}
+
+// summaryText returns a thought step's summary text.
+func (s *interactionsStep) summaryText() string {
+	var out string
+	for i := range s.Summary {
+		out += s.Summary[i].Text
+	}
+	return out
 }
 
 // text returns the step's text whether it arrives inline or as content items.
@@ -184,6 +196,20 @@ type interactionsUsage struct {
 	TotalOutputTokens  int `json:"total_output_tokens"`
 	TotalCachedTokens  int `json:"total_cached_tokens"`
 	TotalThoughtTokens int `json:"total_thought_tokens"`
+}
+
+// geminiUsage maps the usage onto generateContent's usageMetadata, so a turn
+// is priced the same on either API. Verified live: total_input_tokens is
+// cache-inclusive, like promptTokenCount, and thought tokens are reported
+// apart from total_output_tokens (total_tokens is input + output + thought),
+// like thoughtsTokenCount apart from candidatesTokenCount.
+func (u *interactionsUsage) geminiUsage() geminiUsage {
+	return geminiUsage{
+		PromptTokenCount:        u.TotalInputTokens,
+		CandidatesTokenCount:    u.TotalOutputTokens,
+		CachedContentTokenCount: u.TotalCachedTokens,
+		ThoughtsTokenCount:      u.TotalThoughtTokens,
+	}
 }
 
 type interactionsError struct {

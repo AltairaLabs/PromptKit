@@ -139,6 +139,21 @@ The Gemini provider ignored the tool choice in three cases, and the model was fr
 | Run a turn with `api_mode: interactions` | the provider's and the request's `temperature`, `top_p` and `max_tokens` applied, where the API's defaults applied and output was uncapped; thinking tokens count toward `max_tokens` | raise `max_tokens` if replies now stop early |
 | Name a tool that the round does not declare | a forced call to any declared tool and a warning naming the tool, instead of an HTTP 400 from Gemini | declare the tool, or name one that is declared |
 
+#### Gemini Interactions API reports truncation and sends the thinking config
+
+With `api_mode: interactions`, a reply cut off by `max_tokens` finished as `stop`, the thinking config in `additional_config` was not sent, and `top_k` and the penalties were dropped without a warning. The Interactions API marks a cut-off reply with status `incomplete`. The provider now reports it as `max_output_tokens`, the finish reason generateContent reports for the same cut-off, unary and streaming.
+
+| If you | You will see | Change |
+|---|---|---|
+| Run an Interactions turn that reaches `max_tokens` | finish reason `max_output_tokens`, where it was `stop` | treat `max_output_tokens` as a cut-off reply, as on generateContent |
+| Set `thinking_level` | `generation_config.thinking_level` sent; the model thinks at that level, where the API's default applied | pick a level the model accepts: Gemini 2.5 takes `low` and `high` only on this API and answers `medium` with HTTP 400 |
+| Set `thinking_level: minimal` | the level sent on generateContent and the Interactions API, where it was dropped with a warning; models such as gemini-3.5-flash take it, and gemini-3.7-flash answers it with HTTP 400 | use `minimal` only with a model that takes it; `xhigh` is still dropped with a warning |
+| Set `include_thoughts: true` | `generation_config.thinking_summaries: auto` sent, and the thought summary returned as the turn's reasoning, streamed as reasoning chunks | none |
+| Set `thinking_budget` without `thinking_level` | the budget not sent, with one warning per provider; the Interactions API has no budget field, so `thinking_budget: 0` does not turn thinking off there | set `thinking_level` instead. The lowest level is `minimal` on a model that takes it (it produced no thought tokens when probed), else `low`. To turn thinking off on Gemini 2.5, use generateContent with `thinking_budget: 0` |
+| Set `top_k`, `frequency_penalty` or `presence_penalty` | the parameter not sent, with one warning per provider and parameter; the Interactions API answers each with HTTP 400 | none, or use generateContent for `top_k` |
+| Set `api_mode: interactions` and run a turn that does not take the tool path | the turn sent to generateContent, as before; `api_mode` applies only to turns that take the tool path (tools offered, or tool calls in the history) | none; the settings above apply to the turns that take the tool path |
+| Read the cost of an Interactions turn | thought tokens priced at the output rate and cached input priced as cache reads, as on generateContent, where thinking cost nothing and cached input was priced as full-price input | expect higher costs for thinking turns and lower ones for cached prompts |
+
 ## v2.22.0
 
 The entries are grouped by area: turn numbering, guardrails, realtime and voice sessions, tools, streaming and AG-UI, caller identity, providers, retries, and the A2A server.

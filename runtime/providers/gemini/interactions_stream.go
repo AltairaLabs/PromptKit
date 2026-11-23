@@ -44,6 +44,9 @@ const (
 	deltaTypeText      = "text"
 	deltaTypeArguments = "arguments_delta"
 	deltaTypeSignature = "thought_signature"
+	// deltaTypeThoughtSummary carries a thought summary's text as
+	// {"type":"thought_summary","content":{"text":"…"}} (verified live).
+	deltaTypeThoughtSummary = "thought_summary"
 
 	// finishReasonToolCalls marks a turn that ended by handing off to tools
 	// rather than answering. Both are the canonical values every provider
@@ -65,6 +68,9 @@ type interactionsStreamEvent struct {
 		Text      string `json:"text"`
 		Arguments string `json:"arguments"`
 		Signature string `json:"signature"`
+		// Content is decoded only for a thought_summary delta, so a delta of
+		// another type whose content has another shape still decodes.
+		Content json.RawMessage `json:"content"`
 	} `json:"delta"`
 	Interaction *interactionsResponse `json:"interaction"`
 }
@@ -225,7 +231,11 @@ func (p *ToolProvider) finalInteractionChunk(
 	ev *interactionsStreamEvent, steps map[int]*streamStep, content string,
 ) providers.StreamChunk {
 	toolCalls := collectStreamToolCalls(steps)
-	finish := finishReasonForInteraction(len(toolCalls) > 0)
+	var status string
+	if ev.Interaction != nil {
+		status = ev.Interaction.Status
+	}
+	finish := finishReasonForInteraction(status, len(toolCalls) > 0)
 
 	chunk := providers.StreamChunk{
 		Content:      content,
@@ -233,9 +243,7 @@ func (p *ToolProvider) finalInteractionChunk(
 		FinishReason: &finish,
 	}
 	if ev.Interaction != nil && ev.Interaction.Usage != nil {
-		cost := p.CalculateCost(
-			ev.Interaction.Usage.TotalInputTokens,
-			ev.Interaction.Usage.TotalOutputTokens, 0)
+		cost := p.costFromUsage(ev.Interaction.Usage.geminiUsage())
 		chunk.CostInfo = &cost
 	}
 	return chunk
@@ -270,6 +278,17 @@ func applyStepDelta(
 		// interaction.completed, so they accumulate rather than emit.
 		step.arguments.WriteString(ev.Delta.Arguments)
 		return true
+
+	case deltaTypeThoughtSummary:
+		var summary interactionsContent
+		// A content of another shape leaves Text empty, so the delta is skipped.
+		_ = json.Unmarshal(ev.Delta.Content, &summary)
+		if summary.Text == "" {
+			return true
+		}
+		// Reasoning streams beside the answer, as a thought part's text does on
+		// generateContent, and never into Content.
+		return emit(providers.StreamChunk{Content: content.String(), Reasoning: summary.Text})
 
 	case deltaTypeSignature:
 		// A thought's signature is opaque and must be replayed on later rounds,
@@ -316,9 +335,21 @@ func collectStreamToolCalls(steps map[int]*streamStep) []types.MessageToolCall {
 	return calls
 }
 
+// interactionStatusIncomplete is the status of an interaction that finished
+// with incomplete results. The API reference gives hitting max_output_tokens
+// as the example, it has no other field that says why, and a reply cut off by
+// the cap ends with it, unary and as a stream's interaction.completed event
+// (verified live).
+const interactionStatusIncomplete = "incomplete"
+
 // finishReasonForInteraction reports why the turn ended, so a caller can tell a
-// tool hand-off from a completed answer.
-func finishReasonForInteraction(hasToolCalls bool) string {
+// tool hand-off or a truncated reply from a completed answer. An incomplete
+// interaction reports max_output_tokens, the reason generateContent reports
+// for MAX_TOKENS, tool calls or not, as a MAX_TOKENS turn there does.
+func finishReasonForInteraction(status string, hasToolCalls bool) string {
+	if status == interactionStatusIncomplete {
+		return normalizeFinishReason(finishReasonMaxTokens)
+	}
 	if hasToolCalls {
 		return finishReasonToolCalls
 	}

@@ -27,7 +27,7 @@ Attach PDF documents to a message so the model can summarize, compare or extract
 ## Prerequisites
 
 - A pack with a prompt to open, such as `document-analyzer`.
-- A provider that accepts documents: Claude or Gemini. Claude takes PDF only. Gemini takes PDF, Microsoft Office and OpenDocument files, and text formats such as plain text, Markdown, CSV, JSON and XML, which it reads as plain text. A Gemini request goes to the Interactions API when `additional_config.api_mode` is `interactions`. The Interactions API takes PDF, CSV, Microsoft Office and OpenDocument files but no other text format.
+- A provider that accepts documents: Claude or Gemini. Claude takes PDF only. Gemini takes PDF, Microsoft Office and OpenDocument files, and text formats such as plain text, Markdown, CSV, JSON and XML, which it reads as plain text. When `additional_config.api_mode` is `interactions`, a turn that takes the tool path (tools offered, or tool calls in the history) goes to the Interactions API, and any other Gemini turn goes to generateContent. The Interactions API takes PDF, CSV, Microsoft Office and OpenDocument files but no other text format.
 
 ## Steps
 
@@ -122,7 +122,7 @@ Before each provider call, the SDK checks every attachment against the modalitie
 | Error text | Cause |
 |---|---|
 | `<provider-id>: unsupported document format: <mime> (part N)` | The provider does not take this document type. Claude takes PDF only. Convert the file before sending. |
-| `failed to convert message M: <provider-id>: the Gemini Interactions API does not accept document format <mime> (part N)` | Gemini sends the request to the Interactions API, which does not take this document type. Send a text file's contents as message text instead. |
+| `failed to convert message M: <provider-id>: the Gemini Interactions API does not accept document format <mime> (part N)` | Gemini sends a turn that takes the tool path (tools offered, or tool calls in the history) to the Interactions API when `api_mode` is `interactions`, and that API does not take this document type. Send a text file's contents as message text instead. |
 | `<provider-id>: provider does not support document inputs (part N)` | The provider takes no documents: OpenAI, Ollama and vLLM do not. Use Claude or Gemini. |
 | `file size N bytes exceeds maximum M bytes for <path>` | The file is over the 50 MB per-file limit the media loader applies. |
 | `media item limit exceeded: already loaded 20 items (maximum 20 per message; ...)` | The message carries more than 20 attachments the provider loads. Send them across several messages. |
