@@ -2269,7 +2269,7 @@ func (s DropStrategy) String() string
 String returns the string representation of the drop strategy.
 
 <a name="DuplexProviderStage"></a>
-## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L84-L325>)
+## type [DuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go#L84-L325>)
 
 DuplexProviderStage handles bidirectional streaming through a session. It forwards elements from input to the provider's session and forwards responses from the session to output.
 
@@ -2291,7 +2291,7 @@ type DuplexProviderStage struct {
 ```
 
 <a name="NewDuplexProviderStage"></a>
-### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L350-L353>)
+### func [NewDuplexProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L110>)
 
 ```go
 func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig) *DuplexProviderStage
@@ -2300,7 +2300,7 @@ func NewDuplexProviderStage(provider providers.StreamInputSupport, baseConfig *p
 NewDuplexProviderStage creates a new duplex provider stage. The session is created lazily when the first element arrives. Prefer NewDuplexProviderStageWithTurnState in production so the system prompt is sourced from the per\-Turn shared state.
 
 <a name="NewDuplexProviderStageWithEmitter"></a>
-### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L376-L380>)
+### func [NewDuplexProviderStageWithEmitter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L116>)
 
 ```go
 func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter) *DuplexProviderStage
@@ -2309,7 +2309,7 @@ func NewDuplexProviderStageWithEmitter(provider providers.StreamInputSupport, ba
 NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support. The stage emits audio.input and audio.output events through it for session recording.
 
 <a name="NewDuplexProviderStageWithTurnState"></a>
-### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L389-L394>)
+### func [NewDuplexProviderStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L123>)
 
 ```go
 func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, baseConfig *providers.StreamingInputConfig, emitter *events.Emitter, turnState *TurnState) *DuplexProviderStage
@@ -2318,7 +2318,7 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 NewDuplexProviderStageWithTurnState creates a new duplex provider stage that sources system\_prompt from the shared \*TurnState. The emitter remains optional.
 
 <a name="DuplexProviderStage.Process"></a>
-### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L420-L424>)
+### func \(\*DuplexProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go#L420-L424>)
 
 ```go
 func (s *DuplexProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -2333,7 +2333,7 @@ If no session is pre\-configured, the session is created lazily when the first e
 With tool execution \(SetToolExecution\), a tool call still running when the session ends is canceled and waited for up to the input grace period, and before output closes each tool call message it carries is followed by a result for each of its calls, but a call held for approval, which the caller answers.
 
 <a name="DuplexProviderStage.RunsToolCalls"></a>
-### func \(\*DuplexProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L119>)
+### func \(\*DuplexProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_tools.go#L119>)
 
 ```go
 func (s *DuplexProviderStage) RunsToolCalls() bool
@@ -2342,7 +2342,7 @@ func (s *DuplexProviderStage) RunsToolCalls() bool
 RunsToolCalls reports whether the stage runs the session's tool calls itself, which SetToolExecution with a registry turns on \(ToolCallRunner\).
 
 <a name="DuplexProviderStage.SetBlockedMessage"></a>
-### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L97>)
+### func \(\*DuplexProviderStage\) [SetBlockedMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go#L97>)
 
 ```go
 func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc)
@@ -2351,7 +2351,7 @@ func (s *DuplexProviderStage) SetBlockedMessage(fn BlockedMessageFunc)
 SetBlockedMessage sets the function that chooses the text a guardrail's block replaces a turn with, as ProviderConfig.BlockedMessage does for ProviderStage, so a blocked turn reads and sounds the same on both paths. The text it returns is shown, stored and spoken by the cue stage. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetCaller"></a>
-### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L88>)
+### func \(\*DuplexProviderStage\) [SetCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go#L88>)
 
 ```go
 func (s *DuplexProviderStage) SetCaller(caller types.Caller)
@@ -2360,7 +2360,7 @@ func (s *DuplexProviderStage) SetCaller(caller types.Caller)
 SetCaller sets who the conversation acts for, so each provider hook call and chunk interceptor call carries it \(ProviderRequest.Caller, ChunkRequest.Caller\), as ProviderStage's do through ProviderConfig.Caller. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetHookRegistry"></a>
-### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L71>)
+### func \(\*DuplexProviderStage\) [SetHookRegistry](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go#L71>)
 
 ```go
 func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
@@ -2369,7 +2369,7 @@ func (s *DuplexProviderStage) SetHookRegistry(r *hooks.Registry)
 SetHookRegistry installs the provider hooks \(guardrails\) the stage runs. A nil registry, the default, runs none. The registry is handed the stage's emitter, as ProviderStage does, so its guardrails report through it. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetPromptDeclarations"></a>
-### func \(\*DuplexProviderStage\) [SetPromptDeclarations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L80>)
+### func \(\*DuplexProviderStage\) [SetPromptDeclarations](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go#L80>)
 
 ```go
 func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.Prompt)
@@ -2378,7 +2378,7 @@ func (s *DuplexProviderStage) SetPromptDeclarations(decls map[string]*packspec.P
 SetPromptDeclarations sets the pack declarations of the prompts, keyed by task, so each hook call carries the declaration of the prompt the session runs \(ProviderRequest.Prompt\), as ProviderStage's do through ProviderConfig.PromptDeclarations. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetSessionObserver"></a>
-### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L342>)
+### func \(\*DuplexProviderStage\) [SetSessionObserver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go#L342>)
 
 ```go
 func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession))
@@ -2387,7 +2387,7 @@ func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSe
 SetSessionObserver registers a callback invoked once with the streaming session immediately after it is created. It is optional; nil means no observer. Used by the interactive console to wire barge\-in \(the session's out\-of\-band BargeIn\(\) channel\) to playback flushing.
 
 <a name="DuplexProviderStage.SetStreamHold"></a>
-### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_hooks.go#L1153>)
+### func \(\*DuplexProviderStage\) [SetStreamHold](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_hooks.go#L1155>)
 
 ```go
 func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)
@@ -2396,7 +2396,7 @@ func (s *DuplexProviderStage) SetStreamHold(cfg StreamHoldConfig)
 SetStreamHold sets how the stage holds a spoken reply for the output guardrails whose stream\_hold holds it \(StreamHoldConfig.Realtime\), and how segments are sized and judged. Must be called before the stage runs.
 
 <a name="DuplexProviderStage.SetToolExecution"></a>
-### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L96-L98>)
+### func \(\*DuplexProviderStage\) [SetToolExecution](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_tools.go#L96-L98>)
 
 ```go
 func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy *pipeline.ToolPolicy, cfg DuplexToolConfig, resolver WorkflowStateResolver)
@@ -2405,7 +2405,7 @@ func (s *DuplexProviderStage) SetToolExecution(registry *tools.Registry, policy 
 SetToolExecution makes the stage run the session's tool calls through the registry, under policy merged with the prompt's tool\_policy, recording executed calls and stamping workflow state through resolver \(nil for none\). A nil registry, the default, leaves tool calls to the host: they are forwarded downstream on the assistant message and nothing runs them here. Must be called before the stage runs.
 
 <a name="DuplexToolConfig"></a>
-## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_tools.go#L67-L88>)
+## type [DuplexToolConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_tools.go#L67-L88>)
 
 DuplexToolConfig is what a DuplexProviderStage's tool calls run with, as the matching ProviderConfig fields are for ProviderStage.
 
@@ -2659,7 +2659,7 @@ type ElementMetadata struct {
 ```
 
 <a name="EndInputter"></a>
-## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_duplex_provider_session.go#L60-L62>)
+## type [EndInputter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/stages_duplex_provider_session.go#L60-L62>)
 
 EndInputter is an optional interface for sessions that support explicit end\-of\-input signaling. This is primarily used by mock sessions to trigger responses after all audio has been sent.
 
@@ -4486,7 +4486,7 @@ func (c *PipelineConfig) WithPrioritizeElements(prioritize bool) *PipelineConfig
 WithPrioritizeElements sets whether stages read their input in priority order.
 
 <a name="PlayoutHoldStage"></a>
-## type [PlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L52-L55>)
+## type [PlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/playout_hold.go#L52-L55>)
 
 PlayoutHoldStage keeps a realtime reply out of the transcript until the caller has heard it. A realtime model sends a reply's audio faster than it plays, so the reply completes long before the caller has heard it, and a caller who barges in while it plays hears only part of it.
 
@@ -4506,7 +4506,7 @@ type PlayoutHoldStage struct {
 ```
 
 <a name="NewPlayoutHoldStage"></a>
-### func [NewPlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L58>)
+### func [NewPlayoutHoldStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L76>)
 
 ```go
 func NewPlayoutHoldStage() *PlayoutHoldStage
@@ -4515,7 +4515,7 @@ func NewPlayoutHoldStage() *PlayoutHoldStage
 NewPlayoutHoldStage creates a playout hold stage.
 
 <a name="PlayoutHoldStage.Process"></a>
-### func \(\*PlayoutHoldStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/playout_hold.go#L96>)
+### func \(\*PlayoutHoldStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/playout_hold.go#L96>)
 
 ```go
 func (s *PlayoutHoldStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4982,7 +4982,7 @@ func (r *RandomRouter) RegisterOutput(name string, output chan<- StreamElement)
 RegisterOutput registers an output channel with a name.
 
 <a name="RealtimeChainConfig"></a>
-## type [RealtimeChainConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L81-L124>)
+## type [RealtimeChainConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L82-L125>)
 
 RealtimeChainConfig is what a host varies in the realtime chain. The zero value builds the provider stage followed by the cue stage.
 
@@ -5070,7 +5070,7 @@ func (h RealtimeHold) Valid() bool
 Valid reports whether h is a RealtimeHold \("" is RealtimeHoldOff\).
 
 <a name="RealtimePacing"></a>
-## type [RealtimePacing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L63>)
+## type [RealtimePacing](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L64>)
 
 RealtimePacing selects the output audio pacing stage of the realtime chain.
 
@@ -5097,7 +5097,7 @@ const (
 ```
 
 <a name="RealtimeSlot"></a>
-## type [RealtimeSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L15>)
+## type [RealtimeSlot](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L16>)
 
 RealtimeSlot names a position in the realtime chain NewRealtimeChain builds. A host inserts its own stages after a slot \(RealtimeChainConfig.After\) and removes the stage in a slot \(RealtimeChainConfig.Drop\) by its name.
 
@@ -5746,7 +5746,7 @@ type Stage interface {
 ```
 
 <a name="NewDuplexCueStage"></a>
-### func [NewDuplexCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/cue_duplex.go#L59>)
+### func [NewDuplexCueStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L39>)
 
 ```go
 func NewDuplexCueStage(duplex *DuplexProviderStage, opts CueOptions) Stage
@@ -5759,7 +5759,7 @@ When duplex creates its session the stage learns the session's voice and output 
 While a clip renders, reply output waits behind it for at most 1.5s; past that the earcon plays in its place, and the clip is kept for the next cue. A cut \(barge\-in\) while it renders drops the cue. A session whose replies are not spoken gets no cue audio; one that does not report its output audio \(providers.OutputAudioReporter\) renders PCM16 at 24 kHz in the voice service's default voice.
 
 <a name="NewRealtimeChain"></a>
-### func [NewRealtimeChain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L162>)
+### func [NewRealtimeChain](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/realtime_chain.go#L163>)
 
 ```go
 func NewRealtimeChain(provider *DuplexProviderStage, cfg RealtimeChainConfig) ([]Stage, error)
@@ -6845,7 +6845,7 @@ type ToolCallRunner interface {
 ```
 
 <a name="TranscriptReorderStage"></a>
-## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L54-L87>)
+## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/transcript_reorder.go#L54-L87>)
 
 TranscriptReorderStage guarantees that, within a turn, the user's input transcript is emitted before that turn's assistant output, even when the provider delivers the transcript late \(e.g. OpenAI Realtime, whose Whisper transcription can land after the assistant reply, or even after the whole turn, has finished\).
 
@@ -6865,7 +6865,7 @@ type TranscriptReorderStage struct {
 ```
 
 <a name="NewTranscriptReorderStage"></a>
-### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L91>)
+### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L175>)
 
 ```go
 func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
@@ -6874,7 +6874,7 @@ func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
 NewTranscriptReorderStage creates a reorder stage with the given missing\-turn placeholder text \(empty to omit the user turn\) and the default hold timeout.
 
 <a name="NewTranscriptReorderStageWithTimeout"></a>
-### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L97>)
+### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L181>)
 
 ```go
 func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.Duration) *TranscriptReorderStage
@@ -6883,7 +6883,7 @@ func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.D
 NewTranscriptReorderStageWithTimeout is like NewTranscriptReorderStage but with an explicit hold timeout \(tests use a short value\).
 
 <a name="TranscriptReorderStage.Process"></a>
-### func \(\*TranscriptReorderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/transcript_reorder.go#L106-L110>)
+### func \(\*TranscriptReorderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/transcript_reorder.go#L106-L110>)
 
 ```go
 func (s *TranscriptReorderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error

@@ -598,3 +598,8 @@ func TestExecute_IdleResetFuncInContext(t *testing.T) {
 		t.Error("expected idle reset func to be present in context")
 	}
 }
+
+// idleProbeBound is how long a test waits for the idle timer to be reset. It
+// only limits how long a failing test takes: a passing one returns at the
+// first reset.
+const idleProbeBound = 2 * time.Second

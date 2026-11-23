@@ -1,0 +1,2333 @@
+package duplex
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
+	providerstage "github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/provider"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
+)
+
+const (
+	// Audio calculation constants
+	// 16kHz 16-bit mono = 32000 bytes/sec (16000 samples/sec * 2 bytes/sample)
+	audioBytesPerSecond16kHz = 32000.0
+	// msPerSecFloat is milliseconds per second for audio position calculations.
+	msPerSecFloat = 1000.0
+
+	// Timeout for sending partial responses when context is canceled
+	partialResponseSendTimeout = 500 * time.Millisecond
+
+	// Maximum characters for content preview in logs
+	contentPreviewMaxLen = 60
+
+	// Default timeout for waiting for final response after input closes
+	finalResponseTimeout = 30 * time.Second
+
+	// finalToolWaitLimit bounds how long a session whose input closed stays
+	// open for its tool rounds: the final-response wait is extended while a
+	// round is queued, running, or awaiting its reply, but never past this
+	// long after input closed, so a hung tool cannot hold the session open.
+	finalToolWaitLimit = 5 * time.Minute
+
+	// inputForwardingGracePeriod is how long Process waits for the input
+	// goroutine to exit once the response loop ends. A goroutine still running
+	// (in a slow input hook, say) closes output when it exits.
+	inputForwardingGracePeriod = 100 * time.Millisecond
+
+	// MIME type for PCM audio
+	mimeTypeAudioPCM = "audio/pcm"
+
+	// blockedTurnQueueSize bounds the input turns a guardrail blocked that wait
+	// for the response loop; a full queue holds back input forwarding.
+	blockedTurnQueueSize = 16
+)
+
+// EndInputter is an optional interface for sessions that support explicit end-of-input signaling.
+// This is primarily used by mock sessions to trigger responses after all audio has been sent.
+type EndInputter interface {
+	EndInput()
+}
+
+// DuplexProviderStage handles bidirectional streaming through a session.
+// It forwards elements from input to the provider's session and forwards
+// responses from the session to output.
+//
+// This stage is PROVIDER-AGNOSTIC. Provider-specific behaviors (interruptions,
+// reconnection, protocol quirks) are handled BY the provider internally.
+//
+// System Prompt Handling:
+// The first element received may contain a system prompt in metadata["system_prompt"].
+// This is sent to the session via SendSystemContext() before processing audio/text.
+//
+// Response Accumulation:
+// Streaming providers send text/audio responses in chunks. This stage accumulates
+// content across chunks and creates a Message on turn completion (FinishReason).
+//
+// Session Closure:
+// When the session closes unexpectedly, any accumulated content is emitted as a
+// partial response. The executor is responsible for session recreation if needed.
+//
+// This is a Bidirectional stage: input elements ⟷ session ⟷ output elements
+type DuplexProviderStage struct {
+	core.BaseStage
+	// Provider and config for lazy session creation
+	provider   providers.StreamInputSupport
+	baseConfig *providers.StreamingInputConfig
+
+	// turnState is the per-Turn shared state; SystemPrompt is sourced
+	// from TurnState.SystemPrompt at session-creation time. Nil-safe
+	// (the stage uses an empty system prompt when not wired).
+	turnState *core.TurnState
+
+	// Session created on first element with system_prompt
+	session          providers.StreamInputSession
+	systemPromptSent bool
+	// toolPartsWarned is set once the stage has warned that the session drops
+	// non-text tool result parts.
+	toolPartsWarned atomic.Bool
+
+	// Response accumulation for the current turn
+	// Reset when turn completes (FinishReason received)
+	accumulatedText            strings.Builder
+	accumulatedReasoning       strings.Builder         // reasoning/thinking text (kept off spoken content)
+	accumulatedOpaqueReasoning []types.OpaqueReasoning // provider round-trip reasoning tokens
+	accumulatedMedia           []byte
+	accumulatedToolCalls       []types.MessageToolCall
+
+	// transcriptMu guards inputTranscription, transcriptionCaptured and
+	// turnIDPopped: the input goroutine resets them when audio starts a new
+	// user turn (sendAudioElement) while the response goroutine reads and
+	// writes them.
+	transcriptMu sync.Mutex
+
+	// Input transcription for the current turn (what user said)
+	// Captured from provider's inputTranscription events (if supported)
+	inputTranscription strings.Builder
+
+	// Flag to track if we've already captured transcription for this turn
+	transcriptionCaptured bool
+
+	// late is the bookkeeping that places a final transcript arriving after
+	// its reply (stages_duplex_late_transcript.go). Response goroutine only,
+	// but for inputUserTurn.
+	late          lateTranscriptState
+	inputUserTurn atomic.Bool
+
+	// Flag to track if we've already popped turn_id for this turn
+	// This prevents double-popping when there are multiple EndOfStream events
+	// (e.g., tool call response + final response)
+	turnIDPopped bool
+
+	// Channel to signal that input forwarding is done and we're waiting for final response
+	inputDoneCh   chan struct{}
+	inputDoneOnce sync.Once
+
+	// Channel to signal that all responses have been received and we can skip finalResponseTimeout
+	// This is used by synchronous turn executors that wait for each response before proceeding
+	allResponsesReceivedCh   chan struct{}
+	allResponsesReceivedOnce sync.Once
+
+	// Turn ID queue for correlating transcription events with user messages
+	turnIDQueue []string
+	turnIDMu    sync.Mutex
+
+	// Audio timing tracking for debugging streaming gaps
+	audioStreamStart   time.Time
+	lastAudioChunkTime time.Time
+	audioChunkCount    int
+	audioBytesSent     int
+
+	// Track if we recently saw an interruption
+	// Used to detect "interrupted turn complete" (turnComplete with no content after interruption)
+	wasInterrupted bool
+
+	// costPlaced is set by chunkToElement when it puts the chunk's cost on the
+	// message it builds; carriedCost is cost no emitted message carries yet
+	// (stages_duplex_cost.go). Response goroutine only.
+	costPlaced  bool
+	carriedCost *types.CostInfo
+	// chunkGen is the generation of the chunk being handled; costReported is
+	// set once its cost is charged and on a provider call event. Response
+	// goroutine only.
+	chunkGen     int64
+	chunkCost    *types.CostInfo
+	costReported bool
+	// accGen is the generation whose output the accumulators hold; parked
+	// holds other generations' (stages_duplex_cost.go).
+	accGen int64
+	parked map[int64]*genAccumulation
+
+	// Turn latency tracking - when the current turn started
+	// Set when user input is received, used to calculate LatencyMs on turn complete.
+	// The input goroutine sets it and the response goroutine reads it, under
+	// turnStartMu (setTurnStart, turnLatencyMs).
+	turnStartTime time.Time
+	turnStartMu   sync.Mutex
+
+	// Event emitter for recording audio events (optional, for session recording)
+	emitter *events.Emitter
+
+	// onSession, when set, is called once with the streaming session right after
+	// it is created (lazily, on the first element). Consumers use it to reach the
+	// live session (e.g. its BargeIn() channel), which only exists once created.
+	// Set via SetSessionObserver.
+	onSession func(providers.StreamInputSession)
+
+	// cues is the clip bank of the cue stage after this stage
+	// (NewDuplexCueStage), told of the session when it is created; nil when the
+	// chain has none.
+	cues *cue.Bank
+
+	// hookRegistry holds the provider hooks (guardrails) the stage runs; nil
+	// runs none. Set via SetHookRegistry. See stages_duplex_provider_hooks.go.
+	hookRegistry *hooks.Registry
+	// promptDeclarations maps prompt tasks to their pack declarations, for the
+	// hooks' ProviderRequest.Prompt (see SetPromptDeclarations).
+	promptDeclarations map[string]*packspec.Prompt
+	// caller is who the conversation acts for, for the hooks'
+	// ProviderRequest.Caller and ChunkRequest.Caller (see SetCaller).
+	caller types.Caller
+	// blockedMessage chooses a blocked turn's text (see SetBlockedMessage).
+	blockedMessage providerstage.BlockedMessageFunc
+	// history is the conversation the hooks see, kept only while hooks run.
+	history duplexHistory
+	// callers places the session's replies against the caller's turns, for
+	// the turn index the hooks and the turn evals report.
+	callers callerTurns
+	// typedTurn is the caller turn of the typed input being handled (input
+	// goroutine only).
+	typedTurn int
+	// turnGuard is the current turn's guardrail state (response goroutine only).
+	turnGuard duplexTurnGuard
+	// textFromDeltas is set once the current reply's text has arrived as
+	// deltas (normalizeTextDeltaChunk); response goroutine only.
+	textFromDeltas bool
+	// cutPending is set when a guardrail blocked the reply and it is still to
+	// be cut (cutReply), and cutGen is that reply's generation; blockedLive
+	// is the blocked turn's text still to go out as live output. Response
+	// goroutine only.
+	cutPending  bool
+	cutGen      int64
+	blockedLive *string
+	// forgetPending is set when an input guardrail blocked a spoken turn and
+	// the session is still to be asked to forget it (providers.TurnForgetter):
+	// forgetInput is the session's ID for that input. Response goroutine only.
+	forgetPending bool
+	forgetInput   string
+	// transcriptItemID is the session's ID for the input the buffered
+	// transcription belongs to (providers.InputItemIDKey), taken when the
+	// buffered user turn is emitted. Guarded by transcriptMu.
+	transcriptItemID string
+	// blockedLiveSpoken is set when blockedLive is a message to speak (a cue,
+	// cutReply). Response goroutine only.
+	blockedLiveSpoken bool
+	// blockedLiveReplaces is set when blockedLive replaces the text the turn
+	// already streamed rather than following it (StreamElement
+	// Meta.ReplacesText). Response goroutine only.
+	blockedLiveReplaces bool
+	// liveHeld is the turn's live text the streaming guardrails have not
+	// cleared yet, and liveHolds each chunk interceptor's hold on the end of
+	// the turn's text from the last chunk they judged (holdLiveText).
+	// Response goroutine only.
+	liveHeld  providerstage.HoldController
+	liveHolds []int
+	// streamHold is how a reply is held for the guardrails whose stream_hold
+	// holds it (SetStreamHold), and replyHold the hold on the reply streaming
+	// now, nil when nothing holds it (stages_duplex_reply_hold.go). Response
+	// goroutine only.
+	streamHold providerstage.StreamHoldConfig
+	replyHold  *duplexReplyHold
+	// playoutHeld is the session, when it counts reply audio toward its
+	// playout estimate only as the stage releases it (holdPlayout).
+	playoutHeld providers.PlayoutHolder
+	// lastReplyGen is the latest generation of the session's replies the
+	// stage has handled, and chunkIsReply whether the chunk being handled is
+	// one of a reply's (not the caller's transcript). Response goroutine only.
+	lastReplyGen int64
+	chunkIsReply bool
+	// endedTurnCut is set when the last assistant turn that ended was cut (a
+	// guardrail's cut, a barge-in, or ended early): an input guardrail that
+	// blocks its late transcript does not cut it again, which would cut the
+	// guardrail message playing in its place. Response goroutine only.
+	endedTurnCut bool
+	// pendingVerdicts are the input guardrails' verdicts on spoken turns
+	// still out, oldest first (stages_duplex_input_verdict.go); response
+	// goroutine only. inputVerdictInline is defaultInputVerdictInline; tests
+	// change it.
+	pendingVerdicts    []*spokenVerdict
+	inputVerdictInline time.Duration
+	// replyOut is set once anything of the reply streaming now has gone out
+	// (replyBearing), until its turn ends or a barge-in cuts it; replyOutGen
+	// is its generation. Response goroutine only.
+	replyOut    bool
+	replyOutGen int64
+	// pendingNotes are the guardrail blocks the model is still to be told of
+	// (stages_duplex_block_note.go). Response goroutine only.
+	pendingNotes []blockNote
+	// notedGens are the reply generations whose turn's note has gone.
+	notedGens []int64
+	// blockedTurns carries input turns a guardrail blocked from the input
+	// goroutine to the response loop, which emits them between assistant turns and
+	// only then records them (history, turn count, firing), in emission order.
+	blockedTurns chan *duplexBlockedTurn
+	// pendingTypedUser is the typed user turn of the input element being
+	// handled, until it is queued with a blocked turn or on its own. Input
+	// goroutine only.
+	pendingTypedUser *types.Message
+	// userTurnDue is set when the input element being handled carries a user
+	// turn: its tool turn begins once the input guardrails let it through, so
+	// a blocked turn opens no provider call. Input goroutine only.
+	userTurnDue bool
+	// tools runs the session's tool calls (SetToolExecution); nil forwards
+	// them downstream for the host to run. See stages_duplex_tools.go.
+	tools *duplexTools
+	// calls tracks the session's provider calls, with or without tool
+	// execution (stages_duplex_call_tracker.go).
+	calls *callTracker
+	// exchange keeps each call message the stage runs followed by its results
+	// in the output (stages_duplex_tool_exchange.go).
+	exchange toolExchangeOrder
+	// finalWait and toolWaitLimit are finalResponseTimeout and
+	// finalToolWaitLimit; tests shorten them.
+	finalWait     time.Duration
+	toolWaitLimit time.Duration
+	// inputGracePeriod is inputForwardingGracePeriod; tests shorten it. Zero
+	// means the default (see inputGrace).
+	inputGracePeriod time.Duration
+	// usageWait is how long a provider call's completion with no cost waits
+	// for the call's usage (completionUsageWait); tests shorten or lengthen
+	// it. Zero means the default (see completionWait).
+	usageWait time.Duration
+	// chunkHandled, when set, runs once each response chunk has been handled:
+	// tests wait on it for the stage to have handled what they emitted.
+	chunkHandled func()
+	// stopOpenTurnHold ends the idle hold of the provider turn in progress
+	// (see trackOpenTurn); nil when no turn is open. Response loop only.
+	stopOpenTurnHold func()
+	// openTurnMaxHold bounds that hold; zero means maxOpenTurnIdleHold.
+	// idleHoldTicker starts its heartbeat ticker; nil means a real one.
+	// Tests set both.
+	openTurnMaxHold time.Duration
+	idleHoldTicker  func(time.Duration) (<-chan time.Time, func())
+}
+
+// inputGrace is how long Process waits for the input goroutine to exit once
+// the response loop ends: inputGracePeriod, or inputForwardingGracePeriod when
+// it is unset, so a stage built without the constructor does not abandon the
+// goroutine at once.
+func (s *DuplexProviderStage) inputGrace() time.Duration {
+	if s.inputGracePeriod == 0 {
+		return inputForwardingGracePeriod
+	}
+	return s.inputGracePeriod
+}
+
+// SetSessionObserver registers a callback invoked once with the streaming
+// session immediately after it is created. It is optional; nil means no
+// observer. Used by the interactive console to wire barge-in (the session's
+// out-of-band BargeIn() channel) to playback flushing.
+func (s *DuplexProviderStage) SetSessionObserver(fn func(providers.StreamInputSession)) {
+	s.onSession = fn
+}
+
+// NewDuplexProviderStage creates a new duplex provider stage. The session
+// is created lazily when the first element arrives. Prefer
+// NewDuplexProviderStageWithTurnState in production so the system prompt
+// is sourced from the per-Turn shared state.
+func NewDuplexProviderStage(
+	provider providers.StreamInputSupport,
+	baseConfig *providers.StreamingInputConfig,
+) *DuplexProviderStage {
+	return &DuplexProviderStage{
+		BaseStage:              core.NewBaseStage("duplex_provider", core.StageTypeBidirectional),
+		inputDoneCh:            make(chan struct{}),
+		allResponsesReceivedCh: make(chan struct{}),
+		provider:               provider,
+		baseConfig:             baseConfig,
+		blockedTurns:           make(chan *duplexBlockedTurn, blockedTurnQueueSize),
+		systemPromptSent:       false,
+		finalWait:              finalResponseTimeout,
+		toolWaitLimit:          finalToolWaitLimit,
+		inputGracePeriod:       inputForwardingGracePeriod,
+		inputVerdictInline:     defaultInputVerdictInline,
+		// The session's completed turns are counted on the turn state, so a
+		// stage always has one; an empty one allows every tool and holds no
+		// system prompt, as no turn state did.
+		turnState: core.NewTurnState(),
+		calls:     &callTracker{},
+	}
+}
+
+// NewDuplexProviderStageWithEmitter creates a new duplex provider stage with event emission support.
+// The stage emits audio.input and audio.output events through it for session recording.
+func NewDuplexProviderStageWithEmitter(
+	provider providers.StreamInputSupport,
+	baseConfig *providers.StreamingInputConfig,
+	emitter *events.Emitter,
+) *DuplexProviderStage {
+	s := NewDuplexProviderStage(provider, baseConfig)
+	s.emitter = emitter
+	return s
+}
+
+// NewDuplexProviderStageWithTurnState creates a new duplex provider stage
+// that sources system_prompt from the shared *TurnState. The emitter
+// remains optional.
+func NewDuplexProviderStageWithTurnState(
+	provider providers.StreamInputSupport,
+	baseConfig *providers.StreamingInputConfig,
+	emitter *events.Emitter,
+	turnState *core.TurnState,
+) *DuplexProviderStage {
+	s := NewDuplexProviderStage(provider, baseConfig)
+	s.emitter = emitter
+	if turnState != nil {
+		s.turnState = turnState
+	}
+	return s
+}
+
+// Process implements the Stage interface.
+// Handles bidirectional streaming between input channel and WebSocket session.
+//
+// For duplex streaming (Gemini Live API), this runs until:
+// - Context is canceled (user stops the session)
+// - Session response channel is closed (server ends session)
+// - Input channel is closed (upstream ends)
+//
+// If no session is pre-configured, the session is created lazily when the
+// first element arrives. The system_prompt from TurnState (when wired) is
+// used as the SystemInstruction for session creation.
+//
+// With tool execution (SetToolExecution), a tool call still running when the
+// session ends is canceled and waited for up to the input grace period, and
+// before output closes each tool
+// call message it carries is followed by a result for each of its calls, but
+// a call held for approval, which the caller answers.
+func (s *DuplexProviderStage) Process(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+) error {
+	// output is closed on return, except when the input goroutine outlives the
+	// grace period below: it can still send on output (a forwarded message, an
+	// input hook's error), so output is then closed once it exits.
+	closeOutput := true
+	defer func() {
+		if closeOutput {
+			close(output)
+		}
+	}()
+
+	// Create session lazily if not pre-configured
+	if s.session == nil {
+		buffered, err := s.createSessionLazily(ctx, input, output)
+		if err != nil {
+			return err
+		}
+		// The input buffered during creation, then the rest, read until
+		// Process returns: the caller may keep its input open after.
+		forwardCtx, stopForwarding := context.WithCancel(ctx)
+		defer stopForwarding()
+		input = s.replayAndMerge(forwardCtx, buffered, input)
+	}
+	// Close the session (created above or pre-configured) on exit, sending
+	// no tool response after it.
+	defer func() {
+		s.tools.markClosed()
+		_ = s.session.Close()
+	}()
+	s.exchange.history = &s.history
+	s.startToolWorker(ctx)
+
+	logger.Debug("DuplexProviderStage: starting bidirectional streaming")
+
+	// Create cancellable context for input forwarding
+	// This allows us to stop input forwarding when response forwarding ends
+	inputCtx, cancelInput := context.WithCancel(ctx)
+	defer cancelInput()
+
+	// Channel to signal when input forwarding is done
+	inputDone := make(chan error, 1)
+
+	// Start input forwarding goroutine
+	// Pass output channel so Message elements can be forwarded for state store capture
+	go s.forwardInputElements(inputCtx, input, output, inputDone)
+
+	// Forward responses from session to output (blocks until complete)
+	responseErr := s.forwardResponseElements(ctx, output)
+
+	// Nothing reads the session's replies from here on: a round finishing now
+	// is recorded, not sent.
+	s.tools.markClosed()
+	// Cancel input forwarding context to signal the goroutine to stop
+	cancelInput()
+
+	// Wait for input forwarding to complete with a short grace period
+	// The goroutine should exit quickly since we canceled its context
+	select {
+	case inputErr := <-inputDone:
+		s.dropBlockedTurns()
+		s.finishToolRounds(ctx, output)
+		// Don't override response error with context.Canceled from our cancellation
+		if inputErr != nil && !errors.Is(inputErr, context.Canceled) && responseErr == nil {
+			responseErr = inputErr
+		}
+	case <-time.After(s.inputGrace()):
+		// The goroutine is still running (in a slow input hook, say). It
+		// exits on the canceled context; output closes when it does.
+		logger.Debug("DuplexProviderStage: input forwarding still running; closing output when it exits")
+		closeOutput = false
+		go func() {
+			<-inputDone
+			// The response loop is gone: a turn the hook blocked after it
+			// exited is never emitted, but its firing is still reported.
+			s.dropBlockedTurns()
+			s.finishToolRounds(ctx, output)
+			close(output)
+		}()
+	}
+
+	return responseErr
+}
+
+// createSessionLazily waits for the first input element, creates the session
+// with the TurnState system prompt as its SystemInstruction, and returns the
+// elements it read from input meanwhile, to be handled before the rest of
+// input. On success s.session is set and the caller owns closing it.
+func (s *DuplexProviderStage) createSessionLazily(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+) ([]core.StreamElement, error) {
+	if s.provider == nil {
+		return nil, errors.New("duplex provider stage: no provider or session configured")
+	}
+
+	// Wait for first element to get system_prompt from TurnState. A resumed
+	// conversation's history arrives first: it is held and given to the new
+	// session (seedSessionHistory), and the session is created on the first
+	// element of the conversation's own input.
+	prior, held, firstElem, ok := collectLeadingHistory(input)
+	if !ok && len(held) == 0 {
+		return nil, errors.New("duplex provider stage: input channel closed before receiving first element")
+	}
+	// The session goes on from the caller turns the conversation holds.
+	s.callers.start(resumedCallerTurns(prior, s.turnState.TurnIndex()))
+
+	systemPrompt := ""
+	if s.turnState != nil {
+		systemPrompt = s.turnState.SystemPrompt
+	}
+
+	// Create session config with system instruction and the tool offer
+	sessionConfig := &providers.StreamingInputConfig{}
+	if s.baseConfig != nil {
+		*sessionConfig = *s.baseConfig
+	}
+	sessionConfig.SystemInstruction = systemPrompt
+	s.initialSessionTools(sessionConfig)
+
+	logger.Debug("DuplexProviderStage: creating session with system instruction",
+		"system_prompt_length", len(systemPrompt))
+
+	// Buffer elements during session creation to avoid losing data
+	// when upstream stages close their output channels before session connects.
+	// This is critical for providers with slow session creation (e.g., OpenAI WebSocket ~600ms).
+	//
+	// We buffer until we see EndOfStream (which marks end of first turn input),
+	// or until session creation completes (for fast providers like mocks).
+	// Subsequent turn elements will be read directly by forwardInputElements.
+	// Bounded: the drain goroutine below reads the input channel directly,
+	// which removes the pipeline's backpressure, so an unpaced producer would
+	// otherwise accumulate without limit for as long as session creation takes.
+	buffer := preSessionBufferOf(held, firstElem, ok)
+	bufferMu := &sync.Mutex{}
+	drainDone := make(chan struct{})
+	sessionCreated := make(chan struct{})
+
+	// If the first element already has EndOfStream, or input closed with only
+	// history, skip buffering entirely. This is common in tests and when
+	// there's only one element to send.
+	if !ok || firstElem.EndOfStream {
+		logger.Debug("DuplexProviderStage: first element has EndOfStream, skipping buffer drain")
+		close(drainDone)
+	} else {
+		go bufferPreSessionInput(ctx, input, buffer, bufferMu, sessionCreated, drainDone)
+	}
+
+	// Create the session (may take several hundred milliseconds for WebSocket connection)
+	var err error
+	s.session, err = s.provider.CreateStreamSession(ctx, sessionConfig)
+	if err != nil {
+		// Release the drain goroutine — it otherwise waits for EndOfStream or
+		// input close, withholding this error until the caller hangs up — and
+		// wait for it to complete before returning.
+		close(sessionCreated)
+		<-drainDone
+		// Report it downstream too, as provider chunk errors are: the
+		// pipeline only logs a stage's returned error, so without this
+		// element the consumer sees its output close with no reason.
+		createErr := fmt.Errorf("duplex provider stage: failed to create session: %w", err)
+		select {
+		case output <- core.NewErrorElement(createErr):
+		case <-ctx.Done():
+		}
+		return nil, createErr
+	}
+	logger.Debug("DuplexProviderStage: session created")
+	s.startCues(ctx)
+	s.holdPlayout()
+	// Process registers the session's Close only once this returns. Until
+	// then a panic (in onSession, say) would leak a live provider session, so
+	// close it on the way out, as the inline defer used to.
+	defer func() {
+		if r := recover(); r != nil {
+			_ = s.session.Close()
+			panic(r)
+		}
+	}()
+	s.systemPromptSent = true // System instruction sent at session creation
+	if err := s.seedSessionHistory(ctx, prior); err != nil {
+		close(sessionCreated)
+		<-drainDone
+		return nil, s.failSeededSession(ctx, err, output)
+	}
+	s.seedToolSpend(prior)
+	if s.onSession != nil {
+		s.onSession(s.session)
+	}
+
+	// Signal drain goroutine that session is ready - it can stop buffering
+	close(sessionCreated)
+
+	// Wait for buffering to complete (stops at EndOfStream or sessionCreated)
+	<-drainDone
+	bufferMu.Lock()
+	numBuffered := buffer.len()
+	bufferMu.Unlock()
+	logger.Debug("DuplexProviderStage: replaying buffered elements",
+		"count", numBuffered)
+
+	return buffer.elements(), nil
+}
+
+// preSessionBufferOf starts the pre-session buffer with the held history
+// elements and, when input yielded one, the first element of the
+// conversation's own input.
+func preSessionBufferOf(held []core.StreamElement, first core.StreamElement, haveFirst bool) *preSessionBuffer {
+	buffer := newPreSessionBuffer(defaultPreSessionBufferBytes)
+	for i := range held {
+		buffer.add(held[i])
+	}
+	if haveFirst {
+		buffer.add(first)
+	}
+	return buffer
+}
+
+// failSeededSession closes a session that could not be given the history and
+// reports err downstream, as a session-creation error is.
+func (s *DuplexProviderStage) failSeededSession(
+	ctx context.Context, err error, output chan<- core.StreamElement,
+) error {
+	_ = s.session.Close()
+	select {
+	case output <- core.NewErrorElement(err):
+	case <-ctx.Done():
+	}
+	return err
+}
+
+// collectLeadingHistory reads input until its first element that is not a
+// history message. It returns the history messages, their elements (to be
+// forwarded as before), that first element, and whether input yielded one
+// before closing.
+func collectLeadingHistory(
+	input <-chan core.StreamElement,
+) (prior []types.Message, held []core.StreamElement, first core.StreamElement, ok bool) {
+	for {
+		first, ok = <-input
+		if !ok || !first.Meta.FromHistory || first.Message == nil {
+			return prior, held, first, ok
+		}
+		prior = append(prior, *first.Message)
+		held = append(held, first)
+	}
+}
+
+// seedSessionHistory gives a new session the conversation's history, so a
+// resumed conversation continues with memory. A session that cannot take it
+// is an error rather than a silent fresh start.
+func (s *DuplexProviderStage) seedSessionHistory(ctx context.Context, prior []types.Message) error {
+	if len(providers.HistoryTurns(prior)) == 0 {
+		return nil
+	}
+	seeder, ok := s.session.(providers.StreamHistorySession)
+	if !ok {
+		return fmt.Errorf("duplex provider stage: the %T session cannot take the conversation's "+
+			"%d prior messages, so it would start without them", s.session, len(prior))
+	}
+	if err := seeder.SeedHistory(ctx, prior); err != nil {
+		return fmt.Errorf("duplex provider stage: seeding the session with the conversation's history: %w", err)
+	}
+	return nil
+}
+
+// bufferPreSessionInput is the drain goroutine run while the session is being
+// created: it buffers input elements until the session is ready, input
+// closes, an EndOfStream arrives (the first turn's input is complete), or ctx
+// is canceled. It closes drainDone when it exits.
+func bufferPreSessionInput(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	buffer *preSessionBuffer,
+	bufferMu *sync.Mutex,
+	sessionCreated <-chan struct{},
+	drainDone chan<- struct{},
+) {
+	logger.Debug("DuplexProviderStage: drain goroutine started")
+	defer close(drainDone)
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Debug("DuplexProviderStage: drain goroutine canceled by context")
+			return
+		case <-sessionCreated:
+			// Session is ready - stop buffering and let forwardInputElements handle the rest
+			bufferMu.Lock()
+			logger.Debug("DuplexProviderStage: session created, stopping buffer",
+				"bufferedCount", buffer.len())
+			bufferMu.Unlock()
+			return
+		case elem, ok := <-input:
+			if !ok {
+				bufferMu.Lock()
+				logger.Debug("DuplexProviderStage: input channel closed during buffering",
+					"bufferedCount", buffer.len())
+				bufferMu.Unlock()
+				return
+			}
+			// Stop buffering on EndOfStream - the first turn's input is complete
+			if bufferElement(buffer, bufferMu, elem) {
+				logger.Debug("DuplexProviderStage: EndOfStream received, stopping buffer")
+				return
+			}
+		}
+	}
+}
+
+// bufferElement adds elem to the pre-session buffer under bufferMu and
+// reports whether it was an EndOfStream.
+func bufferElement(buffer *preSessionBuffer, bufferMu *sync.Mutex, elem core.StreamElement) bool {
+	bufferMu.Lock()
+	defer bufferMu.Unlock()
+	buffer.add(elem)
+	logger.Debug("DuplexProviderStage: buffered element",
+		"hasAudio", elem.Audio != nil,
+		"hasText", elem.Text != nil,
+		"endOfStream", elem.EndOfStream,
+		"bufferedCount", buffer.len(),
+		"bufferedAudioBytes", buffer.bytes())
+	return elem.EndOfStream
+}
+
+// forwardInputElements forwards elements from input channel to session.
+// It also sends Message elements to the output channel for state store capture.
+//
+// When the input channel closes, this goroutine signals that input is done but does NOT
+// close the session. This allows the response goroutine to wait for the final response
+// with a timeout. The session is closed by Process() after forwardResponseElements completes.
+func (s *DuplexProviderStage) forwardInputElements(
+	ctx context.Context,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
+	done chan error,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			done <- ctx.Err()
+			return
+
+		case elem, ok := <-input:
+			if !ok {
+				// Signal that input is done - we may be waiting for final response
+				// Don't close session here - let forwardResponseElements wait with timeout
+				//
+				// IMPORTANT — debugging "long delay between user-turn end
+				// and provider's turnComplete signal" with provider-native
+				// (ASM) turn detection:
+				//
+				// Do NOT add a session.CompleteTurn() call here when the
+				// scenario uses turn_detection.mode = "asm". CompleteTurn
+				// is the *client-side* turn-end signal, used only for
+				// VAD/manual turn-control mode. In ASM mode the provider
+				// (e.g. Gemini) decides turn boundaries from the audio
+				// stream content itself.
+				//
+				// What ASM expects: a continuous audio stream (silence
+				// inclusive). It detects end-of-turn when it observes
+				// silence *in the audio*. If we stop sending audio
+				// packets entirely after the user utterance, ASM has no
+				// audio to apply VAD to and falls back to a wall-clock
+				// timeout (~6s observed empirically with Gemini).
+				//
+				// The fix for that delay, if you ever need to chase it,
+				// is upstream — keep the audio stream alive with a tail
+				// of silent packets after the user utterance ends, long
+				// enough for ASM to detect end-of-turn from content. It
+				// is NOT a CompleteTurn call here. See also
+				// runtime/providers/gemini/stream_session_integration.go
+				// (CompleteTurn doc) for the same warning.
+				logger.Debug("DuplexProviderStage: input channel closed, signaling input done")
+				s.onInputClosed(ctx, output, done)
+				return
+			}
+
+			if s.handleInputElement(ctx, &elem, output, done) {
+				return
+			}
+
+		case res := <-s.toolRoundResults():
+			if err := s.deliverToolRound(ctx, res, output); err != nil {
+				done <- err
+				return
+			}
+		}
+	}
+}
+
+// onInputClosed signals that input is done. With tool execution the
+// goroutine stays to deliver the session's tool rounds until ctx ends.
+func (s *DuplexProviderStage) onInputClosed(ctx context.Context, output chan<- core.StreamElement, done chan error) {
+	if s.tools != nil {
+		s.serveToolRoundsAfterInput(ctx, output, done)
+		return
+	}
+	s.signalInputDone(done)
+}
+
+// handleInputElement processes one input element for forwardInputElements and
+// reports whether forwarding should stop (a result has then been sent on done).
+func (s *DuplexProviderStage) handleInputElement(
+	ctx context.Context, elem *core.StreamElement, output chan<- core.StreamElement, done chan error,
+) bool {
+	// Inbound audio is activity: reset the pipeline idle timer so a live
+	// conversation is not killed by the 30s idle timeout while the user is
+	// speaking. Without this every streaming voice session dies at ~30s.
+	core.ResetIdleFromContext(ctx)
+
+	// Check for "all responses received" signal from executor.
+	// Otherwise it is an executor mid-stream signal; keep forwarding.
+	if elem.Meta.AllResponsesReceived {
+		return s.handleAllResponsesReceived(elem, done)
+	}
+	if isCueOnly(elem) { // for a cue stage downstream (cue.CueStage), not the session
+		if err := core.SendStreamElement(ctx, *elem, output); err != nil {
+			done <- err
+			return true
+		}
+		return false
+	}
+
+	s.callers.start(s.turnState.TurnIndex())
+	s.userTurnDue = false
+	if err := s.forwardInputMessages(ctx, elem, output); err != nil {
+		done <- err
+		return true
+	}
+	s.takeTextInputAsUserTurn(elem)
+	if sessionBoundText(elem) != "" {
+		// Typed input is a caller turn of its own, blocked or not.
+		s.typedTurn = s.callers.typed()
+	}
+
+	// Input guardrails gate text before it reaches the session. A blocked
+	// turn carries the user's turn with it, and opens no provider call.
+	if handled, err := s.guardInputText(ctx, elem); handled {
+		s.pendingTypedUser = nil
+		s.userTurnDue = false
+		if err != nil { // ctx ended while the turn was being blocked
+			done <- err
+			return true
+		}
+		return false
+	}
+	if s.userTurnDue {
+		s.userTurnDue = false
+		s.beginToolUserTurn(ctx)
+	}
+	if err := s.queueTypedUserTurn(ctx); err != nil {
+		done <- err
+		return true
+	}
+
+	s.sendElementToSession(ctx, elem)
+	return false
+}
+
+// signalInputDone marks input as finished (once) and reports a clean exit on
+// done.
+func (s *DuplexProviderStage) signalInputDone(done chan error) {
+	s.markInputDone()
+	done <- nil
+}
+
+// markInputDone marks input as finished, once.
+func (s *DuplexProviderStage) markInputDone() {
+	s.inputDoneOnce.Do(func() {
+		close(s.inputDoneCh)
+	})
+}
+
+// handleAllResponsesReceived handles the executor's "all responses received"
+// signal. This tells us that all expected responses have been received
+// synchronously and we can skip the finalResponseTimeout when input closes.
+// It reports whether input forwarding should stop.
+func (s *DuplexProviderStage) handleAllResponsesReceived(elem *core.StreamElement, done chan error) bool {
+	logger.Debug("DuplexProviderStage: all responses received signal, will skip final timeout")
+	s.allResponsesReceivedOnce.Do(func() {
+		close(s.allResponsesReceivedCh)
+	})
+	// A graceful drain (Close) sends this on an EndOfStream element to
+	// end input AND close the session immediately — otherwise draining a
+	// live streaming session blocks the full finalResponseTimeout (~30s),
+	// because the provider's response channel never closes on its own. A
+	// plain end-of-turn EndOfStream (with input payload) does NOT set this
+	// flag, so it still waits briefly for the turn's response.
+	if !elem.EndOfStream {
+		return false
+	}
+	logger.Debug("DuplexProviderStage: drain signal; ending input for prompt close")
+	s.signalInputDone(done)
+	return true
+}
+
+// forwardInputMessages forwards an input element's tool result messages and
+// its Message to output for state store capture. Returns ctx.Err() when
+// canceled mid-forward.
+func (s *DuplexProviderStage) forwardInputMessages(
+	ctx context.Context, elem *core.StreamElement, output chan<- core.StreamElement,
+) error {
+	// Check for tool result messages to forward to output for state store capture.
+	// These are created by the executor after executing tools requested by the model.
+	if toolMsgs := elem.Meta.ToolResultMessages; len(toolMsgs) > 0 {
+		if err := s.forwardToolResultMessages(ctx, toolMsgs, output); err != nil {
+			return err
+		}
+		for i := range toolMsgs {
+			s.recordHistory(&toolMsgs[i])
+		}
+		// Continue to process the element (may also have tool responses for provider)
+	}
+
+	// Forward Message elements to output for state store capture
+	if elem.Message == nil {
+		return nil
+	}
+	logger.Debug("DuplexProviderStage: forwarding user message to output", "role", elem.Message.Role)
+	s.trackInputTurn(elem)
+	s.recordHistory(elem.Message)
+	return s.emit(ctx, *elem, output)
+}
+
+// TextInputTurnSource is the StreamElement.Source of the element that carries
+// a realtime session's typed user turn (see takeTextInputAsUserTurn).
+// The element is for the stages that persist and record the conversation; the
+// SDK does not pass it on to the caller, who sent the text.
+const TextInputTurnSource = "duplex_text_input"
+
+// takeTextInputAsUserTurn makes bare text bound for the session (SendText in a
+// realtime session) a user turn of the conversation. Audio input becomes one
+// when the provider reports its transcription; text has none, so without this
+// the user's typed turns never reached the history, the state store or a
+// recording, and a transcript held only the assistant's replies.
+//
+// The turn enters the hooks' history now, in the order the user sent it, and
+// the input element then carries it, which tells the input guardrails it is
+// already there. Its element is emitted by the response loop, between
+// assistant turns (see queueTypedUserTurn), so text typed while a reply is
+// streaming is saved and recorded after that reply, not inside it. Its tool
+// turn begins once the input guardrails let it through (userTurnDue). Input
+// goroutine only.
+func (s *DuplexProviderStage) takeTextInputAsUserTurn(elem *core.StreamElement) {
+	s.pendingTypedUser = nil
+	if elem.Message != nil {
+		return
+	}
+	text := sessionBoundText(elem)
+	if text == "" {
+		return
+	}
+	user := &types.Message{Role: core.RoleUser, Content: text, Timestamp: time.Now()}
+	s.setTurnStart(time.Now())
+	s.userTurnDue = true
+	s.inputUserTurn.Store(true)
+	s.recordHistory(user)
+	elem.Message = user
+	s.pendingTypedUser = user
+}
+
+// queueTypedUserTurn queues the typed user turn takeTextInputAsUserTurn took,
+// if any, for the response loop to emit. It shares the blocked-turn queue, so
+// a user turn and a blocked turn keep the order they were sent in.
+func (s *DuplexProviderStage) queueTypedUserTurn(ctx context.Context) error {
+	user := s.pendingTypedUser
+	s.pendingTypedUser = nil
+	if user == nil {
+		return nil
+	}
+	select {
+	case s.blockedTurns <- &duplexBlockedTurn{user: user, userOnly: true}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// emitTypedUserTurn emits a typed user turn's Message on its own element,
+// tagged TextInputTurnSource, so it is not presented downstream as model
+// output.
+func (s *DuplexProviderStage) emitTypedUserTurn(
+	ctx context.Context, user *types.Message, output chan<- core.StreamElement,
+) error {
+	return s.emit(ctx, core.StreamElement{Message: user, Timestamp: core.TimeNow(), Source: TextInputTurnSource}, output)
+}
+
+// forwardToolResultMessages sends each tool result message to output.
+func (s *DuplexProviderStage) forwardToolResultMessages(
+	ctx context.Context, toolMsgs []types.Message, output chan<- core.StreamElement,
+) error {
+	logger.Debug("DuplexProviderStage: forwarding tool result messages to output",
+		"count", len(toolMsgs))
+	for i := range toolMsgs {
+		if err := s.emit(ctx, core.StreamElement{Message: &toolMsgs[i]}, output); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// trackInputTurn records the turn start time (for latency calculation on user
+// messages), marks a user turn due to begin its tool turn (userTurnDue), and
+// queues the element's turn_id for correlating transcription events.
+func (s *DuplexProviderStage) trackInputTurn(elem *core.StreamElement) {
+	if elem.Message.Role == core.RoleUser {
+		now := time.Now()
+		s.setTurnStart(now)
+		s.userTurnDue = true
+		s.inputUserTurn.Store(true)
+		logger.Debug("DuplexProviderStage: started turn timing",
+			"turnStartTime", now.Format(time.RFC3339Nano))
+	}
+	if elem.Meta.TurnID != nil && *elem.Meta.TurnID != "" {
+		turnID := *elem.Meta.TurnID
+		s.turnIDMu.Lock()
+		s.turnIDQueue = append(s.turnIDQueue, turnID)
+		logger.Debug("DuplexProviderStage: pushed turn ID to queue",
+			"turn_id", turnID, "queueLen", len(s.turnIDQueue))
+		s.turnIDMu.Unlock()
+	}
+}
+
+// replayAndMerge creates a channel that yields buffered elements followed by
+// remaining input. This is used after buffering during session creation to
+// replay buffered elements and then forward any subsequent elements from the
+// original input channel. It stops when ctx ends, even while waiting for
+// input that never comes.
+func (s *DuplexProviderStage) replayAndMerge(
+	ctx context.Context,
+	elements []core.StreamElement,
+	remaining <-chan core.StreamElement,
+) <-chan core.StreamElement {
+	merged := make(chan core.StreamElement)
+	go func() {
+		defer close(merged)
+		for i := range elements {
+			if !sendUnlessDone(ctx, merged, elements[i]) {
+				return
+			}
+		}
+		for {
+			select {
+			case elem, ok := <-remaining:
+				if !ok || !sendUnlessDone(ctx, merged, elem) {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return merged
+}
+
+// sendUnlessDone sends elem on out and reports whether it did before ctx
+// ended.
+func sendUnlessDone(ctx context.Context, out chan<- core.StreamElement, elem core.StreamElement) bool {
+	select {
+	case out <- elem:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// sendElementToSession sends a single element to the WebSocket session.
+func (s *DuplexProviderStage) sendElementToSession(ctx context.Context, elem *core.StreamElement) {
+	// Check for tool responses to send back to the provider.
+	// Tool responses are sent by the executor after executing tools requested by the model.
+	// Falls through to the rest of the function so the same element can also carry
+	// EndOfStream or other content — we don't want to silently drop those.
+	if toolResponses := elem.Meta.ToolResponses; len(toolResponses) > 0 {
+		s.sendToolResponses(ctx, toolResponses)
+	}
+
+	// Source the system prompt from TurnState.
+	if !s.systemPromptSent {
+		s.sendPendingSystemPrompt(ctx)
+	}
+
+	// Process media/text content BEFORE handling EndOfStream
+	// This ensures content in the final element is sent before signaling end of input
+	s.sendElementContent(ctx, elem)
+
+	// Check for end of stream (end of turn input) AFTER processing content
+	if elem.EndOfStream {
+		s.endTurnInput()
+	}
+}
+
+// sendToolResponses sends the executor's tool responses to the session when it
+// supports them.
+func (s *DuplexProviderStage) sendToolResponses(ctx context.Context, toolResponses []providers.ToolResponse) {
+	toolSession, ok := s.session.(providers.ToolResponseSupport)
+	if !ok {
+		logger.Warn("DuplexProviderStage: session does not support tool responses",
+			"sessionType", fmt.Sprintf("%T", s.session))
+		return
+	}
+	s.callers.toolResults()
+	toolResponses = s.prepareToolResponseText(toolSession, toolResponses)
+	logger.Debug("DuplexProviderStage: sending tool responses to session",
+		"count", len(toolResponses))
+	if err := toolSession.SendToolResponses(ctx, toolResponses); err != nil {
+		logger.Error("DuplexProviderStage: failed to send tool responses", "error", err)
+	} else {
+		logger.Debug("DuplexProviderStage: tool responses sent successfully")
+	}
+}
+
+// sendPendingSystemPrompt sends the TurnState system prompt as context, once,
+// when there is one.
+func (s *DuplexProviderStage) sendPendingSystemPrompt(ctx context.Context) {
+	systemPrompt := ""
+	if s.turnState != nil {
+		systemPrompt = s.turnState.SystemPrompt
+	}
+	if systemPrompt == "" {
+		return
+	}
+	logger.Debug("DuplexProviderStage: sending system prompt as context (no turn_complete)",
+		"promptLength", len(systemPrompt))
+	// Use SendSystemContext to send prompt WITHOUT triggering a response
+	// This allows the system prompt to be applied before audio input starts
+	if err := s.session.SendSystemContext(ctx, systemPrompt); err != nil {
+		logger.Error("DuplexProviderStage: failed to send system prompt", "error", err)
+	}
+	s.systemPromptSent = true
+}
+
+// sendElementContent sends the element's first non-empty content: audio,
+// video, image, then text.
+func (s *DuplexProviderStage) sendElementContent(ctx context.Context, elem *core.StreamElement) {
+	switch {
+	case elem.Audio != nil && len(elem.Audio.Samples) > 0:
+		s.sendAudioElement(ctx, elem)
+	case elem.Video != nil && len(elem.Video.Data) > 0:
+		s.sendVideoElement(ctx, elem)
+	case elem.Image != nil && len(elem.Image.Data) > 0:
+		s.sendImageElement(ctx, elem)
+	case elem.Text != nil && *elem.Text != "":
+		s.sendTextElement(ctx, elem)
+	}
+}
+
+// endTurnInput handles an end-of-stream (end of turn input) signal: it resets
+// the audio timing tracking for the next turn and signals end of input to
+// the session to trigger the model response.
+func (s *DuplexProviderStage) endTurnInput() {
+	logger.Debug("DuplexProviderStage: end of stream signal received",
+		"audio_chunks_sent", s.audioChunkCount,
+		"audio_bytes_sent", s.audioBytesSent,
+	)
+	// Reset audio timing tracking for next turn
+	s.audioChunkCount = 0
+	s.audioBytesSent = 0
+	s.lastAudioChunkTime = time.Time{}
+
+	// Signal end of input to session to trigger model response
+	// This is critical for pre-recorded audio files without trailing silence
+	if endInputter, ok := s.session.(EndInputter); ok {
+		logger.Debug("DuplexProviderStage: marking input done (provider decides what to send — no-op in ASM mode)")
+		endInputter.EndInput()
+		logger.Debug("DuplexProviderStage: input-done signal handled by provider")
+	} else {
+		logger.Debug("DuplexProviderStage: session does not implement EndInputter",
+			"sessionType", fmt.Sprintf("%T", s.session))
+	}
+}
+
+// sendAudioElement sends an audio element to the session.
+func (s *DuplexProviderStage) sendAudioElement(ctx context.Context, elem *core.StreamElement) {
+	// Reset transcription accumulator and chunk counter when starting a new user turn
+	// This prevents late-arriving transcription chunks from the previous turn
+	// from being mixed with this turn's transcription
+	s.transcriptMu.Lock()
+	if s.transcriptionCaptured {
+		s.inputTranscription.Reset()
+		s.transcriptItemID = ""
+		s.transcriptionCaptured = false
+		s.turnIDPopped = false // Reset so we can pop turn_id for the new turn
+		logger.Debug("DuplexProviderStage: reset transcription for new user turn")
+	}
+	s.transcriptMu.Unlock()
+
+	now := time.Now()
+
+	// Track timing for first chunk of a new audio stream
+	if s.audioChunkCount == 0 || s.lastAudioChunkTime.IsZero() {
+		s.audioStreamStart = now
+		s.audioChunkCount = 0
+		s.audioBytesSent = 0
+		logger.Debug("DuplexProviderStage: starting new audio stream")
+	}
+
+	// Calculate gap from last chunk
+	var gapFromLastMs int64
+	if !s.lastAudioChunkTime.IsZero() {
+		gapFromLastMs = now.Sub(s.lastAudioChunkTime).Milliseconds()
+	}
+
+	s.audioChunkCount++
+	s.audioBytesSent += len(elem.Audio.Samples)
+
+	// Log every 50th chunk or if there's a suspicious gap (>30ms for 20ms chunks)
+	if s.audioChunkCount%50 == 1 || gapFromLastMs > 30 {
+		// Calculate expected audio position based on bytes sent
+		expectedAudioPosMs := float64(s.audioBytesSent) / audioBytesPerSecond16kHz * msPerSecFloat
+		logger.Debug("DuplexProviderStage: audio chunk received",
+			"chunk_idx", s.audioChunkCount,
+			"audio_pos_ms", fmt.Sprintf("%.1f", expectedAudioPosMs),
+			"elapsed_ms", now.Sub(s.audioStreamStart).Milliseconds(),
+			"gap_from_last_ms", gapFromLastMs,
+			"chunk_bytes", len(elem.Audio.Samples),
+		)
+	}
+
+	s.lastAudioChunkTime = now
+
+	mediaChunk := &types.MediaChunk{
+		Data:      elem.Audio.Samples,
+		Timestamp: now,
+		IsLast:    false,
+	}
+
+	s.callers.audio()
+	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
+		logger.Error("DuplexProviderStage: failed to send chunk to session", "error", err)
+	}
+}
+
+// sendVideoElement sends a video element to the session.
+// Video frames/chunks are sent with high priority for low-latency streaming.
+func (s *DuplexProviderStage) sendVideoElement(ctx context.Context, elem *core.StreamElement) {
+	logger.Debug("DuplexProviderStage: forwarding video to session",
+		"bytes", len(elem.Video.Data),
+		"mime_type", elem.Video.MIMEType,
+		"is_key_frame", elem.Video.IsKeyFrame,
+		"frame_num", elem.Video.FrameNum,
+	)
+
+	mediaChunk := &types.MediaChunk{
+		Data:      elem.Video.Data,
+		Timestamp: elem.Video.Timestamp,
+		IsLast:    false,
+		Metadata: map[string]string{
+			core.MetaKeyMIMEType: elem.Video.MIMEType,
+			"is_key_frame":       fmt.Sprintf("%v", elem.Video.IsKeyFrame),
+		},
+	}
+
+	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
+		logger.Error("DuplexProviderStage: failed to send video chunk to session", "error", err)
+	}
+}
+
+// sendImageElement sends an image element to the session.
+// Image frames are sent for realtime vision scenarios (webcam, screen share).
+func (s *DuplexProviderStage) sendImageElement(ctx context.Context, elem *core.StreamElement) {
+	logger.Debug("DuplexProviderStage: forwarding image to session",
+		"bytes", len(elem.Image.Data),
+		"mime_type", elem.Image.MIMEType,
+		"frame_num", elem.Image.FrameNum,
+	)
+
+	// Use current time if no timestamp set
+	timestamp := elem.Image.Timestamp
+	if timestamp.IsZero() {
+		timestamp = time.Now()
+	}
+
+	mediaChunk := &types.MediaChunk{
+		Data:      elem.Image.Data,
+		Timestamp: timestamp,
+		IsLast:    false,
+		Metadata: map[string]string{
+			core.MetaKeyMIMEType: elem.Image.MIMEType,
+		},
+	}
+
+	if err := s.session.SendChunk(ctx, mediaChunk); err != nil {
+		logger.Error("DuplexProviderStage: failed to send image to session", "error", err)
+	}
+}
+
+// sendTextElement sends a text element to the session.
+func (s *DuplexProviderStage) sendTextElement(ctx context.Context, elem *core.StreamElement) {
+	text := *elem.Text
+
+	logger.Debug("DuplexProviderStage: forwarding text to session", "length", len(text))
+
+	if err := s.session.SendText(ctx, text); err != nil {
+		logger.Error("DuplexProviderStage: failed to send text to session", "error", err)
+	}
+}
+
+// forwardResponseElements forwards responses from session to output channel.
+// For duplex streaming (Gemini Live API), this runs until:
+// - Context is canceled
+// - Session response channel is closed
+// Note: We do NOT exit on FinishReason/turnComplete - that's just a turn
+// boundary in Gemini Live API, not end of session.
+func (s *DuplexProviderStage) forwardResponseElements(
+	ctx context.Context,
+	output chan<- core.StreamElement,
+) error {
+	responseChannel := s.session.Response()
+	if responseChannel == nil {
+		return errors.New("session response channel is nil")
+	}
+
+	var wait responseWaitState
+	defer s.endOpenTurnHold()
+
+	for {
+		// Blocked turns waiting between assistant turns go first, ahead of
+		// the next reply's first chunk, so the order does not depend on which
+		// channel select picks.
+		if err := s.emitWaitingBlockedTurns(ctx, output); err != nil {
+			return err
+		}
+		var err error
+		select {
+		case <-ctx.Done():
+			return s.closeOnContextDone(ctx, output)
+
+		case <-s.inputDoneCh:
+			// Input forwarding is done - check if we should wait for final response
+			s.handleInputDone(&wait)
+
+		case <-wait.finalResponseTimer:
+			s.onFinalResponseTimer(&wait)
+
+		case blocked := <-s.pendingBlockedTurns():
+			err = s.emitBlockedTurn(ctx, blocked, output)
+
+		case <-s.nextVerdict():
+			err = s.onVerdict(ctx, output)
+
+		case v := <-s.replyHoldVerdicts():
+			err = s.onReplyVerdict(ctx, v, output)
+
+		case <-s.replyHoldSettle():
+			err = s.onReplyHoldSettled(ctx, output)
+
+		case chunk, ok := <-responseChannel:
+			if !ok {
+				return s.finishOnResponseClosed(ctx, output, wait.weClosedSession)
+			}
+			err = s.processResponseChunk(ctx, &chunk, output)
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// closeOnContextDone ends the response loop when ctx is canceled: it emits any
+// accumulated content as a partial response and drops waiting blocked turns.
+func (s *DuplexProviderStage) closeOnContextDone(ctx context.Context, output chan<- core.StreamElement) error {
+	// Log the cancellation CAUSE, not just "canceled": context.Cause
+	// distinguishes the pipeline idle timeout (ErrIdleTimeout) from a
+	// parent cancel (a pump/caller returned) — the difference between
+	// "the 30s idle timer fired" and "something upstream tore us down".
+	logger.Info("Session closure: context canceled",
+		"cause", context.Cause(ctx), "err", ctx.Err())
+	s.pendingVerdicts = nil // ctx ended: their judges have stopped
+	s.emitPartialOnCancel(ctx, output)
+	s.dropBlockedTurns()
+	return ctx.Err()
+}
+
+// onFinalResponseTimer handles the final-response timer firing after input
+// closed: it re-arms the wait while a tool round is outstanding, else closes
+// the session. The response loop keeps draining chunks until the channel
+// closes.
+func (s *DuplexProviderStage) onFinalResponseTimer(wait *responseWaitState) {
+	if s.extendFinalWait(wait) {
+		return
+	}
+	logger.Warn("Session closure: timeout waiting for final response",
+		"timeout", s.finalWait)
+	wait.weClosedSession = true
+	s.closeSessionIfOpen()
+}
+
+// processResponseChunk handles one chunk from the session's response channel.
+func (s *DuplexProviderStage) processResponseChunk(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- core.StreamElement,
+) error {
+	// Outbound audio/text is activity: reset the pipeline idle timer so a
+	// long reply is not cut off by the 30s idle timeout mid-stream.
+	core.ResetIdleFromContext(ctx)
+	s.trackOpenTurn(ctx, chunk)
+
+	if err := s.handleResponseChunk(ctx, chunk, output); err != nil {
+		return err
+	}
+
+	// Log turn completions but DON'T exit - keep session running
+	// Gemini Live API's turnComplete is a turn marker, not end of session
+	logTurnCompleted(chunk)
+	if s.chunkHandled != nil {
+		s.chunkHandled()
+	}
+	return nil
+}
+
+// maxOpenTurnIdleHold bounds how long an open provider turn holds the idle
+// timer after its last chunk. It is far longer than any reply's playback (a
+// Gemini Live turn completes about its audio length after it starts), and
+// short enough that a provider which never completes a turn still has its
+// session ended by the idle timer.
+const maxOpenTurnIdleHold = 5 * time.Minute
+
+// trackOpenTurn holds the pipeline idle timer open while a provider turn is in
+// progress: from the turn's first output to its turn completion. A provider
+// can stream a reply faster than real time and complete the turn only when the
+// reply would have finished playing (Gemini Live), leaving a long silent wait
+// that is the provider's, not an idle session (#2773). The hold reuses the
+// tool-execution heartbeat and is bounded by openTurnMaxHold.
+func (s *DuplexProviderStage) trackOpenTurn(ctx context.Context, chunk *providers.StreamChunk) {
+	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+		s.endOpenTurnHold()
+		return
+	}
+	if s.stopOpenTurnHold != nil || chunk.Interrupted || isInputTranscriptionChunk(chunk) {
+		return
+	}
+	maxHold := s.openTurnMaxHold
+	if maxHold <= 0 {
+		maxHold = maxOpenTurnIdleHold
+	}
+	newTicker := s.idleHoldTicker
+	if newTicker == nil {
+		newTicker = core.RealIdleTicker
+	}
+	s.stopOpenTurnHold = core.KeepIdleAliveUpTo(ctx, maxHold, newTicker)
+}
+
+// endOpenTurnHold stops the open turn's idle hold, if there is one.
+func (s *DuplexProviderStage) endOpenTurnHold() {
+	if s.stopOpenTurnHold != nil {
+		s.stopOpenTurnHold()
+		s.stopOpenTurnHold = nil
+	}
+}
+
+// emitPartialOnCancel emits any accumulated content as a partial response
+// after ctx was canceled. It uses a short timeout for sending - the downstream
+// stage needs a chance to receive even though context is canceled. This is
+// critical for capturing partial responses.
+func (s *DuplexProviderStage) emitPartialOnCancel(ctx context.Context, output chan<- core.StreamElement) {
+	s.switchToOpenCall()
+	msg := s.takeInterruptedTurn(fmt.Sprintf("context canceled: %v", context.Cause(ctx)))
+	s.completeOpenCall(ctx, msg, msg != nil)
+	if msg == nil {
+		return
+	}
+	s.takeCarriedCost(msg)
+	elem := core.StreamElement{
+		Message:     msg,
+		EndOfStream: true,
+	}
+
+	logger.Debug("DuplexProviderStage: emitting partial response on context cancel",
+		"textLen", len(msg.Content))
+
+	// ctx is canceled: the partial reply is given a short while to be taken.
+	if err := s.emitRecorded(ctx, elem, output); err != nil {
+		logger.Warn("DuplexProviderStage: timeout sending response on context cancel")
+	}
+}
+
+// responseWaitState is forwardResponseElements' loop state for the end of a
+// session.
+type responseWaitState struct {
+	// finalResponseTimer bounds the wait for the final response; nil (never
+	// fires) until input is done.
+	finalResponseTimer <-chan time.Time
+	inputDone          bool
+	// inputDoneAt is when input finished, for the tool rounds' wait limit.
+	inputDoneAt     time.Time
+	weClosedSession bool // Track who closed session for clear logging
+}
+
+// handleInputDone handles input forwarding finishing (once): it either closes
+// the session immediately or arms the final-response timer.
+func (s *DuplexProviderStage) handleInputDone(wait *responseWaitState) {
+	if wait.inputDone {
+		return
+	}
+	wait.inputDone = true
+	wait.inputDoneAt = time.Now()
+	if timer := s.onInputDone(); timer != nil {
+		wait.finalResponseTimer = timer
+	} else {
+		wait.weClosedSession = true
+	}
+}
+
+// onInputDone runs once input forwarding is done. If all responses were
+// already received synchronously (signaled by the executor via
+// "all_responses_received" metadata) it closes the session immediately and
+// returns nil — the caller keeps draining remaining chunks. Otherwise it
+// returns the timer bounding the wait for the final response.
+func (s *DuplexProviderStage) onInputDone() <-chan time.Time {
+	select {
+	case <-s.allResponsesReceivedCh:
+		// All responses received - close session immediately, no need to wait
+		logger.Info("Input complete, all responses already received, closing session")
+		s.closeSessionIfOpen()
+		return nil
+	default:
+		// Not all responses received - wait for final response with timeout
+		logger.Info("Input complete, waiting for final response",
+			"timeout", s.finalWait)
+		return time.After(s.finalWait)
+	}
+}
+
+// extendFinalWait re-arms the final-response timer when it fires while a
+// tool round is outstanding (queued, running, or its reply not yet complete),
+// and reports whether it did. The wait never runs past toolWaitLimit after
+// input finished.
+func (s *DuplexProviderStage) extendFinalWait(wait *responseWaitState) bool {
+	if !s.tools.roundOutstanding() {
+		return false
+	}
+	left := s.toolWaitLimit - time.Since(wait.inputDoneAt)
+	if left <= 0 {
+		logger.Warn("Session closure: tool rounds still outstanding at the wait limit",
+			"limit", s.toolWaitLimit)
+		return false
+	}
+	logger.Debug("DuplexProviderStage: tool round outstanding; extending the final-response wait")
+	wait.finalResponseTimer = time.After(min(s.finalWait, left))
+	return true
+}
+
+// closeSessionIfOpen closes the session when one exists. No tool response is
+// sent after it.
+func (s *DuplexProviderStage) closeSessionIfOpen() {
+	if s.session != nil {
+		s.tools.markClosed()
+		_ = s.session.Close()
+	}
+}
+
+// finishOnResponseClosed handles the session's response channel closing:
+// whatever the turn accumulated never reached a turn completion, so it is
+// kept and emitted as an interrupted reply.
+func (s *DuplexProviderStage) finishOnResponseClosed(
+	ctx context.Context, output chan<- core.StreamElement, weClosedSession bool,
+) error {
+	cause := "provider closed the session"
+	if weClosedSession {
+		cause = "session closed before the turn completed"
+		logger.Info("Session ended, response channel closed (we initiated closure)")
+	} else {
+		logger.Warn("Session closure: provider closed the connection unexpectedly",
+			"accumulated_text_len", s.accumulatedText.Len(),
+			"accumulated_media_len", len(s.accumulatedMedia))
+	}
+
+	// The turn the session ended in keeps the verdicts on its input.
+	if err := s.awaitVerdicts(ctx, output); err != nil {
+		return err
+	}
+	s.switchToOpenCall()
+	msg := s.takeInterruptedTurn(cause)
+	s.completeOpenCall(ctx, msg, msg != nil)
+	blocked := s.drainBlockedTurns()
+	// Cost still carried goes on the last message emitted now.
+	if carrier := lastCostCarrier(msg, blocked); carrier != nil {
+		s.takeCarriedCost(carrier)
+	}
+	if msg != nil {
+		logger.Debug("DuplexProviderStage: emitting partial response on session close",
+			"textLen", len(msg.Content))
+		if err := s.emit(ctx, core.StreamElement{Message: msg, EndOfStream: true}, output); err != nil {
+			return err
+		}
+	}
+	for _, turn := range blocked {
+		if err := s.emitBlockedTurn(ctx, turn, output); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// drainBlockedTurns takes every blocked turn queued for emission.
+func (s *DuplexProviderStage) drainBlockedTurns() []*duplexBlockedTurn {
+	var out []*duplexBlockedTurn
+	for {
+		select {
+		case turn := <-s.blockedTurns:
+			out = append(out, turn)
+		default:
+			return out
+		}
+	}
+}
+
+// lastCostCarrier is the last message among partial (emitted first) and the
+// blocked turns (emitted after it) that can carry a cost: a blocked turn's
+// reply, not a turn that only keeps a user's input in order. Nil when none.
+func lastCostCarrier(partial *types.Message, blocked []*duplexBlockedTurn) *types.Message {
+	for i := len(blocked) - 1; i >= 0; i-- {
+		if !blocked[i].userOnly {
+			return &blocked[i].msg
+		}
+	}
+	return partial
+}
+
+// logTurnCompleted logs a chunk's turn completion, if it carries one.
+func logTurnCompleted(chunk *providers.StreamChunk) {
+	if chunk.FinishReason != nil && *chunk.FinishReason != "" {
+		logger.Debug("DuplexProviderStage: turn completed", "reason", *chunk.FinishReason)
+	}
+}
+
+// transcriptionFinal reports whether a chunk carries the normalized
+// Metadata["transcription_final"] == true marker, set by providers on the FINAL
+// input-transcription chunk of a user turn. It is provider-agnostic: the stage
+// keys only off this bool, never off provider names.
+func (s *DuplexProviderStage) transcriptionFinal(chunk *providers.StreamChunk) bool {
+	if chunk.Metadata == nil {
+		return false
+	}
+	final, _ := chunk.Metadata["transcription_final"].(bool)
+	return final
+}
+
+// hasQueuedTurnID reports whether a turn_id is queued, i.e. the scenario path
+// (a user Message was pre-created with a turn_id). In that case neither the fast
+// path nor the EndOfStream fallback materializes a new user Message — the
+// existing overwrite-on-EndOfStream behavior owns the user turn.
+func (s *DuplexProviderStage) hasQueuedTurnID() bool {
+	s.turnIDMu.Lock()
+	defer s.turnIDMu.Unlock()
+	return len(s.turnIDQueue) > 0
+}
+
+// endChunkTurn reports whether chunk completes its turn. A completed turn's
+// accumulation resets (after its element is built), and a completed or
+// interrupted reply stops counting as output in progress.
+func (s *DuplexProviderStage) endChunkTurn(chunk *providers.StreamChunk, elem *core.StreamElement) bool {
+	turnDone := completesTurn(chunk, elem)
+	if turnDone {
+		s.resetTurnAccumulation()
+	}
+	if turnDone || chunk.Interrupted {
+		s.endReplyOut()
+	}
+	return turnDone
+}
+
+// markToolCallsRunning flags elem when the stage itself answers the tool calls
+// its message carries (queueToolRound).
+func markToolCallsRunning(round *duplexToolJob, elem *core.StreamElement) {
+	if round != nil && len(round.calls) > 0 && elem.Message != nil && len(elem.Message.ToolCalls) > 0 {
+		elem.Meta.ToolCallsRunning = true
+	}
+}
+
+// handleResponseChunk processes and forwards a single response chunk.
+// It accumulates text and media content across chunks within a turn,
+// then resets the accumulation when the turn completes.
+func (s *DuplexProviderStage) handleResponseChunk(
+	ctx context.Context,
+	chunk *providers.StreamChunk,
+	output chan<- core.StreamElement,
+) error {
+	s.chunkGen, s.chunkCost = chunk.Generation, chunk.CostInfo
+	s.chunkIsReply = !isInputTranscriptionChunk(chunk)
+	if handled, err := s.handleSessionNotice(ctx, chunk, output); handled {
+		return err
+	}
+	if isGenerationCompleteOnly(chunk) {
+		// The reply's content is complete; its turn completes later.
+		return s.onGenerationComplete(ctx, output)
+	}
+	if s.staleChunk(chunk) {
+		// A chunk of a call that already completed (a canceled response's
+		// trailing chunks, an interruption of a finished reply): only its
+		// cost counts, on that call. It touches no other call.
+		return s.handleStaleChunk(ctx, chunk, output)
+	}
+	s.bindChunkGeneration(ctx, chunk)
+
+	// Accumulate text content for this turn
+	// For Gemini Live API, text comes via three paths:
+	// 1. outputTranscription: Delta only, with metadata["type"] == "output_transcription"
+	//    This is incremental transcription of model audio - APPEND to accumulated text
+	// 2. inputTranscription: metadata["type"] == "input_transcription" with metadata["transcription"]
+	//    This is transcription of user audio input - stored separately
+	// 3. ModelTurn: Both Content and Delta set to the same value (partial streaming text)
+	//    Use ONLY Content to avoid duplication
+	//
+	// 4. Text deltas: Delta only, no transcription type (OpenAI Realtime's
+	//    text-only output), then Content with the whole text once it is done.
+	//    normalizeTextDeltaChunk turns each delta into Content and drops the
+	//    closing whole text, so the text streams and is recorded once.
+	//
+	// Check metadata to distinguish the source
+	isOutputTranscription, isInputTranscription := s.classifyResponseChunk(chunk)
+
+	// Fast-path streaming user-turn materialization (provider-agnostic).
+	//
+	// When a provider marks an input_transcription chunk as the FINAL transcript
+	// of the user turn (Metadata["transcription_final"] == true), the user's input
+	// is known the moment they stop speaking — long before the assistant finishes
+	// responding. Emit the user Message immediately so the UI shows the user turn
+	// without waiting for the assistant's EndOfStream (which adds the whole
+	// assistant-response duration of lag).
+	//
+	// Guards (all required):
+	//   - transcription_final == true on this chunk
+	//   - streaming case only: no turn_id queued (the scenario path pre-creates the
+	//     user Message and overwrites it on EndOfStream — leave it untouched)
+	//   - buffered transcript is non-empty (accumulated deltas + this final)
+	//
+	// After emitting we RESET the input-transcription buffer. The EndOfStream
+	// fallback (in this same method, below) is guarded on a non-empty buffer, so
+	// once we reset it cannot double-emit this turn. Providers that never send the
+	// marker fall through to that fallback unchanged.
+	//
+	// Before it, a final transcript of the turn just answered, or a repeat of a
+	// turn already shown, is placed (or dropped), not taken as a new user turn.
+	if handled, err := s.takeInputTranscription(ctx, chunk, isInputTranscription, output); handled {
+		return err
+	}
+
+	// Provider-agnostic user-turn materialization at assistant-response start.
+	//
+	// Some providers (Gemini Live) never mark a "final" input transcription, and
+	// under barge-in the assistant turn never reaches a clean EndOfStream — so
+	// neither the transcription_final fast-path above nor the EndOfStream fallback
+	// below fires, and the user's turn is silently lost (the buffer just keeps
+	// growing across turns). The reliable cross-provider boundary is the assistant
+	// beginning to respond: the moment any assistant content (audio, model text,
+	// or output transcription) arrives, the preceding user utterance is complete.
+	// Emit it as a user Message — ordered before this assistant content — exactly
+	// once per utterance. Skips the scenario path (a turn_id is pre-queued there)
+	// and no-ops once the buffer is reset, so it can't double-emit with the
+	// fast-path or EndOfStream paths.
+	if err := s.materializeAtReplyStart(ctx, chunk, isOutputTranscription, output); err != nil {
+		return err
+	}
+
+	// A chunk of the reply places the reply against the caller's turns
+	// before its guardrails judge it.
+	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 {
+		s.beginReplyTurn(chunk)
+	}
+	// A reply the guardrails hold is held from its first content.
+	s.beginReplyHold(ctx, chunk, isOutputTranscription)
+
+	// Streaming guardrails check the chunk's assistant text before it is
+	// accumulated or forwarded.
+	s.guardOutputChunk(ctx, chunk, isOutputTranscription)
+
+	if err := s.accumulateResponseChunk(ctx, chunk, isOutputTranscription, output); err != nil {
+		return err
+	}
+	s.holdLiveText(chunk, isOutputTranscription)
+
+	if err := s.finishReplyVerdicts(ctx, chunk, isOutputTranscription, output); err != nil {
+		return err
+	}
+
+	// Convert chunk to element (uses accumulated content for final chunk)
+	elem := s.chunkToElement(chunk)
+	// A held reply's text and audio wait for its guardrails.
+	held := s.holdReplyOutput(chunk, &elem)
+
+	// Reset accumulation after turn completes (after creating the element)
+	// BUT: if this was an interrupted turn completion (no EndOfStream), don't reset -
+	// we need to accumulate the real response content that comes next
+	turnDone := s.endChunkTurn(chunk, &elem)
+
+	if err := s.settleTurnInput(ctx, &elem, turnDone, output); err != nil {
+		return err
+	}
+
+	// Output guardrails check the completed turn, after its user turn (above)
+	// is in the history they see. Its tool calls, if the stage runs them, are
+	// queued once the turn's message is out.
+	round := s.completeChunkTurn(ctx, chunk, &elem, turnDone)
+	s.noteChunkTurnEnd(chunk, &elem, turnDone)
+	// The completed reply's verdict releases or drops what is held.
+	if err := s.settleReplyHold(ctx, &elem, turnDone, output); err != nil {
+		return err
+	}
+	// A reply a guardrail blocked is cut before anything more of it is sent,
+	// and one the provider canceled tells the caller to stop playing it.
+	if err := s.cutReply(ctx, output); err != nil {
+		return err
+	}
+	if err := s.reportCanceledReply(ctx, &elem, turnDone, output); err != nil {
+		return err
+	}
+	// A blocked turn's note goes once the turn is over.
+	s.sendBlockNotes(ctx)
+
+	markToolCallsRunning(round, &elem)
+	logger.Debug("DuplexProviderStage: forwarding response element",
+		"hasText", elem.Text != nil,
+		"hasAudio", elem.Audio != nil,
+		"hasMessage", elem.Message != nil,
+		"endOfStream", elem.EndOfStream)
+
+	return s.forwardResponseElement(ctx, chunk, elem, held, round, output)
+}
+
+// forwardResponseElement sends elem, the element chunk became, and queues the
+// tool round it completes. An element whose output the hold took (held), with
+// nothing else to say, is not sent.
+func (s *DuplexProviderStage) forwardResponseElement(
+	ctx context.Context, chunk *providers.StreamChunk, elem core.StreamElement, held bool,
+	round *duplexToolJob, output chan<- core.StreamElement,
+) error {
+	if held && elem.IsEmpty() {
+		return s.queueToolRound(ctx, round)
+	}
+	if err := s.emit(ctx, elem, output); err != nil {
+		return err
+	}
+	if chunk.Interrupted {
+		// The caller barged in: they are speaking a turn of their own.
+		s.callers.bargeIn()
+	}
+	return s.queueToolRound(ctx, round)
+}
+
+// handleSessionNotice handles a chunk that is the session's word rather than
+// a reply's content: an error. Reports whether chunk was one.
+func (s *DuplexProviderStage) handleSessionNotice(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- core.StreamElement,
+) (bool, error) {
+	if chunk.Error != nil {
+		return true, s.emitChunkError(ctx, chunk, output)
+	}
+	return false, nil
+}
+
+// reportCanceledReply sends an Interrupt ahead of a turn the provider ended
+// as interrupted (OpenAI Realtime's canceled response.done on barge-in), so
+// the caller stops playing it at once, as it does for a provider that reports
+// the interruption itself. A turn a guardrail cut is marked safety and was
+// reported by cutReply.
+func (s *DuplexProviderStage) reportCanceledReply(
+	ctx context.Context, elem *core.StreamElement, turnDone bool, output chan<- core.StreamElement,
+) error {
+	if !turnDone || elem.Meta.FinishReason == nil || *elem.Meta.FinishReason != finishReasonInterrupted {
+		return nil
+	}
+	return core.SendStreamElement(ctx, interruptElement(finishReasonInterrupted), output)
+}
+
+// bindChunkGeneration binds the provider call and accumulation of the
+// chunk's generation: every generation has its own. A caller transcript
+// belongs to no call.
+func (s *DuplexProviderStage) bindChunkGeneration(ctx context.Context, chunk *providers.StreamChunk) {
+	if isInputTranscriptionChunk(chunk) {
+		return
+	}
+	s.lastReplyGen = max(s.lastReplyGen, chunk.Generation)
+	s.noteReplyInput(chunk)
+	s.bindGeneration(ctx, chunk.Generation)
+	s.switchGeneration(chunk.Generation)
+}
+
+// takeInputTranscription handles an input transcription chunk: a final one
+// owed to the turn just answered or repeating a turn shown is placed or
+// dropped (placeFinalTranscript); otherwise it is accumulated, and a final one
+// materializes the user turn at once (tryFastPathUserTurn). handled reports
+// that the chunk was consumed; err is then the result. A user turn emitted
+// here was checked by the input guardrails, so a reply it blocked is cut.
+func (s *DuplexProviderStage) takeInputTranscription(
+	ctx context.Context, chunk *providers.StreamChunk, isInputTranscription bool, output chan<- core.StreamElement,
+) (handled bool, err error) {
+	if !isInputTranscription {
+		return false, nil
+	}
+	handled, err = s.placeFinalTranscript(ctx, chunk, output)
+	if !handled {
+		s.captureInputTranscription(chunk)
+		handled, err = s.tryFastPathUserTurn(ctx, chunk, isInputTranscription, output)
+	}
+	if handled && err == nil {
+		err = s.cutReply(ctx, output)
+	}
+	return handled, err
+}
+
+// completeChunkTurn charges what the chunk's turn cost and prepares its tool
+// round: an interrupted turn, a completed one (after the output guardrails),
+// and cost no message carries. Returns the job for the tool worker, or nil.
+func (s *DuplexProviderStage) completeChunkTurn(
+	ctx context.Context, chunk *providers.StreamChunk, elem *core.StreamElement, turnDone bool,
+) *duplexToolJob {
+	unplaced := chunk.CostInfo != nil && !s.costPlaced
+	s.costReported = false
+	round := s.chargeInterruptedTurn(ctx, chunk, elem)
+	if turnDone {
+		// The call completes and its cost is charged whatever the output
+		// guardrails decide.
+		settled := s.settleTurnCall(ctx, elem)
+		s.guardCompletedTurn(ctx, elem)
+		if settled != nil {
+			// A reply left no message when the caller spoke over it unheard.
+			s.emitCompletion(ctx, settled.done, settled.msg == nil || elem.Message == nil)
+		}
+		round = s.toolJob(settled)
+	}
+	if chunk.CostInfo != nil && !s.costReported {
+		if job := s.attributeCost(ctx, chunk); job != nil {
+			round = job
+		}
+	}
+	s.placeCarriedCost(chunk, elem, unplaced)
+	return round
+}
+
+// materializeAtReplyStart emits the buffered user turn when the chunk is the
+// first assistant content after it (see handleResponseChunk), then waits for
+// the verdicts on the caller's input when the chunk needs them
+// (awaitVerdictsFor): a reply begins, or is cut short, only once the input it
+// answers has been judged.
+func (s *DuplexProviderStage) materializeAtReplyStart(
+	ctx context.Context, chunk *providers.StreamChunk, isOutputTranscription bool, output chan<- core.StreamElement,
+) error {
+	if isAssistantContentChunk(chunk, isOutputTranscription) && s.hasUncapturedStreamingTranscript() {
+		logger.Debug("DuplexProviderStage: materializing user turn at assistant response start",
+			"transcriptLen", s.transcriptLen())
+		if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
+			return err
+		}
+		// Reset + mark captured so late transcription chunks for this utterance are
+		// ignored (sendAudioElement clears the flag when the next user turn starts).
+		s.transcriptMu.Lock()
+		s.inputTranscription.Reset()
+		s.transcriptItemID = ""
+		s.transcriptionCaptured = true
+		s.transcriptMu.Unlock()
+	}
+	return s.awaitVerdictsFor(ctx, chunk, isOutputTranscription, output)
+}
+
+// settleTurnInput emits the turn's user turn still buffered at its end
+// (materializeStreamingUserTurn) and, when the turn ends, waits for the
+// verdicts on its input, that user turn's included: the turn ends with them.
+func (s *DuplexProviderStage) settleTurnInput(
+	ctx context.Context, elem *core.StreamElement, turnDone bool, output chan<- core.StreamElement,
+) error {
+	if err := s.materializeStreamingUserTurn(ctx, elem, output); err != nil {
+		return err
+	}
+	if !turnDone {
+		return nil
+	}
+	return s.awaitVerdicts(ctx, output)
+}
+
+// materializeStreamingUserTurn is the continuous-streaming user-turn
+// materialization (provider-agnostic).
+//
+// In the scenario path a user Message is pre-created with a turn_id, so
+// chunkToElement releases the transcript by attaching elem.Meta.Transcription
+// + elem.Meta.TurnID (consumed by ArenaStateStoreSaveStage to overwrite the
+// pre-created user message). In the continuous-streaming path (interactive
+// console / SDK realtime) NO user Message is pre-queued, so turnID is empty
+// and chunkToElement leaves elem.Meta.Transcription nil — the transcript
+// would otherwise be silently dropped.
+//
+// Here we detect that case (turn-completing EndOfStream, a buffered input
+// transcript, and no scenario-path transcription attached) and emit a NEW
+// user Message element from the buffered transcript, ordered BEFORE the
+// assistant element for this turn. The buffer is then reset so each
+// subsequent streaming turn materializes its own user message.
+//
+// This keys only off s.inputTranscription (populated from the normalized
+// input_transcription chunk that both OpenAI Realtime and Gemini Live emit)
+// and the shared EndOfStream machinery — no per-provider event names.
+func (s *DuplexProviderStage) materializeStreamingUserTurn(
+	ctx context.Context, elem *core.StreamElement, output chan<- core.StreamElement,
+) error {
+	if !elem.EndOfStream || s.transcriptLen() == 0 || elem.Meta.Transcription != nil {
+		return nil
+	}
+	logger.Debug("DuplexProviderStage: materializing streaming user turn from transcript",
+		"transcriptLen", s.transcriptLen())
+	if err := s.emitBufferedUserTurn(ctx, output, true); err != nil {
+		return err
+	}
+	// Reset the per-turn transcription buffer so the next streaming turn
+	// starts clean (mirrors the reset in sendAudioElement for the scenario
+	// path). transcriptionCaptured is already set on turn completion.
+	s.resetTranscript()
+	return nil
+}
+
+// emitChunkError emits a chunk error downstream, keeping the turn's partial
+// reply ahead of the error as the unary stage does, and returns the chunk's
+// error (or ctx.Err() when canceled while emitting).
+func (s *DuplexProviderStage) emitChunkError(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- core.StreamElement,
+) error {
+	logger.Error("DuplexProviderStage: chunk error from session", "error", chunk.Error)
+	// The partial reply keeps the verdicts on its input.
+	if err := s.awaitVerdicts(ctx, output); err != nil {
+		return err
+	}
+	// Keep the turn's partial reply ahead of the error, as the unary stage does.
+	s.switchToOpenCall()
+	msg := s.takeInterruptedTurn(chunk.Error.Error())
+	s.completeOpenCall(ctx, msg, msg != nil)
+	if msg != nil {
+		s.takeCarriedCost(msg)
+		if err := s.emit(ctx, core.StreamElement{Message: msg, EndOfStream: true}, output); err != nil {
+			return err
+		}
+	}
+	// Inputs a guardrail blocked are answered before the error, a
+	// consumer's last read.
+	if err := s.flushBlockedTurns(ctx, output); err != nil {
+		return err
+	}
+	if err := s.emit(ctx, core.NewErrorElement(chunk.Error), output); err != nil {
+		return err
+	}
+	return chunk.Error
+}
+
+// classifyTranscriptionChunk reports whether a chunk is an output transcription
+// (incremental text of the model's audio) or an input transcription (the
+// user's audio), from its normalized Metadata["type"].
+func classifyTranscriptionChunk(chunk *providers.StreamChunk) (isOutput, isInput bool) {
+	if chunk.Metadata == nil {
+		return false, false
+	}
+	metaType, ok := chunk.Metadata["type"].(string)
+	if !ok {
+		return false, false
+	}
+	switch metaType {
+	case metaTypeOutputTranscription:
+		return true, false
+	case "input_transcription":
+		return false, true
+	}
+	return false, false
+}
+
+// tryFastPathUserTurn materializes the user turn from a final input
+// transcript (see handleResponseChunk). handled reports that the chunk was
+// consumed this way; err is then the emit result. After emitting it resets
+// the buffer so the EndOfStream fallback cannot re-emit this turn, and so the
+// next streaming turn starts with a clean buffer.
+func (s *DuplexProviderStage) tryFastPathUserTurn(
+	ctx context.Context, chunk *providers.StreamChunk, isInputTranscription bool, output chan<- core.StreamElement,
+) (handled bool, err error) {
+	if !isInputTranscription || !s.isFinalUserTranscript(chunk) {
+		return false, nil
+	}
+	logger.Debug("DuplexProviderStage: fast-path materializing user turn from final transcript",
+		"transcriptLen", s.transcriptLen())
+	if err := s.emitBufferedUserTurn(ctx, output, false); err != nil {
+		return true, err
+	}
+	s.resetTranscript()
+	return true, nil
+}
+
+// completesTurn reports whether a chunk finished the turn with an
+// EndOfStream element (an interrupted turn completion has no EndOfStream).
+func completesTurn(chunk *providers.StreamChunk, elem *core.StreamElement) bool {
+	return chunk.FinishReason != nil && *chunk.FinishReason != "" && elem.EndOfStream
+}
+
+// isFinalUserTranscript reports whether an input-transcription chunk is the
+// provider-marked final transcript of a streaming user turn with a non-empty
+// buffered transcript (no turn_id queued, i.e. not the scenario path).
+func (s *DuplexProviderStage) isFinalUserTranscript(chunk *providers.StreamChunk) bool {
+	return s.isStreamingFinalTranscript(chunk) && s.transcriptLen() > 0
+}
+
+// isStreamingFinalTranscript reports whether a chunk is a provider-marked
+// final transcript on the streaming path (no turn_id queued).
+func (s *DuplexProviderStage) isStreamingFinalTranscript(chunk *providers.StreamChunk) bool {
+	return s.transcriptionFinal(chunk) && !s.hasQueuedTurnID()
+}
+
+// hasUncapturedStreamingTranscript reports whether a buffered user transcript
+// is waiting to be materialized: not yet captured for this turn, non-empty,
+// and on the streaming path (no turn_id queued).
+func (s *DuplexProviderStage) hasUncapturedStreamingTranscript() bool {
+	s.transcriptMu.Lock()
+	uncaptured := !s.transcriptionCaptured && s.inputTranscription.Len() > 0
+	s.transcriptMu.Unlock()
+	return uncaptured && !s.hasQueuedTurnID()
+}
+
+// isAssistantContentChunk reports whether a chunk carries assistant content:
+// audio, model text, or output transcription.
+func isAssistantContentChunk(chunk *providers.StreamChunk, isOutputTranscription bool) bool {
+	hasAudio := chunk.MediaData != nil && len(chunk.MediaData.Data) > 0
+	return isOutputTranscription || chunk.Content != "" || hasAudio
+}
+
+// captureInputTranscription accumulates an input transcription chunk. Only
+// accumulates if we haven't already captured transcription for this turn:
+// this prevents late-arriving incremental chunks from bleeding into the next
+// turn. A provider-marked final transcript on the streaming path is taken
+// regardless: it is a whole utterance, materialized as its own user turn at
+// once (tryFastPathUserTurn), so it cannot bleed into another. It is how a
+// late transcript of the turn just answered arrives (OpenAI Realtime), and
+// dropping it because the reply had already completed lost the user turn,
+// whether or not the caller's next audio had been seen yet.
+func (s *DuplexProviderStage) captureInputTranscription(chunk *providers.StreamChunk) {
+	final := s.isStreamingFinalTranscript(chunk)
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	if s.transcriptionCaptured && !final {
+		logger.Debug("DuplexProviderStage: ignoring late transcription chunk (turn already complete)")
+		return
+	}
+	if transcript, ok := chunk.Metadata["transcription"].(string); ok && transcript != "" {
+		// The caller's words: a turn of theirs, with its transcript.
+		input, _ := chunk.Metadata[providers.InputItemIDKey].(string)
+		s.callers.heardSpeech(input, true)
+		s.inputTranscription.WriteString(transcript)
+		if id, ok := chunk.Metadata[providers.InputItemIDKey].(string); ok && id != "" {
+			s.transcriptItemID = id
+		}
+		logger.Debug("DuplexProviderStage: captured input transcription",
+			"transcriptLen", len(transcript),
+			"totalInputTranscriptLen", s.inputTranscription.Len())
+	}
+}
+
+// emitBufferedUserTurn emits the buffered input transcription as a user
+// Message element, then checks it with the input guardrails, which can block
+// the reply to it (guardSpokenInput). The caller resets the buffer
+// afterwards. fromDeltas reports that it was assembled from incremental
+// chunks, not a final one.
+func (s *DuplexProviderStage) emitBufferedUserTurn(
+	ctx context.Context, output chan<- core.StreamElement, fromDeltas bool,
+) error {
+	transcript, inputID := s.takeTranscript()
+	s.late.userShown(transcript, fromDeltas)
+	userMsg := &types.Message{
+		Role:    core.RoleUser,
+		Content: transcript,
+		Parts: []types.ContentPart{{
+			Type: types.ContentTypeText,
+			Text: &transcript,
+		}},
+	}
+	s.beginTranscribedToolTurn(ctx)
+	s.recordHistory(userMsg)
+	if err := s.emit(ctx, core.StreamElement{Message: userMsg}, output); err != nil {
+		return err
+	}
+	return s.judgeSpokenInput(ctx, s.history.snapshot(), inputID, nil, output)
+}
+
+// classifyResponseChunk classifies a chunk's transcription (see
+// classifyTranscriptionChunk) and, for any other chunk, normalizes its text
+// deltas (normalizeTextDeltaChunk).
+func (s *DuplexProviderStage) classifyResponseChunk(chunk *providers.StreamChunk) (isOutput, isInput bool) {
+	isOutput, isInput = classifyTranscriptionChunk(chunk)
+	if !isOutput && !isInput {
+		s.normalizeTextDeltaChunk(chunk)
+	}
+	return isOutput, isInput
+}
+
+// normalizeTextDeltaChunk reads a chunk of a reply whose text arrives as
+// deltas: Delta without Content is the next piece of the text, which the stage
+// streams and accumulates from Content, so it is copied there. Once a turn's
+// text has arrived that way, a chunk with Content but no Delta repeats the
+// text in full (OpenAI Realtime's response.output_text.done), so its Content
+// is dropped rather than added again. Response goroutine only.
+func (s *DuplexProviderStage) normalizeTextDeltaChunk(chunk *providers.StreamChunk) {
+	switch {
+	case chunk.Delta != "" && chunk.Content == "":
+		chunk.Content = chunk.Delta
+		s.textFromDeltas = true
+	case chunk.Content != "" && chunk.Delta == "" && s.textFromDeltas:
+		chunk.Content = ""
+	}
+}
+
+// accumulateResponseChunk folds a chunk's assistant text, reasoning, media and
+// tool calls into the turn's accumulation, emitting a live ReasoningDelta for
+// any reasoning.
+func (s *DuplexProviderStage) accumulateResponseChunk(
+	ctx context.Context, chunk *providers.StreamChunk, isOutputTranscription bool, output chan<- core.StreamElement,
+) error {
+	// The session answering is a provider call under way, even when the
+	// input that started it could not be seen.
+	if isAssistantContentChunk(chunk, isOutputTranscription) || len(chunk.ToolCalls) > 0 || chunk.Reasoning != "" {
+		s.openToolRoundIfIdle(ctx)
+		s.noteReplyStarted()
+	}
+	if isOutputTranscription && chunk.Delta != "" {
+		// outputTranscription sends incremental text - append it
+		s.accumulatedText.WriteString(chunk.Delta)
+	} else if chunk.Content != "" {
+		// ModelTurn text - use Content (Delta is the same, so we only use one)
+		s.accumulatedText.WriteString(chunk.Content)
+	}
+
+	// Accumulate reasoning/thinking separately from spoken text (it lands on
+	// Message.Reasoning at turn complete, never as content), and emit a live
+	// non-content ReasoningDelta so the UI can stream thinking as it arrives.
+	if chunk.Reasoning != "" || len(chunk.OpaqueReasoning) > 0 {
+		if err := s.accumulateReasoning(ctx, chunk, output); err != nil {
+			return err
+		}
+	}
+
+	// Accumulate media content for this turn
+	// MediaData.Data is already raw bytes — providers decode base64 at source
+	if chunk.MediaData != nil && len(chunk.MediaData.Data) > 0 {
+		s.accumulatedMedia = append(s.accumulatedMedia, chunk.MediaData.Data...)
+	}
+
+	// Accumulate tool calls for this turn. Tool calls and FinishReason can
+	// arrive in separate chunks (e.g. OpenAI Realtime emits ToolCalls on
+	// response.output_item.done and FinishReason on response.done) — without
+	// accumulation the message-build step at turn-complete reads chunk.ToolCalls
+	// from the FinishReason chunk and finds it empty.
+	if len(chunk.ToolCalls) > 0 {
+		s.accumulatedToolCalls = append(s.accumulatedToolCalls, chunk.ToolCalls...)
+	}
+	return nil
+}
+
+// accumulateReasoning appends a chunk's reasoning to the turn and emits it as
+// a live ReasoningDelta element (and event, when an emitter is set).
+func (s *DuplexProviderStage) accumulateReasoning(
+	ctx context.Context, chunk *providers.StreamChunk, output chan<- core.StreamElement,
+) error {
+	s.accumulatedReasoning.WriteString(chunk.Reasoning)
+	s.accumulatedOpaqueReasoning = append(s.accumulatedOpaqueReasoning, chunk.OpaqueReasoning...)
+	if s.emitter != nil && chunk.Reasoning != "" {
+		s.emitter.ReasoningDelta(chunk.Reasoning)
+	}
+	select {
+	case output <- core.StreamElement{
+		Reasoning: &core.ReasoningDelta{Text: chunk.Reasoning, Opaque: chunk.OpaqueReasoning},
+	}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// resetTurnAccumulation clears the turn's accumulated content once the turn
+// completes, and marks transcription as captured - don't reset it yet!
+// Late-arriving transcription chunks will be ignored until a new user turn
+// starts. The transcription buffer will be reset when sendAudioElement is
+// called.
+func (s *DuplexProviderStage) resetTurnAccumulation() {
+	s.accGen = 0
+	s.textFromDeltas = false
+	s.accumulatedText.Reset()
+	s.accumulatedReasoning.Reset()
+	s.accumulatedOpaqueReasoning = nil
+	s.accumulatedMedia = nil
+	s.accumulatedToolCalls = nil
+	s.transcriptMu.Lock()
+	s.transcriptionCaptured = true
+	s.transcriptMu.Unlock()
+}
+
+// transcriptLen is the buffered input transcription's length.
+func (s *DuplexProviderStage) transcriptLen() int {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	return s.inputTranscription.Len()
+}
+
+// takeTranscript returns the buffered input transcription and the session's
+// ID for the input it belongs to, which it hands over once.
+func (s *DuplexProviderStage) takeTranscript() (text, inputID string) {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	inputID, s.transcriptItemID = s.transcriptItemID, ""
+	return s.inputTranscription.String(), inputID
+}
+
+// resetTranscript empties the buffered input transcription, and forgets the
+// input it belonged to.
+func (s *DuplexProviderStage) resetTranscript() {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	s.inputTranscription.Reset()
+	s.transcriptItemID = ""
+}
+
+// chunkToElement, buildAssistantParts, and takeReasoning — the pure transforms —
+// now live in stages_duplex_provider.go (coverage-gated).
