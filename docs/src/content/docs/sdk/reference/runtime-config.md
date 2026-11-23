@@ -127,6 +127,7 @@ The `spec` object contains all runtime configuration. Every field in `spec` is o
 | `selectors` | map[string]SelectorConfig | External selector processes keyed by selector name. |
 | `skills` | SkillsConfig | Runtime skill wiring. |
 | `tool_selector` | string | Name of a selector under `selectors` that narrows the tool set offered to the LLM each turn. |
+| `tool_loading` | ToolLoadingConfig | How the tools array sent to the provider follows a change to what the model may call. |
 
 ---
 
@@ -461,7 +462,49 @@ Map of external selector processes. Keys are selector names, which `skills.selec
 
 Name of a selector under [`spec.selectors`](#specselectors). Each turn, the selector receives the last user message and the pack-declared tools, and the LLM is offered only the tools it returns. When the selector returns nothing or fails, the full tool list is offered. A name that is not declared under `spec.selectors` fails validation, as it does for `skills.selector`.
 
-A turn whose selection differs from the previous turn's sends the provider a different tools array, so a provider that caches the prompt cannot reuse its cache for that call. Claude writes the whole prefix to its cache again. The conversation's event bus reports each such turn as `tool.offer.rebuilt` with the reason `selector`.
+A turn whose selection differs from the previous turn's sends the provider a different tools array, so a provider that caches the prompt cannot reuse its cache for that call. Claude writes the whole prefix to its cache again. The conversation's event bus reports each such turn as `tool.offer.rebuilt` with the reason `selector`. Under [`tool_loading.mode: stable`](#spectool_loading) the selection narrows what the model may call and the tools array stays the same.
+
+---
+
+### spec.tool_loading
+
+How the tools array sent to the provider follows a change to what the model may call. The tools array comes first in the prompt a provider caches, so a call sent a different array cannot reuse the cache. The same setting is the SDK option `sdk.WithToolLoading`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mode` | string | no | `rebuild` (default) or `stable`. Any other value fails validation. |
+
+```yaml
+spec:
+  tool_loading:
+    mode: stable
+```
+
+In `rebuild` mode each call is sent the tools the model may call on it. A selection by `tool_selector`, a skill activation, a tool excluded after repeated rejection and a workflow state's tools each rebuild the array, and once `max_tool_calls_per_turn` is spent the rest of the turn is sent no tools.
+
+In `stable` mode every call of the conversation is sent the same array:
+
+| The array holds | |
+|---|---|
+| The prompt's tools | Before `tool_selector` narrows them. |
+| Every pack tool a skill can grant | Whether or not the skill is active. |
+| The tools of every workflow state's prompt | |
+| The capability tools | `skill__*`, `workflow__*`, `memory__*`, `a2a__*`. |
+
+What the model may call on a call is what `rebuild` mode would have sent it. A call to any other tool in the array gets the tool result `Tool <name> was not run: it is not available this turn`, and the tool does not run.
+
+| Change | `stable` mode |
+|---|---|
+| `tool_selector` chooses other tools | The model may call the selection. The array is unchanged. |
+| A skill is activated or deactivated | The model may call the tools it grants from the next round. The array is unchanged. |
+| A tool is excluded after repeated rejection | The model may not call it for the rest of the turn. The array is unchanged. |
+| `max_tool_calls_per_turn` is spent | The array is unchanged, and the rest of the turn is sent tool choice `none`. |
+| A forced `tool_choice` names a tool the model may not call | The call is sent tool choice `auto`. |
+| The skill__activate index | Lists every skill. A workflow state's `skills` filter and `skills.selector` do not narrow it, and activating a skill the state does not admit is refused. |
+| A workflow state change | The model may call the new state's tools. `workflow__transition`'s input schema lists the state's events, so the array changes and is reported. |
+| An MCP server's tool list, a client's frontend tools, or another provider | The array is rebuilt and reported as `tool.offer.rebuilt`. |
+
+OpenAI (Chat Completions and Responses) is also sent what the model may call as `tool_choice` `allowed_tools`, so the model does not try the other tools. It is not sent on Azure, Bedrock or Vertex. Other providers see every tool in the array and rely on the refusal.
 
 ---
 
