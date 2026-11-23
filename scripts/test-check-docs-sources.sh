@@ -59,5 +59,19 @@ touch "${side}/src/a.go"
 expect "a missing sidecar source fails, its line range stripped" 1 \
   "docs/src/content/docs/how-to/p.md cites src/moved.go, which does not exist" "${side}"
 
+bad="${tmp}/malformed"
+page "${bad}" src/a.go
+touch "${bad}/src/a.go"
+printf '{"claims": [{"id": "c1", "evidence": ["src/gone.go:1"' >"${bad}/docs/provenance/how-to/p.json"
+expect "a sidecar jq cannot read fails" 2 \
+  "cannot read docs/provenance/how-to/p.json" "${bad}"
+
+nonstr="${tmp}/nonstring"
+page "${nonstr}" src/a.go
+touch "${nonstr}/src/a.go"
+printf '{"claims": [{"id": "c1", "evidence": [42]}]}' >"${nonstr}/docs/provenance/how-to/p.json"
+expect "evidence that is not a string fails" 2 \
+  "cannot read docs/provenance/how-to/p.json" "${nonstr}"
+
 [ "${fails}" -eq 0 ] || { echo "${fails} test(s) failed"; exit 1; }
 echo "all check-docs-sources tests passed"

@@ -10,7 +10,9 @@
 # file's new path in the same PR.
 #
 # Usage: scripts/check-docs-sources.sh [ROOT]   (default: this checkout)
+# Exits 1 when a cited path is missing, 2 when a sidecar cannot be read.
 set -euo pipefail
+command -v jq >/dev/null || { echo "FAIL: jq is required" >&2; exit 2; }
 
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 DOCS="docs/src/content/docs"
@@ -36,6 +38,15 @@ while IFS= read -r page; do
   rel="${page#"${ROOT}/"}"
   sidecar="${ROOT}/${PROV}/${rel#"${DOCS}/"}"
   sidecar="${sidecar%.*}.json"
+  # Read outside the loop's input: a failure inside `< <(...)` would be
+  # ignored, and an unreadable sidecar would pass as one citing nothing.
+  evidence=""
+  if [ -f "${sidecar}" ]; then
+    if ! evidence="$(jq -r '.claims[]?.evidence[]? | sub(":[0-9]+(-[0-9]+)?$"; "")' "${sidecar}" 2>&1)"; then
+      echo "::error file=${sidecar#"${ROOT}/"}::cannot read ${sidecar#"${ROOT}/"}: ${evidence}"
+      exit 2
+    fi
+  fi
   while IFS= read -r src; do
     [ -n "${src}" ] || continue
     checked=$((checked + 1))
@@ -45,9 +56,7 @@ while IFS= read -r page; do
     fi
   done < <(
     frontmatter_sources "${page}"
-    if [ -f "${sidecar}" ]; then
-      jq -r '.claims[]?.evidence[]? | sub(":[0-9]+(-[0-9]+)?$"; "")' "${sidecar}"
-    fi
+    [ -z "${evidence}" ] || printf '%s\n' "${evidence}"
   )
 done < <(find "${ROOT}/${DOCS}" -type f \( -name '*.md' -o -name '*.mdx' \) | sort)
 
