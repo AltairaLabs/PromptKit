@@ -60,6 +60,9 @@ var (
     ErrGone = core.ErrGone
     // ErrLong is declared over several lines.
     ErrLong = core.ErrLong
+    // ErrComma closes its call at the spec's own indent, as gofmt does
+    // after a trailing comma.
+    ErrComma = core.ErrComma
 )
 ```
 

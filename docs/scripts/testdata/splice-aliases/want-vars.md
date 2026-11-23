@@ -61,6 +61,12 @@ var (
     // ErrLong is declared over several lines.
     ErrLong = fmt.Errorf(
         "long %d", 1)
+    // ErrComma closes its call at the spec's own indent, as gofmt does
+    // after a trailing comma.
+    ErrComma = fmt.Errorf(
+        "comma %d",
+        2,
+    )
 )
 ```
 

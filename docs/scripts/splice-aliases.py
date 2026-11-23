@@ -188,7 +188,9 @@ def var_values(page, internal_pkgs):
     for i, line in enumerate(block):
         m = VAR_SPEC.match(line)
         if m:
-            values.setdefault(m.group(2), "\n".join([m.group(4)] + continuation(block, i)))
+            more = continuation(block, i, m.group(4))
+            if more is not None:
+                values.setdefault(m.group(2), "\n".join([m.group(4)] + more))
     for line in decl_blocks(lines, "const"):
         m = VAR_SPEC.match(line)
         if m and const_means_itself(m.group(4), internal_pkgs):
@@ -196,16 +198,35 @@ def var_values(page, internal_pkgs):
     return values
 
 
-def continuation(lines, i):
+def continuation(lines, i, value):
     """The lines that continue the spec at lines[i]: those after it indented
-    deeper than it ("ErrX = errors.New("a " +" then its second string)."""
+    deeper than it ("ErrX = errors.New("a " +" then its second string), then,
+    while the value's brackets are still open, the closing lines gofmt puts at
+    the spec's own indent ("fmt.Errorf(" ... ")"). None when they never close:
+    the facade's "ErrX = core.ErrX" is shown instead of Go that does not parse."""
     indent = len(lines[i]) - len(lines[i].lstrip())
+    rest = lines[i + 1:]
     out = []
-    for line in lines[i + 1:]:
+    for line in rest:
         if not line.strip() or len(line) - len(line.lstrip()) <= indent:
             break
         out.append(line)
-    return out
+    depth = open_brackets("\n".join([value] + out))
+    for line in rest[len(out):]:
+        if depth <= 0 or not CLOSERS.match(line.strip()):
+            break
+        out.append(line)
+        depth = open_brackets("\n".join([value] + out))
+    return out if depth <= 0 else None
+
+
+CLOSERS = re.compile(r"^[)}\]]+,?$")
+
+
+def open_brackets(text):
+    """How many of ( { [ the text leaves open, not counting string literals."""
+    text = re.sub(r'"(?:[^"\\\n]|\\.)*"|`[^`]*`', '""', text)
+    return sum(text.count(c) for c in "({[") - sum(text.count(c) for c in ")}]")
 
 
 def const_means_itself(value, internal_pkgs):
