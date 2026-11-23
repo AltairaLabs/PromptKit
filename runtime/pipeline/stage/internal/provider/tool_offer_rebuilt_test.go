@@ -500,9 +500,9 @@ func TestToolOfferRebuilt_ProviderSwitch(t *testing.T) {
 
 const offerRebuiltWarning = "tools array changed mid-conversation"
 
-// A conversation on a caching provider logs the cache cost of a rebuild once,
-// at its first rebuild.
-func TestToolOfferRebuilt_WarnsOncePerConversation(t *testing.T) {
+// A stage on a caching provider logs the cache cost of a rebuild once, at its
+// first rebuild, however many rebuilds follow in later turns.
+func TestToolOfferRebuilt_WarnsOnceAcrossTurns(t *testing.T) {
 	var buf bytes.Buffer
 	logger.SetOutput(&buf)
 	t.Cleanup(func() { logger.SetOutput(nil) })
@@ -544,4 +544,41 @@ func TestToolOfferRebuilt_NoWarningWithoutCaching(t *testing.T) {
 
 	assert.Equal(t, []string{"activate", "refund"}, prov.offeredOn(t, 1))
 	assert.NotContains(t, buf.String(), offerRebuiltWarning)
+}
+
+// Two stages sharing a ToolOfferHistory, as a workflow's states share one,
+// report a change from the first stage's last call to the second stage's
+// first, and log the warning once between them.
+func TestToolOfferRebuilt_SharedHistorySpansStages(t *testing.T) {
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	t.Cleanup(func() { logger.SetOutput(nil) })
+
+	ev := newOfferEvents(t)
+	history := NewToolOfferHistory()
+	prov := newOfferScriptProvider("p")
+	prov.caching = true
+	first := newOfferStage(t, prov, registryWithTools(t, "lookup_order", "refund"), ev, offerStageOpts{
+		allowed: []string{"lookup_order"},
+		cfg:     &ProviderConfig{ToolOfferHistory: history},
+	})
+	runOfferTurn(t, first, "where is my order")
+	second := newOfferStage(t, prov, registryWithTools(t, "lookup_order", "refund"), ev, offerStageOpts{
+		allowed: []string{"refund"},
+		cfg:     &ProviderConfig{ToolOfferHistory: history},
+	})
+	runOfferTurn(t, second, "refund it")
+	third := newOfferStage(t, prov, registryWithTools(t, "lookup_order", "refund"), ev, offerStageOpts{
+		allowed: []string{"lookup_order"},
+		cfg:     &ProviderConfig{ToolOfferHistory: history},
+	})
+	runOfferTurn(t, third, "and the order?")
+
+	assert.Equal(t, []events.ToolOfferRebuiltData{
+		{Reasons: []string{events.ToolOfferReasonWorkflowState}, Added: []string{"refund"},
+			Removed: []string{"lookup_order"}, Round: 1, CachingProvider: true},
+		{Reasons: []string{events.ToolOfferReasonWorkflowState}, Added: []string{"lookup_order"},
+			Removed: []string{"refund"}, Round: 1, CachingProvider: true},
+	}, ev.all())
+	assert.Equal(t, 1, strings.Count(buf.String(), offerRebuiltWarning), buf.String())
 }

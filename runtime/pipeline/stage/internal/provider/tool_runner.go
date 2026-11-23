@@ -1200,9 +1200,6 @@ type ToolOffer struct {
 	// offered under its own name, false withheld or renamed
 	// (descriptorCollector.view).
 	view map[string]bool
-	// log is what tool.offer.rebuilt compares each provider call's tools
-	// array against (reportOfferSent).
-	log offerLog
 }
 
 // setView records describe's outcomes as the view last built.

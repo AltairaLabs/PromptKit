@@ -53,3 +53,65 @@ func TestToolOfferRebuilt_SkillActivationIsReported(t *testing.T) {
 		Reasons: []string{events.ToolOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
 	}}, got)
 }
+
+// twoStateOfferPack has two workflow states whose prompts offer different
+// tools.
+const twoStateOfferPack = `{
+	"id": "two-state-offer", "version": "1.0.0",
+	"template_engine": {"version": "v1", "syntax": "{{variable}}"},
+	"prompts": {
+		"orders": {"id": "orders", "name": "Orders", "version": "1.0.0",
+			"system_template": "You look up orders.", "tools": ["lookup_order"]},
+		"refunds": {"id": "refunds", "name": "Refunds", "version": "1.0.0",
+			"system_template": "You issue refunds.", "tools": ["refund"]}},
+	"tools": {
+		"lookup_order": {"name": "lookup_order", "description": "Look up an order", "mode": "local",
+			"parameters": {"type": "object", "properties": {"id": {"type": "string"}}}},
+		"refund": {"name": "refund", "description": "Issue a refund", "mode": "local",
+			"parameters": {"type": "object", "properties": {"id": {"type": "string"}}}}},
+	"workflow": {"version": 1, "entry": "orders",
+		"states": {
+			"orders": {"prompt_task": "orders", "on_event": {"Refund": "refunds"}},
+			"refunds": {"prompt_task": "refunds"}}}
+}`
+
+// A workflow opens a conversation per state, and the first call in a state
+// whose prompt offers other tools sends the provider a different tools
+// array: the workflow reports it once, as a workflow state change.
+func TestToolOfferRebuilt_WorkflowTransitionIsReported(t *testing.T) {
+	provider := newNudgeScriptProvider()
+	bus := events.NewEventBus()
+	var got []events.ToolOfferRebuiltData
+	var mu sync.Mutex
+	bus.Subscribe(events.EventToolOfferRebuilt, func(e *events.Event) {
+		if d, ok := e.Data.(*events.ToolOfferRebuiltData); ok {
+			mu.Lock()
+			got = append(got, *d)
+			mu.Unlock()
+		}
+	})
+	wc, err := OpenWorkflow(createTestPackFile(t, twoStateOfferPack), WithProvider(provider),
+		WithSkipSchemaValidation(), WithEventBus(bus))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wc.Close() })
+	ctx := context.Background()
+
+	_, err = wc.Send(ctx, "where is my order")
+	require.NoError(t, err)
+	_, err = wc.Transition("Refund")
+	require.NoError(t, err)
+	_, err = wc.Send(ctx, "refund it")
+	require.NoError(t, err)
+	_, err = wc.Send(ctx, "thanks")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"lookup_order", "workflow__transition"}, provider.offeredOn(t, 0))
+	assert.Equal(t, []string{"refund"}, provider.offeredOn(t, 1), "the final state has no transition to offer")
+	bus.Close() // delivers every event published so far
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonWorkflowState}, Added: []string{"refund"},
+		Removed: []string{"lookup_order", "workflow__transition"}, Round: 1,
+	}}, got)
+}

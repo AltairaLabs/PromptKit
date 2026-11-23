@@ -113,6 +113,11 @@ type ProviderStage struct {
 	// published exported type and blocks every subsequent minor release.
 	offers *ToolOffer
 
+	// offerHistory is what tool.offer.rebuilt compares each call's tools
+	// array against: ProviderConfig.ToolOfferHistory, or the stage's own,
+	// created on first use (offerLog).
+	offerHistory *ToolOfferHistory
+
 	// streamTurn is the caller turn a continuous-mode turn being fired
 	// answers, plus one (0 outside one): see fireStreamingTurn.
 	streamTurn atomic.Int64
@@ -332,6 +337,11 @@ type ProviderConfig struct {
 	// judge a streamed reply in, and bounds their judging. Zero fields take
 	// the defaults.
 	StreamHold StreamHoldConfig
+
+	// ToolOfferHistory, when set, is what the stage compares each provider
+	// call's tools array against for tool.offer.rebuilt. Share one across the
+	// stages of a conversation. Nil gives the stage one of its own.
+	ToolOfferHistory *ToolOfferHistory
 }
 
 // CallParams returns c's sampling fields as one value.
@@ -470,6 +480,7 @@ func NewProviderStageWithTurnState(
 		turnState:    turnState,
 		callRate:     callRate,
 		offers:       &ToolOffer{},
+		offerHistory: config.ToolOfferHistory,
 	}
 }
 
@@ -3880,7 +3891,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 	r := s.runner()
 	r.MarkBuilt(offer)
 	r.markSent(nil) // until a tools array is built for the provider
-	s.offerState().setCurrent(s.snapshotOf(nil))
+	s.offerLog().setCurrent(s.snapshotOf(nil))
 	if toolProvider == nil {
 		return nil, "", nil
 	}
@@ -3898,7 +3909,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 	r.markSent(offer)
-	s.offerState().setCurrent(s.snapshotOf(offer))
+	s.offerLog().setCurrent(s.snapshotOf(offer))
 
 	// Determine tool choice from policy
 	toolChoice = toolChoiceAuto // default

@@ -178,6 +178,11 @@ type Conversation struct {
 	// used (admitDeferredResults).
 	callRate *stage.CallRateWindow
 
+	// offerHistory is what the conversation's provider stages compare each
+	// call's tools array against for tool.offer.rebuilt, shared, in a
+	// workflow, by every state's conversation (withToolOfferHistory).
+	offerHistory *stage.ToolOfferHistory
+
 	// MCP registry for managing MCP servers
 	mcpRegistry            mcp.Registry
 	mcpExecutorsRegistered bool // guards against re-registering MCP executors on every pipeline build
@@ -818,6 +823,7 @@ func (c *Conversation) buildPipelineConfig(
 		Caller:                c.config.caller,
 		BlockedMessage:        c.blockedMessageFunc(),
 		CallRate:              c.callRateWindow(),
+		ToolOfferHistory:      c.toolOfferHistory(),
 		SkipContentValidation: c.config.skipContentValidation,
 		StreamHold:            c.config.streamHold,
 		ToolPolicy:            c.config.toolPolicy,
@@ -986,6 +992,15 @@ func (c *Conversation) callRateWindow() *stage.CallRateWindow {
 		c.callRate = stage.NewCallRateWindow()
 	}
 	return c.callRate
+}
+
+// toolOfferHistory returns the conversation's tool offer history, creating
+// it on first use, as callRateWindow does its window.
+func (c *Conversation) toolOfferHistory() *stage.ToolOfferHistory {
+	if c.offerHistory == nil {
+		c.offerHistory = stage.NewToolOfferHistory()
+	}
+	return c.offerHistory
 }
 
 // callRateLimit is the ToolPolicy.MaxCallsPerMinute the conversation's calls

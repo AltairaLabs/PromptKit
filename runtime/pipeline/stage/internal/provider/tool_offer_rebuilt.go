@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -12,7 +13,9 @@ import (
 )
 
 // tool.offer.rebuilt reports a provider call sent a tools array that differs
-// from the one the stage's previous provider call was sent. Every tools build
+// from the one the previous provider call was sent: the stage's previous
+// call, or, with a shared ToolOfferHistory, the previous call of any stage
+// sharing it. Every tools build
 // records the array it made (offerSnapshot) and what caused it (noteOffer*);
 // before each provider call, the round compares the array it sends against
 // the last one sent (reportOfferSent). A build that is never sent, such as a
@@ -42,7 +45,23 @@ type offerInputs struct {
 	grants  []string
 }
 
-// offerLog is the record ToolOffer keeps for tool.offer.rebuilt.
+// ToolOfferHistory is what tool.offer.rebuilt compares a provider call's
+// tools array against: the array the previous call was sent, what has
+// changed the array since, and whether the cache-cost warning was logged.
+// Share one across the provider stages of a conversation, as the SDK does
+// across a workflow's states, so a change from one stage's calls to the
+// next stage's is reported and the warning is logged once. A stage built
+// without one (ProviderConfig.ToolOfferHistory) keeps its own. Safe for
+// concurrent use.
+type ToolOfferHistory struct {
+	mu  sync.Mutex
+	log offerLog
+}
+
+// NewToolOfferHistory returns a history of no calls.
+func NewToolOfferHistory() *ToolOfferHistory { return &ToolOfferHistory{} }
+
+// offerLog is the record a ToolOfferHistory keeps.
 type offerLog struct {
 	current   offerSnapshot // the array last built, or none once withdrawn
 	sent      offerSnapshot // the array the last provider call was sent
@@ -54,20 +73,20 @@ type offerLog struct {
 }
 
 // setCurrent records snap as the array last built.
-func (o *ToolOffer) setCurrent(snap offerSnapshot) {
+func (o *ToolOfferHistory) setCurrent(snap offerSnapshot) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.log.current = snap
 }
 
 // noteCause records reason as having changed the array since the last call.
-func (o *ToolOffer) noteCause(reason string) {
+func (o *ToolOfferHistory) noteCause(reason string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.addCauseLocked(reason)
 }
 
-func (o *ToolOffer) addCauseLocked(reason string) {
+func (o *ToolOfferHistory) addCauseLocked(reason string) {
 	if !slices.Contains(o.log.causes, reason) {
 		o.log.causes = append(o.log.causes, reason)
 	}
@@ -81,7 +100,7 @@ func (o *ToolOffer) addCauseLocked(reason string) {
 // has no single cause, so it is told apart by what it was built from. The
 // stage's first turn records a cause too, which takeSent drops with the
 // first call it reports nothing for.
-func (o *ToolOffer) noteTurn(in offerInputs, describes bool) {
+func (o *ToolOfferHistory) noteTurn(in offerInputs, describes bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if !o.log.current.equal(o.log.sent) {
@@ -92,7 +111,7 @@ func (o *ToolOffer) noteTurn(in offerInputs, describes bool) {
 }
 
 // turnCauseLocked names what changed a turn's array from the one last sent.
-func (o *ToolOffer) turnCauseLocked(in offerInputs, describes bool) string {
+func (o *ToolOfferHistory) turnCauseLocked(in offerInputs, describes bool) string {
 	prev, cur, sent := o.log.inputs, o.log.current, o.log.sent
 	added, removed := diffNames(sent.names, cur.names)
 	switch {
@@ -117,14 +136,14 @@ func (o *ToolOffer) turnCauseLocked(in offerInputs, describes bool) string {
 
 // setInputs records what the offer is now built from, for a change made
 // during the turn (a grant, a workflow handoff).
-func (o *ToolOffer) setInputs(in offerInputs) {
+func (o *ToolOfferHistory) setInputs(in offerInputs) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.log.inputs = in
 }
 
 // lastInputs returns what the offer was last recorded built from.
-func (o *ToolOffer) lastInputs() offerInputs {
+func (o *ToolOfferHistory) lastInputs() offerInputs {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.log.inputs
@@ -132,7 +151,7 @@ func (o *ToolOffer) lastInputs() offerInputs {
 
 // takeSent records the array last built as sent, and returns the change from
 // the array sent before it, or nil when there is none.
-func (o *ToolOffer) takeSent() *events.ToolOfferRebuiltData {
+func (o *ToolOfferHistory) takeSent() *events.ToolOfferRebuiltData {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	cur, prev, first := o.log.current, o.log.sent, !o.log.sentAny
@@ -150,7 +169,7 @@ func (o *ToolOffer) takeSent() *events.ToolOfferRebuiltData {
 
 // claimWarning reports whether the cache-cost warning is still to be logged,
 // and marks it logged.
-func (o *ToolOffer) claimWarning() bool {
+func (o *ToolOfferHistory) claimWarning() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.log.warned {
@@ -195,6 +214,16 @@ func onlyMCP(added, removed []string) bool {
 	return true
 }
 
+// offerLog returns the history the stage compares its calls' tools arrays
+// against: ProviderConfig.ToolOfferHistory, or one of its own. Called on the
+// turn's goroutine.
+func (s *ProviderStage) offerLog() *ToolOfferHistory {
+	if s.offerHistory == nil {
+		s.offerHistory = NewToolOfferHistory()
+	}
+	return s.offerHistory
+}
+
 // snapshotOf is the snapshot of an array built from offer for the stage's
 // call provider.
 func (s *ProviderStage) snapshotOf(offer []*tools.ToolDescriptor) offerSnapshot {
@@ -208,7 +237,7 @@ func (s *ProviderStage) snapshotOf(offer []*tools.ToolDescriptor) offerSnapshot 
 
 // noteTurnOffer records the turn's first tools build, from acc.
 func (s *ProviderStage) noteTurnOffer(acc *providerInput) {
-	s.offerState().noteTurn(s.offerInputsFor(acc), s.config != nil && s.config.DescribeTool != nil)
+	s.offerLog().noteTurn(s.offerInputsFor(acc), s.config != nil && s.config.DescribeTool != nil)
 }
 
 // offerInputsFor is what acc's offer is built from now.
@@ -223,7 +252,7 @@ func (s *ProviderStage) offerInputsFor(acc *providerInput) offerInputs {
 // handoff left it: the destination state's tools, or another provider's
 // wire form of them.
 func (s *ProviderStage) noteHandoffOffer(acc *providerInput, providerChanged bool) {
-	o := s.offerState()
+	o := s.offerLog()
 	if providerChanged {
 		o.noteCause(events.ToolOfferReasonProviderSwitch)
 	} else {
@@ -236,7 +265,7 @@ func (s *ProviderStage) noteHandoffOffer(acc *providerInput, providerChanged boo
 // the offer (offerChanged) by moving the grants or excluding a tool, or else
 // DescribeTool now describes the tools differently.
 func (tl *toolLoop) noteRoundOffer(offerChanged bool) {
-	o := tl.stage.offerState()
+	o := tl.stage.offerLog()
 	in := tl.stage.offerInputsFor(tl.acc)
 	if offerChanged && !slices.Equal(in.grants, o.lastInputs().grants) {
 		o.noteCause(events.ToolOfferReasonSkillGrant)
@@ -254,7 +283,7 @@ func (tl *toolLoop) noteRoundOffer(offerChanged bool) {
 // withdrawOffer records that the rest of the turn is sent no tools, because
 // reason withdrew them.
 func (s *ProviderStage) withdrawOffer(reason string) {
-	o := s.offerState()
+	o := s.offerLog()
 	o.setCurrent(offerSnapshot{provider: s.callProvider()})
 	o.noteCause(reason)
 }
@@ -262,9 +291,9 @@ func (s *ProviderStage) withdrawOffer(reason string) {
 // reportOfferSent records that round's provider call is sent the array last
 // built, and publishes tool.offer.rebuilt when it differs from the array the
 // previous call was sent. On a provider that caches the prompt it also logs,
-// once per stage, what that costs.
+// once per history, what that costs.
 func (s *ProviderStage) reportOfferSent(ctx context.Context, round int) {
-	o := s.offerState()
+	o := s.offerLog()
 	change := o.takeSent()
 	if change == nil {
 		return

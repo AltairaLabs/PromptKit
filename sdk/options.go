@@ -457,6 +457,23 @@ type config struct {
 	// ToolPolicy.MaxCallsPerMinute counts the conversation's calls in, in
 	// place of one of its own.
 	callRate *stage.CallRateWindow
+
+	// offerHistory, when set by withToolOfferHistory, is the history the
+	// conversation's provider stages report tool.offer.rebuilt against, in
+	// place of one of its own.
+	offerHistory *stage.ToolOfferHistory
+}
+
+// withToolOfferHistory is an internal option that makes the conversation
+// compare its calls' tools arrays against history rather than a history of
+// its own. A WorkflowConversation sets it on every state's Open, so a change
+// of tools from one state to the next is reported, and the cache-cost
+// warning is logged once for the workflow.
+func withToolOfferHistory(history *stage.ToolOfferHistory) Option {
+	return func(c *config) error {
+		c.offerHistory = history
+		return nil
+	}
 }
 
 // withCallRateWindow is an internal option that makes the conversation count

@@ -186,6 +186,11 @@ type Config struct {
 	// the stage its own.
 	CallRate *stage.CallRateWindow
 
+	// ToolOfferHistory is what the provider stage compares each call's
+	// tools array against for tool.offer.rebuilt
+	// (stage.ProviderConfig.ToolOfferHistory). Nil gives the stage its own.
+	ToolOfferHistory *stage.ToolOfferHistory
+
 	// SkipContentValidation turns off the provider stage's check that each
 	// media part of a request is one the provider declares supporting (see
 	// stage.ProviderConfig.SkipContentValidation). False validates.
@@ -939,6 +944,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			DescribeTool:     cfg.DescribeTool,
 			ApprovalGate:     cfg.ApprovalGate,
 			CallRate:         cfg.CallRate,
+			ToolOfferHistory: cfg.ToolOfferHistory,
 			Caller:           cfg.Caller,
 			BlockedMessage:   cfg.BlockedMessage,
 			Streaming:        cfg.Ingestion != nil,
