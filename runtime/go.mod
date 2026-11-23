@@ -8,7 +8,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/aws/aws-sdk-go-v2 v1.47.7
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.26
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.27
 	github.com/aws/aws-sdk-go-v2/config v1.33.15
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.15
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.8
@@ -51,7 +51,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/signin v1.12.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.39.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.3 // indirect
-	github.com/aws/smithy-go v1.28.8 // indirect
+	github.com/aws/smithy-go v1.28.9 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
