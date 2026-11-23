@@ -1593,6 +1593,12 @@ func (r *ToolRunner) describedToolsKey(descriptors []*tools.ToolDescriptor) stri
 	if r.Config.DescribeTool == nil {
 		return ""
 	}
+	return descriptorsKey(descriptors)
+}
+
+// descriptorsKey fingerprints descriptors: each one's name, description and
+// input schema, in order.
+func descriptorsKey(descriptors []*tools.ToolDescriptor) string {
 	var sb strings.Builder
 	for _, d := range descriptors {
 		sb.WriteString(d.Name)

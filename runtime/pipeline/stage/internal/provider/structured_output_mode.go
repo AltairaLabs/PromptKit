@@ -244,6 +244,9 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr RoundRef) {
 	// is short by the whole final answer. Its own call ID keeps it distinct
 	// from the round that preceded it.
 	callID := NewProviderCallID()
+	// The re-ask is sent no tools: a change of tools array like any other.
+	s.withdrawOffer(events.ToolOfferReasonStructuredOutputReask)
+	s.reportOfferSent(ctx, rr.Round)
 	if tl.stage.emitter != nil {
 		tl.stage.emitter.ProviderCallStartedCtx(ctx, &events.ProviderCallStartedData{
 			Provider: prov.ID(),
@@ -320,6 +323,7 @@ func (tl *toolLoop) reaskUnderSchema(ctx context.Context, rr RoundRef) {
 			completed.InputTokens = resp.CostInfo.InputTokens
 			completed.OutputTokens = resp.CostInfo.OutputTokens
 			completed.CachedTokens = resp.CostInfo.CachedTokens
+			completed.CacheWriteTokens = resp.CostInfo.CacheWriteTokens()
 			completed.Cost = resp.CostInfo.TotalCost
 		}
 		tl.stage.emitter.ProviderCallCompletedCtx(ctx, completed)

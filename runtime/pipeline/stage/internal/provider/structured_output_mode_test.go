@@ -150,7 +150,8 @@ func (p *schemaSpyProvider) finalAnswer() (providers.PredictionResponse, error) 
 	}
 	resp := providers.PredictionResponse{Content: `{"answer":"constrained"}`}
 	if p.reaskCost > 0 {
-		resp.CostInfo = &types.CostInfo{TotalCost: p.reaskCost}
+		resp.CostInfo = &types.CostInfo{TotalCost: p.reaskCost,
+			Quantities: map[string]float64{"cache_write_token": 640}}
 	}
 	return resp, nil
 }
@@ -647,14 +648,16 @@ func TestFinalTurn_ReaskEmitsItsOwnProviderCall(t *testing.T) {
 
 	ids := map[string]bool{}
 	var reaskCost float64
+	var reaskWrites int
 	for _, e := range completed {
 		d, ok := e.Data.(*events.ProviderCallCompletedData)
 		require.True(t, ok, "unexpected payload %T", e.Data)
 		ids[d.CallID] = true
 		if d.Cost > 0 {
-			reaskCost = d.Cost
+			reaskCost, reaskWrites = d.Cost, d.CacheWriteTokens
 		}
 	}
+	assert.Equal(t, 640, reaskWrites, "the re-ask's cache writes must reach its event")
 	assert.Len(t, ids, 3,
 		"the re-ask reused a round's call ID; a consumer keyed on it would merge them")
 	assert.InDelta(t, 0.5, reaskCost, 1e-9,

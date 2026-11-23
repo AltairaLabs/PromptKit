@@ -304,6 +304,7 @@ func judgeWithProvider(
 			completedData.InputTokens = resp.CostInfo.InputTokens
 			completedData.OutputTokens = resp.CostInfo.OutputTokens
 			completedData.CachedTokens = resp.CostInfo.CachedTokens
+			completedData.CacheWriteTokens = resp.CostInfo.CacheWriteTokens()
 			completedData.Cost = resp.CostInfo.TotalCost
 		}
 		opts.Emitter.ProviderCallCompletedCtx(ctx, completedData)

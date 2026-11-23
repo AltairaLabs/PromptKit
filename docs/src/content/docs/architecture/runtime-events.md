@@ -87,10 +87,11 @@ The `middleware.started`, `middleware.completed` and `middleware.failed` types a
 
 ### Provider and tool calls
 
-- `provider.call.started`, `provider.call.completed` (tokens, cost, duration), `provider.call.failed`
-- `provider.call.usage` (tokens, cost): usage a provider reported for a call after the call's `provider.call.completed` went out. For a realtime provider that reports usage after a call ends (`providers.LateUsageReporter`, such as Gemini Live), a call's completion with no cost waits briefly for that usage and carries it, so this event is only for usage that arrives later than that. A call's total cost is its `provider.call.completed` cost plus its `provider.call.usage` costs.
+- `provider.call.started`, `provider.call.completed` (tokens, cost, duration), `provider.call.failed`. `CacheWriteTokens` is the input the provider wrote to its prompt cache on the call, as the provider reported it (Claude's `cache_creation_input_tokens`). It is not part of `InputTokens`, and it is zero for a provider that reports no cache writes.
+- `provider.call.usage` (tokens, cache writes, cost): usage a provider reported for a call after the call's `provider.call.completed` went out. For a realtime provider that reports usage after a call ends (`providers.LateUsageReporter`, such as Gemini Live), a call's completion with no cost waits briefly for that usage and carries it, so this event is only for usage that arrives later than that. A call's total cost is its `provider.call.completed` cost plus its `provider.call.usage` costs.
 - `tool.call.started`, `tool.call.completed`, `tool.call.failed`
 - `tool.excluded`: the tool loop dropped a tool from the model's tool set after its calls failed twice in one loop (`ToolExcludedData`: tool name, reason, failure count, round)
+- `tool.offer.rebuilt`: the provider stage is sending a call a tools array that differs from the one the previous call was sent, which in the SDK is the conversation's previous call, or in a workflow the previous call in any state (`ToolOfferRebuiltData`: the reasons, the tool names added and removed, the round, and whether the provider caches the prompt). It is published before that call's `provider.call.started`. The first call is not reported, and neither is a call sent the same array as the one before it. [The tool loop](/architecture/runtime-tools-mcp/) explains the reasons and what a change costs.
 
 ### Client tools
 

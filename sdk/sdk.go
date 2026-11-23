@@ -287,6 +287,7 @@ func prepareConversation(
 		ownsPendingStore: ownsPending,
 		resolvedStore:    sdktools.NewResolvedStore(),
 		callRate:         cfg.callRate,
+		offerHistory:     cfg.offerHistory,
 	}
 
 	// Apply default variables from prompt BEFORE initializing session

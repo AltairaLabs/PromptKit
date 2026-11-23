@@ -167,6 +167,8 @@ func vadProviderConfig(cfg *Config) *stage.ProviderConfig {
 		// ToolPolicy.MaxCallsPerMinute where text does, and a held call
 		// ResolveTool approves is admitted in the same window.
 		CallRate: cfg.CallRate,
+		// The conversation's tool offer history, as text's.
+		ToolOfferHistory: cfg.ToolOfferHistory,
 		// Voice tool calls act for the conversation's caller, as text ones do.
 		Caller: cfg.Caller,
 		// A blocked turn's text is the host's choice, as on text.

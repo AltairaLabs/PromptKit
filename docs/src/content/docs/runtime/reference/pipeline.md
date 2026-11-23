@@ -465,6 +465,8 @@ Most stages are implemented in packages under stage/internal, one per subsystem 
   - [func \(s \*TokenBudgetStage\) Process\(ctx context.Context, input \<\-chan StreamElement, output chan\<\- StreamElement\) error](<#TokenBudgetStage.Process>)
 - [type ToolCallRecorder](<#ToolCallRecorder>)
 - [type ToolCallRunner](<#ToolCallRunner>)
+- [type ToolOfferHistory](<#ToolOfferHistory>)
+  - [func NewToolOfferHistory\(\) \*ToolOfferHistory](<#NewToolOfferHistory>)
 - [type TranscriptReorderStage](<#TranscriptReorderStage>)
   - [func NewTranscriptReorderStage\(placeholder string\) \*TranscriptReorderStage](<#NewTranscriptReorderStage>)
   - [func NewTranscriptReorderStageWithTimeout\(placeholder string, holdTimeout time.Duration\) \*TranscriptReorderStage](<#NewTranscriptReorderStageWithTimeout>)
@@ -4670,7 +4672,7 @@ type ProviderBudgetedCompaction interface {
 ```
 
 <a name="ProviderConfig"></a>
-## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L186-L335>)
+## type [ProviderConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L191-L345>)
 
 ProviderConfig contains configuration for the provider stage.
 
@@ -4824,11 +4826,16 @@ type ProviderConfig struct {
     // judge a streamed reply in, and bounds their judging. Zero fields take
     // the defaults.
     StreamHold StreamHoldConfig
+
+    // ToolOfferHistory, when set, is what the stage compares each provider
+    // call's tools array against for tool.offer.rebuilt. Share one across the
+    // stages of a conversation. Nil gives the stage one of its own.
+    ToolOfferHistory *ToolOfferHistory
 }
 ```
 
 <a name="ProviderConfig.ApplyCallParams"></a>
-### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L348>)
+### func \(\*ProviderConfig\) [ApplyCallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L358>)
 
 ```go
 func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
@@ -4837,7 +4844,7 @@ func (c *ProviderConfig) ApplyCallParams(p prompt.CallParams)
 ApplyCallParams sets c's sampling fields from a prompt's resolved parameters \(prompt.Registry.CallParameters\).
 
 <a name="ProviderConfig.CallParams"></a>
-### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L338>)
+### func \(\*ProviderConfig\) [CallParams](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L348>)
 
 ```go
 func (c *ProviderConfig) CallParams() prompt.CallParams
@@ -4846,7 +4853,7 @@ func (c *ProviderConfig) CallParams() prompt.CallParams
 CallParams returns c's sampling fields as one value.
 
 <a name="ProviderStage"></a>
-## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L75-L124>)
+## type [ProviderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L75-L129>)
 
 ProviderStage executes LLM calls and handles tool execution.
 
@@ -4898,7 +4905,7 @@ func NewProviderStageWithTurnState(provider providers.Provider, toolRegistry *to
 NewProviderStageWithTurnState creates a provider stage that sources system\_prompt, allowed\_tools, and provider\-bound metadata from the shared \*TurnState. Pass nil for ad\-hoc / test usage where TurnState is not wired.
 
 <a name="ProviderStage.Process"></a>
-### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L696-L700>)
+### func \(\*ProviderStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L707-L711>)
 
 ```go
 func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -4907,7 +4914,7 @@ func (s *ProviderStage) Process(ctx context.Context, input <-chan StreamElement,
 Process executes the LLM provider call and handles tool execution.
 
 <a name="ProviderStage.RunsToolCalls"></a>
-### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L399>)
+### func \(\*ProviderStage\) [RunsToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L409>)
 
 ```go
 func (s *ProviderStage) RunsToolCalls() bool
@@ -4916,7 +4923,7 @@ func (s *ProviderStage) RunsToolCalls() bool
 RunsToolCalls reports whether the stage runs the model's tool calls itself: it does whenever it has a tool registry \(ToolCallRunner\).
 
 <a name="ProviderStage.SetWorkflowStateResolver"></a>
-### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L181>)
+### func \(\*ProviderStage\) [SetWorkflowStateResolver](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/stages_provider.go#L186>)
 
 ```go
 func (s *ProviderStage) SetWorkflowStateResolver(r WorkflowStateResolver)
@@ -6847,6 +6854,26 @@ type ToolCallRunner interface {
     RunsToolCalls() bool
 }
 ```
+
+<a name="ToolOfferHistory"></a>
+## type [ToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_offer_rebuilt.go#L61-L64>)
+
+ToolOfferHistory is what tool.offer.rebuilt compares a provider call's tools array against: the array the previous call was sent, what has changed the array since, and whether the cache\-cost warning was logged. Share one across the provider stages of a conversation, as the SDK does across a workflow's states, so a change from one stage's calls to the next stage's is reported and the warning is logged once. A stage built without one \(ProviderConfig.ToolOfferHistory\) keeps its own. Safe for concurrent use.
+
+```go
+type ToolOfferHistory struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewToolOfferHistory"></a>
+### func [NewToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/provider_aliases.go#L285>)
+
+```go
+func NewToolOfferHistory() *ToolOfferHistory
+```
+
+NewToolOfferHistory returns a history of no calls.
 
 <a name="TranscriptReorderStage"></a>
 ## type [TranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/duplex/transcript_reorder.go#L54-L87>)

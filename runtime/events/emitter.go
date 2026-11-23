@@ -338,6 +338,15 @@ func (e *Emitter) ToolExcludedCtx(ctx context.Context, toolName, reason string, 
 	})
 }
 
+// ToolOfferRebuiltCtx emits tool.offer.rebuilt: a provider call is being
+// sent a tools array that differs from the previous call's.
+func (e *Emitter) ToolOfferRebuiltCtx(ctx context.Context, data *ToolOfferRebuiltData) {
+	if data == nil {
+		return
+	}
+	e.emitCtx(ctx, EventToolOfferRebuilt, data)
+}
+
 // ContextNoteAddedCtx emits context.note_added.
 func (e *Emitter) ContextNoteAddedCtx(ctx context.Context, data *ContextNoteData) {
 	if data == nil {

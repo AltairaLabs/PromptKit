@@ -66,6 +66,9 @@ const (
 	// EventToolExcluded marks a tool dropped from the model's tool set for the
 	// rest of the tool loop (ToolExcludedData).
 	EventToolExcluded EventType = "tool.excluded"
+	// EventToolOfferRebuilt marks a provider call sent a tools array that
+	// differs from the one the previous call was sent (ToolOfferRebuiltData).
+	EventToolOfferRebuilt EventType = "tool.offer.rebuilt"
 	// EventContextNoteAdded marks a note added to a realtime model's
 	// conversation that the caller neither hears nor sees, such as the note
 	// that a guardrail withheld a reply (ContextNoteData).
@@ -325,17 +328,21 @@ type ProviderCallStartedData struct {
 // ProviderCallCompletedData contains data for provider call completion events.
 type ProviderCallCompletedData struct {
 	baseEventData
-	Provider      string
-	Model         string
-	Duration      time.Duration
-	InputTokens   int
-	OutputTokens  int
-	CachedTokens  int
-	Cost          float64
-	FinishReason  string
-	ToolCallCount int
-	Source        string            // Origin of the call: "agent" (default), "judge", "selfplay"
-	Labels        map[string]string // Optional metadata propagated to metrics and traces
+	Provider     string
+	Model        string
+	Duration     time.Duration
+	InputTokens  int
+	OutputTokens int
+	CachedTokens int
+	// CacheWriteTokens is the input the provider wrote to its prompt cache
+	// on this call, as it reported it (Claude's cache_creation_input_tokens).
+	// Zero when the provider reports no cache writes. Not part of InputTokens.
+	CacheWriteTokens int
+	Cost             float64
+	FinishReason     string
+	ToolCallCount    int
+	Source           string            // Origin of the call: "agent" (default), "judge", "selfplay"
+	Labels           map[string]string // Optional metadata propagated to metrics and traces
 
 	// Round is the 1-based tool-loop round this provider call belongs to.
 	Round int
@@ -370,11 +377,14 @@ type ProviderCallUsageData struct {
 	InputTokens  int
 	OutputTokens int
 	CachedTokens int
-	Cost         float64
-	Source       string            // Origin of the call: "agent" (default), "judge", "selfplay"
-	Labels       map[string]string // Optional metadata propagated to metrics and traces
-	Round        int
-	CallID       string
+	// CacheWriteTokens is the input written to the provider's prompt cache,
+	// as on ProviderCallCompletedData.
+	CacheWriteTokens int
+	Cost             float64
+	Source           string            // Origin of the call: "agent" (default), "judge", "selfplay"
+	Labels           map[string]string // Optional metadata propagated to metrics and traces
+	Round            int
+	CallID           string
 }
 
 // ProviderCallFailedData contains data for provider call failure events.
@@ -452,6 +462,78 @@ type ToolExcludedData struct {
 	// Round is the 1-based tool-loop round whose results dropped it. The tool
 	// is not offered from the next round on.
 	Round int
+}
+
+// Reasons a tool.offer.rebuilt event gives for a change to the tools array
+// (ToolOfferRebuiltData.Reasons).
+const (
+	// ToolOfferReasonSkillGrant: the conversation's tool grants changed
+	// during a tool round, as skill__activate and skill__deactivate change
+	// them (ProviderConfig.ToolGrants).
+	ToolOfferReasonSkillGrant = "skill_grant"
+	// ToolOfferReasonClientTools: the conversation's tool grants changed
+	// between turns, as they do when a client sends a different set of
+	// frontend tools for the turn.
+	ToolOfferReasonClientTools = "client_tools"
+	// ToolOfferReasonSelector: the ToolSelector chose a different set of
+	// tools for this turn.
+	ToolOfferReasonSelector = "selector"
+	// ToolOfferReasonDescribe: DescribeTool describes the tools differently,
+	// such as a workflow state narrowing the skill__activate index.
+	ToolOfferReasonDescribe = "describe"
+	// ToolOfferReasonExcluded: the tool loop dropped a tool whose calls kept
+	// failing (tool.excluded).
+	ToolOfferReasonExcluded = "excluded"
+	// ToolOfferReasonExhausted: max_tool_calls_per_turn is spent, so the
+	// rest of the turn is sent no tools.
+	ToolOfferReasonExhausted = "exhausted"
+	// ToolOfferReasonStructuredOutputReask: a structured-output turn
+	// re-asks its final answer under the response schema, with no tools.
+	ToolOfferReasonStructuredOutputReask = "structured_output_reask"
+	// ToolOfferReasonTurnReset: a new turn offers again the tools the
+	// previous turn withdrew (excluded, exhausted, structured_output_reask).
+	ToolOfferReasonTurnReset = "turn_reset"
+	// ToolOfferReasonWorkflowState: the turn runs under a prompt or
+	// workflow state that declares different tools.
+	ToolOfferReasonWorkflowState = "workflow_state"
+	// ToolOfferReasonProviderSwitch: the call goes to a different provider
+	// than the previous one, so the array is built in its wire form.
+	ToolOfferReasonProviderSwitch = "provider_switch"
+	// ToolOfferReasonMCPListChanged: only MCP tools (mcp__*) were added or
+	// removed, as an MCP server's tools/list_changed does.
+	ToolOfferReasonMCPListChanged = "mcp_list_changed"
+	// ToolOfferReasonRegistry: none of the above; the tools registered for
+	// the conversation changed.
+	ToolOfferReasonRegistry = "registry"
+)
+
+// ToolOfferRebuiltData is the payload of tool.offer.rebuilt: the provider
+// stage is sending a call a tools array that differs from the one the
+// previous call was sent, and publishes this before the call's
+// provider.call.started. The previous call is the stage's, or that of any
+// stage sharing its ToolOfferHistory: in the SDK, the conversation's, or in
+// a workflow, any state's. A provider that caches the
+// request prefix (tools, then system prompt, then messages) cannot reuse the
+// cache past the change: Claude writes the whole prefix again and OpenAI
+// processes the prefix again from the first changed tool.
+//
+// The first provider call is not a rebuild and is not reported,
+// and neither is a call sent the same array as the call before it.
+type ToolOfferRebuiltData struct {
+	baseEventData
+	// Reasons says what changed the array since the previous call, in the
+	// order the changes happened, each once (the ToolOfferReason* values).
+	Reasons []string
+	// Added and Removed are the tool names the array gained and lost, sorted.
+	// Both are empty when only how the tools are described changed.
+	Added   []string
+	Removed []string
+	// Round is the 1-based tool-loop round of the provider call first sent
+	// the new array.
+	Round int
+	// CachingProvider reports that the provider advertises prompt caching,
+	// so the change costs a cache miss.
+	CachingProvider bool
 }
 
 // ContextNoteData is the payload of context.note_added: a note added to a

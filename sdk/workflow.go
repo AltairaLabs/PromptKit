@@ -193,13 +193,16 @@ func openWorkflowAtState(packPath, startState string, opts ...Option) (*Workflow
 	return wc, nil
 }
 
-// withWorkflowCallRate returns opts with one call-rate window for the whole
-// workflow appended. Every state's conversation is opened with these options,
-// so ToolPolicy.MaxCallsPerMinute spans the workflow's states and transitions.
+// withWorkflowCallRate returns opts with one call-rate window and one tool
+// offer history for the whole workflow appended. Every state's conversation
+// is opened with these options, so ToolPolicy.MaxCallsPerMinute spans the
+// workflow's states and transitions, and so does tool.offer.rebuilt: the
+// first call in a state is compared with the previous state's last call.
 // The window is scoped because each state's conversation has its own ID.
 func withWorkflowCallRate(opts []Option) []Option {
 	window := stage.NewCallRateWindow().Scoped("workflow")
-	return append(append([]Option{}, opts...), withCallRateWindow(window))
+	return append(append([]Option{}, opts...),
+		withCallRateWindow(window), withToolOfferHistory(stage.NewToolOfferHistory()))
 }
 
 // resolveCompositionForState returns a withResolvedComposition Option when the

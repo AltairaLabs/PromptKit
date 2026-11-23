@@ -113,6 +113,11 @@ type ProviderStage struct {
 	// published exported type and blocks every subsequent minor release.
 	offers *ToolOffer
 
+	// offerHistory is what tool.offer.rebuilt compares each call's tools
+	// array against: ProviderConfig.ToolOfferHistory, or the stage's own,
+	// created on first use (offerLog).
+	offerHistory *ToolOfferHistory
+
 	// streamTurn is the caller turn a continuous-mode turn being fired
 	// answers, plus one (0 outside one): see fireStreamingTurn.
 	streamTurn atomic.Int64
@@ -332,6 +337,11 @@ type ProviderConfig struct {
 	// judge a streamed reply in, and bounds their judging. Zero fields take
 	// the defaults.
 	StreamHold StreamHoldConfig
+
+	// ToolOfferHistory, when set, is what the stage compares each provider
+	// call's tools array against for tool.offer.rebuilt. Share one across the
+	// stages of a conversation. Nil gives the stage one of its own.
+	ToolOfferHistory *ToolOfferHistory
 }
 
 // CallParams returns c's sampling fields as one value.
@@ -470,6 +480,7 @@ func NewProviderStageWithTurnState(
 		turnState:    turnState,
 		callRate:     callRate,
 		offers:       &ToolOffer{},
+		offerHistory: config.ToolOfferHistory,
 	}
 }
 
@@ -1390,6 +1401,9 @@ func (s *ProviderStage) applyStateHandoff(
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
 	loop.useTools(rebuilt)
+	// offered is set only when the state kept the prompt, the provider and
+	// the tools, and DescribeTool alone changed the array.
+	s.noteHandoffOffer(acc, providerChanged, offered != nil)
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
 	}
@@ -1424,6 +1438,7 @@ type toolLoop struct {
 	cumulativeCached int  // accumulated cache-read tokens across this loop's rounds
 	cachingSupported bool // provider advertises prompt caching (gates the stall warning)
 	warnedNoCaching  bool // one-time guard for the caching-stalled warning
+	excludedNoted    int  // len(Excluded) when the last rebuild was noted (noteRoundOffer)
 
 	// acc is the live turn input. Held as a pointer rather than copied because
 	// applyStateHandoff can swap the system prompt mid-loop, and the
@@ -1869,6 +1884,7 @@ func (s *ProviderStage) newToolLoop(acc *providerInput) (*toolLoop, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider stage: %w", err)
 	}
+	s.noteTurnOffer(acc)
 	cachingSupported := supportsPromptCaching(s.callProvider())
 	return &toolLoop{
 		ToolTurn:         turn,
@@ -1971,7 +1987,7 @@ func (tl *toolLoop) applyRound(
 	// skill__activate / skill__deactivate changed the granted set. Rebuilding
 	// busts the provider's cached prefix, so it happens only on a real change.
 	// A nudged round's other calls change it as any round's do.
-	if err := tl.rebuildToolsIfChanged(allowedTools, out.OfferChanged); err != nil {
+	if err := tl.rebuildToolsIfChanged(allowedTools, out); err != nil {
 		return true, tl.messages, err
 	}
 
@@ -1983,6 +1999,7 @@ func (tl *toolLoop) applyRound(
 		tl.providerTools = nil
 		tl.invalidateReserve()
 		tl.toolChoice = ""
+		tl.stage.withdrawOffer(events.ToolOfferReasonExhausted)
 	}
 
 	// termination.tool_called, or the round limit. The round's results are
@@ -2040,9 +2057,9 @@ func (tl *toolLoop) addRoundTokens(cost *types.CostInfo) {
 // granted set moved), or DescribeTool now describes the tools differently (a
 // mid-turn workflow transition narrowing the skill index). Rebuilding busts the
 // provider's cached prefix, so it happens only on a real change.
-func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, offerChanged bool) error {
+func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, out RoundOutcome) error {
 	var offered *describedTools
-	if !offerChanged {
+	if !out.OfferChanged {
 		var describedChanged bool
 		if describedChanged, offered = tl.stage.describedToolsChanged(allowedTools, tl.Excluded); !describedChanged {
 			return nil
@@ -2053,6 +2070,7 @@ func (tl *toolLoop) rebuildToolsIfChanged(allowedTools []string, offerChanged bo
 		return fmt.Errorf("provider stage: rebuild tools: %w", rebuildErr)
 	}
 	tl.useTools(rebuilt)
+	tl.noteRoundOffer(out.OfferChanged)
 	return nil
 }
 
@@ -2215,6 +2233,7 @@ func (s *ProviderStage) emitProviderCallCompleted(
 		completedData.InputTokens = costInfo.InputTokens
 		completedData.OutputTokens = costInfo.OutputTokens
 		completedData.CachedTokens = costInfo.CachedTokens
+		completedData.CacheWriteTokens = costInfo.CacheWriteTokens()
 		completedData.Cost = costInfo.TotalCost
 	}
 	s.emitter.ProviderCallCompletedCtx(ctx, completedData)
@@ -2292,6 +2311,7 @@ func (s *ProviderStage) executeRound(
 		"messages", len(messages),
 		"tools", providerTools != nil)
 
+	s.reportOfferSent(ctx, round)
 	// Emit provider call started event
 	s.emitProviderCallStarted(ctx, prov, len(messages), toolCount, rr)
 
@@ -2428,6 +2448,7 @@ func (s *ProviderStage) executeStreamingRound(
 
 	rr := RoundRef{Round: params.round, ProviderCallID: params.providerCallID, messageID: types.NewMessageID()}
 
+	s.reportOfferSent(ctx, params.round)
 	// Emit provider call started event
 	s.emitProviderCallStarted(ctx, prov, len(params.messages), toolCount, rr)
 
@@ -3090,16 +3111,17 @@ func (s *ProviderStage) reportLateUsage(
 	go func() {
 		for cost := range late {
 			s.emitter.ProviderCallUsageCtx(ctx, &events.ProviderCallUsageData{
-				Provider:     prov.ID(),
-				Model:        prov.Model(),
-				InputTokens:  cost.InputTokens,
-				OutputTokens: cost.OutputTokens,
-				CachedTokens: cost.CachedTokens,
-				Cost:         cost.TotalCost,
-				Source:       s.config.Source,
-				Labels:       s.config.Labels,
-				Round:        rr.Round,
-				CallID:       rr.ProviderCallID,
+				Provider:         prov.ID(),
+				Model:            prov.Model(),
+				InputTokens:      cost.InputTokens,
+				OutputTokens:     cost.OutputTokens,
+				CachedTokens:     cost.CachedTokens,
+				CacheWriteTokens: cost.CacheWriteTokens(),
+				Cost:             cost.TotalCost,
+				Source:           s.config.Source,
+				Labels:           s.config.Labels,
+				Round:            rr.Round,
+				CallID:           rr.ProviderCallID,
 			})
 		}
 	}()
@@ -3871,6 +3893,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 	r := s.runner()
 	r.MarkBuilt(offer)
 	r.markSent(nil) // until a tools array is built for the provider
+	s.offerLog().setCurrent(s.snapshotOf(nil))
 	if toolProvider == nil {
 		return nil, "", nil
 	}
@@ -3888,6 +3911,7 @@ func (s *ProviderStage) buildProviderToolsFrom(
 		return nil, "", fmt.Errorf("failed to build tools: %w", err)
 	}
 	r.markSent(offer)
+	s.offerLog().setCurrent(s.snapshotOf(offer))
 
 	// Determine tool choice from policy
 	toolChoice = toolChoiceAuto // default
