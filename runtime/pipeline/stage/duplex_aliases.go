@@ -125,7 +125,9 @@ func NewDuplexProviderStageWithTurnState(provider providers.StreamInputSupport, 
 }
 
 // TextInputTurnSource is the StreamElement.Source of the element that carries
-// a realtime session's typed user turn (see takeTextInputAsUserTurn).
+// a realtime session's typed user turn: text sent to the session with no
+// Message (SendText), which DuplexProviderStage turns into a user message of
+// the conversation and emits between the assistant's replies.
 // The element is for the stages that persist and record the conversation; the
 // SDK does not pass it on to the caller, who sent the text.
 const TextInputTurnSource = duplex.TextInputTurnSource

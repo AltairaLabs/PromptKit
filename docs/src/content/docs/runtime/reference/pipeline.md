@@ -29,6 +29,10 @@ The package supplies stages for prompt assembly and templating, context building
 
 The first stage error ends the turn. The pipeline does not cancel the other stages. It sends the error in\-band to the failed stage's downstream stages as an error element, and they pass it on instead of acting on the incomplete turn. The error reaches the caller as the last element on the output channel. A provider error arrives as the provider stage emitted it. The error of any other stage arrives as a \*StageError, which unwraps to the stage's own error. ExecuteSync returns the error alongside the result.
 
+### Package layout
+
+Most stages are implemented in packages under stage/internal, one per subsystem \(core, provider, duplex, voice, media, persist, cue and others\). This package re\-exports their API under the names documented here: types as aliases, functions as wrappers, and errors and constants as variables and constants of the same value. Import this package; the internal packages cannot be imported from outside it.
+
 ## Index
 
 - [Constants](<#constants>)
@@ -615,7 +619,7 @@ Exported because detecting it is a caller's decision. Returning prose is the rig
 const SchemaUnappliedMetaKey = "structured_output_schema_unapplied"
 ```
 
-<a name="TextInputTurnSource"></a>TextInputTurnSource is the StreamElement.Source of the element that carries a realtime session's typed user turn \(see takeTextInputAsUserTurn\). The element is for the stages that persist and record the conversation; the SDK does not pass it on to the caller, who sent the text.
+<a name="TextInputTurnSource"></a>TextInputTurnSource is the StreamElement.Source of the element that carries a realtime session's typed user turn: text sent to the session with no Message \(SendText\), which DuplexProviderStage turns into a user message of the conversation and emits between the assistant's replies. The element is for the stages that persist and record the conversation; the SDK does not pass it on to the caller, who sent the text.
 
 ```go
 const TextInputTurnSource = "duplex_text_input"
@@ -6865,7 +6869,7 @@ type TranscriptReorderStage struct {
 ```
 
 <a name="NewTranscriptReorderStage"></a>
-### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L175>)
+### func [NewTranscriptReorderStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L177>)
 
 ```go
 func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
@@ -6874,7 +6878,7 @@ func NewTranscriptReorderStage(placeholder string) *TranscriptReorderStage
 NewTranscriptReorderStage creates a reorder stage with the given missing\-turn placeholder text \(empty to omit the user turn\) and the default hold timeout.
 
 <a name="NewTranscriptReorderStageWithTimeout"></a>
-### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L181>)
+### func [NewTranscriptReorderStageWithTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/duplex_aliases.go#L183>)
 
 ```go
 func NewTranscriptReorderStageWithTimeout(placeholder string, holdTimeout time.Duration) *TranscriptReorderStage

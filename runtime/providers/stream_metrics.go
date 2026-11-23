@@ -54,7 +54,7 @@ var streamErrorChunksForwardedBuckets = []float64{
 // #853 flood failure mode: at ~2k concurrent duplex streams the bus buffer
 // saturates, events are dropped, and the autoscaling/health signals they carry
 // are silently corrupted. The regression guard in
-// runtime/pipeline/stage/audio_offbus_regression_test.go enforces this — it
+// runtime/pipeline/stage/internal/voice/audio_offbus_regression_test.go enforces this — it
 // asserts the audio path publishes zero events and that per-frame metric calls
 // are allocation-bounded. Do not attach audio health to the bus.
 

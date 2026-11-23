@@ -18,8 +18,9 @@ import (
 //   - never emit prompt.template.failed
 //
 // Enforced for every fixture from history=0 to history=2000 — the
-// per-Send TurnState render cache (see runtime/pipeline/stage/turn_state.go
-// and ARCHITECTURE.md §4) ensures rendering is decoupled from element
+// per-Send TurnState render cache (see
+// runtime/pipeline/stage/internal/core/turn_state.go and
+// runtime/pipeline/stage/ARCHITECTURE.md §4) ensures rendering is decoupled from element
 // count. This contract test was previously t.Skipf-ed for history>0
 // pending the #1035 fix; that fix landed in PR feat/turnstate-runtime.
 func TestContract_TemplateStage(t *testing.T) {

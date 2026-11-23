@@ -95,9 +95,55 @@ substitute for it.
 - **New tool executor**: Implement `Executor`, register via `Registry.RegisterExecutor()`
 - **New event type**: Add to `events/types.go`, add emitter method, subscribe in consumers
 - **New hook type**: Define interface in `hooks/`, add to Registry, call from appropriate stage
-- **New pipeline stage**: Implement `Stage` interface, wire in `sdk/internal/pipeline/builder.go`. A stage of the realtime (duplex) chain from the provider stage on gets a slot in `stage.NewRealtimeChain` (`pipeline/stage/realtime_chain.go`) instead: the SDK builds its realtime chain from it and hosts (PromptArena) are expected to, so its order is defined once
+- **New pipeline stage**: Implement `Stage` interface, wire in `sdk/internal/pipeline/builder.go`. A stage of the realtime (duplex) chain from the provider stage on gets a slot in `stage.NewRealtimeChain` (`pipeline/stage/realtime_chain.go`) instead: the SDK builds its realtime chain from it and hosts (PromptArena) are expected to, so its order is defined once. Where its code goes: see below
 - **New provider capability**: Define optional interface (like `ContextWindowProvider`), type-assert in consumers
 - **New statestore capability**: Define optional interface (like `MessageLog`), type-assert in pipeline stages
+
+## Where a new stage goes
+
+`pipeline/stage` is a facade. Its code lives in `pipeline/stage/internal/<pkg>`
+packages (`core`, `history`, `compaction`, `heard`, `segment`, `media`, `voice`,
+`cue`, `persist`, `provider`, `duplex`, plus `stagetest` for shared test
+helpers), and stage re-exports their API through generated `<pkg>_aliases.go`
+files. The split keeps each Mutation Gate mutant's rebuild small: a mutant
+recompiles only its own package and that package's tests. The table of what
+each package holds is in `pipeline/stage/README.md` ("Package layout").
+
+- **Put the stage in the internal package of its subsystem**: speech/TTS/VAD in
+  `voice`, media in `media`, saving and recording in `persist`, the LLM
+  call and tool loop in `provider`, the realtime session in `duplex`. A type or
+  helper several packages share goes in `core`. Only the composition roots stay
+  in `stage` itself: `pipeline.go`, `builder.go`, the context/core stages,
+  composition and `realtime_chain.go`. A test that chains stages from several
+  internal packages stays in `stage` too.
+- **Imports point down; nothing under `internal/` imports `stage`**, not even a
+  `_test.go` file (`TestInternalPackagesDoNotImportStage`). Tests in an internal
+  package cannot use stage's test helpers: put a helper that tests in several
+  packages need in `internal/stagetest`, which imports only `core`.
+- **Export it from the internal package, then regenerate the facade**:
+  `make stage-aliases PKG=<pkg>`, then `make docs-reference` (the alias files
+  carry the internal doc comments onto stage's reference page). Never edit a
+  `*_aliases.go` by hand; `make stage-aliases-check` fails on it. The generator
+  re-exports only the names stage already declares at `BASE` (default
+  `origin/main`), which is what keeps an internal package's helpers out of
+  stage's API. A name stage never exported needs one first step by hand: add a
+  bare re-export (`type FooStage = voice.FooStage`) to `<pkg>_aliases.go`,
+  commit, and run `make stage-aliases PKG=<pkg> BASE=HEAD`, which rewrites it in
+  the generator's form with its doc comment. `make stage-api-check` runs apidiff
+  on stage against the merge base, as the "Stage API Compatibility" CI job does.
+- **Never add methods to an aliased type from stage**: Go forbids it, and an
+  exported method added to the internal type just so stage can reach unexported
+  state widens stage's API. Add a package-level function in the internal
+  package instead (`duplex.DetachCues(provider)`, `cue.BankOf(s)`). stage does
+  not re-export it.
+- **When a parameter or variable shadows an internal package's name**, import
+  the package under another name rather than renaming the parameter, which
+  would change stage's documented signature: hand-written stage code uses
+  `providerstage "…/pipeline/stage/internal/provider"` (`composition_executor.go`);
+  the generator does the same on its own (`providerpkg`, `duplexpkg`).
+- Exported names in an internal package keep their stage names (`voice.TTSStage`,
+  not `voice.Stage`), so `%T` output and the aliases stay identical; revive's
+  stutter check is turned off under `pipeline/stage/internal/` for that.
 
 ## Testing
 
