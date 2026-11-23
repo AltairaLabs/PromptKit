@@ -306,18 +306,6 @@ func TestInteractions_GeneratedMediaReachesParts(t *testing.T) {
 	}
 }
 
-// A text-only answer leaves Parts empty, as a tool turn on either API does:
-// Content carries it.
-func TestInteractions_TextAnswerHasNoParts(t *testing.T) {
-	srv := newRouteServer(t, allTurnsUnary, "")
-	resp := predictTurn(t, newSpecProvider(t, srv.url, interactionsMode), providers.PredictionRequest{
-		Messages: []types.Message{{Role: roleUser, Content: "hi"}},
-	}, false)
-	if len(resp.Parts) != 0 {
-		t.Errorf("parts = %+v, want none", resp.Parts)
-	}
-}
-
 // The Interactions API has no explicit context caching: it answers a
 // cached_content field with HTTP 400 "Unknown parameter" (probed live). A
 // config that asks for both is refused when the provider is built, rather
@@ -526,5 +514,69 @@ func TestInteractions_VertexWithoutAModelsBaseURLIsRefused(t *testing.T) {
 		`from which the Interactions endpoint is derived; got "https://gateway.example/gemini"`
 	if err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %q", err, want)
+	}
+}
+
+// A turn with no tools returns its answer in Parts as well as Content on
+// generateContent (extractCandidateContent), one text part per output part and
+// a markdown data-URI image split into an image part. The Interactions API returns the
+// same answer as content items, which map to the same Parts. A tool turn sets
+// no Parts for a text answer on either API.
+func TestInteractions_PartsMatchGenerateContentPerPath(t *testing.T) {
+	const md = "see ![chart](data:image/png;base64,aW1n) now"
+	interactionsBody := `{"id":"i1","status":"completed","steps":[{"type":"model_output","content":[` +
+		`{"type":"text","text":"Hi. "},{"type":"text","text":"` + md + `"}]}]}`
+	generateBody := `{"candidates":[{"content":{"role":"model","parts":[{"text":"Hi. "},{"text":"` + md + `"}]},` +
+		`"finishReason":"STOP"}]}`
+	serve := func(body string) string {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
+		}))
+		t.Cleanup(srv.Close)
+		return srv.URL
+	}
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+	predict := func(p providers.Provider) providers.PredictionResponse {
+		resp, err := p.Predict(context.Background(), req)
+		if err != nil {
+			t.Fatalf("Predict: %v", err)
+		}
+		return resp
+	}
+	withTools := func(p providers.Provider) providers.PredictionResponse {
+		tp := p.(*ToolProvider)
+		tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{Name: "probe", Description: "p"}})
+		if err != nil {
+			t.Fatalf("BuildTooling: %v", err)
+		}
+		resp, _, err := tp.PredictWithTools(context.Background(), req, tools, "")
+		if err != nil {
+			t.Fatalf("PredictWithTools: %v", err)
+		}
+		return resp
+	}
+
+	gc := predict(newSpecProvider(t, serve(generateBody), nil))
+	in := predict(newSpecProvider(t, serve(interactionsBody), interactionsMode))
+	want := canonicalJSON(t, []types.ContentPart{
+		types.NewTextPart("Hi. "),
+		types.NewTextPart("see "),
+		types.NewImagePartFromData("aW1n", "image/png", nil),
+		types.NewTextPart(" now"),
+	})
+	if got := canonicalJSON(t, gc.Parts); got != want {
+		t.Fatalf("generateContent parts = %s, want %s (the reference this test compares with)", got, want)
+	}
+	if got := canonicalJSON(t, in.Parts); got != want {
+		t.Errorf("interactions parts = %s, want %s", got, want)
+	}
+
+	gcTool := withTools(newSpecProvider(t, serve(generateBody), nil))
+	inTool := withTools(newSpecProvider(t, serve(interactionsBody), interactionsMode))
+	if gcTool.Parts != nil || inTool.Parts != nil {
+		t.Errorf("tool-turn parts = %v (generateContent), %v (interactions); want none on both",
+			gcTool.Parts, inTool.Parts)
 	}
 }

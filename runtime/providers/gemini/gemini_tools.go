@@ -171,8 +171,11 @@ func (p *ToolProvider) Predict(
 	if p.resolveAPIMode() != APIModeInteractions {
 		return p.Provider.Predict(ctx, req)
 	}
-	resp, _, err := p.PredictWithTools(ctx, req, nil, "")
-	return resp, err
+	return providers.RetryCall(&p.BaseProvider, req,
+		func(r providers.PredictionRequest) (providers.PredictionResponse, error) {
+			resp, _, err := p.predictWithInteractions(ctx, r, nil, "", partsAlways)
+			return resp, err
+		})
 }
 
 // PredictStream streams a turn with no tools from the configured API, as
@@ -226,7 +229,7 @@ func (p *ToolProvider) predictRound(
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	if p.resolveAPIMode() == APIModeInteractions {
-		return p.predictWithInteractions(ctx, req, tools, toolChoice)
+		return p.predictWithInteractions(ctx, req, tools, toolChoice, partsForMedia)
 	}
 
 	// Build Gemini request with tools

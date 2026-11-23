@@ -181,10 +181,23 @@ func interactionsToolChoice(toolChoice string) any {
 	}
 }
 
+// outputParts says when a turn's answer goes in PredictionResponse.Parts.
+type outputParts int
+
+const (
+	// partsForMedia sets Parts only for an answer with generated media: a tool
+	// turn, whose text answer generateContent carries in Content alone.
+	partsForMedia outputParts = iota
+	// partsAlways sets Parts for every answer: a turn with no tools, as
+	// generateContent's Predict does.
+	partsAlways
+)
+
 // predictWithInteractions runs a non-streaming turn through the Interactions
 // API, for a provider configured with api_mode interactions.
 func (p *ToolProvider) predictWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
+	parts outputParts,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
 	predictResp := providers.PredictionResponse{}
 	body, err := p.buildInteractionsRequest(ctx, req, tools, toolChoice)
@@ -218,7 +231,7 @@ func (p *ToolProvider) predictWithInteractions(
 	content, toolCalls, reasoning := parseInteractionsResponse(&resp)
 
 	predictResp.Content = content
-	predictResp.Parts = interactionsOutputParts(&resp)
+	predictResp.Parts = interactionsOutputParts(&resp, parts == partsAlways)
 	predictResp.Reasoning = reasoning
 	predictResp.FinishReason = finishReasonForInteraction(resp.Status, len(toolCalls) > 0)
 	if p.ShouldIncludeRawOutput() {

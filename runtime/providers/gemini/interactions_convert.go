@@ -398,11 +398,10 @@ func parseInteractionsResponse(resp *interactionsResponse) (
 }
 
 // interactionsOutputParts returns the model's output as content parts, in
-// order, when it holds generated media (an image or audio item): the text,
-// markdown images and media, mapped as generateContent maps a candidate's
-// parts. A text-only answer returns nil, as a tool turn on generateContent
-// does: Content carries it.
-func interactionsOutputParts(resp *interactionsResponse) []types.ContentPart {
+// order: the text, markdown images and media, mapped as generateContent maps
+// a candidate's parts. Without always, a text-only answer returns nil, as a
+// tool turn on generateContent does: Content carries it.
+func interactionsOutputParts(resp *interactionsResponse, always bool) []types.ContentPart {
 	var parts []geminiPart
 	hasMedia := false
 	for i := range resp.Steps {
@@ -424,7 +423,7 @@ func interactionsOutputParts(resp *interactionsResponse) []types.ContentPart {
 			parts = append(parts, geminiPart{InlineData: &geminiInlineData{MimeType: item.MIMEType, Data: item.Data}})
 		}
 	}
-	if !hasMedia {
+	if !hasMedia && !always {
 		return nil
 	}
 	out, _ := extractCandidateContent(parts)

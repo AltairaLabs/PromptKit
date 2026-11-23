@@ -179,7 +179,7 @@ func TestPredictWithInteractions_ParsesAnswerToolCallsAndReasoning(t *testing.T)
 		providers.PredictionRequest{
 			Messages:       []types.Message{{Role: roleUser, Content: "hi"}},
 			ResponseFormat: schemaFormat(),
-		}, nil, "")
+		}, nil, "", partsForMedia)
 	require.NoError(t, err)
 
 	assert.Equal(t, `{"ok":true}`, resp.Content)
@@ -235,7 +235,7 @@ func TestPredictWithInteractions_SurfacesErrors(t *testing.T) {
 			_, _, err := tp.predictWithInteractions(context.Background(),
 				providers.PredictionRequest{
 					Messages: []types.Message{{Role: roleUser, Content: "hi"}},
-				}, nil, "")
+				}, nil, "", partsForMedia)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.expect)
 		})
