@@ -281,7 +281,9 @@ func applyStepDelta(
 
 	case deltaTypeThoughtSummary:
 		var summary interactionsContent
-		if json.Unmarshal(ev.Delta.Content, &summary) != nil || summary.Text == "" {
+		// A content of another shape leaves Text empty, so the delta is skipped.
+		_ = json.Unmarshal(ev.Delta.Content, &summary)
+		if summary.Text == "" {
 			return true
 		}
 		// Reasoning streams beside the answer, as a thought part's text does on
