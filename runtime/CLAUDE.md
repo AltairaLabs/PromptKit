@@ -104,8 +104,11 @@ substitute for it.
 `pipeline/stage` is a facade. Its code lives in `pipeline/stage/internal/<pkg>`
 packages (`core`, `history`, `compaction`, `heard`, `segment`, `media`, `voice`,
 `cue`, `persist`, `provider`, `duplex`, plus `stagetest` for shared test
-helpers), and stage re-exports their API through generated `<pkg>_aliases.go`
-files. The split keeps each Mutation Gate mutant's rebuild small: a mutant
+helpers). stage re-exports the API of `core`, `history`, `compaction`,
+`heard`, `media`, `voice`, `cue`, `persist`, `provider` and `duplex` through a
+generated `<pkg>_aliases.go` for each. `segment` and `stagetest` have no alias
+file: `segment` holds the segmenters that `provider` and `voice` use, none
+of which stage ever exported, and `stagetest` is for tests only. The split keeps each Mutation Gate mutant's rebuild small: a mutant
 recompiles only its own package and that package's tests. The table of what
 each package holds is in `pipeline/stage/README.md` ("Package layout").
 
