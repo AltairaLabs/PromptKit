@@ -188,7 +188,7 @@ func (p *ToolProvider) predictWithInteractions(
 		predictResp.Raw = respBytes
 	}
 	if resp.Usage != nil {
-		cost := p.CalculateCost(resp.Usage.TotalInputTokens, resp.Usage.TotalOutputTokens, 0)
+		cost := p.costFromUsage(resp.Usage.geminiUsage())
 		predictResp.CostInfo = &cost
 	}
 

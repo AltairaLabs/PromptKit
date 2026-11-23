@@ -243,9 +243,7 @@ func (p *ToolProvider) finalInteractionChunk(
 		FinishReason: &finish,
 	}
 	if ev.Interaction != nil && ev.Interaction.Usage != nil {
-		cost := p.CalculateCost(
-			ev.Interaction.Usage.TotalInputTokens,
-			ev.Interaction.Usage.TotalOutputTokens, 0)
+		cost := p.costFromUsage(ev.Interaction.Usage.geminiUsage())
 		chunk.CostInfo = &cost
 	}
 	return chunk

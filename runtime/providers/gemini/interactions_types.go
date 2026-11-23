@@ -198,6 +198,20 @@ type interactionsUsage struct {
 	TotalThoughtTokens int `json:"total_thought_tokens"`
 }
 
+// geminiUsage maps the usage onto generateContent's usageMetadata, so a turn
+// is priced the same on either API. Verified live: total_input_tokens is
+// cache-inclusive, like promptTokenCount, and thought tokens are reported
+// apart from total_output_tokens (total_tokens is input + output + thought),
+// like thoughtsTokenCount apart from candidatesTokenCount.
+func (u *interactionsUsage) geminiUsage() geminiUsage {
+	return geminiUsage{
+		PromptTokenCount:        u.TotalInputTokens,
+		CandidatesTokenCount:    u.TotalOutputTokens,
+		CachedContentTokenCount: u.TotalCachedTokens,
+		ThoughtsTokenCount:      u.TotalThoughtTokens,
+	}
+}
+
 type interactionsError struct {
 	Message string `json:"message"`
 	Status  string `json:"status"`

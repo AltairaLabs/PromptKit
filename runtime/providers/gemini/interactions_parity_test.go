@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -280,6 +281,65 @@ func TestInteractions_ThoughtSummaryIsReasoning(t *testing.T) {
 			}
 			if resp.FinishReason != types.FinishReasonStop {
 				t.Errorf("finish reason = %q, want %q", resp.FinishReason, types.FinishReasonStop)
+			}
+		})
+	}
+}
+
+// An Interactions turn is priced from the whole usage block, as a
+// generateContent turn is from usageMetadata. Captured live on
+// gemini-3.7-flash (the second of two identical ~14k-token prompts):
+// total_input_tokens is cache-INCLUSIVE, like promptTokenCount, and thought
+// tokens are reported apart from total_output_tokens (total_tokens = input +
+// output + thought). The cost used to read input and output only, so thinking
+// was free and cache reads were billed as full-price input.
+func TestInteractions_CostPricesThoughtAndCachedTokens(t *testing.T) {
+	usage := `"usage":{"total_tokens":14508,"total_input_tokens":14486,"total_cached_tokens":12435,` +
+		`"total_output_tokens":2,"total_thought_tokens":20,"total_tool_use_tokens":0}`
+	unary := `{"id":"i1","status":"completed","steps":[
+	  {"type":"model_output","content":[{"type":"text","text":"OK"}]}],` + usage + `}`
+	stream := "event: step.start\n" +
+		`data: {"index":0,"step":{"type":"model_output"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":0,"delta":{"type":"text","text":"OK"}}` + "\n\n" +
+		"event: interaction.completed\n" +
+		`data: {"interaction":{"id":"i1","status":"completed",` + usage + `}}` + "\n\n"
+
+	for _, isStream := range []bool{false, true} {
+		name := map[bool]string{false: "unary", true: "stream"}[isStream]
+		t.Run(name, func(t *testing.T) {
+			srv := newInteractionsParityServer(t, unary, stream)
+			tp := newInteractionsParityProvider(t, "int-cost-"+name, srv.url, nil)
+			req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+
+			var cost *types.CostInfo
+			if isStream {
+				ch, err := tp.PredictStreamWithTools(context.Background(), req, nil, "")
+				if err != nil {
+					t.Fatalf("PredictStreamWithTools: %v", err)
+				}
+				for c := range ch {
+					if c.CostInfo != nil {
+						cost = c.CostInfo
+					}
+				}
+			} else {
+				resp, _, err := tp.PredictWithTools(context.Background(), req, nil, "")
+				if err != nil {
+					t.Fatalf("PredictWithTools: %v", err)
+				}
+				cost = resp.CostInfo
+			}
+			if cost == nil {
+				t.Fatal("no cost info")
+			}
+			got := map[string]any{
+				"input": cost.InputTokens, "cached": cost.CachedTokens, "output": cost.OutputTokens,
+				"reasoning": cost.Quantities[base.UnitReasoningToken],
+			}
+			want := map[string]any{"input": 2051, "cached": 12435, "output": 2, "reasoning": 20.0}
+			if canonicalJSON(t, got) != canonicalJSON(t, want) {
+				t.Errorf("cost = %s, want %s", canonicalJSON(t, got), canonicalJSON(t, want))
 			}
 		})
 	}
