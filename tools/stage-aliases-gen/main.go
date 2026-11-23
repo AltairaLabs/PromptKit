@@ -78,7 +78,10 @@ func generate(dir, importPath string, before map[string]bool) ([]byte, int, erro
 	if err != nil {
 		return nil, 0, err
 	}
-	g := &generator{fset: fset, q: path.Base(importPath), before: before, imports: map[string]bool{importPath: true}}
+	g := &generator{
+		fset: fset, q: path.Base(importPath), internalDir: path.Dir(importPath),
+		before: before, imports: map[string]bool{importPath: true},
+	}
 	for _, f := range files {
 		for _, d := range f.file.Decls {
 			if declErr := g.decl(f, d); declErr != nil {
@@ -106,12 +109,13 @@ func generate(dir, importPath string, before map[string]bool) ([]byte, int, erro
 }
 
 type generator struct {
-	fset    *token.FileSet
-	q       string // the internal package's name, as stage qualifies it
-	before  map[string]bool
-	imports map[string]bool
-	body    bytes.Buffer
-	n       int
+	fset        *token.FileSet
+	q           string // the internal package's name, as stage qualifies it
+	internalDir string // the dir of stage's internal packages
+	before      map[string]bool
+	imports     map[string]bool
+	body        bytes.Buffer
+	n           int
 }
 
 func (g *generator) decl(f srcFile, d ast.Decl) error {
@@ -123,7 +127,8 @@ func (g *generator) decl(f srcFile, d ast.Decl) error {
 		if d.Type.TypeParams != nil {
 			return fmt.Errorf("%s: generic function; write its wrapper by hand", d.Name.Name)
 		}
-		paths, err := importsUsed(f.file, d.Type)
+		facade := g.facadeSelectors(f.file, d.Type)
+		paths, err := importsUsed(f.file, d.Type, facade)
 		if err != nil {
 			return err
 		}
@@ -131,7 +136,7 @@ func (g *generator) decl(f srcFile, d ast.Decl) error {
 			g.imports[p] = true
 		}
 		g.n++
-		text := func(n ast.Node) string { return f.text(g.fset, n) }
+		text := func(n ast.Node) string { return f.textUnqualified(g.fset, n, facade) }
 		g.body.WriteString("\n" + doc(d.Doc) + wrapper(text, d, g.q) + "\n")
 	case *ast.GenDecl:
 		return g.genDecl(f, d)
@@ -215,8 +220,33 @@ func (g *generator) valueSpec(f srcFile, tok token.Token, s *ast.ValueSpec, cons
 	return strings.Join(lines, "\n")
 }
 
-// importsUsed are the import paths of f that the package qualifiers in n name.
-func importsUsed(f *ast.File, n ast.Node) ([]string, error) {
+// facadeSelectors are the qualified names in n that stage declares itself: a
+// name from a sibling stage/internal package that stage exported before the
+// move, and so still exports (often as an alias). The wrapper names them as
+// stage does, so its signature reads as it did before the move rather than
+// naming an internal package.
+func (g *generator) facadeSelectors(f *ast.File, n ast.Node) map[*ast.SelectorExpr]bool {
+	byName := importNames(f)
+	out := map[*ast.SelectorExpr]bool{}
+	ast.Inspect(n, func(x ast.Node) bool {
+		sel, ok := x.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if p, ok := byName[id.Name]; ok && path.Dir(p) == g.internalDir && g.before[sel.Sel.Name] {
+			out[sel] = true
+		}
+		return true
+	})
+	return out
+}
+
+// importNames maps each import of f to the name the file qualifies it by.
+func importNames(f *ast.File) map[string]string {
 	byName := map[string]string{}
 	for _, is := range f.Imports {
 		p := strings.Trim(is.Path.Value, `"`)
@@ -229,11 +259,18 @@ func importsUsed(f *ast.File, n ast.Node) ([]string, error) {
 		}
 		byName[name] = p
 	}
+	return byName
+}
+
+// importsUsed are the import paths of f that the package qualifiers in n name,
+// apart from the qualifiers of skip.
+func importsUsed(f *ast.File, n ast.Node, skip map[*ast.SelectorExpr]bool) ([]string, error) {
+	byName := importNames(f)
 	var paths []string
 	var missing error
 	ast.Inspect(n, func(x ast.Node) bool {
 		sel, ok := x.(*ast.SelectorExpr)
-		if !ok {
+		if !ok || skip[sel] {
 			return true
 		}
 		if id, ok := sel.X.(*ast.Ident); ok {
@@ -256,6 +293,27 @@ type srcFile struct {
 // text is the source of n.
 func (f srcFile) text(fset *token.FileSet, n ast.Node) string {
 	return string(f.src[fset.Position(n.Pos()).Offset:fset.Position(n.End()).Offset])
+}
+
+// textUnqualified is the source of n with the package qualifier of each
+// selector in unqualify left out.
+func (f srcFile) textUnqualified(fset *token.FileSet, n ast.Node, unqualify map[*ast.SelectorExpr]bool) string {
+	start, end := fset.Position(n.Pos()).Offset, fset.Position(n.End()).Offset
+	var cuts []int // offsets of the qualifiers to drop, each up to its Sel
+	ast.Inspect(n, func(x ast.Node) bool {
+		if sel, ok := x.(*ast.SelectorExpr); ok && unqualify[sel] {
+			cuts = append(cuts, fset.Position(sel.X.Pos()).Offset, fset.Position(sel.Sel.Pos()).Offset)
+		}
+		return true
+	})
+	var b strings.Builder
+	at := start
+	for i := 0; i < len(cuts); i += 2 {
+		b.Write(f.src[at:cuts[i]])
+		at = cuts[i+1]
+	}
+	b.Write(f.src[at:end])
+	return b.String()
 }
 
 // parseDir parses a package's non-test files, in name order.
@@ -341,7 +399,8 @@ func doc(cg *ast.CommentGroup) string {
 // wrapper is a function with d's signature that calls q.d. Every type the
 // signature names from its own package is itself re-exported under the same
 // name, so the signature means the same in stage; one that is not fails to
-// compile there, which is the check.
+// compile there, which is the check. A type from a sibling internal package
+// that stage still exports is named as stage names it (see facadeSelectors).
 func wrapper(text func(ast.Node) string, d *ast.FuncDecl, q string) string {
 	params, args := passParams(text, d.Type.Params)
 	results := ""

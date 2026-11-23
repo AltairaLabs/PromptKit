@@ -21,6 +21,10 @@ func Wrap(ctx context.Context, _ int, msg *types.Message) (Scored, error) { retu
 
 func Close(Scored) {}
 
+type Element struct{}
+
+func Feed(e *Element, h elem.Hidden) []Element { return nil }
+
 var ErrGone = errors.New("gone")
 
 var (
