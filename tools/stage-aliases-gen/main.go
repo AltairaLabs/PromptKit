@@ -55,11 +55,11 @@ func run(args []string, stdout io.Writer) error {
 	if *base == "" || *pkgDir == "" || *importPath == "" || *out == "" {
 		return errors.New("-base, -pkg, -import and -out are all required")
 	}
-	before, err := exportedNames(*base)
+	before, aliases, err := exportedNames(*base)
 	if err != nil {
 		return err
 	}
-	src, n, err := generate(*pkgDir, *importPath, before)
+	src, n, err := generate(*pkgDir, *importPath, before, aliases)
 	if err != nil {
 		return err
 	}
@@ -71,14 +71,18 @@ func run(args []string, stdout io.Writer) error {
 }
 
 // generate is the re-export file for the package in dir, and how many names it
-// re-exports: those in before.
-func generate(dir, importPath string, before map[string]bool) ([]byte, int, error) {
+// re-exports: those in before. aliases are stage's type aliases at base (see
+// exportedNames).
+func generate(dir, importPath string, before map[string]bool, aliases map[string]string) ([]byte, int, error) {
 	fset := token.NewFileSet()
 	files, err := parseDir(fset, dir)
 	if err != nil {
 		return nil, 0, err
 	}
-	g := &generator{fset: fset, q: path.Base(importPath), before: before, imports: map[string]bool{importPath: true}}
+	g := &generator{
+		fset: fset, q: path.Base(importPath), internalDir: path.Dir(importPath),
+		before: before, aliases: aliases, imports: map[string]bool{importPath: true},
+	}
 	for _, f := range files {
 		for _, d := range f.file.Decls {
 			if declErr := g.decl(f, d); declErr != nil {
@@ -106,12 +110,14 @@ func generate(dir, importPath string, before map[string]bool) ([]byte, int, erro
 }
 
 type generator struct {
-	fset    *token.FileSet
-	q       string // the internal package's name, as stage qualifies it
-	before  map[string]bool
-	imports map[string]bool
-	body    bytes.Buffer
-	n       int
+	fset        *token.FileSet
+	q           string // the internal package's name, as stage qualifies it
+	internalDir string // the dir of stage's internal packages
+	before      map[string]bool
+	aliases     map[string]string // stage's alias name -> "importpath.Name" it aliases
+	imports     map[string]bool
+	body        bytes.Buffer
+	n           int
 }
 
 func (g *generator) decl(f srcFile, d ast.Decl) error {
@@ -123,7 +129,11 @@ func (g *generator) decl(f srcFile, d ast.Decl) error {
 		if d.Type.TypeParams != nil {
 			return fmt.Errorf("%s: generic function; write its wrapper by hand", d.Name.Name)
 		}
-		paths, err := importsUsed(f.file, d.Type)
+		facade, err := g.facadeSelectors(f.file, d.Type)
+		if err != nil {
+			return fmt.Errorf("%s: %w", d.Name.Name, err)
+		}
+		paths, err := importsUsed(f.file, d.Type, facade)
 		if err != nil {
 			return err
 		}
@@ -131,7 +141,7 @@ func (g *generator) decl(f srcFile, d ast.Decl) error {
 			g.imports[p] = true
 		}
 		g.n++
-		text := func(n ast.Node) string { return f.text(g.fset, n) }
+		text := func(n ast.Node) string { return f.textUnqualified(g.fset, n, facade) }
 		g.body.WriteString("\n" + doc(d.Doc) + wrapper(text, d, g.q) + "\n")
 	case *ast.GenDecl:
 		return g.genDecl(f, d)
@@ -215,8 +225,43 @@ func (g *generator) valueSpec(f srcFile, tok token.Token, s *ast.ValueSpec, cons
 	return strings.Join(lines, "\n")
 }
 
-// importsUsed are the import paths of f that the package qualifiers in n name.
-func importsUsed(f *ast.File, n ast.Node) ([]string, error) {
+// facadeSelectors are the qualified names in n from a sibling stage/internal
+// package. Each must be one stage aliases under the same name (type X =
+// sibling.X), so the wrapper names it as stage does and its signature reads as
+// it did before the move. A sibling name stage does not alias is an error: left
+// qualified, it would put an internal package into stage's API.
+func (g *generator) facadeSelectors(f *ast.File, n ast.Node) (map[*ast.SelectorExpr]bool, error) {
+	byName := importNames(f)
+	out := map[*ast.SelectorExpr]bool{}
+	var bad error
+	ast.Inspect(n, func(x ast.Node) bool {
+		sel, ok := x.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		p, ok := byName[id.Name]
+		if !ok || path.Dir(p) != g.internalDir {
+			return true
+		}
+		if g.aliases[sel.Sel.Name] != p+"."+sel.Sel.Name {
+			if bad == nil {
+				bad = fmt.Errorf("%s.%s: stage has no alias %s = %s.%s; add one before re-exporting this",
+					id.Name, sel.Sel.Name, sel.Sel.Name, id.Name, sel.Sel.Name)
+			}
+			return true
+		}
+		out[sel] = true
+		return true
+	})
+	return out, bad
+}
+
+// importNames maps each import of f to the name the file qualifies it by.
+func importNames(f *ast.File) map[string]string {
 	byName := map[string]string{}
 	for _, is := range f.Imports {
 		p := strings.Trim(is.Path.Value, `"`)
@@ -229,11 +274,18 @@ func importsUsed(f *ast.File, n ast.Node) ([]string, error) {
 		}
 		byName[name] = p
 	}
+	return byName
+}
+
+// importsUsed are the import paths of f that the package qualifiers in n name,
+// apart from the qualifiers of skip.
+func importsUsed(f *ast.File, n ast.Node, skip map[*ast.SelectorExpr]bool) ([]string, error) {
+	byName := importNames(f)
 	var paths []string
 	var missing error
 	ast.Inspect(n, func(x ast.Node) bool {
 		sel, ok := x.(*ast.SelectorExpr)
-		if !ok {
+		if !ok || skip[sel] {
 			return true
 		}
 		if id, ok := sel.X.(*ast.Ident); ok {
@@ -256,6 +308,27 @@ type srcFile struct {
 // text is the source of n.
 func (f srcFile) text(fset *token.FileSet, n ast.Node) string {
 	return string(f.src[fset.Position(n.Pos()).Offset:fset.Position(n.End()).Offset])
+}
+
+// textUnqualified is the source of n with the package qualifier of each
+// selector in unqualify left out.
+func (f srcFile) textUnqualified(fset *token.FileSet, n ast.Node, unqualify map[*ast.SelectorExpr]bool) string {
+	start, end := fset.Position(n.Pos()).Offset, fset.Position(n.End()).Offset
+	var cuts []int // offsets of the qualifiers to drop, each up to its Sel
+	ast.Inspect(n, func(x ast.Node) bool {
+		if sel, ok := x.(*ast.SelectorExpr); ok && unqualify[sel] {
+			cuts = append(cuts, fset.Position(sel.X.Pos()).Offset, fset.Position(sel.Sel.Pos()).Offset)
+		}
+		return true
+	})
+	var b strings.Builder
+	at := start
+	for i := 0; i < len(cuts); i += 2 {
+		b.Write(f.src[at:cuts[i]])
+		at = cuts[i+1]
+	}
+	b.Write(f.src[at:end])
+	return b.String()
 }
 
 // parseDir parses a package's non-test files, in name order.
@@ -286,23 +359,49 @@ func parseDir(fset *token.FileSet, dir string) ([]srcFile, error) {
 	return files, nil
 }
 
-// exportedNames are the exported package-level names declared in dir.
-func exportedNames(dir string) (map[string]bool, error) {
+// exportedNames are the exported package-level names declared in dir, and,
+// for each that is an alias of a qualified type (type X = pkg.Y), what it
+// aliases as "importpath.Y".
+func exportedNames(dir string) (map[string]bool, map[string]string, error) {
 	files, err := parseDir(token.NewFileSet(), dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	names := map[string]bool{}
+	aliases := map[string]string{}
 	for _, f := range files {
+		byName := importNames(f.file)
 		for _, d := range f.file.Decls {
 			for _, id := range declNames(d) {
 				if id.IsExported() {
 					names[id.Name] = true
 				}
 			}
+			addAliases(aliases, d, byName)
 		}
 	}
-	return names, nil
+	return names, aliases, nil
+}
+
+// addAliases records each exported alias of a qualified type that d declares.
+func addAliases(aliases map[string]string, d ast.Decl, byName map[string]string) {
+	gd, ok := d.(*ast.GenDecl)
+	if !ok {
+		return
+	}
+	for _, s := range gd.Specs {
+		ts, ok := s.(*ast.TypeSpec)
+		if !ok || !ts.Assign.IsValid() || !ts.Name.IsExported() {
+			continue
+		}
+		sel, ok := ts.Type.(*ast.SelectorExpr)
+		if !ok {
+			continue
+		}
+		if q, ok := sel.X.(*ast.Ident); ok && byName[q.Name] != "" {
+			aliases[ts.Name.Name] = byName[q.Name] + "." + sel.Sel.Name
+		}
+	}
 }
 
 // declNames are the package-level names d declares (none for a method).
@@ -341,7 +440,9 @@ func doc(cg *ast.CommentGroup) string {
 // wrapper is a function with d's signature that calls q.d. Every type the
 // signature names from its own package is itself re-exported under the same
 // name, so the signature means the same in stage; one that is not fails to
-// compile there, which is the check.
+// compile there, which is the check. A type from a sibling internal package
+// that stage aliases is named as stage names it; one it does not alias is an
+// error (see facadeSelectors).
 func wrapper(text func(ast.Node) string, d *ast.FuncDecl, q string) string {
 	params, args := passParams(text, d.Type.Params)
 	results := ""

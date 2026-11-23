@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func TestNewRecordingStage(t *testing.T) {
 	stage := NewRecordingStage(store, config)
 
 	assert.Equal(t, "recording_input", stage.Name())
-	assert.Equal(t, StageTypeTransform, stage.Type())
+	assert.Equal(t, core.StageTypeTransform, stage.Type())
 }
 
 func TestRecordingStage_TextElement_SkipsChunks(t *testing.T) {
@@ -85,11 +85,11 @@ func TestRecordingStage_TextElement_SkipsChunks(t *testing.T) {
 	stage := NewRecordingStage(store, config)
 
 	// Run stage with text element (streaming chunk)
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	text := "Hello, world!"
-	input <- StreamElement{
+	input <- core.StreamElement{
 		Text:      &text,
 		Timestamp: time.Now(),
 	}
@@ -116,11 +116,11 @@ func TestRecordingStage_OutputPosition(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Use a Message element (not Text) to verify output position → assistant role
-	input <- StreamElement{
+	input <- core.StreamElement{
 		Message:   &types.Message{Role: "assistant", Content: "Response"},
 		Timestamp: time.Now(),
 	}
@@ -144,8 +144,8 @@ func TestRecordingStage_MessageElement(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	msg := &types.Message{
 		Role:    "assistant",
@@ -154,7 +154,7 @@ func TestRecordingStage_MessageElement(t *testing.T) {
 			{ID: "call_1", Name: "search", Args: json.RawMessage(`{"query":"test"}`)},
 		},
 	}
-	input <- StreamElement{Message: msg, Timestamp: time.Now()}
+	input <- core.StreamElement{Message: msg, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -179,15 +179,15 @@ func TestRecordingStage_ToolCallElement(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	tc := &types.MessageToolCall{
 		ID:   "call_123",
 		Name: "get_weather",
 		Args: json.RawMessage(`{"location":"SF"}`),
 	}
-	input <- StreamElement{ToolCall: tc, Timestamp: time.Now()}
+	input <- core.StreamElement{ToolCall: tc, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -209,10 +209,10 @@ func TestRecordingStage_ErrorElement(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	input <- NewErrorElement(assert.AnError)
+	input <- core.NewErrorElement(assert.AnError)
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -233,10 +233,10 @@ func TestRecordingStage_SkipsEndOfStream(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	input <- NewEndOfStreamElement()
+	input <- core.NewEndOfStreamElement()
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -266,8 +266,8 @@ func TestRecordingStage_ContextCancellation(t *testing.T) {
 	stage := NewRecordingStage(store, config)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	input := make(chan StreamElement)
-	output := make(chan StreamElement)
+	input := make(chan core.StreamElement)
+	output := make(chan core.StreamElement)
 
 	// Start processing in goroutine
 	errCh := make(chan error, 1)
@@ -281,7 +281,7 @@ func TestRecordingStage_ContextCancellation(t *testing.T) {
 	// Send element after cancellation
 	text := "test"
 	select {
-	case input <- StreamElement{Text: &text}:
+	case input <- core.StreamElement{Text: &text}:
 	case <-time.After(100 * time.Millisecond):
 		// Expected - context cancelled
 	}
@@ -302,11 +302,11 @@ func TestRecordingStage_NilEventStore(t *testing.T) {
 	// Create stage with nil event store
 	stage := NewRecordingStage(nil, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	text := "test"
-	input <- StreamElement{Text: &text, Timestamp: time.Now()}
+	input <- core.StreamElement{Text: &text, Timestamp: time.Now()}
 	close(input)
 
 	// Should not panic, just skip recording
@@ -327,13 +327,13 @@ func TestRecordingStage_MultipleChunksProduceNoEvents(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 3)
-	output := make(chan StreamElement, 3)
+	input := make(chan core.StreamElement, 3)
+	output := make(chan core.StreamElement, 3)
 
 	// Send multiple text elements (streaming chunks)
 	for i := 0; i < 3; i++ {
 		text := "chunk"
-		input <- StreamElement{Text: &text, Timestamp: time.Now()}
+		input <- core.StreamElement{Text: &text, Timestamp: time.Now()}
 	}
 	close(input)
 
@@ -362,12 +362,12 @@ func TestRecordingStage_StreamingTextOptIn(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 3)
-	output := make(chan StreamElement, 3)
+	input := make(chan core.StreamElement, 3)
+	output := make(chan core.StreamElement, 3)
 
 	for _, chunk := range []string{"Hello", " world", "!"} {
 		c := chunk
-		input <- StreamElement{Text: &c, Timestamp: time.Now()}
+		input <- core.StreamElement{Text: &c, Timestamp: time.Now()}
 	}
 	close(input)
 
@@ -432,18 +432,18 @@ func TestRecordingStage_AudioElement_InputProducesAudioInputEvent(t *testing.T) 
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	samples := make([]byte, 1024)
-	audio := &AudioData{
+	audio := &core.AudioData{
 		Samples:    samples,
 		SampleRate: 16000,
 		Channels:   1,
-		Format:     AudioFormatPCM16,
+		Format:     core.AudioFormatPCM16,
 		Duration:   100 * time.Millisecond,
 	}
-	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	input <- core.StreamElement{Audio: audio, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -481,18 +481,18 @@ func TestRecordingStage_AudioElement_OutputProducesAudioOutputEvent(t *testing.T
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	samples := make([]byte, 2048)
-	audio := &AudioData{
+	audio := &core.AudioData{
 		Samples:    samples,
 		SampleRate: 24000,
 		Channels:   1,
-		Format:     AudioFormatPCM16,
+		Format:     core.AudioFormatPCM16,
 		Duration:   200 * time.Millisecond,
 	}
-	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	input <- core.StreamElement{Audio: audio, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -524,18 +524,18 @@ func TestRecordingStage_AudioElement_DurationDerivedFromBytes(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// 16kHz mono 16-bit PCM, 3200 bytes = 1600 samples = 100ms.
-	audio := &AudioData{
+	audio := &core.AudioData{
 		Samples:    make([]byte, 3200),
 		SampleRate: 16000,
 		Channels:   1,
-		Format:     AudioFormatPCM16,
+		Format:     core.AudioFormatPCM16,
 		// Duration intentionally zero — recorder should derive it from byte count.
 	}
-	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	input <- core.StreamElement{Audio: audio, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -545,7 +545,7 @@ func TestRecordingStage_AudioElement_DurationDerivedFromBytes(t *testing.T) {
 	require.Len(t, captured, 1)
 	data := captured[0].Data.(*events.AudioEventData)
 	assert.Equal(t, int64(100), data.Metadata.DurationMs,
-		"duration should be derived from byte count when AudioData.Duration is zero")
+		"duration should be derived from byte count when core.AudioData.Duration is zero")
 }
 
 func TestRecordingStage_AudioExcluded(t *testing.T) {
@@ -558,11 +558,11 @@ func TestRecordingStage_AudioExcluded(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	audio := &AudioData{Samples: make([]byte, 1024)}
-	input <- StreamElement{Audio: audio, Timestamp: time.Now()}
+	audio := &core.AudioData{Samples: make([]byte, 1024)}
+	input <- core.StreamElement{Audio: audio, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -585,17 +585,17 @@ func TestRecordingStage_ImageElement(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	img := &ImageData{
+	img := &core.ImageData{
 		Data:     make([]byte, 512),
 		MIMEType: "image/png",
 		Width:    100,
 		Height:   100,
 		Format:   "png",
 	}
-	input <- StreamElement{Image: img, Timestamp: time.Now()}
+	input <- core.StreamElement{Image: img, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -632,10 +632,10 @@ func TestRecordingStage_VideoElement(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	video := &VideoData{
+	video := &core.VideoData{
 		Data:      make([]byte, 1024),
 		MIMEType:  "video/mp4",
 		Width:     640,
@@ -644,7 +644,7 @@ func TestRecordingStage_VideoElement(t *testing.T) {
 		Duration:  time.Second,
 		Format:    "mp4",
 	}
-	input <- StreamElement{Video: video, Timestamp: time.Now()}
+	input <- core.StreamElement{Video: video, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -679,8 +679,8 @@ func TestRecordingStage_MessageWithToolResult(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	toolResult := types.NewTextToolResult("call_123", "get_weather", "Sunny, 72°F")
 	msg := &types.Message{
@@ -688,7 +688,7 @@ func TestRecordingStage_MessageWithToolResult(t *testing.T) {
 		Content:    "Weather result",
 		ToolResult: &toolResult,
 	}
-	input <- StreamElement{Message: msg, Timestamp: time.Now()}
+	input <- core.StreamElement{Message: msg, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -712,8 +712,8 @@ func TestRecordingStage_MessageWithMultimodalToolResult(t *testing.T) {
 
 	stage := NewRecordingStage(store, config)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Create a multimodal tool result with text and image parts
 	textPart := types.NewTextPart("Weather is sunny")
@@ -731,7 +731,7 @@ func TestRecordingStage_MessageWithMultimodalToolResult(t *testing.T) {
 		Content:    "Weather is sunny",
 		ToolResult: &toolResult,
 	}
-	input <- StreamElement{Message: msg, Timestamp: time.Now()}
+	input <- core.StreamElement{Message: msg, Timestamp: time.Now()}
 	close(input)
 
 	err := stage.Process(context.Background(), input, output)
@@ -769,10 +769,10 @@ func TestRecordingStage_MessageElement_CarriesReasoning(t *testing.T) {
 		SessionID: "test-session",
 	})
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
-	input <- StreamElement{
+	input <- core.StreamElement{
 		Message: &types.Message{
 			Role:    "assistant",
 			Content: "The ball costs $0.05.",
@@ -829,10 +829,10 @@ func TestRecordingStage_MultiRound_EachRoundKeepsOwnReasoning(t *testing.T) {
 		{"It'll stay sunny.", "I have both readings now; I can answer directly."},
 	}
 
-	input := make(chan StreamElement, len(rounds))
-	output := make(chan StreamElement, len(rounds))
+	input := make(chan core.StreamElement, len(rounds))
+	output := make(chan core.StreamElement, len(rounds))
 	for _, r := range rounds {
-		input <- StreamElement{
+		input <- core.StreamElement{
 			Message: &types.Message{
 				Role:      "assistant",
 				Content:   r.content,
@@ -875,9 +875,9 @@ func TestRecordingStage_MessageElement_NoReasoning_StaysNil(t *testing.T) {
 		SessionID: "test-session",
 	})
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
-	input <- StreamElement{
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
+	input <- core.StreamElement{
 		Message:   &types.Message{Role: "assistant", Content: "No thinking here."},
 		Timestamp: time.Now(),
 	}
@@ -894,8 +894,8 @@ func TestRecordingStage_MessageElement_NoReasoning_StaysNil(t *testing.T) {
 // the zero time, which would sort it ahead of every other event.
 func TestRecordingStage_ZeroTimestampRecordsNow(t *testing.T) {
 	before := time.Now()
-	got := eventTime(&StreamElement{})
+	got := eventTime(&core.StreamElement{})
 	assert.False(t, got.Before(before))
 	ts := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	assert.Equal(t, ts, eventTime(&StreamElement{Timestamp: ts}))
+	assert.Equal(t, ts, eventTime(&core.StreamElement{Timestamp: ts}))
 }

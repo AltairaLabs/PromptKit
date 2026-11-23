@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -36,15 +37,15 @@ func TestRecordingIndex_IsTranscriptAbsolute(t *testing.T) {
 		realMessage("assistant", "turn 2 answer"),
 	}
 
-	in := make(chan StreamElement, len(msgs)+1)
+	in := make(chan core.StreamElement, len(msgs)+1)
 	for i := range msgs {
-		elem := NewMessageElement(&msgs[i])
+		elem := core.NewMessageElement(&msgs[i])
 		elem.Meta.FromHistory = msgs[i].Source == "statestore"
 		in <- elem
 	}
 	close(in)
 
-	out := make(chan StreamElement, len(msgs)+4)
+	out := make(chan core.StreamElement, len(msgs)+4)
 	require.NoError(t, rs.Process(context.Background(), in, out))
 	for range out { //nolint:revive // draining
 	}
@@ -82,11 +83,11 @@ func TestRecordingIndex_RetainsBinary(t *testing.T) {
 		}},
 	}
 
-	in := make(chan StreamElement, 2)
-	in <- NewMessageElement(&msg)
+	in := make(chan core.StreamElement, 2)
+	in <- core.NewMessageElement(&msg)
 	close(in)
 
-	out := make(chan StreamElement, 4)
+	out := make(chan core.StreamElement, 4)
 	require.NoError(t, rs.Process(context.Background(), in, out))
 	for range out { //nolint:revive // draining
 	}
@@ -114,12 +115,12 @@ func TestRecordingIndex_ResetsPerExecution(t *testing.T) {
 	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionInput})
 
 	runTurn := func(msgs []types.Message) {
-		in := make(chan StreamElement, len(msgs)+1)
+		in := make(chan core.StreamElement, len(msgs)+1)
 		for i := range msgs {
-			in <- NewMessageElement(&msgs[i])
+			in <- core.NewMessageElement(&msgs[i])
 		}
 		close(in)
-		out := make(chan StreamElement, len(msgs)+4)
+		out := make(chan core.StreamElement, len(msgs)+4)
 		require.NoError(t, rs.Process(context.Background(), in, out))
 		for range out { //nolint:revive // draining
 		}
@@ -176,12 +177,12 @@ func TestRecordingStage_DoesNotReRecordHistory(t *testing.T) {
 	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionInput})
 
 	runTurn := func(msgs []types.Message) {
-		in := make(chan StreamElement, len(msgs)+1)
+		in := make(chan core.StreamElement, len(msgs)+1)
 		for i := range msgs {
-			in <- NewMessageElement(&msgs[i])
+			in <- core.NewMessageElement(&msgs[i])
 		}
 		close(in)
-		out := make(chan StreamElement, len(msgs)+4)
+		out := make(chan core.StreamElement, len(msgs)+4)
 		require.NoError(t, rs.Process(context.Background(), in, out))
 		for range out { //nolint:revive // draining
 		}

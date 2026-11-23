@@ -32,7 +32,8 @@ func runFixture(t *testing.T, pkg string) (string, string, error) {
 // type (also through iota), an untyped const, a lone typed const, wrappers for
 // plain, variadic, blank and unnamed parameters and for single and multiple
 // results, the imports their signatures need (a /v2 path by its package name),
-// single and grouped vars, each with its doc; and nothing stage did not export
+// single and grouped vars, each with its doc; a sibling internal package's type
+// that stage aliases named as stage names it (Feed's Element); and nothing stage did not export
 // before (Helper, ErrInternal, kindHidden) nor any method.
 func TestGenerate_MatchesGolden(t *testing.T) {
 	got, stdout, err := runFixture(t, "testdata/core")
@@ -52,8 +53,8 @@ func TestGenerate_MatchesGolden(t *testing.T) {
 	if got != string(want) {
 		t.Fatalf("generated file differs from %s (rerun with -update to accept):\n%s", golden, got)
 	}
-	if !strings.HasSuffix(stdout, ": 13 names re-exported from "+fixtureImport+"\n") {
-		t.Fatalf("report = %q, want 13 names", stdout)
+	if !strings.HasSuffix(stdout, ": 14 names re-exported from "+fixtureImport+"\n") {
+		t.Fatalf("report = %q, want 14 names", stdout)
 	}
 }
 
@@ -64,6 +65,9 @@ func TestGenerate_RefusesWhatItCannotWrite(t *testing.T) {
 		{"testdata/generic", "Kind: generic type; write its alias by hand"},
 		{"testdata/genericfunc", "Kind: generic function; write its wrapper by hand"},
 		{"testdata/noimport", "types.Message: no import named types"},
+		{"testdata/notalias", "UseScored: elem.Scored: stage has no alias Scored = elem.Scored; add one before re-exporting this"},
+		{"testdata/unaliased", "UseHidden: elem.Hidden: stage has no alias Hidden = elem.Hidden; add one before re-exporting this"},
+		{"testdata/othersibling", "UseOther: elem.Other: stage has no alias Other = elem.Other; add one before re-exporting this"},
 		{"testdata/missing", "testdata/missing: no Go files"},
 	}
 	for _, tt := range tests {

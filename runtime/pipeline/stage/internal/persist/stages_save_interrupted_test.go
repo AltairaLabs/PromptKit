@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -30,8 +31,8 @@ func TestIncrementalSaveStage_IndexSkipsInterruptedReply(t *testing.T) {
 	user := types.Message{Role: "user", Content: "q1"}
 	partial := interruptedReply("half an ans")
 	next := types.Message{Role: "user", Content: "q2"}
-	runTestStage(t, s, []StreamElement{
-		NewMessageElement(&user), NewMessageElement(&partial), NewMessageElement(&next),
+	runTestStage(t, s, []core.StreamElement{
+		core.NewMessageElement(&user), core.NewMessageElement(&partial), core.NewMessageElement(&next),
 	})
 
 	require.Len(t, mockIndex.indexCalls, 2)
@@ -66,8 +67,8 @@ func TestIncrementalSaveStage_SummaryExcludesInterruptedReply(t *testing.T) {
 	u1 := types.Message{Role: "user", Content: "q1"}
 	partial := interruptedReply("half an ans")
 	u2 := types.Message{Role: "user", Content: "q2"}
-	runTestStage(t, s, []StreamElement{
-		NewMessageElement(&u1), NewMessageElement(&partial), NewMessageElement(&u2),
+	runTestStage(t, s, []core.StreamElement{
+		core.NewMessageElement(&u1), core.NewMessageElement(&partial), core.NewMessageElement(&u2),
 	})
 
 	require.Len(t, summarizer.batch, 2, "the fragment must not be summarized")
@@ -108,11 +109,11 @@ func TestIncrementalSaveStage_CanceledSaveIsBounded(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	input := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
 	msg := types.Message{Role: "user", Content: "q"}
-	input <- NewMessageElement(&msg)
+	input <- core.NewMessageElement(&msg)
 	close(input)
-	output := make(chan StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	done := make(chan error, 1)
 	go func() { done <- s.Process(ctx, input, output) }()
@@ -135,13 +136,13 @@ func TestIncrementalSaveStage_CanceledTurnStillSaves(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	input := make(chan StreamElement, 2)
+	input := make(chan core.StreamElement, 2)
 	user := types.Message{Role: "user", Content: "q"}
 	partial := interruptedReply("half")
-	input <- NewMessageElement(&user)
-	input <- NewMessageElement(&partial)
+	input <- core.NewMessageElement(&user)
+	input <- core.NewMessageElement(&partial)
 	close(input)
-	output := make(chan StreamElement, 2)
+	output := make(chan core.StreamElement, 2)
 
 	require.ErrorIs(t, s.Process(ctx, input, output), context.Canceled)
 	state, err := store.Load(context.Background(), "c")

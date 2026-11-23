@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 // message.created payloads a bus subscriber received, in order. want is the
 // number expected; the bus dispatches through a worker pool, so we wait for
 // that many rather than sleeping a fixed interval.
-func runBroadcast(t *testing.T, elems []StreamElement, want int) []*events.MessageCreatedData {
+func runBroadcast(t *testing.T, elems []core.StreamElement, want int) []*events.MessageCreatedData {
 	t.Helper()
 
 	bus := events.NewEventBus()
@@ -38,13 +38,13 @@ func runBroadcast(t *testing.T, elems []StreamElement, want int) []*events.Messa
 
 	s := NewMessageBroadcastStage(events.NewEmitter(bus, "run", "sess", "conv"))
 
-	in := make(chan StreamElement, len(elems)+1)
+	in := make(chan core.StreamElement, len(elems)+1)
 	for _, e := range elems {
 		in <- e
 	}
 	close(in)
 
-	out := make(chan StreamElement, len(elems)+4)
+	out := make(chan core.StreamElement, len(elems)+4)
 	require.NoError(t, s.Process(context.Background(), in, out))
 	for range out { //nolint:revive // draining
 	}
@@ -94,17 +94,17 @@ func realMessage(role, text string) types.Message {
 	return types.Message{Role: role, Content: text}
 }
 
-func historyMsgElem(role, content string) StreamElement {
+func historyMsgElem(role, content string) core.StreamElement {
 	m := realMessage(role, content)
 	m.Source = "statestore"
-	e := NewMessageElement(&m)
+	e := core.NewMessageElement(&m)
 	e.Meta.FromHistory = true
 	return e
 }
 
-func liveMsgElem(role, content string) StreamElement {
+func liveMsgElem(role, content string) core.StreamElement {
 	m := realMessage(role, content)
-	return NewMessageElement(&m)
+	return core.NewMessageElement(&m)
 }
 
 // TestMessageBroadcastStage_SkipsHistoryAndIndexesAbsolutely covers the two
@@ -113,7 +113,7 @@ func liveMsgElem(role, content string) StreamElement {
 // transcript rather than restarting each turn.
 func TestMessageBroadcastStage_SkipsHistoryAndIndexesAbsolutely(t *testing.T) {
 	t.Parallel()
-	got := runBroadcast(t, []StreamElement{
+	got := runBroadcast(t, []core.StreamElement{
 		historyMsgElem("user", "old q"),
 		historyMsgElem("assistant", "old a"),
 		liveMsgElem("user", "new q"),
@@ -139,7 +139,7 @@ func TestMessageBroadcastStage_StripsBinary(t *testing.T) {
 			Media: &types.MediaContent{Data: &raw, MIMEType: "image/png"},
 		}},
 	}
-	got := runBroadcast(t, []StreamElement{NewMessageElement(&m)}, 1)
+	got := runBroadcast(t, []core.StreamElement{core.NewMessageElement(&m)}, 1)
 
 	require.Len(t, got, 1)
 	require.Len(t, got[0].Parts, 1)
@@ -154,12 +154,12 @@ func TestMessageBroadcastStage_StripsBinary(t *testing.T) {
 func TestMessageBroadcastStage_PassesElementsThrough(t *testing.T) {
 	s := NewMessageBroadcastStage(nil)
 
-	in := make(chan StreamElement, 2)
+	in := make(chan core.StreamElement, 2)
 	m := types.Message{Role: "user", Content: "hi"}
-	in <- NewMessageElement(&m)
+	in <- core.NewMessageElement(&m)
 	close(in)
 
-	out := make(chan StreamElement, 4)
+	out := make(chan core.StreamElement, 4)
 	require.NoError(t, s.Process(context.Background(), in, out))
 
 	var n int
@@ -186,11 +186,11 @@ func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
 	}
 	finalMsg := types.Message{Role: "assistant", Content: "the answer"}
 
-	got := runBroadcast(t, []StreamElement{
+	got := runBroadcast(t, []core.StreamElement{
 		liveMsgElem("user", "ask"),
-		NewMessageElement(&toolCallMsg),
-		NewMessageElement(&toolResultMsg),
-		NewMessageElement(&finalMsg),
+		core.NewMessageElement(&toolCallMsg),
+		core.NewMessageElement(&toolResultMsg),
+		core.NewMessageElement(&finalMsg),
 	}, 4)
 
 	require.Len(t, got, 4)
@@ -212,15 +212,15 @@ func TestMessageBroadcastStage_ToolLoopRoundsArriveSeparately(t *testing.T) {
 func TestMessageBroadcastStage_PublishesMessageOnEndOfStreamElement(t *testing.T) {
 	t.Parallel()
 	reply := realMessage("assistant", "realtime reply")
-	turnEnd := NewMessageElement(&reply)
+	turnEnd := core.NewMessageElement(&reply)
 	turnEnd.EndOfStream = true
 
-	got := runBroadcast(t, []StreamElement{
+	got := runBroadcast(t, []core.StreamElement{
 		historyMsgElem("user", "old q"),
 		historyMsgElem("assistant", "old a"),
 		liveMsgElem("user", "new q"),
 		turnEnd,
-		NewEndOfStreamElement(),
+		core.NewEndOfStreamElement(),
 	}, 2)
 
 	require.Len(t, got, 2, "the user turn and the realtime reply, each once")
@@ -246,7 +246,7 @@ func TestMessageBroadcastStage_PublishesMessageOnEndOfStreamElement(t *testing.T
 func TestMessageBroadcastStage_IndexIsArrivalPosition(t *testing.T) {
 	t.Parallel()
 	// Transcript order would be first, second, third. Deliver them scrambled.
-	got := runBroadcast(t, []StreamElement{
+	got := runBroadcast(t, []core.StreamElement{
 		liveMsgElem("user", "third"),
 		liveMsgElem("user", "first"),
 		liveMsgElem("user", "second"),
@@ -259,83 +259,6 @@ func TestMessageBroadcastStage_IndexIsArrivalPosition(t *testing.T) {
 	assert.Equal(t, 0, got[0].Index)
 	assert.Equal(t, "first", got[1].GetContent())
 	assert.Equal(t, "second", got[2].GetContent())
-}
-
-// TestMessageBroadcastStage_DownstreamOfMergeStillPublishesEveryMessage places
-// the stage after a fan-in, the topology its precondition warns about.
-//
-// What survives: completeness. Every message is still published exactly once.
-// What does NOT: order, and therefore Index. MergeStage spawns a goroutine per
-// input (stages_advanced.go), so the interleaving is nondeterministic — which
-// is why this test asserts counts and content, never positions. Asserting an
-// order here would be asserting a race.
-func TestMessageBroadcastStage_DownstreamOfMergeStillPublishesEveryMessage(t *testing.T) {
-	bus := events.NewEventBus()
-	t.Cleanup(bus.Close)
-
-	var mu sync.Mutex
-	seen := map[string]int{}
-	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
-		if d, ok := e.Data.(*events.MessageCreatedData); ok {
-			mu.Lock()
-			seen[d.Content]++
-			mu.Unlock()
-		}
-	})
-
-	emitMsgs := func(name string, contents ...string) *StageFunc {
-		return NewStageFunc(name, StageTypeGenerate,
-			func(ctx context.Context, _ <-chan StreamElement, out chan<- StreamElement) error {
-				defer close(out)
-				for _, c := range contents {
-					m := types.Message{Role: "assistant", Content: c}
-					select {
-					case out <- NewMessageElement(&m):
-					case <-ctx.Done():
-						return ctx.Err()
-					}
-				}
-				return nil
-			})
-	}
-
-	a := emitMsgs("a", "a1", "a2")
-	b := emitMsgs("b", "b1")
-	merge := NewMergeStage("merge", 2)
-	bcast := NewMessageBroadcastStage(events.NewEmitter(bus, "run", "sess", "conv"))
-
-	p, err := NewPipelineBuilder().
-		AddStage(a).AddStage(b).AddStage(merge).AddStage(bcast).
-		Merge("merge", "a", "b").
-		Connect("merge", bcast.Name()).
-		Build()
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	in := make(chan StreamElement)
-	close(in)
-	out, err := p.Execute(ctx, in)
-	require.NoError(t, err)
-	for range out { //nolint:revive // draining
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		mu.Lock()
-		n := len(seen)
-		mu.Unlock()
-		if n == 3 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, map[string]int{"a1": 1, "a2": 1, "b1": 1}, seen,
-		"every message from both branches is published exactly once")
 }
 
 // binaryBearingMessage carries inline bytes in every place a message can hold
@@ -392,7 +315,7 @@ func inlineBinaryIn(d *events.MessageCreatedData) []string {
 func TestMessageBroadcastStage_NeverPutsBinaryOnTheBus(t *testing.T) {
 	t.Parallel()
 	msg := binaryBearingMessage()
-	got := runBroadcast(t, []StreamElement{NewMessageElement(&msg)}, 1)
+	got := runBroadcast(t, []core.StreamElement{core.NewMessageElement(&msg)}, 1)
 
 	require.Len(t, got, 1)
 	assert.Emptyf(t, inlineBinaryIn(got[0]),
@@ -437,10 +360,10 @@ func TestRecordingStage_KeepsBinaryOffTheBusButInTheStore(t *testing.T) {
 	rs := NewRecordingStage(store, RecordingStageConfig{Position: RecordingPositionOutput})
 
 	msg := binaryBearingMessage()
-	in := make(chan StreamElement, 2)
-	in <- NewMessageElement(&msg)
+	in := make(chan core.StreamElement, 2)
+	in <- core.NewMessageElement(&msg)
 	close(in)
-	out := make(chan StreamElement, 4)
+	out := make(chan core.StreamElement, 4)
 	require.NoError(t, rs.Process(context.Background(), in, out))
 	for range out { //nolint:revive // draining
 	}
@@ -468,7 +391,7 @@ func TestMessageBroadcastStage_HeldMessageBroadcastOnRelease(t *testing.T) {
 	held.Meta.PlayoutHeld = true
 	release := liveMsgElem("user", "and then?")
 	release.Meta.PlayoutRelease = true
-	got := runBroadcast(t, []StreamElement{liveMsgElem("user", "first"), held, release}, 2)
+	got := runBroadcast(t, []core.StreamElement{liveMsgElem("user", "first"), held, release}, 2)
 	require.Len(t, got, 2)
 	assert.Equal(t, "first", got[0].GetContent())
 	assert.Equal(t, 0, got[0].Index)
@@ -483,21 +406,21 @@ func TestMessageBroadcastStage_HeldMessageBroadcastOnRelease(t *testing.T) {
 // transcript, and the held elements publish nothing.
 func TestMessageBroadcastStage_HeldTurnEndPublishedOnceFromItsRelease(t *testing.T) {
 	reply := realMessage("assistant", "realtime reply")
-	heldReply := NewMessageElement(&reply)
+	heldReply := core.NewMessageElement(&reply)
 	heldReply.EndOfStream = true
 	heldReply.Meta.PlayoutHeld = true
 	heldNext := liveMsgElem("user", "and then?")
 	heldNext.Meta.PlayoutHeld = true
-	releaseReply := NewMessageElement(&reply)
+	releaseReply := core.NewMessageElement(&reply)
 	releaseReply.Meta.PlayoutRelease = true
 	releaseReply.Meta.PlayoutTurnEnd = true
 	releaseNext := liveMsgElem("user", "and then?")
 	releaseNext.Meta.PlayoutRelease = true
 
-	got := runBroadcast(t, []StreamElement{
+	got := runBroadcast(t, []core.StreamElement{
 		historyMsgElem("user", "old q"), historyMsgElem("assistant", "old a"),
 		liveMsgElem("user", "new q"), heldReply, heldNext, releaseReply, releaseNext,
-		NewEndOfStreamElement(),
+		core.NewEndOfStreamElement(),
 	}, 3)
 	type published struct {
 		role, content string

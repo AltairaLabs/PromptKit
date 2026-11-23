@@ -250,7 +250,7 @@ func (s *ContextAssemblyStage) assembleFromReader(
 			assembled = append(assembled, types.Message{
 				Role:    core.RoleSystem,
 				Content: content,
-				Source:  sourceSummary,
+				Source:  core.SourceSummary,
 			})
 		}
 	}
@@ -361,7 +361,7 @@ func (s *ContextAssemblyStage) emitHistory(
 	output chan<- StreamElement,
 ) error {
 	for i := range messages {
-		messages[i].Source = sourceStateStore
+		messages[i].Source = core.SourceStateStore
 		elem := NewMessageElement(&messages[i])
 		elem.Meta.FromHistory = true
 		select {

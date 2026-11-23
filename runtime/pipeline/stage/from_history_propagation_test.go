@@ -114,7 +114,7 @@ func TestContextBuilderStage_TruncatedPathDerivesFromSource(t *testing.T) {
 			continue
 		}
 		seen++
-		wantHistory := !isNewMessage(elem.Message)
+		wantHistory := !core.IsNewMessage(elem.Message)
 		require.Equalf(t, wantHistory, elem.Meta.FromHistory,
 			"message %q (source %q): FromHistory must be derived from Source once "+
 				"truncation has broken index alignment",

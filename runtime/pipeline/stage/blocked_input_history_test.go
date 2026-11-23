@@ -10,13 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -51,56 +48,6 @@ func roleLines(msgs []types.Message) []string {
 		out = append(out, msgs[i].Role+":"+msgs[i].GetContent())
 	}
 	return out
-}
-
-func TestIncrementalSaveStage_IndexSkipsBlockedInputTurn(t *testing.T) {
-	mockIndex := &mockMessageIndexForSave{}
-	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
-		StateStoreConfig: &pipeline.StateStoreConfig{Store: statestore.NewMemoryStore(), ConversationID: "c"},
-		MessageIndex:     mockIndex,
-	})
-
-	blockedUser := types.Message{Role: core.RoleUser, Content: "forbidden"}
-	canned := blockedInputReply("refused")
-	next := types.Message{Role: core.RoleUser, Content: "q2"}
-	again := types.Message{Role: core.RoleUser, Content: "forbidden again"}
-	cannedAgain := blockedInputReply("refused again")
-	runTestStage(t, s, []StreamElement{
-		NewMessageElement(&blockedUser), NewMessageElement(&canned), NewMessageElement(&next),
-		NewMessageElement(&again), NewMessageElement(&cannedAgain),
-	})
-
-	require.Len(t, mockIndex.indexCalls, 1)
-	assert.Equal(t, "q2", mockIndex.indexCalls[0].message.Content)
-	assert.Equal(t, 2, mockIndex.indexCalls[0].turnIndex, "the skipped turn keeps its positions")
-}
-
-// The batch ends on the blocked user message; its canned reply falls in the
-// next batch. The user message must still be left out of the summary.
-func TestIncrementalSaveStage_SummaryExcludesBlockedInputTurn(t *testing.T) {
-	store := statestore.NewMemoryStore()
-	summarizer := &recordingSummarizer{}
-	s := NewIncrementalSaveStage(&IncrementalSaveConfig{
-		StateStoreConfig:   &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
-		Summarizer:         summarizer,
-		SummarizeThreshold: 2,
-		SummarizeBatchSize: 3,
-	})
-
-	u1 := types.Message{Role: core.RoleUser, Content: "q1"}
-	a1 := types.Message{Role: core.RoleAssistant, Content: "a1"}
-	blockedUser := types.Message{Role: core.RoleUser, Content: "forbidden"}
-	canned := blockedInputReply("refused")
-	runTestStage(t, s, []StreamElement{
-		NewMessageElement(&u1), NewMessageElement(&a1),
-		NewMessageElement(&blockedUser), NewMessageElement(&canned),
-	})
-
-	assert.Equal(t, []string{"user:q1", "assistant:a1"}, roleLines(summarizer.batch))
-	summaries, err := store.LoadSummaries(context.Background(), "c")
-	require.NoError(t, err)
-	require.Len(t, summaries, 1)
-	assert.Equal(t, 3, summaries[0].EndTurn, "the summary still covers the blocked message's turn")
 }
 
 func TestContextBuilder_SummaryExcludesBlockedInputTurn(t *testing.T) {
@@ -144,35 +91,6 @@ func TestContextBuilder_RelevanceNeverKeepsHalfABlockedTurn(t *testing.T) {
 	)
 	assert.Equal(t, []string{"user:pears question here", "user:apples again"}, got,
 		"the budget the blocked turn would have used goes to the rest of the history")
-}
-
-// recordingExtractor records the messages memory extraction was given.
-type recordingExtractor struct {
-	got []types.Message
-}
-
-func (e *recordingExtractor) Extract(
-	_ context.Context, _ map[string]string, msgs []types.Message,
-) ([]*memory.Memory, error) {
-	e.got = append([]types.Message(nil), msgs...)
-	return nil, nil
-}
-
-func TestMemoryExtractionStage_SkipsBlockedInputTurn(t *testing.T) {
-	ext := &recordingExtractor{}
-	s := NewMemoryExtractionStage(ext, memory.NewInMemoryStore(), map[string]string{"user_id": "u"})
-
-	u1 := types.Message{Role: core.RoleUser, Content: "I love Go"}
-	a1 := types.Message{Role: core.RoleAssistant, Content: "Great choice!"}
-	blockedUser := types.Message{Role: core.RoleUser, Content: "forbidden"}
-	canned := blockedInputReply("refused")
-	out := runTestStage(t, s, []StreamElement{
-		NewMessageElement(&u1), NewMessageElement(&a1),
-		NewMessageElement(&blockedUser), NewMessageElement(&canned),
-	})
-
-	assert.Equal(t, []string{"user:I love Go", "assistant:Great choice!"}, roleLines(ext.got))
-	assert.Len(t, out, 4, "every message still flows downstream")
 }
 
 // reaskHistorySpy records the messages of every tool-path call, so a test can
@@ -513,18 +431,6 @@ func TestProviderStage_CutReplyBeforeLateBlockedRequestKeepsThePreviousAnswer(t 
 			assert.Equal(t, []string{"user:hello", "assistant:Hi!", "user:what time is it"}, roleLines(prov.seen[0]))
 		})
 	}
-}
-
-func TestMemoryExtractionStage_CutReplyBeforeLateBlockedRequest(t *testing.T) {
-	ext := &recordingExtractor{}
-	s := NewMemoryExtractionStage(ext, memory.NewInMemoryStore(), map[string]string{"user_id": "u"})
-	history := cutThenLateBlocked()
-	elems := make([]StreamElement, len(history))
-	for i := range history {
-		elems[i] = NewMessageElement(&history[i])
-	}
-	runTestStage(t, s, elems)
-	assert.Equal(t, []string{"user:hello", "assistant:Hi!"}, roleLines(ext.got))
 }
 
 func TestFinalTurn_ReaskCutReplyBeforeLateBlockedRequest(t *testing.T) {

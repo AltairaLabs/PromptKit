@@ -986,7 +986,7 @@ func (s *ContextBuilderStage) historyFlagAt(i int, messages []types.Message, fla
 	if flags != nil {
 		return flags[i]
 	}
-	return !isNewMessage(&messages[i])
+	return !core.IsNewMessage(&messages[i])
 }
 
 // countTokens estimates token count using the configured TokenCounter.
@@ -1259,7 +1259,7 @@ func (s *ContextBuilderStage) truncateBySummarization(
 	summaryMsg := types.Message{
 		Role:    core.RoleSystem,
 		Content: fmt.Sprintf("[Summary of %d earlier messages]: %s", len(toSummarize), summaryContent),
-		Source:  sourceSummary,
+		Source:  core.SourceSummary,
 	}
 
 	result := make([]types.Message, 0, 1+len(kept))

@@ -793,7 +793,7 @@ func ExcludeFromModelContext(msgs []types.Message) []types.Message
 ExcludeFromModelContext returns msgs without what never goes back to a model, the messages ModelContextMask marks: interrupted replies \(types.ExcludeInterrupted\), blocked input turns \(the canned reply marked Meta\[types.MetaBlockedInput\] and the user message it answered\), and each message marked Meta\[types.MetaExcludedFromModel\]. A transcript keeps both; any path that builds model context from one \(a carry\-forward summary, a host's own summarizer\) passes it through this first. msgs is returned as\-is when it holds neither.
 
 <a name="IsTranscriptMessage"></a>
-## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L267>)
+## func [IsTranscriptMessage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L199>)
 
 ```go
 func IsTranscriptMessage(elem *StreamElement) bool
@@ -3269,7 +3269,7 @@ func DefaultImageResizeStageConfig() ImageResizeStageConfig
 DefaultImageResizeStageConfig returns sensible defaults for image resizing.
 
 <a name="IncrementalSaveConfig"></a>
-## type [IncrementalSaveConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L25-L60>)
+## type [IncrementalSaveConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L18-L53>)
 
 IncrementalSaveConfig configures the IncrementalSaveStage.
 
@@ -3313,7 +3313,7 @@ type IncrementalSaveConfig struct {
 ```
 
 <a name="IncrementalSaveStage"></a>
-## type [IncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L67-L71>)
+## type [IncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L60-L64>)
 
 IncrementalSaveStage saves only new messages from the current turn using MessageAppender, avoiding the full load\+replace\+save cycle. When the store doesn't implement MessageAppender, it loads the state, appends the new messages and writes it back through BulkWriter. A store that implements neither makes the stage return an error.
 
@@ -3325,7 +3325,7 @@ type IncrementalSaveStage struct {
 ```
 
 <a name="NewIncrementalSaveStage"></a>
-### func [NewIncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L74>)
+### func [NewIncrementalSaveStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L183>)
 
 ```go
 func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStage
@@ -3334,7 +3334,7 @@ func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStag
 NewIncrementalSaveStage creates a new incremental save stage.
 
 <a name="NewIncrementalSaveStageWithTurnState"></a>
-### func [NewIncrementalSaveStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L84-L87>)
+### func [NewIncrementalSaveStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L190>)
 
 ```go
 func NewIncrementalSaveStageWithTurnState(config *IncrementalSaveConfig, turnState *TurnState) *IncrementalSaveStage
@@ -3343,7 +3343,7 @@ func NewIncrementalSaveStageWithTurnState(config *IncrementalSaveConfig, turnSta
 NewIncrementalSaveStageWithTurnState creates an incremental save stage that also merges TurnState.ProviderRequestMetadata into the persisted state on the fallback fullSave path.
 
 <a name="IncrementalSaveStage.Process"></a>
-### func \(\*IncrementalSaveStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_save.go#L96-L100>)
+### func \(\*IncrementalSaveStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_save.go#L89-L93>)
 
 ```go
 func (s *IncrementalSaveStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3808,7 +3808,7 @@ func (s *MediaExtractStage) Process(ctx context.Context, input <-chan StreamElem
 Process implements the Stage interface. Extracts media from messages and emits individual elements for each.
 
 <a name="MemoryExtractionStage"></a>
-## type [MemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L135-L141>)
+## type [MemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L136-L142>)
 
 MemoryExtractionStage extracts memories from the conversation after the provider responds. Runs late in the pipeline \(before state persist\). Calls Extractor.Extract\(\) with the conversation messages and saves results via Store.Save\(\).
 
@@ -3822,7 +3822,7 @@ type MemoryExtractionStage struct {
 ```
 
 <a name="NewMemoryExtractionStage"></a>
-### func [NewMemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L144-L146>)
+### func [NewMemoryExtractionStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L45>)
 
 ```go
 func NewMemoryExtractionStage(extractor memory.Extractor, store memory.Store, scope map[string]string) *MemoryExtractionStage
@@ -3831,7 +3831,7 @@ func NewMemoryExtractionStage(extractor memory.Extractor, store memory.Store, sc
 NewMemoryExtractionStage creates an extraction stage.
 
 <a name="MemoryExtractionStage.Process"></a>
-### func \(\*MemoryExtractionStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L165-L169>)
+### func \(\*MemoryExtractionStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L166-L170>)
 
 ```go
 func (s *MemoryExtractionStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3840,7 +3840,7 @@ func (s *MemoryExtractionStage) Process(ctx context.Context, input <-chan Stream
 Process implements Stage.
 
 <a name="MemoryExtractionStage.WithCaller"></a>
-### func \(\*MemoryExtractionStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L159>)
+### func \(\*MemoryExtractionStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L160>)
 
 ```go
 func (s *MemoryExtractionStage) WithCaller(caller types.Caller) *MemoryExtractionStage
@@ -3849,7 +3849,7 @@ func (s *MemoryExtractionStage) WithCaller(caller types.Caller) *MemoryExtractio
 WithCaller sets who the conversation acts for. An extractor that implements \[memory.ContextRequestExtractor\] is given it on \[memory.ContextRequest\].Caller, and a store that implements \[memory.OptionsSaver\] on \[memory.SaveOptions\].Caller.
 
 <a name="MemoryRetrievalStage"></a>
-## type [MemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L24-L32>)
+## type [MemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L25-L33>)
 
 MemoryRetrievalStage injects relevant memories into the conversation context. Accumulates messages from input elements, then calls Retriever.RetrieveContext\(\) once the input channel closes and writes the formatted memory context onto TurnState.Variables\["memory\_context"\] for the template stage to consume.
 
@@ -3865,7 +3865,7 @@ type MemoryRetrievalStage struct {
 ```
 
 <a name="NewMemoryRetrievalStage"></a>
-### func [NewMemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L35-L37>)
+### func [NewMemoryRetrievalStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L26>)
 
 ```go
 func NewMemoryRetrievalStage(retriever memory.Retriever, store memory.Store, scope map[string]string) *MemoryRetrievalStage
@@ -3874,7 +3874,7 @@ func NewMemoryRetrievalStage(retriever memory.Retriever, store memory.Store, sco
 NewMemoryRetrievalStage creates a retrieval stage.
 
 <a name="NewMemoryRetrievalStageWithTurnState"></a>
-### func [NewMemoryRetrievalStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L43-L45>)
+### func [NewMemoryRetrievalStageWithTurnState](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L32>)
 
 ```go
 func NewMemoryRetrievalStageWithTurnState(retriever memory.Retriever, store memory.Store, scope map[string]string, turnState *TurnState) *MemoryRetrievalStage
@@ -3883,7 +3883,7 @@ func NewMemoryRetrievalStageWithTurnState(retriever memory.Retriever, store memo
 NewMemoryRetrievalStageWithTurnState creates a retrieval stage that publishes its formatted memory context onto the supplied TurnState.
 
 <a name="MemoryRetrievalStage.Process"></a>
-### func \(\*MemoryRetrievalStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L72-L76>)
+### func \(\*MemoryRetrievalStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L73-L77>)
 
 ```go
 func (s *MemoryRetrievalStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -3892,7 +3892,7 @@ func (s *MemoryRetrievalStage) Process(ctx context.Context, input <-chan StreamE
 Process implements Stage.
 
 <a name="MemoryRetrievalStage.WithCaller"></a>
-### func \(\*MemoryRetrievalStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L66>)
+### func \(\*MemoryRetrievalStage\) [WithCaller](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L67>)
 
 ```go
 func (s *MemoryRetrievalStage) WithCaller(caller types.Caller) *MemoryRetrievalStage
@@ -3901,7 +3901,7 @@ func (s *MemoryRetrievalStage) WithCaller(caller types.Caller) *MemoryRetrievalS
 WithCaller sets who the conversation acts for. A retriever that implements \[memory.ContextRequestRetriever\] is given it on \[memory.ContextRequest\].Caller.
 
 <a name="MemoryRetrievalStage.WithContextFormatter"></a>
-### func \(\*MemoryRetrievalStage\) [WithContextFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_memory.go#L58>)
+### func \(\*MemoryRetrievalStage\) [WithContextFormatter](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_memory.go#L59>)
 
 ```go
 func (s *MemoryRetrievalStage) WithContextFormatter(fn memory.ContextFormatter) *MemoryRetrievalStage
@@ -3951,7 +3951,7 @@ func (s *MergeStage) ProcessMultiple(ctx context.Context, inputs []<-chan Stream
 ProcessMultiple processes multiple input channels and merges them into one output. This is a special method for merge stages that differs from the standard Process signature.
 
 <a name="MessageBroadcastStage"></a>
-## type [MessageBroadcastStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_message_broadcast.go#L72-L75>)
+## type [MessageBroadcastStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_message_broadcast.go#L72-L75>)
 
 MessageBroadcastStage publishes message.created on the EventBus for each new complete message that streams through it, and forwards every element unchanged.
 
@@ -3987,7 +3987,7 @@ type MessageBroadcastStage struct {
 ```
 
 <a name="NewMessageBroadcastStage"></a>
-### func [NewMessageBroadcastStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_message_broadcast.go#L79>)
+### func [NewMessageBroadcastStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L115>)
 
 ```go
 func NewMessageBroadcastStage(emitter *events.Emitter) *MessageBroadcastStage
@@ -3996,7 +3996,7 @@ func NewMessageBroadcastStage(emitter *events.Emitter) *MessageBroadcastStage
 NewMessageBroadcastStage creates a message broadcast stage. A nil emitter makes the stage an inert pass\-through.
 
 <a name="MessageBroadcastStage.Process"></a>
-### func \(\*MessageBroadcastStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_message_broadcast.go#L87-L91>)
+### func \(\*MessageBroadcastStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_message_broadcast.go#L87-L91>)
 
 ```go
 func (s *MessageBroadcastStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5152,7 +5152,7 @@ type ReasoningDelta struct {
 ```
 
 <a name="RecordingPosition"></a>
-## type [RecordingPosition](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L36>)
+## type [RecordingPosition](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_recording.go#L36>)
 
 RecordingPosition indicates where in the pipeline the recording stage is placed.
 
@@ -5172,7 +5172,7 @@ const (
 ```
 
 <a name="RecordingStage"></a>
-## type [RecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L109-L114>)
+## type [RecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_recording.go#L109-L114>)
 
 RecordingStage captures pipeline elements as events for session recording. It observes elements flowing through without modifying them.
 
@@ -5197,7 +5197,7 @@ type RecordingStage struct {
 ```
 
 <a name="NewRecordingStage"></a>
-### func [NewRecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L117>)
+### func [NewRecordingStage](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L168>)
 
 ```go
 func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *RecordingStage
@@ -5206,7 +5206,7 @@ func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *Re
 NewRecordingStage creates a new recording stage.
 
 <a name="RecordingStage.Process"></a>
-### func \(\*RecordingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L128-L132>)
+### func \(\*RecordingStage\) [Process](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_recording.go#L128-L132>)
 
 ```go
 func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElement, output chan<- StreamElement) error
@@ -5215,7 +5215,7 @@ func (rs *RecordingStage) Process(ctx context.Context, input <-chan StreamElemen
 Process observes elements and records them as events.
 
 <a name="RecordingStage.WithConversationID"></a>
-### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L504>)
+### func \(\*RecordingStage\) [WithConversationID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_recording.go#L504>)
 
 ```go
 func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingStage
@@ -5224,7 +5224,7 @@ func (rs *RecordingStage) WithConversationID(conversationID string) *RecordingSt
 WithConversationID sets the conversation ID for recorded events.
 
 <a name="RecordingStage.WithSessionID"></a>
-### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L498>)
+### func \(\*RecordingStage\) [WithSessionID](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_recording.go#L498>)
 
 ```go
 func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage
@@ -5233,7 +5233,7 @@ func (rs *RecordingStage) WithSessionID(sessionID string) *RecordingStage
 WithSessionID sets the session ID for recorded events.
 
 <a name="RecordingStageConfig"></a>
-## type [RecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L46-L69>)
+## type [RecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/persist/stages_recording.go#L46-L69>)
 
 RecordingStageConfig configures the recording stage behavior.
 
@@ -5265,7 +5265,7 @@ type RecordingStageConfig struct {
 ```
 
 <a name="DefaultRecordingStageConfig"></a>
-### func [DefaultRecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/stages_recording.go#L72>)
+### func [DefaultRecordingStageConfig](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/persist_aliases.go#L133>)
 
 ```go
 func DefaultRecordingStageConfig() RecordingStageConfig

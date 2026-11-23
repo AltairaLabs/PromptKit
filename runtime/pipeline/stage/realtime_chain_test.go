@@ -6,6 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/persist"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
@@ -83,8 +84,8 @@ func TestNewRealtimeChain_FullOrder(t *testing.T) {
 	assert.Equal(t, "[inaudible]", reorder.placeholder)
 	rec, ok := stages[4].(*RecordingStage)
 	require.True(t, ok)
-	assert.Equal(t, RecordingPositionOutput, rec.config.Position)
-	assert.Equal(t, "s", rec.config.SessionID)
+	assert.Equal(t, RecordingPositionOutput, persist.ConfigOf(rec).Position)
+	assert.Equal(t, "s", persist.ConfigOf(rec).SessionID)
 }
 
 // The pacing mode picks the pacing stage: none, one that drops a cut reply's

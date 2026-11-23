@@ -5,8 +5,13 @@ import (
 	"context"
 	"errors"
 
+	"example.com/stage/internal/elem"
 	"github.com/example/runtime/v2/types"
 )
+
+// Feed names a sibling internal package's type that stage aliases, so its
+// wrapper names it as stage does.
+func Feed(e *elem.Element) []elem.Element { return nil }
 
 // Kind is a kind.
 type Kind int

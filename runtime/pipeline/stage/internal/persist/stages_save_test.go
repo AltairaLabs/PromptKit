@@ -1,12 +1,14 @@
-package stage
+package persist
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 	"github.com/stretchr/testify/assert"
@@ -46,11 +48,11 @@ func TestIncrementalSaveStage_WithAppender(t *testing.T) {
 	newMsg1 := types.Message{Role: "user", Content: "New question"}
 	newMsg2 := types.Message{Role: "assistant", Content: "New answer"}
 
-	inputs := []StreamElement{
-		NewMessageElement(&historyMsg1),
-		NewMessageElement(&historyMsg2),
-		NewMessageElement(&newMsg1),
-		NewMessageElement(&newMsg2),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&historyMsg1),
+		core.NewMessageElement(&historyMsg2),
+		core.NewMessageElement(&newMsg1),
+		core.NewMessageElement(&newMsg2),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -96,9 +98,9 @@ func TestIncrementalSaveStage_FallbackToFullSave(t *testing.T) {
 	historyMsg := types.Message{Role: "user", Content: "Old message", Source: "statestore"}
 	newMsg := types.Message{Role: "assistant", Content: "New response"}
 
-	inputs := []StreamElement{
-		NewMessageElement(&historyMsg),
-		NewMessageElement(&newMsg),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&historyMsg),
+		core.NewMessageElement(&newMsg),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -132,22 +134,22 @@ func TestIncrementalSaveStage_ErrorForwarding(t *testing.T) {
 
 	testErr := errors.New("something went wrong")
 
-	input := make(chan StreamElement, 10)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
 
 	// Send a message followed by an error element followed by another message
 	msg1 := types.Message{Role: "user", Content: "Hello"}
-	input <- NewMessageElement(&msg1)
-	input <- NewErrorElement(testErr)
+	input <- core.NewMessageElement(&msg1)
+	input <- core.NewErrorElement(testErr)
 	msg2 := types.Message{Role: "assistant", Content: "World"}
-	input <- NewMessageElement(&msg2)
+	input <- core.NewMessageElement(&msg2)
 	close(input)
 
 	ctx := context.Background()
 	err := s.Process(ctx, input, output)
 	require.NoError(t, err)
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -171,7 +173,7 @@ func TestIncrementalSaveStage_ErrorForwarding(t *testing.T) {
 func TestIncrementalSaveStage_NilConfig(t *testing.T) {
 	s := NewIncrementalSaveStage(nil)
 
-	inputs := []StreamElement{
+	inputs := []core.StreamElement{
 		newTestMsgElement("user", "Message"),
 	}
 
@@ -209,9 +211,9 @@ func TestIncrementalSaveStage_NoNewMessages(t *testing.T) {
 	msg1 := types.Message{Role: "user", Content: "History 1", Source: "statestore"}
 	msg2 := types.Message{Role: "assistant", Content: "History 2", Source: "statestore"}
 
-	inputs := []StreamElement{
-		NewMessageElement(&msg1),
-		NewMessageElement(&msg2),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&msg1),
+		core.NewMessageElement(&msg2),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -250,13 +252,13 @@ func TestIncrementalSaveStage_DropsHistoryFromInMemorySlice(t *testing.T) {
 	// one fresh user message — the realistic shape of a Send on a long
 	// conversation.
 	const historyLen = 80
-	inputs := make([]StreamElement, 0, historyLen+1)
+	inputs := make([]core.StreamElement, 0, historyLen+1)
 	for range historyLen {
-		msg := types.Message{Role: "user", Content: "history", Source: sourceStateStore}
-		inputs = append(inputs, NewMessageElement(&msg))
+		msg := types.Message{Role: "user", Content: "history", Source: core.SourceStateStore}
+		inputs = append(inputs, core.NewMessageElement(&msg))
 	}
 	newMsg := types.Message{Role: "user", Content: "new"}
-	inputs = append(inputs, NewMessageElement(&newMsg))
+	inputs = append(inputs, core.NewMessageElement(&newMsg))
 
 	results := runTestStage(t, s, inputs)
 	require.Len(t, results, historyLen+1)
@@ -287,11 +289,11 @@ func TestIncrementalSaveStage_FiltersSummaryAndRetrievedSources(t *testing.T) {
 	historyMsg := types.Message{Role: "user", Content: "History", Source: "statestore"}
 	newMsg := types.Message{Role: "user", Content: "New question"}
 
-	inputs := []StreamElement{
-		NewMessageElement(&summaryMsg),
-		NewMessageElement(&retrievedMsg),
-		NewMessageElement(&historyMsg),
-		NewMessageElement(&newMsg),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&summaryMsg),
+		core.NewMessageElement(&retrievedMsg),
+		core.NewMessageElement(&historyMsg),
+		core.NewMessageElement(&newMsg),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -321,8 +323,8 @@ func TestIncrementalSaveStage_AppendCreatesConversation(t *testing.T) {
 	s := NewIncrementalSaveStage(config)
 
 	msg := types.Message{Role: "user", Content: "First message"}
-	inputs := []StreamElement{
-		NewMessageElement(&msg),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&msg),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -425,10 +427,10 @@ func TestIncrementalSaveStage_WithIndexing(t *testing.T) {
 	newMsg1 := types.Message{Role: "user", Content: "New question"}
 	newMsg2 := types.Message{Role: "assistant", Content: "New answer"}
 
-	inputs := []StreamElement{
-		NewMessageElement(&historyMsg),
-		NewMessageElement(&newMsg1),
-		NewMessageElement(&newMsg2),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&historyMsg),
+		core.NewMessageElement(&newMsg1),
+		core.NewMessageElement(&newMsg2),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -491,13 +493,13 @@ func TestIncrementalSaveStage_WithAutoSummarize(t *testing.T) {
 	newMsg1 := types.Message{Role: "user", Content: "Message 5"}
 	newMsg2 := types.Message{Role: "assistant", Content: "Message 6"}
 
-	inputs := []StreamElement{
-		NewMessageElement(&hist1),
-		NewMessageElement(&hist2),
-		NewMessageElement(&hist3),
-		NewMessageElement(&hist4),
-		NewMessageElement(&newMsg1),
-		NewMessageElement(&newMsg2),
+	inputs := []core.StreamElement{
+		core.NewMessageElement(&hist1),
+		core.NewMessageElement(&hist2),
+		core.NewMessageElement(&hist3),
+		core.NewMessageElement(&hist4),
+		core.NewMessageElement(&newMsg1),
+		core.NewMessageElement(&newMsg2),
 	}
 
 	results := runTestStage(t, s, inputs)
@@ -767,7 +769,7 @@ func TestMaybeSummarize_StoreNotMessageReader(t *testing.T) {
 
 	q := types.Message{Role: "user", Content: "question"}
 	a := types.Message{Role: "assistant", Content: "answer"}
-	results := runTestStage(t, s, []StreamElement{NewMessageElement(&q), NewMessageElement(&a)})
+	results := runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&q), core.NewMessageElement(&a)})
 
 	require.Len(t, results, 2)
 	stored := store.messages["conv-ms"]
@@ -827,7 +829,7 @@ func TestMaybeSummarize_StoreNotSummaryAccessor(t *testing.T) {
 	s := summarizingSaveStage(store, 3, 3)
 
 	q := types.Message{Role: "user", Content: "question"}
-	results := runTestStage(t, s, []StreamElement{NewMessageElement(&q)})
+	results := runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&q)})
 
 	require.Len(t, results, 1)
 	assert.Equal(t, append(numberedMessages(10), q), withoutMessageIDs(store.messages["conv-ms"]))
@@ -956,22 +958,22 @@ func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 
 	testErr := errors.New("passthrough error")
 
-	input := make(chan StreamElement, 10)
-	output := make(chan StreamElement, 10)
+	input := make(chan core.StreamElement, 10)
+	output := make(chan core.StreamElement, 10)
 
 	// Send a message, then an error, then another message
 	msg1 := types.Message{Role: "user", Content: "Before error"}
-	input <- NewMessageElement(&msg1)
-	input <- NewErrorElement(testErr)
+	input <- core.NewMessageElement(&msg1)
+	input <- core.NewErrorElement(testErr)
 	msg2 := types.Message{Role: "assistant", Content: "After error"}
-	input <- NewMessageElement(&msg2)
+	input <- core.NewMessageElement(&msg2)
 	close(input)
 
 	ctx := context.Background()
 	err := s.Process(ctx, input, output)
 	require.NoError(t, err)
 
-	var results []StreamElement
+	var results []core.StreamElement
 	for elem := range output {
 		results = append(results, elem)
 	}
@@ -990,6 +992,48 @@ func TestIncrementalSaveStage_Passthrough_WithErrors(t *testing.T) {
 	// Third element is a message
 	assert.NotNil(t, results[2].Message)
 	assert.Equal(t, "After error", results[2].Message.Content)
+}
+
+// A save stage without a store still passes on what a canceled turn produced:
+// the partial reply the provider stage emits after the cancellation and its
+// error reach a caller that starts reading 20 ms after Process does, and the
+// cancellation is returned. Each element is offered for up to 10 s after the
+// cancellation, so the caller's start is never the race.
+func TestIncrementalSaveStage_PassthroughForwardsACanceledTurn(t *testing.T) {
+	setForwardTimeout(t, 10*time.Second)
+	s := NewIncrementalSaveStage(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	partial := types.Message{Role: "assistant", Content: "Sure, I'll", FinishReason: types.FinishReasonInterrupted}
+	input := make(chan core.StreamElement, 2)
+	input <- core.NewMessageElement(&partial)
+	input <- core.NewErrorElement(context.Canceled)
+	close(input)
+
+	output := make(chan core.StreamElement)
+	got := make(chan []core.StreamElement, 1)
+	go func() {
+		// The caller is not reading when Process starts.
+		time.Sleep(20 * time.Millisecond)
+		var elems []core.StreamElement
+		for elem := range output {
+			elems = append(elems, elem)
+		}
+		got <- elems
+	}()
+
+	require.ErrorIs(t, s.Process(ctx, input, output), context.Canceled)
+	var elems []core.StreamElement
+	select {
+	case elems = <-got:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the stage's output was never closed")
+	}
+	require.Len(t, elems, 2)
+	assert.Equal(t, "Sure, I'll", elems[0].Message.Content)
+	assert.ErrorIs(t, elems[1].Error, context.Canceled)
 }
 
 // summaryAccessorOnlyStore implements Store + SummaryAccessor but NOT
@@ -1071,11 +1115,11 @@ func TestIncrementalSaveStage_FullSaveErrorsWithoutBulkWriter(t *testing.T) {
 	s := NewIncrementalSaveStage(config)
 
 	msg := types.Message{Role: "user", Content: "x"}
-	input := make(chan StreamElement, 1)
-	input <- NewMessageElement(&msg)
+	input := make(chan core.StreamElement, 1)
+	input <- core.NewMessageElement(&msg)
 	close(input)
 
-	output := make(chan StreamElement, 4)
+	output := make(chan core.StreamElement, 4)
 	err := s.Process(context.Background(), input, output)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "BulkWriter")
@@ -1098,7 +1142,7 @@ func TestIncrementalSaveStage_FullSaveCreatesFreshStateOnNotFound(t *testing.T) 
 	s := NewIncrementalSaveStage(config)
 
 	msg := types.Message{Role: "user", Content: "hello"}
-	results := runTestStage(t, s, []StreamElement{NewMessageElement(&msg)})
+	results := runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&msg)})
 	require.Len(t, results, 1)
 
 	state, err := store.Load(context.Background(), "fresh")
@@ -1130,11 +1174,11 @@ func TestIncrementalSaveStage_FullSavePropagatesSummaryReloadError(t *testing.T)
 	s := NewIncrementalSaveStage(config)
 
 	msg := types.Message{Role: "user", Content: "x"}
-	input := make(chan StreamElement, 1)
-	input <- NewMessageElement(&msg)
+	input := make(chan core.StreamElement, 1)
+	input <- core.NewMessageElement(&msg)
 	close(input)
 
-	output := make(chan StreamElement, 8)
+	output := make(chan core.StreamElement, 8)
 	err := s.Process(context.Background(), input, output)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to reload summaries")
@@ -1164,7 +1208,7 @@ func TestIncrementalSaveStage_FullSavePreservesSummariesViaSummaryAccessor(t *te
 	s := NewIncrementalSaveStage(config)
 
 	msg := types.Message{Role: "user", Content: "new"}
-	results := runTestStage(t, s, []StreamElement{NewMessageElement(&msg)})
+	results := runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&msg)})
 
 	require.Len(t, results, 1)
 
@@ -1188,7 +1232,7 @@ func TestIncrementalSaveStage_StripsReasoningByDefault(t *testing.T) {
 
 	user := types.Message{Role: "user", Content: "q"}
 	asst := types.Message{Role: "assistant", Content: "answer", Reasoning: &types.ReasoningTrace{Text: "secret reasoning"}}
-	runTestStage(t, s, []StreamElement{NewMessageElement(&user), NewMessageElement(&asst)})
+	runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&user), core.NewMessageElement(&asst)})
 
 	state, err := store.Load(ctx, "conv-r")
 	require.NoError(t, err)
@@ -1215,7 +1259,7 @@ func TestIncrementalSaveStage_KeepsReasoningWhenEnabled(t *testing.T) {
 
 	user := types.Message{Role: "user", Content: "q"}
 	asst := types.Message{Role: "assistant", Content: "answer", Reasoning: &types.ReasoningTrace{Text: "kept reasoning"}}
-	runTestStage(t, s, []StreamElement{NewMessageElement(&user), NewMessageElement(&asst)})
+	runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&user), core.NewMessageElement(&asst)})
 
 	state, err := store.Load(ctx, "conv-rk")
 	require.NoError(t, err)

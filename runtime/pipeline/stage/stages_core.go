@@ -307,7 +307,7 @@ func (s *StateStoreLoadStage) loadHistoryMessages(ctx context.Context) ([]types.
 	}
 
 	for i := range state.Messages {
-		state.Messages[i].Source = sourceStateStore
+		state.Messages[i].Source = core.SourceStateStore
 	}
 	return state.Messages, nil
 }
