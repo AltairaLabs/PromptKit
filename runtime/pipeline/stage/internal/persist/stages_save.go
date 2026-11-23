@@ -219,9 +219,11 @@ func (s *IncrementalSaveStage) collectAndForward(
 			collected.messages = append(collected.messages, stamped)
 		}
 
-		// Always forward error elements unconditionally
+		// Error elements skip the turn flush. Like every element, they are
+		// offered only for a bounded time once ctx is done, so a caller that
+		// stopped reading does not block the stage.
 		if elem.Error != nil {
-			output <- elem
+			fwd.Forward(ctx, output, elem)
 			continue
 		}
 
@@ -474,10 +476,6 @@ func (s *IncrementalSaveStage) passthrough(
 ) error {
 	var fwd core.CancelForwarder
 	for elem := range input {
-		if elem.Error != nil {
-			output <- elem
-			continue
-		}
 		fwd.Forward(ctx, output, elem)
 	}
 	return ctx.Err()
