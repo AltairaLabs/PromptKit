@@ -108,9 +108,11 @@ type claudeToolUse struct {
 }
 
 type claudeToolResult struct {
-	Type         string              `json:"type"`
-	ToolUseID    string              `json:"tool_use_id"`
-	Content      interface{}         `json:"content"` // string for text-only, []interface{} for multimodal
+	Type      string      `json:"type"`
+	ToolUseID string      `json:"tool_use_id"`
+	Content   interface{} `json:"content"` // string for text-only, []interface{} for multimodal
+	// IsError marks a result that reports a failed call.
+	IsError      bool                `json:"is_error,omitempty"`
 	CacheControl *claudeCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -239,6 +241,7 @@ func (p *Provider) processClaudeToolResult(ctx context.Context, msg types.Messag
 	result := claudeToolResult{
 		Type:      "tool_result",
 		ToolUseID: msg.ToolResult.ID,
+		IsError:   msg.ToolResult.Error != "",
 	}
 
 	// If the tool result has media parts, serialize as an array of content blocks

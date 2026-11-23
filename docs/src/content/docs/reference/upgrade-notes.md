@@ -188,6 +188,14 @@ A tool choice of `none` with tools declared left Claude's `tool_choice` unset, s
 |---|---|---|
 | Call the Claude provider's `PredictWithTools` or `PredictStreamWithTools` with tools and the choice `none` | no tool calls, where the model could make one | none |
 
+#### Claude marks failed tool results
+
+A tool result with an error (a failed call, or one the pipeline refused) is sent to Claude with `is_error: true`, which tells the model the call failed. It was sent as an ordinary result.
+
+| If you | You will see | Change |
+|---|---|---|
+| Send Claude a tool result whose `Error` is set | `is_error: true` on its `tool_result` block | none |
+
 ### Tools
 
 #### Tool loading mode stable
