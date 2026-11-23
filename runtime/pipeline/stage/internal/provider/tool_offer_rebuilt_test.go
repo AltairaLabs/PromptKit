@@ -674,3 +674,37 @@ func TestToolOfferRebuilt_DescribeOnlyHandoff(t *testing.T) {
 		Reasons: []string{events.ToolOfferReasonDescribe}, Round: 2,
 	}}, ev.all())
 }
+
+// A change recorded but never sent, because the turn ended before another
+// call, is forgotten when the next turn's first build is the array last
+// sent: a workflow handoff before that turn's first call is reported for
+// itself alone.
+func TestToolOfferRebuilt_UnsentChangeIsForgotten(t *testing.T) {
+	ev := newOfferEvents(t)
+	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "activate")})
+	var granted []string
+	resolver := &fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "ORIGIN", AllowedTools: []string{"activate"}},
+		{Valid: true, SystemPrompt: "DESTINATION", AllowedTools: []string{"activate", "show_map"}},
+	}}
+	s := newOfferStage(t, prov, registryWithTools(t, "activate", "refund", "show_map"), ev, offerStageOpts{
+		allowed:  []string{"activate"},
+		policy:   &pipeline.ToolPolicy{StopOnTool: "activate"},
+		resolver: resolver,
+		cfg:      &ProviderConfig{ToolGrants: func() []string { return granted }},
+		onRun: func(name string) {
+			if name == "activate" {
+				granted = []string{"refund"}
+			}
+		},
+	})
+
+	runOfferTurn(t, s, "refund my order") // the grant ends the turn before another call
+	granted = nil
+	runOfferTurn(t, s, "show me the map") // the workflow moved on before this turn
+
+	assert.Equal(t, []string{"activate", "show_map"}, prov.offeredOn(t, 1))
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonWorkflowState}, Added: []string{"show_map"}, Round: 1,
+	}}, ev.all())
+}

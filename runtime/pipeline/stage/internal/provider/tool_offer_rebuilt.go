@@ -109,7 +109,11 @@ func (o *ToolOfferHistory) addCauseLocked(reason string) {
 func (o *ToolOfferHistory) noteTurn(in offerInputs, describes bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !o.log.current.equal(o.log.sent) {
+	if o.log.current.equal(o.log.sent) {
+		// Whatever changed the array since the last call was undone before
+		// another call was sent it.
+		o.log.causes = nil
+	} else {
 		o.addCauseLocked(o.turnCauseLocked(in, describes))
 	}
 	o.log.inputs = in
