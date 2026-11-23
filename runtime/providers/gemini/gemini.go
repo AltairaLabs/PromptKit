@@ -782,7 +782,7 @@ func (p *Provider) predictOnce(
 	// Explicit context caching: move the stable system prefix into a
 	// CachedContent resource and reference it (no tools on this path). The API
 	// rejects cachedContent alongside systemInstruction, so drop the inline one.
-	if cc := p.resolveCachedContent(ctx, req.System, nil); cc != "" {
+	if cc := p.resolveCachedContent(ctx, req.System, nil, nil); cc != "" {
 		geminiReq.CachedContent = cc
 		geminiReq.SystemInstruction = nil
 	}

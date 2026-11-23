@@ -29,6 +29,7 @@ type explicitCacheServer struct {
 	createCalls  int32
 	createStatus int
 	lastGenBody  []byte
+	createBodies [][]byte
 }
 
 func newExplicitCacheServer(t *testing.T, createStatus int) *explicitCacheServer {
@@ -39,6 +40,8 @@ func newExplicitCacheServer(t *testing.T, createStatus int) *explicitCacheServer
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/cachedContents"):
 			atomic.AddInt32(&s.createCalls, 1)
+			createBody, _ := io.ReadAll(r.Body)
+			s.createBodies = append(s.createBodies, createBody)
 			if s.createStatus != http.StatusOK {
 				w.WriteHeader(s.createStatus)
 				_, _ = io.WriteString(w, `{"error":{"message":"boom"}}`)
@@ -324,5 +327,109 @@ func TestExplicitCaching_ReusesAcrossRounds(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&srv.createCalls); got != 1 {
 		t.Errorf("expected 1 create reused across 3 rounds, got %d", got)
+	}
+}
+
+// createdToolConfigMode returns the functionCallingConfig.mode the n-th
+// CachedContent create carried, or "" when it carried no toolConfig.
+func (s *explicitCacheServer) createdToolConfigMode(t *testing.T, n int) string {
+	t.Helper()
+	if n >= len(s.createBodies) {
+		t.Fatalf("expected at least %d cachedContents creates, got %d", n+1, len(s.createBodies))
+	}
+	var body struct {
+		ToolConfig *struct {
+			FunctionCallingConfig struct {
+				Mode string `json:"mode"`
+			} `json:"functionCallingConfig"`
+		} `json:"toolConfig"`
+	}
+	if err := json.Unmarshal(s.createBodies[n], &body); err != nil {
+		t.Fatalf("cachedContents create body not JSON: %v (%s)", err, s.createBodies[n])
+	}
+	if body.ToolConfig == nil {
+		return ""
+	}
+	return body.ToolConfig.FunctionCallingConfig.Mode
+}
+
+func newCachedToolProvider(t *testing.T, srv *explicitCacheServer) (*ToolProvider, providers.ProviderTools) {
+	t.Helper()
+	p := newExplicitCacheProvider(t, srv.url, map[string]any{"explicit_caching": true})
+	tp := p.(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "read_file", Description: "read a file", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	return tp, tools
+}
+
+// The API rejects tool_config on a request that references cachedContent, so
+// the tool choice has to travel in the CachedContent itself. Without it, a
+// forced (required / named tool) or disabled (none) choice silently became AUTO.
+func TestExplicitCaching_Tools_ToolChoiceTravelsInCachedContent(t *testing.T) {
+	for _, tc := range []struct {
+		toolChoice string
+		wantMode   string
+	}{
+		{"", "AUTO"},
+		{"auto", "AUTO"},
+		{"required", "ANY"},
+		{"read_file", "ANY"},
+		{"none", "NONE"},
+	} {
+		t.Run("choice="+tc.toolChoice, func(t *testing.T) {
+			srv := newExplicitCacheServer(t, http.StatusOK)
+			tp, tools := newCachedToolProvider(t, srv)
+
+			if _, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+				System:   bigSystem,
+				Messages: []types.Message{{Role: "user", Content: "hi"}},
+			}, tools, tc.toolChoice); err != nil {
+				t.Fatalf("PredictWithTools: %v", err)
+			}
+
+			if got := srv.createdToolConfigMode(t, 0); got != tc.wantMode {
+				t.Errorf("CachedContent toolConfig mode = %q, want %q", got, tc.wantMode)
+			}
+			body := srv.genBody(t)
+			if body["cachedContent"] != "cachedContents/test123" {
+				t.Fatalf("expected cachedContent reference, got %v", body["cachedContent"])
+			}
+			for _, k := range []string{"tool_config", "toolConfig"} {
+				if _, has := body[k]; has {
+					t.Errorf("%q must not be on a request that references cachedContent", k)
+				}
+			}
+		})
+	}
+}
+
+// The tool choice is part of the cached prefix, so it must be part of the cache
+// key: a round with a different choice gets its own CachedContent instead of
+// reusing one created under another mode, and a repeat of a choice reuses its own.
+func TestExplicitCaching_Tools_CacheKeyIncludesToolChoice(t *testing.T) {
+	srv := newExplicitCacheServer(t, http.StatusOK)
+	tp, tools := newCachedToolProvider(t, srv)
+
+	for _, choice := range []string{"required", "none", "required"} {
+		if _, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+			System:   bigSystem,
+			Messages: []types.Message{{Role: "user", Content: "hi"}},
+		}, tools, choice); err != nil {
+			t.Fatalf("PredictWithTools(%q): %v", choice, err)
+		}
+	}
+
+	if got := atomic.LoadInt32(&srv.createCalls); got != 2 {
+		t.Fatalf("expected 2 creates (one per distinct tool choice), got %d", got)
+	}
+	if got := srv.createdToolConfigMode(t, 0); got != "ANY" {
+		t.Errorf("first create toolConfig mode = %q, want %q", got, "ANY")
+	}
+	if got := srv.createdToolConfigMode(t, 1); got != "NONE" {
+		t.Errorf("second create toolConfig mode = %q, want NONE", got)
 	}
 }

@@ -36,6 +36,10 @@ const (
 	// Gemini function-calling modes (toolConfig.functionCallingConfig.mode).
 	functionCallingModeAuto = "AUTO"
 	functionCallingModeAny  = "ANY"
+	functionCallingModeNone = "NONE"
+
+	// wireKeyMode is functionCallingConfig's mode key.
+	wireKeyMode = "mode"
 
 	// toolChoiceNone is the PromptKit tool-choice value that disables tool calls.
 	toolChoiceNone = "none"
@@ -412,25 +416,32 @@ func mediaMIMEType(part types.ContentPart) string {
 // addToolConfig adds tool configuration to the request based on toolChoice
 func addToolConfig(request map[string]any, tools any, toolChoice string) {
 	request["tools"] = []any{tools}
-
-	mode := functionCallingModeAuto // default
-	if toolChoice != "" {
-		switch toolChoice {
-		case "auto":
-			mode = functionCallingModeAuto
-		case "required", "any":
-			mode = functionCallingModeAny
-		case toolChoiceNone:
-			mode = "NONE"
-		default:
-			mode = functionCallingModeAny
-		}
-	}
-
 	request["tool_config"] = map[string]any{
 		"function_calling_config": map[string]any{
-			"mode": mode,
+			wireKeyMode: functionCallingMode(toolChoice),
 		},
+	}
+}
+
+// functionCallingMode maps a PromptKit tool choice to Gemini's
+// functionCallingConfig.mode.
+func functionCallingMode(toolChoice string) string {
+	switch toolChoice {
+	case "", "auto":
+		return functionCallingModeAuto
+	case toolChoiceNone:
+		return functionCallingModeNone
+	default: // "required", "any", or a specific tool name
+		return functionCallingModeAny
+	}
+}
+
+// cachedToolConfig is the CachedContent toolConfig for a tool choice. A request
+// that references cachedContent may not carry tool_config, so the choice has to
+// live in the cached prefix (and therefore in its cache key).
+func cachedToolConfig(toolChoice string) map[string]any {
+	return map[string]any{
+		"functionCallingConfig": map[string]any{wireKeyMode: functionCallingMode(toolChoice)},
 	}
 }
 
@@ -688,12 +699,19 @@ func (p *ToolProvider) buildToolRequest(
 		addToolConfig(request, tools, toolChoice)
 	}
 
-	// Explicit context caching: move the stable system+tools prefix into a
-	// CachedContent resource and reference it. The API rejects cachedContent
-	// alongside systemInstruction / tools / tool_config, so drop the inline
+	// Explicit context caching: move the stable system+tools+tool-config prefix
+	// into a CachedContent resource and reference it. The API rejects
+	// cachedContent alongside systemInstruction / tools / tool_config (verified
+	// live: HTTP 400 "move those values to CachedContent"), so drop the inline
 	// prefix. request["tools"] is the wrapped []any{decl} that addToolConfig set;
-	// caching it keeps the cached and dropped tools identical.
-	if cc := p.resolveCachedContent(ctx, req.System, request["tools"]); cc != "" {
+	// caching it keeps the cached and dropped tools identical. The tool choice
+	// goes into the CachedContent too, or a forced or disabled choice would
+	// silently fall back to AUTO.
+	var toolConfig any
+	if tools != nil {
+		toolConfig = cachedToolConfig(toolChoice)
+	}
+	if cc := p.resolveCachedContent(ctx, req.System, request["tools"], toolConfig); cc != "" {
 		request["cachedContent"] = cc
 		delete(request, "systemInstruction")
 		delete(request, "tools")

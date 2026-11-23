@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -63,5 +64,31 @@ func TestExplicitCaching_Vertex_Live(t *testing.T) {
 			t.Fatalf("round %d: expected cachedTokens > 0 on Vertex, got %+v", round, resp.CostInfo)
 		}
 		t.Logf("Vertex Predict round %d: cachedTokens=%d inputTokens=%d", round, resp.CostInfo.CachedTokens, resp.CostInfo.InputTokens)
+	}
+
+	// The tool choice rides in the CachedContent (the request may not carry
+	// tool_config alongside cachedContent), so it must still be honored.
+	tools, _ := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "get_status", Description: "Get the build status", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	})
+	for _, tc := range []struct {
+		choice    string
+		wantCalls bool
+	}{{"required", true}, {"none", false}} {
+		resp, calls, err := tp.PredictWithTools(ctx, providers.PredictionRequest{
+			System:   bigSystem,
+			Messages: []types.Message{{Role: "user", Content: "Reply with the single word OK."}},
+		}, tools, tc.choice)
+		if err != nil {
+			t.Fatalf("PredictWithTools(%q): %v", tc.choice, err)
+		}
+		if resp.CostInfo == nil || resp.CostInfo.CachedTokens <= 0 {
+			t.Fatalf("choice %q: expected the cache to be referenced on Vertex, got %+v", tc.choice, resp.CostInfo)
+		}
+		if (len(calls) > 0) != tc.wantCalls {
+			t.Fatalf("choice %q: got %d tool calls (content %q), want calls=%v",
+				tc.choice, len(calls), resp.Content, tc.wantCalls)
+		}
+		t.Logf("Vertex choice %q: toolCalls=%d cachedTokens=%d", tc.choice, len(calls), resp.CostInfo.CachedTokens)
 	}
 }

@@ -45,7 +45,7 @@ func (p *Provider) predictStreamOnce(
 
 	// Explicit context caching: reference the cached system prefix and drop the
 	// inline systemInstruction (the API rejects sending both).
-	if cc := p.resolveCachedContent(ctx, req.System, nil); cc != "" {
+	if cc := p.resolveCachedContent(ctx, req.System, nil, nil); cc != "" {
 		geminiReq.CachedContent = cc
 		geminiReq.SystemInstruction = nil
 	}

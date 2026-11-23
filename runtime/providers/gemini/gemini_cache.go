@@ -28,10 +28,11 @@ import (
 //
 // Hard API constraint (verified live): a request that sets cachedContent must
 // NOT also set system_instruction, tools, or tool_config — those move into the
-// CachedContent. So each request path, when a handle exists, drops the inline
+// CachedContent, tool_config included (as toolConfig), so the request's tool
+// choice is honored. So each request path, when a handle exists, drops the inline
 // prefix and references the cache instead.
 //
-// The cache is content-addressed by hash(model, system, tools): any request
+// The cache is content-addressed by hash(model, system, tools, toolConfig): any request
 // with the same stable prefix reuses the same resource — no conversation ID
 // needed. A creation/lookup failure NEVER breaks a turn; it degrades to the
 // inline (implicit-caching) path.
@@ -131,28 +132,38 @@ func toFloat(v any) (float64, bool) {
 }
 
 // resolveCachedContent returns the CachedContent resource name to reference for
-// the given stable prefix (system + tools), creating it on first use and reusing
-// it within TTL. It returns "" to signal "send the prefix inline" — when
-// explicit caching is disabled, the prefix is too small, or any create/lookup
-// failed (degrade to implicit). Works on both AI Studio and Vertex. toolsField is
-// the request's "tools" value ([]any{decl}) or nil.
-func (p *Provider) resolveCachedContent(ctx context.Context, systemText string, toolsField any) string {
+// the given stable prefix (system + tools + tool config), creating it on first
+// use and reusing it within TTL. It returns "" to signal "send the prefix
+// inline" — when explicit caching is disabled, the prefix is too small, or any
+// create/lookup failed (degrade to implicit). Works on both AI Studio and
+// Vertex. toolsField is the request's "tools" value ([]any{decl}) or nil;
+// toolConfig is the CachedContent toolConfig for the request's tool choice, or
+// nil without tools.
+func (p *Provider) resolveCachedContent(ctx context.Context, systemText string, toolsField, toolConfig any) string {
 	if p.cache == nil {
 		return ""
 	}
-	return p.cache.getOrCreate(ctx, p, systemText, toolsField)
+	return p.cache.getOrCreate(ctx, p, cachedPrefix{system: systemText, tools: toolsField, toolConfig: toolConfig})
+}
+
+// cachedPrefix is the stable prefix a CachedContent holds.
+type cachedPrefix struct {
+	system     string
+	tools      any
+	toolConfig any
 }
 
 // getOrCreate returns a cached resource name for the prefix, or "" to degrade.
-func (m *cacheManager) getOrCreate(ctx context.Context, p *Provider, systemText string, toolsField any) string {
-	toolsJSON := marshalToolsForCache(toolsField)
+func (m *cacheManager) getOrCreate(ctx context.Context, p *Provider, prefix cachedPrefix) string {
+	systemText := prefix.system
+	toolsJSON := marshalToolsForCache(prefix.tools)
 
 	// Min-size guard: skip prefixes below the model's cacheable floor.
 	if len(systemText)+len(toolsJSON) < m.minChars {
 		return ""
 	}
 
-	key := cacheKey(p.model, systemText, toolsJSON)
+	key := cacheKey(p.model, systemText, toolsJSON, marshalToolsForCache(prefix.toolConfig))
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -165,7 +176,7 @@ func (m *cacheManager) getOrCreate(ctx context.Context, p *Provider, systemText 
 		return ""
 	}
 
-	name, err := p.createCachedContent(ctx, systemText, toolsField, m.ttl)
+	name, err := p.createCachedContent(ctx, prefix, m.ttl)
 	if err != nil {
 		m.failUntil[key] = now.Add(cacheFailureCooldown)
 		logger.Warn("Gemini explicit caching: create failed, using implicit caching for this prefix",
@@ -190,18 +201,19 @@ func (m *cacheManager) trackedNames() []string {
 }
 
 // cacheKey content-addresses a stable prefix.
-func cacheKey(model, systemText, toolsJSON string) string {
+func cacheKey(model, systemText, toolsJSON, toolConfigJSON string) string {
 	h := sha256.New()
-	h.Write([]byte(model))
-	h.Write([]byte{0})
-	h.Write([]byte(systemText))
-	h.Write([]byte{0})
-	h.Write([]byte(toolsJSON))
+	for i, part := range []string{model, systemText, toolsJSON, toolConfigJSON} {
+		if i > 0 {
+			h.Write([]byte{0})
+		}
+		h.Write([]byte(part))
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// marshalToolsForCache renders the tools field deterministically for hashing and
-// for the create body. Returns "" when there are no tools.
+// marshalToolsForCache renders the tools (or toolConfig) field deterministically
+// for hashing. Returns "" when the field is nil.
 func marshalToolsForCache(toolsField any) string {
 	if toolsField == nil {
 		return ""
@@ -219,6 +231,7 @@ type cachedContentCreateBody struct {
 	Model             string         `json:"model"`
 	SystemInstruction *geminiContent `json:"systemInstruction,omitempty"`
 	Tools             any            `json:"tools,omitempty"`
+	ToolConfig        any            `json:"toolConfig,omitempty"`
 	TTL               string         `json:"ttl"`
 }
 
@@ -233,18 +246,15 @@ type cachedContentCreateResp struct {
 // and returns its resource name. Works on both AI Studio (name like
 // "cachedContents/abc123") and Vertex (full "projects/.../cachedContents/123"
 // path) — the URL, model field, and auth vary by platform (see the helpers).
-func (p *Provider) createCachedContent(
-	ctx context.Context, systemText string, toolsField any, ttl time.Duration,
-) (string, error) {
+func (p *Provider) createCachedContent(ctx context.Context, prefix cachedPrefix, ttl time.Duration) (string, error) {
 	body := cachedContentCreateBody{
-		Model: p.cachedContentModelField(),
-		TTL:   fmt.Sprintf("%ds", int(ttl.Seconds())),
+		Model:      p.cachedContentModelField(),
+		Tools:      prefix.tools,
+		ToolConfig: prefix.toolConfig,
+		TTL:        fmt.Sprintf("%ds", int(ttl.Seconds())),
 	}
-	if systemText != "" {
-		body.SystemInstruction = &geminiContent{Parts: []geminiPart{{Text: systemText}}}
-	}
-	if toolsField != nil {
-		body.Tools = toolsField
+	if prefix.system != "" {
+		body.SystemInstruction = &geminiContent{Parts: []geminiPart{{Text: prefix.system}}}
 	}
 
 	raw, err := json.Marshal(body)

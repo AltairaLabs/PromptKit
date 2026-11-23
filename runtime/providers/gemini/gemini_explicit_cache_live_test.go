@@ -91,6 +91,36 @@ func TestExplicitCaching_Live(t *testing.T) {
 		t.Logf("PredictWithTools: cachedTokens=%d inputTokens=%d", resp.CostInfo.CachedTokens, resp.CostInfo.InputTokens)
 	})
 
+	// The request may not carry tool_config alongside cachedContent, so the tool
+	// choice rides in the CachedContent. A prompt that needs no tool must still
+	// produce a call under "required" and none under "none".
+	t.Run("ToolChoiceHonored", func(t *testing.T) {
+		tp := newProvider(t)
+		tools, _ := tp.BuildTooling([]*providers.ToolDescriptor{
+			{Name: "get_status", Description: "Get the build status", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		})
+		for _, tc := range []struct {
+			choice    string
+			wantCalls bool
+		}{{"required", true}, {"get_status", true}, {"none", false}} {
+			resp, calls, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+				System:   system,
+				Messages: []types.Message{{Role: "user", Content: "Reply with the single word OK."}},
+			}, tools, tc.choice)
+			if err != nil {
+				t.Fatalf("PredictWithTools(%q): %v", tc.choice, err)
+			}
+			if resp.CostInfo == nil || resp.CostInfo.CachedTokens <= 0 {
+				t.Fatalf("choice %q: expected the cache to be referenced, got %+v", tc.choice, resp.CostInfo)
+			}
+			if (len(calls) > 0) != tc.wantCalls {
+				t.Fatalf("choice %q: got %d tool calls (content %q), want calls=%v",
+					tc.choice, len(calls), resp.Content, tc.wantCalls)
+			}
+			t.Logf("choice %q: toolCalls=%d cachedTokens=%d", tc.choice, len(calls), resp.CostInfo.CachedTokens)
+		}
+	})
+
 	t.Run("ThinkingBudgetFixesCutoff", func(t *testing.T) {
 		// A tight maxTokens (32) is exhausted by thinking alone on 2.5-flash, so
 		// with default thinking it returns MAX_TOKENS with no content...
