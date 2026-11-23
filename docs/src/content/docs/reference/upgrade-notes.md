@@ -135,6 +135,8 @@ The Gemini provider ignored the tool choice in three cases, and the model was fr
 | Pass a tool name | a call to that tool only, where the model could call any declared tool | none, unless you relied on it calling another tool |
 | Pass `none` with explicit caching or `api_mode: interactions` | no tool calls, where the model could still call one | none |
 | Change the tool choice between rounds with explicit caching on | one cache per tool choice, where all choices shared one | none; each cache expires on its TTL |
+| Force the first round's tool choice with explicit caching on | two caches for the same prompt and tools, one forced and one `auto`, because the tool loop sets the choice back to `auto` after the first round | none; budget for the second cache's storage and creation |
+| Name a tool that the round does not declare | a forced call to any declared tool and a warning naming the tool, instead of an HTTP 400 from Gemini | declare the tool, or name one that is declared |
 
 ## v2.22.0
 
