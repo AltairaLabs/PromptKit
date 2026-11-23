@@ -1,10 +1,9 @@
-package stage
+package cue
 
 import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -19,7 +18,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -108,29 +106,27 @@ func spokenSession(voice string, rate int) *providersmock.MockStreamSession {
 		providers.OutputAudio{Voice: voice, SampleRate: rate, Family: "test-live"})
 }
 
-// cueStageForSession is a cue stage wired to a provider stage, told that the
-// provider stage created sess.
-func cueStageForSession(t *testing.T, cfg cueConfig, sess providers.StreamInputSession) *cueStage {
+// cueStageForSession is a cue stage whose bank is told that the provider
+// stage created sess, as the provider stage it is wired to tells it.
+func cueStageForSession(t *testing.T, cfg Config, sess providers.StreamInputSession) *CueStage {
 	t.Helper()
 	return cueStageForSessionWith(t, cfg, sess, nil)
 }
 
 // cueStageForSessionWith is cueStageForSession reporting through emitter.
-func cueStageForSessionWith(t *testing.T, cfg cueConfig, sess providers.StreamInputSession,
+func cueStageForSessionWith(t *testing.T, cfg Config, sess providers.StreamInputSession,
 	emitter *events.Emitter, blockMessages ...string,
-) *cueStage {
+) *CueStage {
 	t.Helper()
-	duplex := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
-	cue := newCueStageFor(duplex, cfg)
-	require.Same(t, cue.bank, duplex.cues)
+	cue := NewStage(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	cue.bank.sessionStarted(ctx, sess, emitter, blockMessages)
+	cue.bank.SessionStarted(ctx, sess, emitter, blockMessages)
 	return cue
 }
 
 // playedFor runs one cue with text through cue and returns its clip's audio.
-func playedFor(t *testing.T, cue *cueStage, text string) []byte {
+func playedFor(t *testing.T, cue *CueStage, text string) []byte {
 	t.Helper()
 	c := startChain(t, cue)
 	c.in <- guardrailCueElem(text)
@@ -192,7 +188,7 @@ func TestCueVoice_TTSMatchesTheSessionVoice(t *testing.T) {
 			logs := captureCueLogs(t)
 			pcm := cueRamp(4800)
 			svc := newFakeTTS(pcm)
-			cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+			cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
 				spokenSession(tc.sessionVoice, 24000))
 			text := "Voice match " + tc.sessionVoice
 			assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, text))
@@ -220,7 +216,7 @@ func TestCueVoice_TTSClipIsResampled(t *testing.T) {
 	pcmAt16k := tts.AudioFormat{Name: "pcm", SampleRate: 16000, BitDepth: 16, Channels: 1}
 	svc := newFakeTTS(pcm16)
 	svc.formats = []tts.AudioFormat{pcmAt16k}
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
 		spokenSession("alloy", 24000))
 
 	got := playedFor(t, cue, "Resampled clip.")
@@ -232,7 +228,7 @@ func TestCueVoice_TTSClipIsResampled(t *testing.T) {
 func TestCueVoice_TTSWithoutPCMIsSkipped(t *testing.T) {
 	svc := newFakeTTS(cueRamp(4800))
 	svc.formats = []tts.AudioFormat{tts.FormatMP3, tts.FormatOpus}
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
 		spokenSession("alloy", 16000))
 
 	assert.Equal(t, earconPCM(16000), playedFor(t, cue, "No PCM here."))
@@ -249,7 +245,7 @@ func TestCueVoice_TTSErrorFallsThroughForThatTextOnly(t *testing.T) {
 		}
 		return pcm, nil
 	}
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
 		spokenSession("alloy", 24000))
 
 	assert.Equal(t, earconPCM(24000), playedFor(t, cue, "Bad text."))
@@ -271,11 +267,10 @@ func waitStoredAll(t *testing.T, ch <-chan string, n int) []string {
 func TestCueVoice_SessionStartRendersKnownTexts(t *testing.T) {
 	pcm := cueRamp(4800)
 	svc := newFakeTTS(pcm)
-	duplex := NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig())
-	cue := newCueStageFor(duplex, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20),
+	cue := NewStage(Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20),
 		Texts: []string{"Known one.", ""}})
 	stored := storedTexts(cue)
-	cue.bank.sessionStarted(context.Background(), spokenSession("alloy", 24000), nil,
+	cue.bank.SessionStarted(context.Background(), spokenSession("alloy", 24000), nil,
 		[]string{"Known two.", "Known one."})
 
 	assert.ElementsMatch(t, []string{"Known one.", "Known two."}, waitStoredAll(t, stored, 2))
@@ -306,18 +301,16 @@ func TestCueVoice_ConcurrentSessionsRenderOnce(t *testing.T) {
 
 	const sessions = 50
 	stored := make(chan string, 2*sessions)
-	banks := make([]*cueBank, sessions)
+	banks := make([]*Bank, sessions)
 	var wg sync.WaitGroup
 	for i := range banks {
-		cue := newCueStageFor(
-			NewDuplexProviderStage(providersmock.NewStreamingProvider("t", "m", false), baseConfig()),
-			cueConfig{TTS: svc, Cache: cache, Texts: texts})
-		cue.bank.stored = func(text string, _ cueClip) { stored <- text }
+		cue := NewStage(Config{TTS: svc, Cache: cache, Texts: texts})
+		cue.bank.stored = func(text string, _ Clip) { stored <- text }
 		banks[i] = cue.bank
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cue.bank.sessionStarted(context.Background(), spokenSession("alloy", 24000), nil, nil)
+			cue.bank.SessionStarted(context.Background(), spokenSession("alloy", 24000), nil, nil)
 		}()
 	}
 	wg.Wait()
@@ -356,7 +349,7 @@ func TestCueVoice_CacheFaultIsAMiss(t *testing.T) {
 	pcm := cueRamp(4800)
 	svc := newFakeTTS(pcm)
 	cache := &faultyCache{Cache: cueclip.NewMemoryCache(1 << 20)}
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cache}, spokenSession("alloy", 24000))
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cache}, spokenSession("alloy", 24000))
 
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, "Cache fault."))
 	assert.Equal(t, 1, svc.calls("Cache fault."))
@@ -367,7 +360,7 @@ func TestCueVoice_CacheFaultIsAMiss(t *testing.T) {
 func TestCueVoice_PrewarmedCacheNeedsNoSynthesis(t *testing.T) {
 	f := fixturePrewarmed
 	svc := newFakeTTS(cueRamp(4800))
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueFixtureCache(t), Texts: []string{f.text}},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueFixtureCache(t), Texts: []string{f.text}},
 		spokenSession("Alloy", 24000))
 
 	assert.Equal(t, f.pcm(), playedFor(t, cue, f.text), "a cached clip plays as it is")
@@ -383,7 +376,7 @@ func TestCueVoice_DirCacheCarriesARenderToAnotherSession(t *testing.T) {
 	pcm := cueRamp(4800)
 	svc := newFakeTTS(pcm)
 	text := "Rendered into a directory."
-	first := cueStageForSession(t, cueConfig{TTS: svc, Cache: w, Texts: []string{text}}, spokenSession("alloy", 24000))
+	first := cueStageForSession(t, Config{TTS: svc, Cache: w, Texts: []string{text}}, spokenSession("alloy", 24000))
 	want := playedFor(t, first, text)
 	assert.Equal(t, cueFaded(pcm, 24000), want)
 
@@ -395,7 +388,7 @@ func TestCueVoice_DirCacheCarriesARenderToAnotherSession(t *testing.T) {
 	assert.Equal(t, cueclip.Meta{Text: text, Voice: "alloy", Source: "tts:fake"}, got.Meta)
 
 	quiet := newFakeTTS(cueRamp(10))
-	second := cueStageForSession(t, cueConfig{TTS: quiet, Cache: ro, Texts: []string{text}}, spokenSession("alloy", 24000))
+	second := cueStageForSession(t, Config{TTS: quiet, Cache: ro, Texts: []string{text}}, spokenSession("alloy", 24000))
 	assert.Equal(t, want, playedFor(t, second, text))
 	assert.Zero(t, quiet.calls(text))
 }
@@ -408,7 +401,7 @@ func TestCueVoice_OnDemandBudgetPlaysTheEarcon(t *testing.T) {
 	svc := newFakeTTS(pcm)
 	svc.gate = make(chan struct{})
 	cache := cueclip.NewMemoryCache(1 << 20)
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cache, OnDemandBudget: 5 * time.Millisecond},
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cache, OnDemandBudget: 5 * time.Millisecond},
 		spokenSession("alloy", 24000))
 	stored := storedTexts(cue)
 	text := "A replacement decided when it fired."
@@ -422,7 +415,7 @@ func TestCueVoice_OnDemandBudgetPlaysTheEarcon(t *testing.T) {
 	for i := 0; i < 2; i++ { // 200 ms of earcon in 100 ms chunks
 		e := c.next(t)
 		require.NotNil(t, e.Meta.CueAudio)
-		assert.Equal(t, &Cue{Kind: CueGuardrailMessage, Text: text}, e.Meta.CueAudio)
+		assert.Equal(t, &core.Cue{Kind: core.CueGuardrailMessage, Text: text}, e.Meta.CueAudio)
 		earcon = append(earcon, e.Audio.Samples...)
 	}
 	assert.Equal(t, earconPCM(24000), earcon)
@@ -468,13 +461,13 @@ func TestCueVoice_RenderCostIsReportedOnce(t *testing.T) {
 
 	bus1 := events.NewEventBus()
 	got1 := ttsEvents(t, bus1)
-	cue1 := cueStageForSessionWith(t, cueConfig{TTS: svc, Cache: cache}, spokenSession("alloy", 24000),
+	cue1 := cueStageForSessionWith(t, Config{TTS: svc, Cache: cache}, spokenSession("alloy", 24000),
 		events.NewEmitter(bus1, "run1", "sess1", "conv1"))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue1, text))
 
 	bus2 := events.NewEventBus()
 	got2 := ttsEvents(t, bus2)
-	cue2 := cueStageForSessionWith(t, cueConfig{TTS: svc, Cache: cache}, spokenSession("alloy", 24000),
+	cue2 := cueStageForSessionWith(t, Config{TTS: svc, Cache: cache}, spokenSession("alloy", 24000),
 		events.NewEmitter(bus2, "run2", "sess2", "conv2"))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue2, text))
 
@@ -502,37 +495,41 @@ func cueFadedSeconds(pcm []byte) float64 {
 func TestCueVoice_TextOnlySession(t *testing.T) {
 	svc := newFakeTTS(cueRamp(4800))
 	text := "Text only."
-	cue := cueStageForSession(t, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20),
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20),
 		Texts: []string{text},
-		Clips: map[string]cueClip{text: pcmClip(cueRamp(2400), 24000)}},
+		Clips: map[string]Clip{text: pcmClip(cueRamp(2400), 24000)}},
 		providersmock.NewMockStreamSession())
 
 	assert.Empty(t, playedFor(t, cue, text))
 	assert.Empty(t, playedFor(t, cue, "Another."))
-	assert.False(t, cue.bank.voices(text))
+	assert.False(t, cue.bank.Voices(text))
 	assert.Zero(t, svc.calls(text))
 }
 
-// voices reports whether a cue will be spoken: for every text in a spoken
-// session (the earcon is always there), for a held clip's text before any
-// session, and for none in a text-only session.
+// Voices reports whether a cue will be spoken: for every text in a spoken
+// session (the earcon is always there), for a held or ready clip's text
+// before any session, and for none in a text-only session.
 func TestCueVoice_Voices(t *testing.T) {
-	spoken := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, spokenSession("alloy", 24000))
-	assert.True(t, spoken.bank.voices("Anything at all."))
+	spoken := cueStageForSession(t, Config{Cache: cueclip.NewMemoryCache(1 << 20)}, spokenSession("alloy", 24000))
+	assert.True(t, spoken.bank.Voices("Anything at all."))
 
-	plain := newCueStage(cueConfig{Clips: map[string]cueClip{brunoText: pcmClip(cueRamp(2400), 24000)}})
-	assert.True(t, plain.bank.voices(brunoText))
-	assert.False(t, plain.bank.voices("Unknown."))
+	plain := NewStage(Config{Clips: map[string]Clip{brunoText: pcmClip(cueRamp(2400), 24000)}})
+	assert.True(t, plain.bank.Voices(brunoText))
+	assert.False(t, plain.bank.Voices("Unknown."))
+	// A clip ready from the sources is voiced even before any session (set
+	// in the bank directly: only a session's sources fill it otherwise).
+	plain.bank.ready["Ready."] = readyClip(cueRamp(2400), 24000)
+	assert.True(t, plain.bank.Voices("Ready."))
 
-	silent := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)},
+	silent := cueStageForSession(t, Config{Cache: cueclip.NewMemoryCache(1 << 20)},
 		providersmock.NewMockStreamSession())
-	assert.False(t, silent.bank.voices("Anything at all."))
+	assert.False(t, silent.bank.Voices("Anything at all."))
 }
 
 // Without a TTS service a spoken session's cues play the earcon at the
 // session's output rate, before any reply audio fixes the rate.
 func TestCueVoice_EarconAtTheSessionRate(t *testing.T) {
-	cue := cueStageForSession(t, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)}, spokenSession("Puck", 16000))
+	cue := cueStageForSession(t, Config{Cache: cueclip.NewMemoryCache(1 << 20)}, spokenSession("Puck", 16000))
 	c := startChain(t, cue)
 	c.in <- guardrailCueElem("Earcon only.")
 	got := c.finish(t)
@@ -541,57 +538,4 @@ func TestCueVoice_EarconAtTheSessionRate(t *testing.T) {
 		assert.Equal(t, 16000, e.Audio.SampleRate)
 	}
 	assert.Equal(t, earconPCM(16000), cueAudioOf(got))
-}
-
-// blockMessageHook is a provider hook that blocks with msg.
-type blockMessageHook struct{ msg string }
-
-func (h blockMessageHook) Name() string { return "block" }
-func (h blockMessageHook) BeforeCall(context.Context, *hooks.ProviderRequest) hooks.Decision {
-	return hooks.Allow
-}
-
-func (h blockMessageHook) AfterCall(context.Context, *hooks.ProviderRequest, *hooks.ProviderResponse) hooks.Decision {
-	return hooks.Allow
-}
-func (h blockMessageHook) BlockMessages() []string { return []string{h.msg} }
-
-// When the provider stage creates its session, the cue stage starts
-// rendering its guardrails' messages in the session's voice, and the first
-// reply does not wait for it.
-func TestCueVoice_SessionStartDoesNotDelayTheFirstReply(t *testing.T) {
-	pcm := cueRamp(4800)
-	svc := newFakeTTS(pcm)
-	svc.gate = make(chan struct{})
-	provider := providersmock.NewStreamingProvider("t", "m", false).WithAutoRespond("Hello.").
-		WithOutputAudio(providers.OutputAudio{Voice: "Verse", SampleRate: 24000, Family: "test-live"})
-	duplex := NewDuplexProviderStage(provider, baseConfig())
-	duplex.SetHookRegistry(hooks.NewRegistry(hooks.WithProviderHook(blockMessageHook{msg: "Guarded."})))
-	cue := newCueStageFor(duplex, cueConfig{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)})
-	stored := storedTexts(cue)
-
-	text := "hi"
-	out, err := runDuplexStage(t, duplex, []StreamElement{{Text: &text, EndOfStream: true}})
-	require.NoError(t, err)
-	var replies []string
-	for _, e := range out {
-		if e.Message != nil && e.Message.Role == core.RoleAssistant {
-			replies = append(replies, e.Message.Content)
-		}
-	}
-	require.NotEmpty(t, replies, "the reply came while the clip was still rendering")
-	assert.Equal(t, "Hello.", replies[0])
-	select {
-	case got := <-stored:
-		require.FailNow(t, fmt.Sprintf("the clip for %q rendered before it was released", got))
-	default:
-	}
-
-	close(svc.gate)
-	assert.Equal(t, "Guarded.", waitStored(t, stored))
-	assert.Equal(t, "v-2", svc.lastConfig().Voice, "in the session's voice")
-	clip, isReady, ok := cue.bank.get("Guarded.")
-	require.True(t, ok)
-	assert.True(t, isReady)
-	assert.Equal(t, cueFaded(pcm, 24000), clip.Audio.Samples)
 }

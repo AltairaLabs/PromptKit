@@ -60,7 +60,16 @@ var (
     ErrGone = core.ErrGone
     // ErrLong is declared over several lines.
     ErrLong = core.ErrLong
+    // ErrComma closes its call at the spec's own indent, as gofmt does
+    // after a trailing comma.
+    ErrComma = core.ErrComma
 )
+```
+
+<a name="ErrJoined"></a>ErrJoined is re-exported alone and declared over two lines.
+
+```go
+var ErrJoined = core.ErrJoined
 ```
 
 <a name="ErrOwn"></a>ErrOwn is stage's own.

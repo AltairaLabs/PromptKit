@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"encoding/binary"
@@ -41,8 +41,8 @@ func earconPCM(rate int) []byte {
 }
 
 // earconClip is the earcon as a clip ready to play at rate.
-func earconClip(rate int) cueClip {
+func earconClip(rate int) Clip {
 	pcm := earconPCM(rate)
-	return cueClip{Audio: &AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: AudioFormatPCM16,
+	return Clip{Audio: &core.AudioData{Samples: pcm, SampleRate: rate, Channels: 1, Format: core.AudioFormatPCM16,
 		Duration: audio.PCM16Duration(len(pcm), rate, 1)}}
 }

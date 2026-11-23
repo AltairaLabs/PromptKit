@@ -14,6 +14,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -187,7 +188,7 @@ type DuplexProviderStage struct {
 	// cues is the clip bank of the cue stage after this stage
 	// (NewDuplexCueStage), told of the session when it is created; nil when the
 	// chain has none.
-	cues *cueBank
+	cues *cue.Bank
 
 	// hookRegistry holds the provider hooks (guardrails) the stage runs; nil
 	// runs none. Set via SetHookRegistry. See stages_duplex_provider_hooks.go.
@@ -832,7 +833,7 @@ func (s *DuplexProviderStage) handleInputElement(
 	if elem.Meta.AllResponsesReceived {
 		return s.handleAllResponsesReceived(elem, done)
 	}
-	if isCueOnly(elem) { // for a cueStage downstream, not the session
+	if isCueOnly(elem) { // for a cue stage downstream (cue.CueStage), not the session
 		if err := core.SendStreamElement(ctx, *elem, output); err != nil {
 			done <- err
 			return true

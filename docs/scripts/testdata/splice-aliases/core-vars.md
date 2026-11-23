@@ -66,7 +66,21 @@ var (
     // ErrLong is declared over several lines.
     ErrLong = fmt.Errorf(
         "long %d", 1)
+
+    // ErrComma closes its call at the spec's own indent, as gofmt does
+    // after a trailing comma.
+    ErrComma = fmt.Errorf(
+        "comma %d",
+        2,
+    )
 )
+```
+
+<a name="ErrJoined"></a>ErrJoined is re-exported alone and declared over two lines.
+
+```go
+var ErrJoined = errors.New("joined over " +
+    "two lines")
 ```
 
 <a name="ErrSingle"></a>ErrSingle is re-exported alone.

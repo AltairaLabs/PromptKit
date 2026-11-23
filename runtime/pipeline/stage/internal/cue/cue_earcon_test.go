@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"encoding/binary"

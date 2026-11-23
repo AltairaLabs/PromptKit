@@ -7,6 +7,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,18 +73,18 @@ func TestDuplexGuardrailCue_TruncatedFirstChunkIsJudgedAndNotSpoken(t *testing.T
 // told the session's output: spoken in voice at 24 kHz when spoken is set,
 // else not spoken.
 func cueWiredStage(t *testing.T, reg *hooks.Registry, spoken bool,
-) (*DuplexProviderStage, *interruptingSession, *cueStage) {
+) (*DuplexProviderStage, *interruptingSession, *cue.CueStage) {
 	t.Helper()
 	s, sess := cutStage(t, reg)
-	cue := newCueStageFor(s, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)})
+	cs := newCueStageFor(s, cue.Config{Cache: cueclip.NewMemoryCache(1 << 20)})
 	out := providersmock.NewMockStreamSession()
 	if spoken {
 		out = spokenSession("alloy", cueTestRate)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	s.cues.sessionStarted(ctx, out, nil, nil)
-	return s, sess, cue
+	s.cues.SessionStarted(ctx, out, nil, nil)
+	return s, sess, cs
 }
 
 // sentTexts is the text the session was sent.
@@ -183,10 +184,10 @@ func TestDuplexGuardrailCue_TruncationIsNotSpoken(t *testing.T) {
 // interrupted, so it does not cut the cue's clip.
 func TestDuplexGuardrailCue_UnstoppableReplyEndsWithoutAnotherCut(t *testing.T) {
 	s, rec, _ := duplexStageWithHooks(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))))
-	newCueStageFor(s, cueConfig{Cache: cueclip.NewMemoryCache(1 << 20)})
+	newCueStageFor(s, cue.Config{Cache: cueclip.NewMemoryCache(1 << 20)})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	s.cues.sessionStarted(ctx, spokenSession("Puck", cueTestRate), nil, nil)
+	s.cues.SessionStarted(ctx, spokenSession("Puck", cueTestRate), nil, nil)
 	s.session = rec // no ResponseInterrupter
 
 	elems, err := feedChunks(t, s,
@@ -260,12 +261,12 @@ func TestDuplexGuardrailCue_BlockedTypedTurnTextOnly(t *testing.T) {
 // session's start, plays right after the message's text and before the
 // blocked reply's end, and is the earcon when no TTS service is configured.
 func TestDuplexGuardrailCue_CueStagePlaysTheEarconAfterTheCut(t *testing.T) {
-	s, _, cue := cueWiredStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))), true)
-	<-cue.bank.render(context.Background(), "I can't say that.", nil).done // rendered at the session's start
+	s, _, cs := cueWiredStage(t, hooks.NewRegistry(hooks.WithProviderHook(bannedWordsHook(t, "forbidden"))), true)
+	cue.AwaitRender(context.Background(), cue.BankOf(cs), "I can't say that.") // rendered at the session's start
 	elems, err := feedChunks(t, s, transcriptChunk("forbidden", pcm(20)), stopChunk())
 	require.NoError(t, err)
 
-	c := startChain(t, cue)
+	c := startChain(t, cs)
 	for _, e := range elems {
 		c.in <- e
 	}
@@ -287,7 +288,7 @@ func TestDuplexGuardrailCue_CueStagePlaysTheEarconAfterTheCut(t *testing.T) {
 		}
 	}
 	assert.Equal(t, []string{"interrupt", "text", "cue-audio", "end"}, order)
-	assert.Equal(t, earconPCM(cueTestRate), cueAudioOf(got))
+	assert.Equal(t, cue.EarconPCM(cueTestRate), cueAudioOf(got))
 }
 
 // brunoGuard is banned_words on "Bruno" in direction, whose message names

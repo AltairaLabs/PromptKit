@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"context"
@@ -40,7 +40,7 @@ func TestPrewarmClips_SessionPlaysThePrewarmedClip(t *testing.T) {
 
 	quiet := newFakeTTS(cueRamp(10))
 	quiet.voices = svc.voices
-	cue := cueStageForSession(t, cueConfig{TTS: quiet, Cache: cache}, spokenSession("alloy", 24000))
+	cue := cueStageForSession(t, Config{TTS: quiet, Cache: cache}, spokenSession("alloy", 24000))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, "Prewarmed two."))
 	assert.Zero(t, quiet.calls("Prewarmed two."))
 }
@@ -108,11 +108,11 @@ func TestPrewarmClips_DirCacheServesASessionWithoutTTS(t *testing.T) {
 
 	ro, err := cueclip.NewDirCache(dir, cueclip.ReadOnly())
 	require.NoError(t, err)
-	cue := cueStageForSession(t, cueConfig{Cache: ro}, spokenSession("Alloy", 24000))
+	cue := cueStageForSession(t, Config{Cache: ro}, spokenSession("Alloy", 24000))
 	assert.Equal(t, cueFaded(pcm, 24000), playedFor(t, cue, "Offline one."))
 	assert.Equal(t, earconPCM(24000), playedFor(t, cue, "Not pre-warmed."))
 
-	other := cueStageForSession(t, cueConfig{Cache: ro}, spokenSession("verse", 24000))
+	other := cueStageForSession(t, Config{Cache: ro}, spokenSession("verse", 24000))
 	assert.Equal(t, earconPCM(24000), playedFor(t, other, "Offline one."), "another voice is another clip")
 }
 
@@ -130,7 +130,7 @@ func TestPrewarmClips_UnmatchedVoiceIsNotKeptForThatVoice(t *testing.T) {
 	_, ok, err := cache.Get(context.Background(), cueclip.KeyFor("Unmatched voice.", "", "tts:fake", pcm24k))
 	require.NoError(t, err)
 	assert.True(t, ok, "kept under the service's default voice")
-	cue := cueStageForSession(t, cueConfig{Cache: cache}, spokenSession("Puck", 24000))
+	cue := cueStageForSession(t, Config{Cache: cache}, spokenSession("Puck", 24000))
 	assert.Equal(t, earconPCM(24000), playedFor(t, cue, "Unmatched voice."))
 	assert.Contains(t, logs.String(), "no voice matching")
 	assert.Contains(t, logs.String(), "not kept for sessions without a TTS service")
@@ -152,7 +152,7 @@ func TestPrewarmClips_SecondServiceForAVoiceIsRefused(t *testing.T) {
 
 	require.NoError(t, PrewarmClips(context.Background(), cache, newFakeTTS(first), "alloy", pcm24k,
 		[]string{"Contested."}), "the same service again is fine")
-	cue := cueStageForSession(t, cueConfig{Cache: cache}, spokenSession("alloy", 24000))
+	cue := cueStageForSession(t, Config{Cache: cache}, spokenSession("alloy", 24000))
 	assert.Equal(t, cueFaded(first, 24000), playedFor(t, cue, "Contested."))
 }
 
@@ -170,7 +170,7 @@ func TestPrewarmClips_SessionWithANonPCMServiceDoesNotUseThem(t *testing.T) {
 	mp3 := newFakeTTS(cueRamp(10))
 	mp3.formats = mp3.formats[:1]
 
-	cue := cueStageForSession(t, cueConfig{TTS: mp3, Cache: cache}, spokenSession("alloy", 24000))
+	cue := cueStageForSession(t, Config{TTS: mp3, Cache: cache}, spokenSession("alloy", 24000))
 	assert.Equal(t, earconPCM(24000), playedFor(t, cue, "Not for MP3."))
 }
 
@@ -180,8 +180,8 @@ type stubSource struct{ name string }
 func (s stubSource) kind() string          { return s.name }
 func (stubSource) voice() string           { return "" }
 func (stubSource) keyText(t string) string { return t }
-func (stubSource) render(context.Context, string, cueclip.Format) (cueClip, *clipRenderCost, error) {
-	return cueClip{}, nil, errNoClipSource
+func (stubSource) render(context.Context, string, cueclip.Format) (Clip, *clipRenderCost, error) {
+	return Clip{}, nil, errNoClipSource
 }
 
 // sourceKinds is the kinds of sources, in order.

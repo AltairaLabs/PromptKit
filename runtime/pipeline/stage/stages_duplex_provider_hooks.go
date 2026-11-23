@@ -11,6 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -735,11 +736,7 @@ func (s *DuplexProviderStage) guardrailOutcomeAt(turn int) guardrailOutcome {
 func (s *DuplexProviderStage) chooseBlocked(
 	ctx context.Context, d *hooks.Decision, direction, text string, turn int,
 ) string {
-	timeout := defaultCueOnDemandBudget
-	if s.cues != nil && s.cues.budget > 0 {
-		timeout = s.cues.budget
-	}
-	return chooseBlockedText(ctx, s.blockedMessage, timeout, blockedFiring{
+	return chooseBlockedText(ctx, s.blockedMessage, cue.HoldBudget(s.cues), blockedFiring{
 		d: d, direction: direction, text: text, turn: turn, caller: s.caller,
 	})
 }
@@ -798,7 +795,7 @@ func (s *DuplexProviderStage) cutReply(ctx context.Context, output chan<- Stream
 // message, or nil when none will: no cue stage follows (NewDuplexCueStage), or
 // the session's replies are not spoken. Without it the caller has the text.
 func (s *DuplexProviderStage) guardrailCue(text string) *Cue {
-	if s.cues == nil || !s.cues.voices(text) {
+	if s.cues == nil || !s.cues.Voices(text) {
 		return nil
 	}
 	return &Cue{Kind: CueGuardrailMessage, Text: text}

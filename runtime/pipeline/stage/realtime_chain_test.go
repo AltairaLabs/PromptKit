@@ -5,6 +5,7 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/audio/cueclip"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/cue"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/voice"
 	providersmock "github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/stretchr/testify/assert"
@@ -62,9 +63,9 @@ func TestNewRealtimeChain_ZeroConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"duplex_provider", "cue"}, chainNames(stages))
 	assert.Same(t, provider, stages[0])
-	cue, ok := stages[1].(*cueStage)
+	cs, ok := stages[1].(*cue.CueStage)
 	require.True(t, ok)
-	assert.Same(t, cue.bank, provider.cues, "the cue stage plays the cues of this provider")
+	assert.Same(t, cue.BankOf(cs), provider.cues, "the cue stage plays the cues of this provider")
 }
 
 // Every slot filled gives the chain order, with the output recording stage
@@ -74,9 +75,9 @@ func TestNewRealtimeChain_FullOrder(t *testing.T) {
 	stages, err := NewRealtimeChain(newRealtimeTestProvider(), cfg)
 	require.NoError(t, err)
 	assert.Equal(t, fullRealtimeNames, chainNames(stages))
-	cue, ok := stages[1].(*cueStage)
+	cs, ok := stages[1].(*cue.CueStage)
 	require.True(t, ok)
-	assert.Same(t, cfg.Cue.Cache, cue.cfg.Cache, "the cue stage keeps its clips in the host's cache")
+	assert.Same(t, cfg.Cue.Cache, cue.CacheOf(cs), "the cue stage keeps its clips in the host's cache")
 	reorder, ok := stages[2].(*TranscriptReorderStage)
 	require.True(t, ok)
 	assert.Equal(t, "[inaudible]", reorder.placeholder)
@@ -214,13 +215,13 @@ func TestNewRealtimeChain_RebuildRewiresCue(t *testing.T) {
 	provider := newRealtimeTestProvider()
 	first, err := NewRealtimeChain(provider, RealtimeChainConfig{})
 	require.NoError(t, err)
-	firstCue, ok := first[1].(*cueStage)
+	firstCue, ok := first[1].(*cue.CueStage)
 	require.True(t, ok)
-	require.Same(t, firstCue.bank, provider.cues)
+	require.Same(t, cue.BankOf(firstCue), provider.cues)
 
 	_, err = NewRealtimeChain(provider, RealtimeChainConfig{Drop: []RealtimeSlot{"avatar"}})
 	require.Error(t, err)
-	assert.Same(t, firstCue.bank, provider.cues, "a failed call changes nothing")
+	assert.Same(t, cue.BankOf(firstCue), provider.cues, "a failed call changes nothing")
 
 	_, err = NewRealtimeChain(provider, RealtimeChainConfig{Drop: []RealtimeSlot{RealtimeSlotCue}})
 	require.NoError(t, err)
@@ -228,10 +229,10 @@ func TestNewRealtimeChain_RebuildRewiresCue(t *testing.T) {
 
 	third, err := NewRealtimeChain(provider, RealtimeChainConfig{})
 	require.NoError(t, err)
-	thirdCue, ok := third[1].(*cueStage)
+	thirdCue, ok := third[1].(*cue.CueStage)
 	require.True(t, ok)
-	assert.Same(t, thirdCue.bank, provider.cues)
-	assert.NotSame(t, firstCue.bank, provider.cues)
+	assert.Same(t, cue.BankOf(thirdCue), provider.cues)
+	assert.NotSame(t, cue.BankOf(firstCue), provider.cues)
 }
 
 // With several invalid insertions the error names the same one every time:

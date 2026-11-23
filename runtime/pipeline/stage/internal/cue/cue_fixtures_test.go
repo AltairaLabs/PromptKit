@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func (f cueFixture) format() cueclip.Format {
 }
 func (f cueFixture) key() cueclip.Key { return cueclip.KeyFor(f.text, f.voice, f.source, f.format()) }
 func (f cueFixture) pcm() []byte      { return cueRamp(f.samples) }
-func (f cueFixture) clip() cueClip    { c := readyClip(f.pcm(), f.rate); c.Meta = f.meta(); return c }
+func (f cueFixture) clip() Clip       { c := readyClip(f.pcm(), f.rate); c.Meta = f.meta(); return c }
 func (f cueFixture) meta() cueclip.Meta {
 	return cueclip.Meta{Text: f.text, Voice: f.voice, Source: f.source}
 }
@@ -62,7 +62,7 @@ var (
 
 // With -update it rewrites testdata/cues from cueFixtures:
 //
-//	go -C runtime test ./pipeline/stage -run TestRegenerateCueFixtures -update
+//	go -C runtime test ./pipeline/stage/internal/cue -run TestRegenerateCueFixtures -update
 //
 // Without it, the checked-in directory must hold exactly cueFixtures, byte for
 // byte, so the fixtures cannot drift from what the tests expect.

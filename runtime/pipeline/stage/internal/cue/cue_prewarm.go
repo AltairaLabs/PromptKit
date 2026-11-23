@@ -1,4 +1,4 @@
-package stage
+package cue
 
 import (
 	"bytes"
@@ -39,14 +39,14 @@ type prewarmedSource struct{ sessionVoice string }
 func (prewarmedSource) kind() string               { return "prewarmed" }
 func (s prewarmedSource) voice() string            { return strings.ToLower(s.sessionVoice) }
 func (prewarmedSource) keyText(text string) string { return text }
-func (prewarmedSource) render(context.Context, string, cueclip.Format) (cueClip, *clipRenderCost, error) {
-	return cueClip{}, nil, errNotPrewarmed
+func (prewarmedSource) render(context.Context, string, cueclip.Format) (Clip, *clipRenderCost, error) {
+	return Clip{}, nil, errNotPrewarmed
 }
 
 // keepForVoice keeps clip under the session voice alone, for a session with
 // no TTS service (prewarmedSource). A different clip already kept there came
 // from another service: it is refused, not replaced.
-func keepForVoice(ctx context.Context, b *cueBank, voice, text string, format cueclip.Format, clip cueClip) error {
+func keepForVoice(ctx context.Context, b *Bank, voice, text string, format cueclip.Format, clip Clip) error {
 	pw := prewarmedSource{sessionVoice: voice}
 	clip.Meta = cueclip.Meta{Text: pw.keyText(text), Voice: pw.voice(), Source: pw.kind()}
 	key := cueclip.KeyFor(clip.Meta.Text, clip.Meta.Voice, clip.Meta.Source, format)
@@ -101,7 +101,7 @@ func PrewarmClips(ctx context.Context, cache cueclip.Cache, svc tts.Service, voi
 		logger.Warn("pre-warm: the TTS service has no voice matching the session's; its clips are not kept "+
 			"for sessions without a TTS service", "tts", svc.Name(), "session_voice", voice)
 	}
-	b := newCueBank(&cueConfig{Cache: cache, RenderTimeout: defaultCueRenderTimeout})
+	b := newCueBank(&Config{Cache: cache, RenderTimeout: defaultCueRenderTimeout})
 	b.state, b.format, b.sources = cueSessionSpoken, format, []clipSource{src}
 
 	texts = dedupeTexts(texts)
