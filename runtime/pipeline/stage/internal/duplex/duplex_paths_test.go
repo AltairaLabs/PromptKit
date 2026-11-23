@@ -131,3 +131,18 @@ func TestDropBlockedTurns_SkipsATypedUserTurn(t *testing.T) {
 	assert.False(t, v.Passed)
 	assert.Equal(t, hooks.DirectionInput, v.Details["direction"])
 }
+
+// The cost of a turn goes on the last queued blocked reply, past any user-only
+// turns after it, and on the partial reply when only user-only turns are
+// queued.
+func TestLastCostCarrier_SkipsUserOnlyTurns(t *testing.T) {
+	partial := &types.Message{Role: core.RoleAssistant, Content: "partial"}
+	user := &duplexBlockedTurn{user: &types.Message{Role: core.RoleUser, Content: "hi"}, userOnly: true}
+	first := &duplexBlockedTurn{msg: types.Message{Role: core.RoleAssistant, Content: "first"}}
+	second := &duplexBlockedTurn{msg: types.Message{Role: core.RoleAssistant, Content: "second"}}
+
+	assert.Same(t, &second.msg, lastCostCarrier(partial, []*duplexBlockedTurn{first, second, user}))
+	assert.Same(t, &first.msg, lastCostCarrier(partial, []*duplexBlockedTurn{first, user, user}))
+	assert.Same(t, partial, lastCostCarrier(partial, []*duplexBlockedTurn{user, user}))
+	assert.Nil(t, lastCostCarrier(nil, nil))
+}
