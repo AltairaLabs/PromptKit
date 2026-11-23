@@ -23,7 +23,7 @@ func TestEventTypes_Constants(t *testing.T) {
 		{EventToolCallCompleted, "tool.call.completed"},
 		{EventToolCallFailed, "tool.call.failed"},
 		{EventToolExcluded, "tool.excluded"},
-		{EventToolsOfferRebuilt, "tools.offer.rebuilt"},
+		{EventToolOfferRebuilt, "tool.offer.rebuilt"},
 		{EventValidationStarted, "validation.started"},
 		{EventValidationPassed, "validation.passed"},
 		{EventValidationFailed, "validation.failed"},

@@ -18,7 +18,7 @@ import (
 // provider a different tools array: the conversation's bus reports it once,
 // with the reason, the tool gained and the round first sent it. A later turn
 // sent the same tools reports nothing.
-func TestToolsOfferRebuilt_SkillActivationIsReported(t *testing.T) {
+func TestToolOfferRebuilt_SkillActivationIsReported(t *testing.T) {
 	provider := newNudgeScriptProvider(
 		[]types.MessageToolCall{{ID: "c1", Name: "skill__activate", Args: []byte(`{"name":"refund-processing"}`)}},
 		[]types.MessageToolCall{{ID: "c2", Name: "refund", Args: []byte(`{"id":"ORD-1"}`)}},
@@ -26,9 +26,9 @@ func TestToolsOfferRebuilt_SkillActivationIsReported(t *testing.T) {
 	conv, _ := openNudgeConv(t, provider, &pipeline.ToolPolicy{}, WithSkillsDir(writeToolGrantSkill(t)))
 
 	var mu sync.Mutex
-	var got []events.ToolsOfferRebuiltData
-	conv.EventBus().Subscribe(events.EventToolsOfferRebuilt, func(e *events.Event) {
-		if d, ok := e.Data.(*events.ToolsOfferRebuiltData); ok {
+	var got []events.ToolOfferRebuiltData
+	conv.EventBus().Subscribe(events.EventToolOfferRebuilt, func(e *events.Event) {
+		if d, ok := e.Data.(*events.ToolOfferRebuiltData); ok {
 			mu.Lock()
 			got = append(got, *d)
 			mu.Unlock()
@@ -45,11 +45,11 @@ func TestToolsOfferRebuilt_SkillActivationIsReported(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		return len(got) > 0
-	}, 2*time.Second, 5*time.Millisecond, "no tools.offer.rebuilt event")
+	}, 2*time.Second, 5*time.Millisecond, "no tool.offer.rebuilt event")
 	time.Sleep(50 * time.Millisecond) // a second event, if one were published, has been delivered
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
 	}}, got)
 }

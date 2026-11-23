@@ -23,7 +23,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
-// These cover tools.offer.rebuilt: a provider call sent a tools array that
+// These cover tool.offer.rebuilt: a provider call sent a tools array that
 // differs from the previous call's is reported, with what changed it, what
 // it gained and lost, and the round. Each turn is a whole Process run on one
 // stage, as the SDK runs every Send of a conversation on one pipeline.
@@ -128,19 +128,19 @@ func (e *offerCallExecutor) Execute(
 	return json.RawMessage(`{"ok":true}`), nil
 }
 
-// offerEvents collects the tools.offer.rebuilt events a bus delivers.
+// offerEvents collects the tool.offer.rebuilt events a bus delivers.
 type offerEvents struct {
 	bus *events.EventBus
 	mu  sync.Mutex
-	got []events.ToolsOfferRebuiltData
+	got []events.ToolOfferRebuiltData
 }
 
 func newOfferEvents(t *testing.T) *offerEvents {
 	t.Helper()
 	o := &offerEvents{bus: events.NewEventBus()}
 	t.Cleanup(o.bus.Close)
-	o.bus.Subscribe(events.EventToolsOfferRebuilt, func(e *events.Event) {
-		d, ok := e.Data.(*events.ToolsOfferRebuiltData)
+	o.bus.Subscribe(events.EventToolOfferRebuilt, func(e *events.Event) {
+		d, ok := e.Data.(*events.ToolOfferRebuiltData)
 		if !ok {
 			return
 		}
@@ -157,7 +157,7 @@ func (o *offerEvents) emitter() *events.Emitter {
 
 // all closes the bus, which delivers every event published so far, and
 // returns them.
-func (o *offerEvents) all() []events.ToolsOfferRebuiltData {
+func (o *offerEvents) all() []events.ToolOfferRebuiltData {
 	o.bus.Close()
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -231,7 +231,7 @@ func grantOnActivate() (grants func() []string, onRun func(string)) {
 
 // A grant made by a tool round is reported on the next round, the first sent
 // the granted tool. A later turn sent the same array reports nothing.
-func TestToolsOfferRebuilt_GrantMidTurn(t *testing.T) {
+func TestToolOfferRebuilt_GrantMidTurn(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "activate")})
 	grants, onRun := grantOnActivate()
@@ -245,13 +245,13 @@ func TestToolsOfferRebuilt_GrantMidTurn(t *testing.T) {
 	runOfferTurn(t, s, "thanks")
 
 	assert.Equal(t, []string{"activate", "lookup_order", "refund"}, prov.offeredOn(t, 1))
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
 	}}, ev.all())
 }
 
 // The streaming tool loop reports a grant the same way.
-func TestToolsOfferRebuilt_GrantMidTurnStreaming(t *testing.T) {
+func TestToolOfferRebuilt_GrantMidTurnStreaming(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "activate")})
 	prov.stream = true
@@ -265,15 +265,15 @@ func TestToolsOfferRebuilt_GrantMidTurnStreaming(t *testing.T) {
 
 	runOfferTurn(t, s, "refund my order")
 
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonSkillGrant}, Added: []string{"refund"}, Round: 2,
 		CachingProvider: true,
 	}}, ev.all())
 }
 
 // A round that runs a tool and changes nothing, and a later turn offering the
 // same tools, report nothing.
-func TestToolsOfferRebuilt_UnchangedReportsNothing(t *testing.T) {
+func TestToolOfferRebuilt_UnchangedReportsNothing(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "lookup_order")})
 	s := newOfferStage(t, prov, registryWithTools(t, "lookup_order"), ev, offerStageOpts{
@@ -290,7 +290,7 @@ func TestToolsOfferRebuilt_UnchangedReportsNothing(t *testing.T) {
 
 // A tool dropped for failing twice is reported removed on the next round,
 // and offered again, reported as a turn reset, on the next turn.
-func TestToolsOfferRebuilt_ExclusionAndTurnReset(t *testing.T) {
+func TestToolOfferRebuilt_ExclusionAndTurnReset(t *testing.T) {
 	ev := newOfferEvents(t)
 	blocked := func(id string) types.MessageToolCall {
 		return types.MessageToolCall{ID: id, Name: "blocked_tool", Args: json.RawMessage(`{"n":"` + id + `"}`)}
@@ -305,15 +305,15 @@ func TestToolsOfferRebuilt_ExclusionAndTurnReset(t *testing.T) {
 	runOfferTurn(t, s, "try again")
 
 	assert.Equal(t, []string{"lookup_order"}, prov.offeredOn(t, 2))
-	assert.Equal(t, []events.ToolsOfferRebuiltData{
-		{Reasons: []string{events.ToolsOfferReasonExcluded}, Removed: []string{"blocked_tool"}, Round: 3},
-		{Reasons: []string{events.ToolsOfferReasonTurnReset}, Added: []string{"blocked_tool"}, Round: 1},
+	assert.Equal(t, []events.ToolOfferRebuiltData{
+		{Reasons: []string{events.ToolOfferReasonExcluded}, Removed: []string{"blocked_tool"}, Round: 3},
+		{Reasons: []string{events.ToolOfferReasonTurnReset}, Added: []string{"blocked_tool"}, Round: 1},
 	}, ev.all())
 }
 
 // Spending max_tool_calls_per_turn sends the next round no tools, reported
 // as every tool removed; the next turn offers them again.
-func TestToolsOfferRebuilt_Exhausted(t *testing.T) {
+func TestToolOfferRebuilt_Exhausted(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "lookup_order")})
 	s := newOfferStage(t, prov, registryWithTools(t, "lookup_order", "refund"), ev, offerStageOpts{
@@ -325,15 +325,15 @@ func TestToolsOfferRebuilt_Exhausted(t *testing.T) {
 	runOfferTurn(t, s, "and now?")
 
 	assert.Nil(t, prov.offeredOn(t, 1), "the round after the budget is spent is sent no tools")
-	assert.Equal(t, []events.ToolsOfferRebuiltData{
-		{Reasons: []string{events.ToolsOfferReasonExhausted}, Removed: []string{"lookup_order", "refund"}, Round: 2},
-		{Reasons: []string{events.ToolsOfferReasonTurnReset}, Added: []string{"lookup_order", "refund"}, Round: 1},
+	assert.Equal(t, []events.ToolOfferRebuiltData{
+		{Reasons: []string{events.ToolOfferReasonExhausted}, Removed: []string{"lookup_order", "refund"}, Round: 2},
+		{Reasons: []string{events.ToolOfferReasonTurnReset}, Added: []string{"lookup_order", "refund"}, Round: 1},
 	}, ev.all())
 }
 
 // A ToolSelector choosing different tools for a turn is reported on that
 // turn's first call.
-func TestToolsOfferRebuilt_Selector(t *testing.T) {
+func TestToolOfferRebuilt_Selector(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p")
 	sel := &stubToolSelector{selected: []string{"a", "b"}}
@@ -347,14 +347,14 @@ func TestToolsOfferRebuilt_Selector(t *testing.T) {
 	runOfferTurn(t, s, "second")
 
 	assert.Equal(t, []string{"b", "c"}, prov.offeredOn(t, 1))
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonSelector}, Added: []string{"c"}, Removed: []string{"a"}, Round: 1,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonSelector}, Added: []string{"c"}, Removed: []string{"a"}, Round: 1,
 	}}, ev.all())
 }
 
 // Grants that change between turns, as a client's frontend tools do, are
 // reported as client tools.
-func TestToolsOfferRebuilt_GrantsBetweenTurns(t *testing.T) {
+func TestToolOfferRebuilt_GrantsBetweenTurns(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p")
 	var granted []string
@@ -367,14 +367,14 @@ func TestToolsOfferRebuilt_GrantsBetweenTurns(t *testing.T) {
 	granted = []string{"show_map"}
 	runOfferTurn(t, s, "second")
 
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonClientTools}, Added: []string{"show_map"}, Round: 1,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonClientTools}, Added: []string{"show_map"}, Round: 1,
 	}}, ev.all())
 }
 
 // A tool DescribeTool describes differently is reported with nothing added
 // or removed.
-func TestToolsOfferRebuilt_Describe(t *testing.T) {
+func TestToolOfferRebuilt_Describe(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p")
 	index := "skills: a"
@@ -391,14 +391,14 @@ func TestToolsOfferRebuilt_Describe(t *testing.T) {
 	index = "skills: a, b"
 	runOfferTurn(t, s, "second")
 
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonDescribe}, Round: 1,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonDescribe}, Round: 1,
 	}}, ev.all())
 }
 
 // MCP tools appearing between turns, as tools/list_changed brings them, are
 // reported as an MCP list change.
-func TestToolsOfferRebuilt_MCPListChanged(t *testing.T) {
+func TestToolOfferRebuilt_MCPListChanged(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p")
 	reg := registryWithTools(t, "lookup_order")
@@ -410,14 +410,14 @@ func TestToolsOfferRebuilt_MCPListChanged(t *testing.T) {
 	}))
 	runOfferTurn(t, s, "second")
 
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonMCPListChanged}, Added: []string{"mcp__srv__ping"}, Round: 1,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonMCPListChanged}, Added: []string{"mcp__srv__ping"}, Round: 1,
 	}}, ev.all())
 }
 
 // A tool the registry gains between turns, under no allowed list's control
 // and not from MCP, is reported as a registry change.
-func TestToolsOfferRebuilt_RegistryChange(t *testing.T) {
+func TestToolOfferRebuilt_RegistryChange(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p")
 	reg := registryWithTools(t, "lookup_order")
@@ -429,15 +429,15 @@ func TestToolsOfferRebuilt_RegistryChange(t *testing.T) {
 	}))
 	runOfferTurn(t, s, "second")
 
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonRegistry}, Added: []string{"lookup_refund"}, Round: 1,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonRegistry}, Added: []string{"lookup_refund"}, Round: 1,
 	}}, ev.all())
 }
 
 // A tool the registry describes differently between turns, with no
 // DescribeTool, is reported as a registry change with nothing added or
 // removed.
-func TestToolsOfferRebuilt_RegistryRedescribed(t *testing.T) {
+func TestToolOfferRebuilt_RegistryRedescribed(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p")
 	reg := registryWithTools(t, "lookup_order")
@@ -450,14 +450,14 @@ func TestToolsOfferRebuilt_RegistryRedescribed(t *testing.T) {
 	}))
 	runOfferTurn(t, s, "second")
 
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonRegistry}, Round: 1,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonRegistry}, Round: 1,
 	}}, ev.all())
 }
 
 // A workflow transition to a state with other tools is reported on the
 // round that runs as the new state.
-func TestToolsOfferRebuilt_WorkflowState(t *testing.T) {
+func TestToolOfferRebuilt_WorkflowState(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "workflow__transition")})
 	resolver := &fakeResolver{sequence: []Handoff{
@@ -470,15 +470,15 @@ func TestToolsOfferRebuilt_WorkflowState(t *testing.T) {
 	runOfferTurn(t, s, "escalate me")
 
 	assert.Equal(t, []string{"escalate", "workflow__transition"}, prov.offeredOn(t, 1))
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonWorkflowState}, Added: []string{"escalate"},
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonWorkflowState}, Added: []string{"escalate"},
 		Removed: []string{"lookup_order"}, Round: 2,
 	}}, ev.all())
 }
 
 // A workflow state whose prompt runs on another provider is reported as a
 // provider switch, even with the same tools.
-func TestToolsOfferRebuilt_ProviderSwitch(t *testing.T) {
+func TestToolOfferRebuilt_ProviderSwitch(t *testing.T) {
 	ev := newOfferEvents(t)
 	prov := newOfferScriptProvider("first", []types.MessageToolCall{offerCall("c1", "workflow__transition")})
 	other := newOfferScriptProvider("second")
@@ -493,8 +493,8 @@ func TestToolsOfferRebuilt_ProviderSwitch(t *testing.T) {
 	runOfferTurn(t, s, "escalate me")
 
 	assert.Equal(t, []string{"lookup_order", "workflow__transition"}, other.offeredOn(t, 0))
-	assert.Equal(t, []events.ToolsOfferRebuiltData{{
-		Reasons: []string{events.ToolsOfferReasonProviderSwitch}, Round: 2,
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonProviderSwitch}, Round: 2,
 	}}, ev.all())
 }
 
@@ -502,7 +502,7 @@ const offerRebuiltWarning = "tools array changed mid-conversation"
 
 // A conversation on a caching provider logs the cache cost of a rebuild once,
 // at its first rebuild.
-func TestToolsOfferRebuilt_WarnsOncePerConversation(t *testing.T) {
+func TestToolOfferRebuilt_WarnsOncePerConversation(t *testing.T) {
 	var buf bytes.Buffer
 	logger.SetOutput(&buf)
 	t.Cleanup(func() { logger.SetOutput(nil) })
@@ -527,7 +527,7 @@ func TestToolsOfferRebuilt_WarnsOncePerConversation(t *testing.T) {
 }
 
 // A provider that does not cache the prompt is not warned about.
-func TestToolsOfferRebuilt_NoWarningWithoutCaching(t *testing.T) {
+func TestToolOfferRebuilt_NoWarningWithoutCaching(t *testing.T) {
 	var buf bytes.Buffer
 	logger.SetOutput(&buf)
 	t.Cleanup(func() { logger.SetOutput(nil) })

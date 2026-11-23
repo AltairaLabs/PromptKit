@@ -1986,7 +1986,7 @@ func (tl *toolLoop) applyRound(
 		tl.providerTools = nil
 		tl.invalidateReserve()
 		tl.toolChoice = ""
-		tl.stage.withdrawOffer(events.ToolsOfferReasonExhausted)
+		tl.stage.withdrawOffer(events.ToolOfferReasonExhausted)
 	}
 
 	// termination.tool_called, or the round limit. The round's results are

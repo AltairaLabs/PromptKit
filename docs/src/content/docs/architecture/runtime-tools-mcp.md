@@ -256,7 +256,7 @@ A model that repeats the same call with identical arguments three times (`MaxIde
 
 ### When the tools array changes
 
-The tools array is the first part of a request that a provider caches. A different array costs a cache miss: Claude writes the whole prefix to its cache again, because PromptKit's cache breakpoints come after the tools, and OpenAI re-reads the prefix from the first tool that changed. The provider stage therefore rebuilds the array only on a real change. Before it sends a call an array that differs from the previous call's, the stage publishes `tools.offer.rebuilt`. Its `Reasons` name what changed the array since that call, each once and in the order the changes happened:
+The tools array is the first part of a request that a provider caches. A different array costs a cache miss: Claude writes the whole prefix to its cache again, because PromptKit's cache breakpoints come after the tools, and OpenAI processes the prefix again from the first changed tool. The provider stage therefore rebuilds the array only on a real change. Before it sends a call an array that differs from the previous call's, the stage publishes `tool.offer.rebuilt`. Its `Reasons` name what changed the array since that call, each once and in the order the changes happened:
 
 | Reason | What changed the array |
 |---|---|

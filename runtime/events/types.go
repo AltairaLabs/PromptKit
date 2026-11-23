@@ -66,10 +66,10 @@ const (
 	// EventToolExcluded marks a tool dropped from the model's tool set for the
 	// rest of the tool loop (ToolExcludedData).
 	EventToolExcluded EventType = "tool.excluded"
-	// EventToolsOfferRebuilt marks a provider call sent a tools array that
+	// EventToolOfferRebuilt marks a provider call sent a tools array that
 	// differs from the one the provider stage's previous call was sent
-	// (ToolsOfferRebuiltData).
-	EventToolsOfferRebuilt EventType = "tools.offer.rebuilt"
+	// (ToolOfferRebuiltData).
+	EventToolOfferRebuilt EventType = "tool.offer.rebuilt"
 	// EventContextNoteAdded marks a note added to a realtime model's
 	// conversation that the caller neither hears nor sees, such as the note
 	// that a guardrail withheld a reply (ContextNoteData).
@@ -465,61 +465,61 @@ type ToolExcludedData struct {
 	Round int
 }
 
-// Reasons a tools.offer.rebuilt event gives for a change to the tools array
-// (ToolsOfferRebuiltData.Reasons).
+// Reasons a tool.offer.rebuilt event gives for a change to the tools array
+// (ToolOfferRebuiltData.Reasons).
 const (
-	// ToolsOfferReasonSkillGrant: the conversation's tool grants changed
+	// ToolOfferReasonSkillGrant: the conversation's tool grants changed
 	// during a tool round, as skill__activate and skill__deactivate change
 	// them (ProviderConfig.ToolGrants).
-	ToolsOfferReasonSkillGrant = "skill_grant"
-	// ToolsOfferReasonClientTools: the conversation's tool grants changed
+	ToolOfferReasonSkillGrant = "skill_grant"
+	// ToolOfferReasonClientTools: the conversation's tool grants changed
 	// between turns, as they do when a client sends a different set of
 	// frontend tools for the turn.
-	ToolsOfferReasonClientTools = "client_tools"
-	// ToolsOfferReasonSelector: the ToolSelector chose a different set of
+	ToolOfferReasonClientTools = "client_tools"
+	// ToolOfferReasonSelector: the ToolSelector chose a different set of
 	// tools for this turn.
-	ToolsOfferReasonSelector = "selector"
-	// ToolsOfferReasonDescribe: DescribeTool describes the tools differently,
+	ToolOfferReasonSelector = "selector"
+	// ToolOfferReasonDescribe: DescribeTool describes the tools differently,
 	// such as a workflow state narrowing the skill__activate index.
-	ToolsOfferReasonDescribe = "describe"
-	// ToolsOfferReasonExcluded: the tool loop dropped a tool whose calls kept
+	ToolOfferReasonDescribe = "describe"
+	// ToolOfferReasonExcluded: the tool loop dropped a tool whose calls kept
 	// failing (tool.excluded).
-	ToolsOfferReasonExcluded = "excluded"
-	// ToolsOfferReasonExhausted: max_tool_calls_per_turn is spent, so the
+	ToolOfferReasonExcluded = "excluded"
+	// ToolOfferReasonExhausted: max_tool_calls_per_turn is spent, so the
 	// rest of the turn is sent no tools.
-	ToolsOfferReasonExhausted = "exhausted"
-	// ToolsOfferReasonTurnReset: a new turn offers again the tools the
+	ToolOfferReasonExhausted = "exhausted"
+	// ToolOfferReasonTurnReset: a new turn offers again the tools the
 	// previous turn's tool loop withdrew (excluded, exhausted).
-	ToolsOfferReasonTurnReset = "turn_reset"
-	// ToolsOfferReasonWorkflowState: the turn runs under a prompt or
+	ToolOfferReasonTurnReset = "turn_reset"
+	// ToolOfferReasonWorkflowState: the turn runs under a prompt or
 	// workflow state that declares different tools.
-	ToolsOfferReasonWorkflowState = "workflow_state"
-	// ToolsOfferReasonProviderSwitch: the call goes to a different provider
+	ToolOfferReasonWorkflowState = "workflow_state"
+	// ToolOfferReasonProviderSwitch: the call goes to a different provider
 	// than the previous one, so the array is built in its wire form.
-	ToolsOfferReasonProviderSwitch = "provider_switch"
-	// ToolsOfferReasonMCPListChanged: only MCP tools (mcp__*) were added or
+	ToolOfferReasonProviderSwitch = "provider_switch"
+	// ToolOfferReasonMCPListChanged: only MCP tools (mcp__*) were added or
 	// removed, as an MCP server's tools/list_changed does.
-	ToolsOfferReasonMCPListChanged = "mcp_list_changed"
-	// ToolsOfferReasonRegistry: none of the above; the tools registered for
+	ToolOfferReasonMCPListChanged = "mcp_list_changed"
+	// ToolOfferReasonRegistry: none of the above; the tools registered for
 	// the conversation changed.
-	ToolsOfferReasonRegistry = "registry"
+	ToolOfferReasonRegistry = "registry"
 )
 
-// ToolsOfferRebuiltData is the payload of tools.offer.rebuilt: the provider
+// ToolOfferRebuiltData is the payload of tool.offer.rebuilt: the provider
 // stage is sending a call a tools array that differs from the one its
 // previous call was sent, and publishes this before the call's
 // provider.call.started. The SDK runs a conversation on one provider stage,
 // so there the previous call is the conversation's. A provider that caches the
 // request prefix (tools, then system prompt, then messages) cannot reuse the
 // cache past the change: Claude writes the whole prefix again and OpenAI
-// re-reads the prefix from the first tool that changed.
+// processes the prefix again from the first changed tool.
 //
 // The stage's first provider call is not a rebuild and is not reported,
 // and neither is a call sent the same array as the call before it.
-type ToolsOfferRebuiltData struct {
+type ToolOfferRebuiltData struct {
 	baseEventData
 	// Reasons says what changed the array since the previous call, in the
-	// order the changes happened, each once (the ToolsOfferReason* values).
+	// order the changes happened, each once (the ToolOfferReason* values).
 	Reasons []string
 	// Added and Removed are the tool names the array gained and lost, sorted.
 	// Both are empty when only how the tools are described changed.

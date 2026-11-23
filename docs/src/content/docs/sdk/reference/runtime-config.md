@@ -458,7 +458,7 @@ Map of external selector processes. Keys are selector names, which `skills.selec
 
 Name of a selector under [`spec.selectors`](#specselectors). Each turn, the selector receives the last user message and the pack-declared tools, and the LLM is offered only the tools it returns. When the selector returns nothing or fails, the full tool list is offered. A name that is not declared under `spec.selectors` fails validation, as it does for `skills.selector`.
 
-A turn whose selection differs from the previous turn's sends the provider a different tools array, so a provider that caches the prompt cannot reuse its cache for that call. Claude writes the whole prefix to its cache again. The conversation's event bus reports each such turn as `tools.offer.rebuilt` with the reason `selector`.
+A turn whose selection differs from the previous turn's sends the provider a different tools array, so a provider that caches the prompt cannot reuse its cache for that call. Claude writes the whole prefix to its cache again. The conversation's event bus reports each such turn as `tool.offer.rebuilt` with the reason `selector`.
 
 ---
 

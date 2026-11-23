@@ -9,32 +9,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ToolsOfferRebuiltCtx publishes tools.offer.rebuilt with its payload, and a
-// recorded tools.offer.rebuilt event decodes back to the same payload.
-func TestToolsOfferRebuilt_PublishedAndRecorded(t *testing.T) {
+// ToolOfferRebuiltCtx publishes tool.offer.rebuilt with its payload, and a
+// recorded tool.offer.rebuilt event decodes back to the same payload.
+func TestToolOfferRebuilt_PublishedAndRecorded(t *testing.T) {
 	bus := NewEventBus()
 	t.Cleanup(bus.Close)
 	got := make(chan *Event, 1)
-	bus.Subscribe(EventToolsOfferRebuilt, func(e *Event) { got <- e })
+	bus.Subscribe(EventToolOfferRebuilt, func(e *Event) { got <- e })
 
-	want := ToolsOfferRebuiltData{
-		Reasons:         []string{ToolsOfferReasonSkillGrant},
+	want := ToolOfferRebuiltData{
+		Reasons:         []string{ToolOfferReasonSkillGrant},
 		Added:           []string{"refund"},
 		Removed:         []string{"lookup_order"},
 		Round:           2,
 		CachingProvider: true,
 	}
 	sent := want
-	NewEmitter(bus, "run", "session-1", "conv").ToolsOfferRebuiltCtx(context.Background(), &sent)
+	NewEmitter(bus, "run", "session-1", "conv").ToolOfferRebuiltCtx(context.Background(), &sent)
 
 	var e *Event
 	select {
 	case e = <-got:
 	case <-time.After(2 * time.Second):
-		t.Fatal("no tools.offer.rebuilt event")
+		t.Fatal("no tool.offer.rebuilt event")
 	}
-	assert.Equal(t, EventType("tools.offer.rebuilt"), e.Type)
-	data, ok := e.Data.(*ToolsOfferRebuiltData)
+	assert.Equal(t, EventType("tool.offer.rebuilt"), e.Type)
+	data, ok := e.Data.(*ToolOfferRebuiltData)
 	require.True(t, ok, "got %T", e.Data)
 	assert.Equal(t, want, *data)
 	assert.Equal(t, "session-1", e.SessionID)
@@ -46,8 +46,8 @@ func TestToolsOfferRebuilt_PublishedAndRecorded(t *testing.T) {
 	back, err := store.Query(context.Background(), &EventFilter{SessionID: "session-1"})
 	require.NoError(t, err)
 	require.Len(t, back, 1)
-	decoded, ok := back[0].Data.(*ToolsOfferRebuiltData)
-	require.True(t, ok, "recorded tools.offer.rebuilt decodes to %T", back[0].Data)
+	decoded, ok := back[0].Data.(*ToolOfferRebuiltData)
+	require.True(t, ok, "recorded tool.offer.rebuilt decodes to %T", back[0].Data)
 	assert.Equal(t, want, *decoded)
 }
 

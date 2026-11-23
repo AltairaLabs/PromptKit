@@ -11,7 +11,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/tools"
 )
 
-// tools.offer.rebuilt reports a provider call sent a tools array that differs
+// tool.offer.rebuilt reports a provider call sent a tools array that differs
 // from the one the stage's previous provider call was sent. Every tools build
 // records the array it made (offerSnapshot) and what caused it (noteOffer*);
 // before each provider call, the round compares the array it sends against
@@ -42,7 +42,7 @@ type offerInputs struct {
 	grants  []string
 }
 
-// offerLog is the record ToolOffer keeps for tools.offer.rebuilt.
+// offerLog is the record ToolOffer keeps for tool.offer.rebuilt.
 type offerLog struct {
 	current   offerSnapshot // the array last built, or none once withdrawn
 	sent      offerSnapshot // the array the last provider call was sent
@@ -71,7 +71,7 @@ func (o *ToolOffer) addCauseLocked(reason string) {
 	if !slices.Contains(o.log.causes, reason) {
 		o.log.causes = append(o.log.causes, reason)
 	}
-	if reason == events.ToolsOfferReasonExcluded || reason == events.ToolsOfferReasonExhausted {
+	if reason == events.ToolOfferReasonExcluded || reason == events.ToolOfferReasonExhausted {
 		o.log.withdrawn = true
 	}
 }
@@ -97,21 +97,21 @@ func (o *ToolOffer) turnCauseLocked(in offerInputs, describes bool) string {
 	added, removed := diffNames(sent.names, cur.names)
 	switch {
 	case !sameProvider(cur.provider, sent.provider):
-		return events.ToolsOfferReasonProviderSwitch
+		return events.ToolOfferReasonProviderSwitch
 	case !slices.Equal(in.prompt, prev.prompt):
-		return events.ToolsOfferReasonWorkflowState
+		return events.ToolOfferReasonWorkflowState
 	case !slices.Equal(in.allowed, prev.allowed):
-		return events.ToolsOfferReasonSelector
+		return events.ToolOfferReasonSelector
 	case !slices.Equal(in.grants, prev.grants):
-		return events.ToolsOfferReasonClientTools
+		return events.ToolOfferReasonClientTools
 	case onlyMCP(added, removed):
-		return events.ToolsOfferReasonMCPListChanged
+		return events.ToolOfferReasonMCPListChanged
 	case o.log.withdrawn:
-		return events.ToolsOfferReasonTurnReset
+		return events.ToolOfferReasonTurnReset
 	case describes && len(added) == 0 && len(removed) == 0:
-		return events.ToolsOfferReasonDescribe
+		return events.ToolOfferReasonDescribe
 	default:
-		return events.ToolsOfferReasonRegistry
+		return events.ToolOfferReasonRegistry
 	}
 }
 
@@ -132,7 +132,7 @@ func (o *ToolOffer) lastInputs() offerInputs {
 
 // takeSent records the array last built as sent, and returns the change from
 // the array sent before it, or nil when there is none.
-func (o *ToolOffer) takeSent() *events.ToolsOfferRebuiltData {
+func (o *ToolOffer) takeSent() *events.ToolOfferRebuiltData {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	cur, prev, first := o.log.current, o.log.sent, !o.log.sentAny
@@ -142,10 +142,10 @@ func (o *ToolOffer) takeSent() *events.ToolsOfferRebuiltData {
 		return nil
 	}
 	if len(causes) == 0 {
-		causes = []string{events.ToolsOfferReasonRegistry}
+		causes = []string{events.ToolOfferReasonRegistry}
 	}
 	added, removed := diffNames(prev.names, cur.names)
-	return &events.ToolsOfferRebuiltData{Reasons: causes, Added: added, Removed: removed}
+	return &events.ToolOfferRebuiltData{Reasons: causes, Added: added, Removed: removed}
 }
 
 // claimWarning reports whether the cache-cost warning is still to be logged,
@@ -225,9 +225,9 @@ func (s *ProviderStage) offerInputsFor(acc *providerInput) offerInputs {
 func (s *ProviderStage) noteHandoffOffer(acc *providerInput, providerChanged bool) {
 	o := s.offerState()
 	if providerChanged {
-		o.noteCause(events.ToolsOfferReasonProviderSwitch)
+		o.noteCause(events.ToolOfferReasonProviderSwitch)
 	} else {
-		o.noteCause(events.ToolsOfferReasonWorkflowState)
+		o.noteCause(events.ToolOfferReasonWorkflowState)
 	}
 	o.setInputs(s.offerInputsFor(acc))
 }
@@ -239,14 +239,14 @@ func (tl *toolLoop) noteRoundOffer(offerChanged bool) {
 	o := tl.stage.offerState()
 	in := tl.stage.offerInputsFor(tl.acc)
 	if offerChanged && !slices.Equal(in.grants, o.lastInputs().grants) {
-		o.noteCause(events.ToolsOfferReasonSkillGrant)
+		o.noteCause(events.ToolOfferReasonSkillGrant)
 	}
 	if excluded := len(tl.Excluded); excluded > tl.excludedNoted {
 		tl.excludedNoted = excluded
-		o.noteCause(events.ToolsOfferReasonExcluded)
+		o.noteCause(events.ToolOfferReasonExcluded)
 	}
 	if !offerChanged {
-		o.noteCause(events.ToolsOfferReasonDescribe)
+		o.noteCause(events.ToolOfferReasonDescribe)
 	}
 	o.setInputs(in)
 }
@@ -260,7 +260,7 @@ func (s *ProviderStage) withdrawOffer(reason string) {
 }
 
 // reportOfferSent records that round's provider call is sent the array last
-// built, and publishes tools.offer.rebuilt when it differs from the array the
+// built, and publishes tool.offer.rebuilt when it differs from the array the
 // previous call was sent. On a provider that caches the prompt it also logs,
 // once per stage, what that costs.
 func (s *ProviderStage) reportOfferSent(ctx context.Context, round int) {
@@ -275,10 +275,10 @@ func (s *ProviderStage) reportOfferSent(ctx context.Context, round int) {
 		logger.Warn("tools array changed mid-conversation: a provider that caches the prompt cannot reuse "+
 			"its cache past the first changed tool (Claude writes the whole prefix again), so this call "+
 			"pays for the prefix again; keep the offered tools the same across rounds and turns to keep "+
-			"the cache. Every further change is reported as a tools.offer.rebuilt event",
+			"the cache. Every further change is reported as a tool.offer.rebuilt event",
 			"reasons", change.Reasons, "added", change.Added, "removed", change.Removed, "round", round)
 	}
 	if s.emitter != nil {
-		s.emitter.ToolsOfferRebuiltCtx(ctx, change)
+		s.emitter.ToolOfferRebuiltCtx(ctx, change)
 	}
 }
