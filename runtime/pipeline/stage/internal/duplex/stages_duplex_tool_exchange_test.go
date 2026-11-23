@@ -417,7 +417,7 @@ func TestToolExchangeOrder_CloseOutIsBoundedAndKeepsGroupsWhole(t *testing.T) {
 	cancel()
 
 	start := time.Now()
-	o.closeOut(ctx, out, o.newDeadline())
+	closeOutWithin(t, &o, ctx, out, o.newDeadline())
 	assert.Less(t, time.Since(start), 2*testSendTimeout, "bounded in total, not per element")
 	close(out)
 	var got []core.StreamElement
@@ -461,7 +461,7 @@ func TestToolExchangeOrder_CloseOutStopsAtTheFirstElementNotTaken(t *testing.T) 
 		<-d.done() // passed: a send not taken at once is not taken
 
 		out := make(chan core.StreamElement, len(want)) // always ready to take a send
-		o.closeOut(ctx, out, d)
+		closeOutWithin(t, &o, ctx, out, d)
 		close(out)
 		var taken []core.StreamElement
 		for e := range out {
@@ -541,7 +541,26 @@ func TestToolExchangeOrder_CloseOutDeadlineIsShared(t *testing.T) {
 	}()
 
 	start := time.Now()
-	o.closeOut(ctx, out, o.newDeadline())
+	closeOutWithin(t, &o, ctx, out, o.newDeadline())
 	assert.Less(t, time.Since(start), testSendTimeout*3/2, "one timeout in all")
 	assert.Less(t, <-taken, 7, "what was not taken in time is dropped")
+}
+
+// closeOutWithin runs o.closeOut, failing the test if it does not return
+// within a bound far past any close-out's own deadline: a close-out that
+// loops fails the test instead of hanging it.
+func closeOutWithin(
+	t *testing.T, o *toolExchangeOrder, ctx context.Context, out chan<- core.StreamElement, d *closeDeadline,
+) {
+	t.Helper()
+	closed := make(chan struct{})
+	go func() {
+		o.closeOut(ctx, out, d)
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("closeOut did not return")
+	}
 }

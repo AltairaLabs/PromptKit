@@ -52,16 +52,27 @@ func runDuplexStage(t *testing.T, s *DuplexProviderStage, inputs []core.StreamEl
 	output := make(chan core.StreamElement, 16)
 	done := make(chan error, 1)
 	go func() { done <- s.Process(context.Background(), input, output) }()
+	// One bound for the whole run: a stage that never closes its output fails
+	// the test instead of hanging it.
+	deadline := time.After(5 * time.Second)
 	var out []core.StreamElement
-	for e := range output {
-		out = append(out, e)
-	}
-	select {
-	case err := <-done:
-		return out, err
-	case <-time.After(5 * time.Second):
-		t.Fatal("Process did not return")
-		return nil, nil
+	for {
+		select {
+		case e, ok := <-output:
+			if !ok {
+				select {
+				case err := <-done:
+					return out, err
+				case <-deadline:
+					t.Fatal("Process did not return")
+					return nil, nil
+				}
+			}
+			out = append(out, e)
+		case <-deadline:
+			t.Fatal("Process did not close its output")
+			return nil, nil
+		}
 	}
 }
 
