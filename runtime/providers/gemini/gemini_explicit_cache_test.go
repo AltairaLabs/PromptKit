@@ -52,6 +52,11 @@ func newExplicitCacheServer(t *testing.T, createStatus int) *explicitCacheServer
 			strings.Contains(r.URL.Path, ":streamGenerateContent"):
 			body, _ := io.ReadAll(r.Body)
 			s.lastGenBody = body
+			if strings.Contains(r.URL.Path, ":streamGenerateContent") {
+				// The streaming endpoint returns a JSON array of responses.
+				_, _ = io.WriteString(w, "["+geminiGenOKBody+"]")
+				return
+			}
 			_, _ = io.WriteString(w, geminiGenOKBody)
 		default:
 			t.Errorf("unexpected request path: %s", r.URL.Path)
@@ -110,6 +115,38 @@ func TestExplicitCaching_Predict_ReferencesCache(t *testing.T) {
 	}
 	if atomic.LoadInt32(&srv.createCalls) != 1 {
 		t.Errorf("expected exactly 1 cachedContents create, got %d", srv.createCalls)
+	}
+}
+
+// The streaming path references the cache and drops the inline
+// systemInstruction just as Predict does.
+func TestExplicitCaching_PredictStream_ReferencesCache(t *testing.T) {
+	srv := newExplicitCacheServer(t, http.StatusOK)
+	p := newExplicitCacheProvider(t, srv.url, map[string]any{"explicit_caching": true})
+
+	ch, err := p.PredictStream(context.Background(), providers.PredictionRequest{
+		System:   bigSystem,
+		Messages: []types.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("PredictStream: %v", err)
+	}
+	var content string
+	for chunk := range ch {
+		if chunk.Error != nil {
+			t.Fatalf("stream error: %v", chunk.Error)
+		}
+		content = chunk.Content
+	}
+	if content != "ok" {
+		t.Errorf("streamed content = %q, want %q", content, "ok")
+	}
+	body := srv.genBody(t)
+	if body["cachedContent"] != "cachedContents/test123" {
+		t.Errorf("expected cachedContent reference, got %v", body["cachedContent"])
+	}
+	if _, has := body["systemInstruction"]; has {
+		t.Error("systemInstruction must be dropped when cachedContent is set (API rejects both)")
 	}
 }
 

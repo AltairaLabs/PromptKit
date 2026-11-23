@@ -203,11 +203,9 @@ func (m *cacheManager) trackedNames() []string {
 // cacheKey content-addresses a stable prefix.
 func cacheKey(model, systemText, toolsJSON, toolConfigJSON string) string {
 	h := sha256.New()
-	for i, part := range []string{model, systemText, toolsJSON, toolConfigJSON} {
-		if i > 0 {
-			h.Write([]byte{0})
-		}
+	for _, part := range []string{model, systemText, toolsJSON, toolConfigJSON} {
 		h.Write([]byte(part))
+		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
