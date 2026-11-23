@@ -182,17 +182,6 @@ func storedTexts(s *cue.CueStage) <-chan string {
 	return ch
 }
 
-func waitStored(t *testing.T, ch <-chan string) string {
-	t.Helper()
-	select {
-	case text := <-ch:
-		return text
-	case <-time.After(3 * time.Second):
-		require.FailNow(t, "the rendered clip was never stored")
-		return ""
-	}
-}
-
 // fakeTTS is a TTS service that records each synthesis and answers with
 // audio(text). With gate set, a synthesis waits for it to close.
 type fakeTTS struct {

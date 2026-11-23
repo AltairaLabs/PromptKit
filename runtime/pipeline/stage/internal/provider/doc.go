@@ -8,7 +8,7 @@
 // It is internal to stage (#2876): stage re-exports ProviderStage, its config
 // and constructors, CallRateWindow, StreamHoldConfig, the structured-output
 // and blocked-message types and NewFileSchemaResolver under the same names, so
-// callers keep importing stage. The realtime provider stage in stage builds on
-// the tool runner, the guardrail outcome and the stream_hold engine, which is
-// why those are exported here.
+// callers keep importing stage. The realtime provider stage
+// (stage/internal/duplex) builds on the tool runner, the guardrail outcome and
+// the stream_hold engine, which is why those are exported here.
 package provider

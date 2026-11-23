@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/duplex"
 )
 
 // RealtimeSlot names a position in the realtime chain NewRealtimeChain builds.
@@ -173,7 +174,7 @@ func NewRealtimeChain(provider *DuplexProviderStage, cfg RealtimeChainConfig) ([
 	if !isRealtimePacing(cfg.Pacing) {
 		return nil, fmt.Errorf("%w: %d", ErrRealtimeChainPacing, cfg.Pacing)
 	}
-	provider.cues = nil // the cue slot's stage, if any, wires its own
+	duplex.DetachCues(provider) // the cue slot's stage, if any, wires its own
 	var out []Stage
 	for _, slot := range realtimeSlots {
 		if !dropped[slot] {

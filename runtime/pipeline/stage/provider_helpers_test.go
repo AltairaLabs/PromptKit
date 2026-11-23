@@ -17,7 +17,6 @@ import (
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks"
-	"github.com/AltairaLabs/PromptKit/runtime/v2/hooks/guardrails"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/base"
@@ -92,28 +91,6 @@ type allowBeforeDenyAfterHook struct {
 type denyToolHook struct {
 	blockedTool string
 	reason      string
-}
-
-func runProviderStage(
-	t *testing.T,
-	stage *ProviderStage,
-	userContent string,
-) ([]StreamElement, error) {
-	t.Helper()
-	input := make(chan StreamElement, 1)
-	msg := types.Message{Role: "user", Content: userContent}
-	elem := NewMessageElement(&msg)
-	input <- elem
-	close(input)
-
-	output := make(chan StreamElement, 50)
-	err := stage.Process(context.Background(), input, output)
-
-	var elems []StreamElement
-	for e := range output {
-		elems = append(elems, e)
-	}
-	return elems, err
 }
 
 // redactionRecordingProvider captures the PredictionRequest the provider
@@ -306,8 +283,6 @@ type scriptedChannelProvider struct {
 	stream chan providers.StreamChunk
 }
 
-const noPineappleMsg = "Let's talk about something else."
-
 // sendScriptedDeltas sends each delta as a chunk carrying the reply so far.
 func sendScriptedDeltas(stream chan<- providers.StreamChunk, deltas ...string) {
 	sofar := ""
@@ -379,13 +354,6 @@ func guardedStage(stream chan providers.StreamChunk, hs ...hooks.ProviderHook) *
 	}
 	prov := &scriptedChannelProvider{Provider: mock.NewProvider("p", "m", false), stream: stream}
 	return NewProviderStageWithHooks(prov, nil, nil, &ProviderConfig{MaxTokens: 100}, nil, hooks.NewRegistry(opts...))
-}
-
-func guardrailHook(t *testing.T, typ string, params map[string]any, opts ...guardrails.GuardrailOption) hooks.ProviderHook {
-	t.Helper()
-	h, err := guardrails.NewGuardrailHook(typ, params, opts...)
-	require.NoError(t, err)
-	return h
 }
 
 // capturingProvider records the messages the model is actually asked to answer.
