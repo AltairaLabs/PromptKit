@@ -48,16 +48,33 @@ func (p *ToolProvider) buildInteractionsRequest(
 		Tools:          buildInteractionsTools(tools),
 		ResponseFormat: interactionsResponseFormat(req.ResponseFormat),
 	}
+	out.Generation = p.interactionsGenerationConfig(req)
 	if len(out.Tools) > 0 {
 		choice := interactionsToolChoice(p.fitToolChoice(toolChoice, interactionsToolNames(out.Tools)))
 		if choice != nil {
-			out.Generation = map[string]any{"tool_choice": choice}
+			out.Generation["tool_choice"] = choice
 		}
 	}
 
 	// Thinking config has no equivalent field here — thought steps are returned
 	// by default — so it is deliberately not forwarded rather than guessed at.
 	return out, nil
+}
+
+// interactionsGenerationConfig carries the sampling parameters the
+// generateContent path sends (provider defaults, overridden per request) in
+// the Interactions API's generation_config. max_output_tokens counts thinking
+// tokens too, as maxOutputTokens does on generateContent.
+func (p *ToolProvider) interactionsGenerationConfig(req providers.PredictionRequest) map[string]any {
+	temperature, topP, maxTokens := p.applyRequestDefaults(req)
+	gen := map[string]any{wireKeyTemperature: temperature}
+	if topP > 0 {
+		gen["top_p"] = topP
+	}
+	if maxTokens > 0 {
+		gen["max_output_tokens"] = maxTokens
+	}
+	return gen
 }
 
 // interactionsModeAny is the Interactions API tool_choice mode that forces a

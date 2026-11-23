@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -237,4 +238,62 @@ func TestToolChoice_UndeclaredName_FallsBackToAny(t *testing.T) {
 			t.Errorf("a declared named choice must not warn, got %q", logs.String())
 		}
 	})
+}
+
+// The Interactions request carries the sampling parameters in
+// generation_config, as generateContent does: the provider defaults, and a
+// request's own values over them. They used to be dropped, so an
+// Interactions turn ran with the API's defaults and no output cap.
+func TestInteractions_SamplingParamsReachRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  providers.PredictionRequest
+		want string
+	}{
+		{"defaults", providers.PredictionRequest{},
+			`{"max_output_tokens":77,"temperature":0.3,"top_p":0.8}`},
+		{"request overrides", providers.PredictionRequest{Temperature: 0.9, TopP: 0.5, MaxTokens: 33},
+			`{"max_output_tokens":33,"temperature":0.9,"top_p":0.5}`},
+	} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%v", tc.name, stream), func(t *testing.T) {
+				srv := newInteractionsChoiceServer(t)
+				t.Setenv("GEMINI_API_KEY", "test-key")
+				p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+					ID: "test-gemini-int", Type: "gemini", Model: "gemini-2.5-flash", BaseURL: srv.url,
+					AdditionalConfig: map[string]any{"api_mode": "interactions"},
+					Defaults:         providers.ProviderDefaults{Temperature: 0.3, TopP: 0.8, MaxTokens: 77},
+				})
+				if err != nil {
+					t.Fatalf("CreateProviderFromSpec: %v", err)
+				}
+				tp := p.(*ToolProvider)
+				tools, _ := tp.BuildTooling([]*providers.ToolDescriptor{
+					{Name: "get_status", Description: "status", InputSchema: json.RawMessage(`{"type":"object"}`)},
+				})
+				req := tc.req
+				req.Messages = []types.Message{{Role: roleUser, Content: "hi"}}
+				if stream {
+					ch, err := tp.PredictStreamWithTools(context.Background(), req, tools, "")
+					if err != nil {
+						t.Fatalf("PredictStreamWithTools: %v", err)
+					}
+					for range ch { //nolint:revive // drain the stream so the request completes
+					}
+				} else if _, _, err := tp.PredictWithTools(context.Background(), req, tools, ""); err != nil {
+					t.Fatalf("PredictWithTools: %v", err)
+				}
+
+				var body struct {
+					Generation map[string]any `json:"generation_config"`
+				}
+				if err := json.Unmarshal(srv.lastBody, &body); err != nil {
+					t.Fatalf("interactions body not JSON: %v", err)
+				}
+				if got := canonicalJSON(t, body.Generation); got != tc.want {
+					t.Errorf("generation_config = %s, want %s", got, tc.want)
+				}
+			})
+		}
+	}
 }

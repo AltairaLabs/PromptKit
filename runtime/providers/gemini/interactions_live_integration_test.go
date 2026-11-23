@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -295,4 +296,37 @@ func TestGemini_ToolChoice_Live(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestGemini_Interactions_MaxTokens_Live proves the provider's max_tokens
+// reaches the Interactions API: a 200-word story under a 400-token cap
+// (thinking counts toward it) comes back cut short.
+//
+//	GEMINI_API_KEY=... go test -tags integration ./runtime/providers/gemini/ \
+//	    -run TestGemini_Interactions_MaxTokens_Live -v
+func TestGemini_Interactions_MaxTokens_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	model := "gemini-2.5-flash"
+	if m := os.Getenv("GEMINI_INTERACTIONS_MODELS"); m != "" {
+		model = m
+	}
+	tp := NewToolProvider("gemini-int-maxtokens", model,
+		"https://generativelanguage.googleapis.com/v1beta",
+		providers.ProviderDefaults{MaxTokens: 400}, false)
+	defer func() { _ = tp.Close() }()
+	tp.apiMode = APIModeInteractions
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "get_status", Description: "Get the build status", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	})
+	require.NoError(t, err)
+
+	resp, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "Write a 200-word story about a lighthouse. Do not call any tool."}},
+	}, tools, "none")
+	require.NoError(t, err)
+	words := len(strings.Fields(resp.Content))
+	t.Logf("400-token cap: %d words, usage %+v", words, resp.CostInfo)
+	assert.Less(t, words, 150, "the cap must cut a 200-word story short")
 }

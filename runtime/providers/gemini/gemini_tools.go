@@ -39,6 +39,9 @@ const (
 	functionCallingModeAny  = "ANY"
 	functionCallingModeNone = "NONE"
 
+	// wireKeyTemperature is the sampling temperature key on both APIs.
+	wireKeyTemperature = "temperature"
+
 	// wireKeyMode is functionCallingConfig's mode key.
 	wireKeyMode = "mode"
 
@@ -682,8 +685,8 @@ func (p *ToolProvider) buildToolRequest(
 	temperature, topP, maxTokens := p.applyRequestDefaults(req)
 
 	genConfig := map[string]any{
-		"temperature": temperature,
-		"topP":        topP,
+		wireKeyTemperature: temperature,
+		"topP":             topP,
 	}
 	if req.TopK != nil && p.ParamSupported(providers.ParamTopK) {
 		genConfig["topK"] = *req.TopK
