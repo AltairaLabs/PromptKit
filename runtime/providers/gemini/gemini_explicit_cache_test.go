@@ -470,3 +470,115 @@ func TestExplicitCaching_Tools_CacheKeyIncludesToolChoice(t *testing.T) {
 		t.Errorf("second create toolConfig mode = %q, want NONE", got)
 	}
 }
+
+// canonicalJSON re-marshals a decoded JSON value so two values compare by
+// content (map keys sort on marshal).
+func canonicalJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return string(b)
+}
+
+func twoToolProvider(t *testing.T, srv *explicitCacheServer, additional map[string]any) (*ToolProvider, providers.ProviderTools) {
+	t.Helper()
+	tp := newExplicitCacheProvider(t, srv.url, additional).(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "read_file", Description: "read a file", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "write_file", Description: "write a file", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	return tp, tools
+}
+
+// A tool choice that names a tool must restrict the call to that tool, not
+// just force some call: mode ANY alone lets the model pick any declared tool.
+// "required" forces a call without restricting which.
+func TestToolChoice_NamedTool_RestrictsAllowedFunctions(t *testing.T) {
+	for _, tc := range []struct {
+		choice       string
+		wantRequest  string
+		wantCacheCfg string
+	}{
+		{
+			choice:       "write_file",
+			wantRequest:  `{"function_calling_config":{"allowed_function_names":["write_file"],"mode":"ANY"}}`,
+			wantCacheCfg: `{"functionCallingConfig":{"allowedFunctionNames":["write_file"],"mode":"ANY"}}`,
+		},
+		{
+			choice:       "required",
+			wantRequest:  `{"function_calling_config":{"mode":"ANY"}}`,
+			wantCacheCfg: `{"functionCallingConfig":{"mode":"ANY"}}`,
+		},
+		{
+			choice:       "any",
+			wantRequest:  `{"function_calling_config":{"mode":"ANY"}}`,
+			wantCacheCfg: `{"functionCallingConfig":{"mode":"ANY"}}`,
+		},
+		{
+			choice:       "auto",
+			wantRequest:  `{"function_calling_config":{"mode":"AUTO"}}`,
+			wantCacheCfg: `{"functionCallingConfig":{"mode":"AUTO"}}`,
+		},
+		{
+			choice:       "none",
+			wantRequest:  `{"function_calling_config":{"mode":"NONE"}}`,
+			wantCacheCfg: `{"functionCallingConfig":{"mode":"NONE"}}`,
+		},
+	} {
+		t.Run("uncached/"+tc.choice, func(t *testing.T) {
+			srv := newExplicitCacheServer(t, http.StatusOK)
+			tp, tools := twoToolProvider(t, srv, nil)
+			if _, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+				System: "short", Messages: []types.Message{{Role: "user", Content: "hi"}},
+			}, tools, tc.choice); err != nil {
+				t.Fatalf("PredictWithTools: %v", err)
+			}
+			if got := canonicalJSON(t, srv.genBody(t)["tool_config"]); got != tc.wantRequest {
+				t.Errorf("request tool_config = %s, want %s", got, tc.wantRequest)
+			}
+		})
+		t.Run("cached/"+tc.choice, func(t *testing.T) {
+			srv := newExplicitCacheServer(t, http.StatusOK)
+			tp, tools := twoToolProvider(t, srv, map[string]any{"explicit_caching": true})
+			if _, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+				System: bigSystem, Messages: []types.Message{{Role: "user", Content: "hi"}},
+			}, tools, tc.choice); err != nil {
+				t.Fatalf("PredictWithTools: %v", err)
+			}
+			if len(srv.createBodies) != 1 {
+				t.Fatalf("expected 1 cachedContents create, got %d", len(srv.createBodies))
+			}
+			var create map[string]any
+			if err := json.Unmarshal(srv.createBodies[0], &create); err != nil {
+				t.Fatalf("create body not JSON: %v", err)
+			}
+			if got := canonicalJSON(t, create["toolConfig"]); got != tc.wantCacheCfg {
+				t.Errorf("CachedContent toolConfig = %s, want %s", got, tc.wantCacheCfg)
+			}
+			if _, has := srv.genBody(t)["tool_config"]; has {
+				t.Error("tool_config must not be on a request that references cachedContent")
+			}
+		})
+	}
+}
+
+// Naming a different tool changes the cached prefix, so it gets its own cache.
+func TestExplicitCaching_NamedToolChoice_SeparateCache(t *testing.T) {
+	srv := newExplicitCacheServer(t, http.StatusOK)
+	tp, tools := twoToolProvider(t, srv, map[string]any{"explicit_caching": true})
+	for _, choice := range []string{"read_file", "write_file", "read_file"} {
+		if _, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+			System: bigSystem, Messages: []types.Message{{Role: "user", Content: "hi"}},
+		}, tools, choice); err != nil {
+			t.Fatalf("PredictWithTools(%q): %v", choice, err)
+		}
+	}
+	if got := atomic.LoadInt32(&srv.createCalls); got != 2 {
+		t.Fatalf("expected 2 creates (one per named tool), got %d", got)
+	}
+}

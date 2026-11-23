@@ -43,6 +43,8 @@ const (
 
 	// toolChoiceNone is the PromptKit tool-choice value that disables tool calls.
 	toolChoiceNone = "none"
+	// toolChoiceAuto lets the model decide whether to call a tool.
+	toolChoiceAuto = "auto"
 
 	// logNameGemini identifies this provider in log lines.
 	logNameGemini = "Gemini"
@@ -416,18 +418,18 @@ func mediaMIMEType(part types.ContentPart) string {
 // addToolConfig adds tool configuration to the request based on toolChoice
 func addToolConfig(request map[string]any, tools any, toolChoice string) {
 	request["tools"] = []any{tools}
-	request["tool_config"] = map[string]any{
-		"function_calling_config": map[string]any{
-			wireKeyMode: functionCallingMode(toolChoice),
-		},
+	cfg := map[string]any{wireKeyMode: functionCallingMode(toolChoice)}
+	if name := namedToolChoice(toolChoice); name != "" {
+		cfg["allowed_function_names"] = []string{name}
 	}
+	request["tool_config"] = map[string]any{"function_calling_config": cfg}
 }
 
 // functionCallingMode maps a PromptKit tool choice to Gemini's
 // functionCallingConfig.mode.
 func functionCallingMode(toolChoice string) string {
 	switch toolChoice {
-	case "", "auto":
+	case "", toolChoiceAuto:
 		return functionCallingModeAuto
 	case toolChoiceNone:
 		return functionCallingModeNone
@@ -436,13 +438,28 @@ func functionCallingMode(toolChoice string) string {
 	}
 }
 
+// namedToolChoice returns the tool a choice names, or "" when the choice is a
+// mode ("", "auto", "none", "required", "any"). Mode ANY alone lets the model
+// call any declared tool, so a named choice also has to restrict
+// allowedFunctionNames to that tool.
+func namedToolChoice(toolChoice string) string {
+	switch toolChoice {
+	case "", toolChoiceAuto, toolChoiceNone, "required", "any":
+		return ""
+	default:
+		return toolChoice
+	}
+}
+
 // cachedToolConfig is the CachedContent toolConfig for a tool choice. A request
 // that references cachedContent may not carry tool_config, so the choice has to
 // live in the cached prefix (and therefore in its cache key).
 func cachedToolConfig(toolChoice string) map[string]any {
-	return map[string]any{
-		"functionCallingConfig": map[string]any{wireKeyMode: functionCallingMode(toolChoice)},
+	cfg := map[string]any{wireKeyMode: functionCallingMode(toolChoice)}
+	if name := namedToolChoice(toolChoice); name != "" {
+		cfg["allowedFunctionNames"] = []string{name}
 	}
+	return map[string]any{"functionCallingConfig": cfg}
 }
 
 // buildToolContents converts the request messages to Gemini contents, folding

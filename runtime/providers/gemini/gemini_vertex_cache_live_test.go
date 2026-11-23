@@ -91,4 +91,25 @@ func TestExplicitCaching_Vertex_Live(t *testing.T) {
 		}
 		t.Logf("Vertex choice %q: toolCalls=%d cachedTokens=%d", tc.choice, len(calls), resp.CostInfo.CachedTokens)
 	}
+
+	// A named choice must call THAT tool even when another is the obvious fit.
+	twoTools, _ := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "get_weather", Description: "Get the current weather for a city",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`)},
+		{Name: "get_status", Description: "Get the build status", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+	})
+	resp, calls, err := tp.PredictWithTools(ctx, providers.PredictionRequest{
+		System:   bigSystem,
+		Messages: []types.Message{{Role: "user", Content: "What is the weather in Paris right now?"}},
+	}, twoTools, "get_status")
+	if err != nil {
+		t.Fatalf("PredictWithTools(get_status): %v", err)
+	}
+	if len(calls) == 0 || calls[0].Name != "get_status" {
+		t.Fatalf("want a get_status call, got %+v (content %q)", calls, resp.Content)
+	}
+	if resp.CostInfo == nil || resp.CostInfo.CachedTokens <= 0 {
+		t.Fatalf("expected the cache to be referenced on Vertex, got %+v", resp.CostInfo)
+	}
+	t.Logf("Vertex named get_status: calls=%s cachedTokens=%d", calls[0].Name, resp.CostInfo.CachedTokens)
 }

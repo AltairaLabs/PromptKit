@@ -121,6 +121,44 @@ func TestExplicitCaching_Live(t *testing.T) {
 		}
 	})
 
+	// A named tool choice must yield a call to THAT tool even when another
+	// declared tool is the obvious fit, with and without the cache.
+	t.Run("NamedToolChoiceRestricts", func(t *testing.T) {
+		descriptors := []*providers.ToolDescriptor{
+			{Name: "get_weather", Description: "Get the current weather for a city",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`)},
+			{Name: "get_status", Description: "Get the build status", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
+		}
+		for _, cached := range []bool{false, true} {
+			tp := newProvider(t)
+			if !cached {
+				p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+					ID: "live-gemini", Type: "gemini", Model: "gemini-2.5-flash",
+					Defaults: providers.ProviderDefaults{MaxTokens: 1024},
+				})
+				if err != nil {
+					t.Fatalf("CreateProviderFromSpec: %v", err)
+				}
+				tp = p.(*ToolProvider)
+			}
+			tools, _ := tp.BuildTooling(descriptors)
+			resp, calls, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+				System:   system,
+				Messages: []types.Message{{Role: "user", Content: "What is the weather in Paris right now?"}},
+			}, tools, "get_status")
+			if err != nil {
+				t.Fatalf("cached=%v PredictWithTools: %v", cached, err)
+			}
+			if len(calls) == 0 || calls[0].Name != "get_status" {
+				t.Fatalf("cached=%v: want a get_status call, got %+v (content %q)", cached, calls, resp.Content)
+			}
+			if cached && (resp.CostInfo == nil || resp.CostInfo.CachedTokens <= 0) {
+				t.Fatalf("expected the cache to be referenced, got %+v", resp.CostInfo)
+			}
+			t.Logf("cached=%v named get_status: calls=%s", cached, calls[0].Name)
+		}
+	})
+
 	t.Run("ThinkingBudgetFixesCutoff", func(t *testing.T) {
 		// A tight maxTokens (32) is exhausted by thinking alone on 2.5-flash, so
 		// with default thinking it returns MAX_TOKENS with no content...
