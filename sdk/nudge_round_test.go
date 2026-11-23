@@ -34,6 +34,8 @@ type nudgeScriptProvider struct {
 	offered [][]string
 	choices []string
 	seen    [][]types.Message
+	active  [][]string          // PredictionRequest.ActiveTools, per call
+	descs   []map[string]string // each offered tool's description, per call
 }
 
 func newNudgeScriptProvider(script ...[]types.MessageToolCall) *nudgeScriptProvider {
@@ -49,13 +51,17 @@ func (p *nudgeScriptProvider) PredictWithTools(
 	defer p.mu.Unlock()
 	p.choices = append(p.choices, choice)
 	var names []string
+	described := map[string]string{}
 	if descs, ok := offered.([]*providers.ToolDescriptor); ok {
 		for _, d := range descs {
 			names = append(names, d.Name)
+			described[d.Name] = d.Description
 		}
 	}
 	sort.Strings(names)
 	p.offered = append(p.offered, names)
+	p.descs = append(p.descs, described)
+	p.active = append(p.active, req.ActiveTools)
 	p.seen = append(p.seen, append([]types.Message(nil), req.Messages...))
 	if len(p.script) == 0 {
 		return providers.PredictionResponse{Content: "done"}, nil, nil

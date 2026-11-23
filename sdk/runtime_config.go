@@ -258,13 +258,16 @@ func applyMCPServerConfigs(c *config, specs []pkgconfig.MCPServerConfig) error {
 }
 
 // applySelectorBindings records which declared selectors drive skills and
-// tool selection.
+// tool selection, and how the tools array is loaded (spec.tool_loading).
 func applySelectorBindings(c *config, spec *pkgconfig.RuntimeConfigSpec) {
 	if spec.Skills != nil && spec.Skills.Selector != "" {
 		c.skillsSelectorName = spec.Skills.Selector
 	}
 	if spec.ToolSelector != "" {
 		c.toolSelectorName = spec.ToolSelector
+	}
+	if spec.ToolLoading != nil && spec.ToolLoading.Mode != "" {
+		c.toolLoading = ToolLoading{Mode: ToolLoadingMode(spec.ToolLoading.Mode)}
 	}
 }
 

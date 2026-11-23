@@ -572,6 +572,12 @@ func (c *Conversation) describeTool(d *tools.ToolDescriptor) *tools.ToolDescript
 	if d.Name != skills.SkillActivateTool {
 		return d
 	}
+	if c.stableTools() {
+		// Stable mode keeps the index of every skill, so the tools array is the
+		// same whatever the workflow state or the skills selector; activating
+		// a skill the state does not admit is still refused.
+		return d
+	}
 	sc := c.skillsCapability()
 	if sc == nil {
 		return d
@@ -824,6 +830,7 @@ func (c *Conversation) buildPipelineConfig(
 		BlockedMessage:        c.blockedMessageFunc(),
 		CallRate:              c.callRateWindow(),
 		ToolOfferHistory:      c.toolOfferHistory(),
+		ToolLoading:           c.stageToolLoading(),
 		SkipContentValidation: c.config.skipContentValidation,
 		StreamHold:            c.config.streamHold,
 		ToolPolicy:            c.config.toolPolicy,

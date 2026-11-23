@@ -191,6 +191,11 @@ type Config struct {
 	// (stage.ProviderConfig.ToolOfferHistory). Nil gives the stage its own.
 	ToolOfferHistory *stage.ToolOfferHistory
 
+	// ToolLoading is how the provider stage builds its tools array: rebuilt on
+	// each change, or kept stable and narrowed per call
+	// (stage.ProviderConfig.ToolLoading). The zero value rebuilds.
+	ToolLoading stage.ToolLoading
+
 	// SkipContentValidation turns off the provider stage's check that each
 	// media part of a request is one the provider declares supporting (see
 	// stage.ProviderConfig.SkipContentValidation). False validates.
@@ -946,6 +951,7 @@ func buildProviderStages(cfg *Config, turnState *stage.TurnState) ([]stage.Stage
 			CallRate:         cfg.CallRate,
 			ToolOfferHistory: cfg.ToolOfferHistory,
 			Caller:           cfg.Caller,
+			ToolLoading:      cfg.ToolLoading,
 			BlockedMessage:   cfg.BlockedMessage,
 			Streaming:        cfg.Ingestion != nil,
 
