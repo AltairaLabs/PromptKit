@@ -163,6 +163,7 @@ func (p *ToolProvider) consumeInteractionsStream(
 	scanner.Buffer(make([]byte, 0, sseInitialBuffer), sseMaxBuffer)
 
 	var eventName string
+	var media streamedMediaWarning
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -188,7 +189,7 @@ func (p *ToolProvider) consumeInteractionsStream(
 			}
 
 		case evStepDelta:
-			if !applyStepDelta(&ev, steps, &content, emit) {
+			if !applyStepDelta(&ev, steps, &content, &media, emit) {
 				// emit only fails once ctx is done.
 				out <- interruptedInteractionChunk(steps, content.String(), ctx.Err())
 				return
@@ -261,6 +262,7 @@ func applyStepDelta(
 	ev *interactionsStreamEvent,
 	steps map[int]*streamStep,
 	content *strings.Builder,
+	media *streamedMediaWarning,
 	emit func(providers.StreamChunk) bool,
 ) bool {
 	step := steps[ev.Index]
@@ -296,11 +298,7 @@ func applyStepDelta(
 		return emit(providers.StreamChunk{Content: content.String(), Reasoning: summary.Text})
 
 	case deltaTypeImage, deltaTypeAudio:
-		// A stream carries text, reasoning and tool calls only, as a
-		// generateContent stream does, so generated media is not delivered.
-		logger.Warn("gemini interactions: generated media is not delivered on a stream; "+
-			"use a non-streaming turn to receive it",
-			"type", ev.Delta.Type, "mime_type", ev.Delta.MIMEType)
+		media.warn(APIModeInteractions, ev.Delta.MIMEType)
 		return true
 
 	case deltaTypeSignature:

@@ -352,32 +352,73 @@ func TestInteractions_ExplicitCachingIsRefusedAtConstruction(t *testing.T) {
 	}
 }
 
-// A streamed turn does not deliver generated media: the stream carries text,
-// reasoning and tool calls only, as a generateContent stream does. A media
-// delta ({"type":"image","mime_type":…,"data":…}, captured live) is not
-// dropped silently: a warning names it, and the text still arrives.
-func TestInteractions_StreamedGeneratedMediaWarns(t *testing.T) {
-	stream := "event: step.start\n" +
+// A streamed turn does not deliver generated media on either API: the stream
+// carries text, reasoning and tool calls only. Media the model generates is
+// not dropped silently: one warning per stream names the API and the first
+// item's MIME type, and the text still arrives. The Interactions API streams
+// it as a delta ({"type":"image","mime_type":…,"data":…}, captured live), and
+// generateContent as an inlineData part.
+func TestStreamedGeneratedMediaWarnsOncePerStream(t *testing.T) {
+	interactionsStream := "event: step.start\n" +
 		`data: {"index":0,"step":{"type":"model_output"}}` + "\n\n" +
 		"event: step.delta\n" +
 		`data: {"index":0,"delta":{"type":"text","text":"Here:"}}` + "\n\n" +
 		"event: step.delta\n" +
 		`data: {"index":0,"delta":{"type":"image","mime_type":"image/jpeg","data":"aW1n"}}` + "\n\n" +
+		"event: step.delta\n" +
+		`data: {"index":0,"delta":{"type":"image","mime_type":"image/png","data":"aW1n"}}` + "\n\n" +
 		"event: interaction.completed\n" +
 		`data: {"interaction":{"id":"i1","status":"completed"}}` + "\n\n"
-	logs := captureWarnings(t)
-	srv := newRouteServer(t, "", stream)
-	p := newSpecProvider(t, srv.url, interactionsMode)
-	resp := predictTurn(t, p, providers.PredictionRequest{
-		Messages: []types.Message{{Role: roleUser, Content: "draw"}},
-	}, true)
-	if resp.Content != "Here:" {
-		t.Errorf("content = %q, want %q", resp.Content, "Here:")
+	generateStream := `[{"candidates":[{"content":{"role":"model","parts":[{"text":"Here:"},` +
+		`{"inlineData":{"mimeType":"image/jpeg","data":"aW1n"}}]}}]},` +
+		`{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"aW1n"}}]},` +
+		`"finishReason":"STOP"}]}]`
+
+	for _, tc := range []struct {
+		name, api string
+		cfg       map[string]any
+	}{
+		{"interactions", "interactions", interactionsMode},
+		{"generateContent", "generate_content", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := captureWarnings(t)
+			srv := newMediaStreamServer(t, interactionsStream, generateStream)
+			resp := predictTurn(t, newSpecProvider(t, srv.URL, tc.cfg), providers.PredictionRequest{
+				Messages: []types.Message{{Role: roleUser, Content: "draw"}},
+			}, true)
+			if resp.Content != "Here:" {
+				t.Errorf("content = %q, want %q", resp.Content, "Here:")
+			}
+			want := "gemini: generated media is not delivered on a stream"
+			if n := strings.Count(logs.String(), want); n != 1 {
+				t.Errorf("warning logged %d times, want once: %q", n, logs.String())
+			}
+			for _, attr := range []string{"api=" + tc.api, "mime_type=image/jpeg"} {
+				if !strings.Contains(logs.String(), attr) {
+					t.Errorf("warning lacks %q: %q", attr, logs.String())
+				}
+			}
+		})
 	}
-	want := "gemini interactions: generated media is not delivered on a stream"
-	if !strings.Contains(logs.String(), want) || !strings.Contains(logs.String(), "mime_type=image/jpeg") {
-		t.Errorf("logs %q lack %q for image/jpeg", logs.String(), want)
-	}
+}
+
+// newMediaStreamServer answers the Interactions endpoint with an SSE body and
+// streamGenerateContent with a JSON-array body.
+func newMediaStreamServer(t *testing.T, interactions, generate string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if strings.HasSuffix(r.URL.Path, ":streamGenerateContent") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, generate)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, interactions)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }
 
 // The provider stage checks a request's media against what the provider can
