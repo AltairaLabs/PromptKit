@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -32,14 +33,14 @@ func TestMemoryRetrievalStage_InjectsMemories(t *testing.T) {
 		},
 	}
 	store := memory.NewInMemoryStore()
-	turnState := NewTurnState()
+	turnState := core.NewTurnState()
 	s := NewMemoryRetrievalStageWithTurnState(ret, store, nil, turnState)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	msg := types.Message{Role: "user", Content: "hello"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -61,13 +62,13 @@ func TestMemoryRetrievalStage_UsesDefaultFormatterWhenUnset(t *testing.T) {
 		},
 	}
 	store := memory.NewInMemoryStore()
-	turnState := NewTurnState()
+	turnState := core.NewTurnState()
 	s := NewMemoryRetrievalStageWithTurnState(ret, store, nil, turnState)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 	msg := types.Message{Role: "user", Content: "hello"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	if err := s.Process(context.Background(), input, output); err != nil {
@@ -91,7 +92,7 @@ func TestMemoryRetrievalStage_HostFormatterOverridesDefault(t *testing.T) {
 		},
 	}
 	store := memory.NewInMemoryStore()
-	turnState := NewTurnState()
+	turnState := core.NewTurnState()
 	// Host formatter that groups by metadata["category"] — proves the
 	// override receives the same memories the default would have, plus
 	// access to metadata fields the default ignores.
@@ -108,10 +109,10 @@ func TestMemoryRetrievalStage_HostFormatterOverridesDefault(t *testing.T) {
 			return b.String()
 		})
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 	msg := types.Message{Role: "user", Content: "hello"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	if err := s.Process(context.Background(), input, output); err != nil {
@@ -128,11 +129,11 @@ func TestMemoryRetrievalStage_HostFormatterOverridesDefault(t *testing.T) {
 func TestMemoryRetrievalStage_NilRetrieverPassthrough(t *testing.T) {
 	s := NewMemoryRetrievalStage(nil, nil, nil)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	msg := types.Message{Role: "user", Content: "test"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -156,13 +157,13 @@ func TestMemoryExtractionStage_ExtractsAndSaves(t *testing.T) {
 	scope := map[string]string{"user_id": "test"}
 	s := NewMemoryExtractionStage(ext, store, scope)
 
-	input := make(chan StreamElement, 2)
-	output := make(chan StreamElement, 2)
+	input := make(chan core.StreamElement, 2)
+	output := make(chan core.StreamElement, 2)
 
 	user := types.Message{Role: "user", Content: "I love Go"}
 	assistant := types.Message{Role: "assistant", Content: "Great choice!"}
-	input <- StreamElement{Message: &user}
-	input <- StreamElement{Message: &assistant}
+	input <- core.StreamElement{Message: &user}
+	input <- core.StreamElement{Message: &assistant}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -193,11 +194,11 @@ func TestMemoryExtractionStage_PreservesExtractorProvenance(t *testing.T) {
 	scope := map[string]string{"user_id": "test"}
 	s := NewMemoryExtractionStage(ext, store, scope)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	msg := types.Message{Role: "user", Content: "test"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -226,11 +227,11 @@ func TestMemoryExtractionStage_NoMessagesSkipsExtraction(t *testing.T) {
 	scope := map[string]string{"user_id": "test"}
 	s := NewMemoryExtractionStage(ext, store, scope)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	// Element with no message — extraction should skip
-	input <- StreamElement{}
+	input <- core.StreamElement{}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -248,11 +249,11 @@ func TestMemoryExtractionStage_NoMessagesSkipsExtraction(t *testing.T) {
 func TestMemoryExtractionStage_NilExtractorPassthrough(t *testing.T) {
 	s := NewMemoryExtractionStage(nil, nil, nil)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 
 	msg := types.Message{Role: "user", Content: "test"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	err := s.Process(context.Background(), input, output)
@@ -271,15 +272,15 @@ func TestMemoryExtractionStage_NilExtractorPassthrough(t *testing.T) {
 // holds the previous turn's value, so a stage that only writes on a hit leaks
 // stale grounding into a turn that retrieved nothing.
 func TestMemoryRetrievalStage_WritesEmptyContextWhenNothingRetrieved(t *testing.T) {
-	turnState := NewTurnState()
+	turnState := core.NewTurnState()
 	turnState.Variables = map[string]string{"memory_context": "last turn's memories"}
 
 	st := NewMemoryRetrievalStageWithTurnState(&mockRetriever{memories: nil}, nil, nil, turnState)
 
-	input := make(chan StreamElement, 1)
-	output := make(chan StreamElement, 1)
+	input := make(chan core.StreamElement, 1)
+	output := make(chan core.StreamElement, 1)
 	msg := types.Message{Role: "user", Content: "hello"}
-	input <- StreamElement{Message: &msg}
+	input <- core.StreamElement{Message: &msg}
 	close(input)
 
 	if err := st.Process(context.Background(), input, output); err != nil {

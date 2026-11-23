@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -12,13 +12,6 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
-)
-
-// Message source values for filtering history messages.
-const (
-	sourceStateStore = "statestore"
-	sourceSummary    = "summary"
-	sourceRetrieved  = "retrieved"
 )
 
 // IncrementalSaveConfig configures the IncrementalSaveStage.
@@ -65,15 +58,15 @@ type IncrementalSaveConfig struct {
 // messages and writes it back through BulkWriter. A store that implements
 // neither makes the stage return an error.
 type IncrementalSaveStage struct {
-	BaseStage
+	core.BaseStage
 	config    *IncrementalSaveConfig
-	turnState *TurnState
+	turnState *core.TurnState
 }
 
 // NewIncrementalSaveStage creates a new incremental save stage.
 func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStage {
 	return &IncrementalSaveStage{
-		BaseStage: NewBaseStage("incremental_save", StageTypeSink),
+		BaseStage: core.NewBaseStage("incremental_save", core.StageTypeSink),
 		config:    config,
 	}
 }
@@ -83,10 +76,10 @@ func NewIncrementalSaveStage(config *IncrementalSaveConfig) *IncrementalSaveStag
 // the fallback fullSave path.
 func NewIncrementalSaveStageWithTurnState(
 	config *IncrementalSaveConfig,
-	turnState *TurnState,
+	turnState *core.TurnState,
 ) *IncrementalSaveStage {
 	return &IncrementalSaveStage{
-		BaseStage: NewBaseStage("incremental_save", StageTypeSink),
+		BaseStage: core.NewBaseStage("incremental_save", core.StageTypeSink),
 		config:    config,
 		turnState: turnState,
 	}
@@ -95,8 +88,8 @@ func NewIncrementalSaveStageWithTurnState(
 // Process collects new messages and appends them incrementally.
 func (s *IncrementalSaveStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -209,8 +202,8 @@ type incrementalCollectedData struct {
 // both lose that reply and block the stage sending it.
 func (s *IncrementalSaveStage) collectAndForward(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) *incrementalCollectedData {
 	collected := &incrementalCollectedData{}
 	var fwd core.CancelForwarder
@@ -264,19 +257,8 @@ func (s *IncrementalSaveStage) flushTurn(ctx context.Context, collected *increme
 // the store, a summary or a retrieved message) that is not held for playout.
 // A held Message is stored from its PlayoutRelease element instead. A stage
 // after the save stage counts these to know how far the transcript reaches.
-func IsTranscriptMessage(elem *StreamElement) bool {
-	return elem.Message != nil && !elem.Meta.PlayoutHeld && isNewMessage(elem.Message)
-}
-
-// isNewMessage reports whether a message originated from this Send (true)
-// or was loaded from history by an upstream stage (false).
-func isNewMessage(m *types.Message) bool {
-	switch m.Source {
-	case sourceStateStore, sourceSummary, sourceRetrieved:
-		return false
-	default:
-		return true
-	}
+func IsTranscriptMessage(elem *core.StreamElement) bool {
+	return elem.Message != nil && !elem.Meta.PlayoutHeld && core.IsNewMessage(elem.Message)
 }
 
 // fullSave appends the new messages to the existing state and writes via
@@ -483,8 +465,8 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 // passthrough forwards all input elements without saving.
 func (s *IncrementalSaveStage) passthrough(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	for elem := range input {
 		if elem.Error != nil {

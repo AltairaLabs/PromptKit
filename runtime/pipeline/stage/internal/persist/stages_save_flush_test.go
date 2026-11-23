@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -53,8 +54,8 @@ func TestIncrementalSaveStage_FlushEachTurn(t *testing.T) {
 			StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
 			FlushEachTurn:    flush,
 		})
-		input := make(chan StreamElement)
-		output := make(chan StreamElement, 8)
+		input := make(chan core.StreamElement)
+		output := make(chan core.StreamElement, 8)
 		done := make(chan error, 1)
 		go func() { done <- s.Process(context.Background(), input, output) }()
 
@@ -87,8 +88,8 @@ func TestIncrementalSaveStage_FlushStoresTheTurnBeforeForwardingIt(t *testing.T)
 		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
 		FlushEachTurn:    true,
 	})
-	input := make(chan StreamElement)
-	output := make(chan StreamElement)
+	input := make(chan core.StreamElement)
+	output := make(chan core.StreamElement)
 	done := make(chan error, 1)
 	go func() { done <- s.Process(context.Background(), input, output) }()
 
@@ -112,8 +113,8 @@ func TestIncrementalSaveStage_FlushStoresALateTranscript(t *testing.T) {
 		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
 		FlushEachTurn:    true,
 	})
-	input := make(chan StreamElement)
-	output := make(chan StreamElement)
+	input := make(chan core.StreamElement)
+	output := make(chan core.StreamElement)
 	done := make(chan error, 1)
 	go func() { done <- s.Process(context.Background(), input, output) }()
 
@@ -137,7 +138,7 @@ func TestIncrementalSaveStage_FlushFailureIsRetriedAtTheEnd(t *testing.T) {
 		StateStoreConfig: &pipeline.StateStoreConfig{Store: store, ConversationID: "c"},
 		FlushEachTurn:    true,
 	})
-	results := runTestStage(t, s, []StreamElement{
+	results := runTestStage(t, s, []core.StreamElement{
 		newTestMsgElement("user", "hi"), newTestMsgElement("assistant", "hello"),
 	})
 	require.Len(t, results, 2)
@@ -175,8 +176,8 @@ func TestIncrementalSaveStage_FlushIndexesTheTurn(t *testing.T) {
 		MessageIndex:     idx,
 		FlushEachTurn:    true,
 	})
-	input := make(chan StreamElement)
-	output := make(chan StreamElement, 8)
+	input := make(chan core.StreamElement)
+	output := make(chan core.StreamElement, 8)
 	done := make(chan error, 1)
 	go func() { done <- s.Process(context.Background(), input, output) }()
 	input <- newTestMsgElement("user", "hi")

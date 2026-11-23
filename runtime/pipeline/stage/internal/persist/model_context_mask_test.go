@@ -1,10 +1,11 @@
-package stage
+package persist
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -19,7 +20,7 @@ func TestModelContextMask_KeepsAHeardPrefix(t *testing.T) {
 		FinishReason: types.FinishReasonInterrupted, Meta: map[string]interface{}{types.MetaPlayoutCut: types.PlayoutCutBargeIn}}
 	msgs := []types.Message{{Role: "user", Content: "story"}, heard, {Role: "user", Content: "again"}, realtime}
 
-	assert.Equal(t, []bool{false, false, false, true}, ModelContextMask(msgs))
-	assert.Equal(t, msgs[:3], ExcludeFromModelContext(msgs))
+	assert.Equal(t, []bool{false, false, false, true}, history.ModelContextMask(msgs))
+	assert.Equal(t, msgs[:3], history.ExcludeFromModelContext(msgs))
 	assert.Equal(t, msgs[:3], summaryBatch(msgs, len(msgs)), "a summary sees what model context does")
 }

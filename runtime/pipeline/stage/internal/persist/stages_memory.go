@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/memory"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/history"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
 
@@ -22,11 +23,11 @@ import (
 //
 // No-op passthrough when retriever or turnState is nil.
 type MemoryRetrievalStage struct {
-	BaseStage
+	core.BaseStage
 	retriever memory.Retriever
 	store     memory.Store
 	scope     map[string]string
-	turnState *TurnState
+	turnState *core.TurnState
 	formatter memory.ContextFormatter
 	caller    types.Caller
 }
@@ -41,10 +42,10 @@ func NewMemoryRetrievalStage(
 // NewMemoryRetrievalStageWithTurnState creates a retrieval stage that
 // publishes its formatted memory context onto the supplied TurnState.
 func NewMemoryRetrievalStageWithTurnState(
-	retriever memory.Retriever, store memory.Store, scope map[string]string, turnState *TurnState,
+	retriever memory.Retriever, store memory.Store, scope map[string]string, turnState *core.TurnState,
 ) *MemoryRetrievalStage {
 	return &MemoryRetrievalStage{
-		BaseStage: NewBaseStage("memory_retrieval", StageTypeTransform),
+		BaseStage: core.NewBaseStage("memory_retrieval", core.StageTypeTransform),
 		retriever: retriever,
 		store:     store,
 		scope:     scope,
@@ -71,13 +72,13 @@ func (s *MemoryRetrievalStage) WithCaller(caller types.Caller) *MemoryRetrievalS
 // Process implements Stage.
 func (s *MemoryRetrievalStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
 	var messages []types.Message
-	var pending []StreamElement
+	var pending []core.StreamElement
 
 	for elem := range input {
 		if elem.Message != nil {
@@ -133,7 +134,7 @@ func (s *MemoryRetrievalStage) injectMemoryContext(memories []*memory.Memory) {
 //
 // No-op passthrough when extractor is nil.
 type MemoryExtractionStage struct {
-	BaseStage
+	core.BaseStage
 	extractor memory.Extractor
 	store     memory.Store
 	scope     map[string]string
@@ -145,7 +146,7 @@ func NewMemoryExtractionStage(
 	extractor memory.Extractor, store memory.Store, scope map[string]string,
 ) *MemoryExtractionStage {
 	return &MemoryExtractionStage{
-		BaseStage: NewBaseStage("memory_extraction", StageTypeTransform),
+		BaseStage: core.NewBaseStage("memory_extraction", core.StageTypeTransform),
 		extractor: extractor,
 		store:     store,
 		scope:     scope,
@@ -164,13 +165,13 @@ func (s *MemoryExtractionStage) WithCaller(caller types.Caller) *MemoryExtractio
 // Process implements Stage.
 func (s *MemoryExtractionStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
 	var messages []types.Message
-	var pending []StreamElement
+	var pending []core.StreamElement
 
 	for elem := range input {
 		if elem.Message != nil && !elem.Meta.PlayoutHeld { // held: taken from its release
@@ -182,7 +183,7 @@ func (s *MemoryExtractionStage) Process(
 	// A partial reply from an interrupted stream is not something the model
 	// said, and a blocked input turn is not something the model may see, so
 	// nothing is extracted from either.
-	if messages = ExcludeFromModelContext(messages); s.extractor != nil && len(messages) > 0 {
+	if messages = history.ExcludeFromModelContext(messages); s.extractor != nil && len(messages) > 0 {
 		s.extractAndSave(ctx, messages)
 	}
 

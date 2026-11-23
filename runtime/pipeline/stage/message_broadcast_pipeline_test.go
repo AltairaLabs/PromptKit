@@ -206,3 +206,80 @@ func TestMessageBroadcast_IndexIsAbsoluteAcrossTurns(t *testing.T) {
 		{Role: "assistant", Content: "done", Index: 3},
 	}, summarize(probe.drain()), "Index must be transcript-absolute on turn 2, not continue from turn 1")
 }
+
+// TestMessageBroadcastStage_DownstreamOfMergeStillPublishesEveryMessage places
+// the stage after a fan-in, the topology its precondition warns about.
+//
+// What survives: completeness. Every message is still published exactly once.
+// What does NOT: order, and therefore Index. MergeStage spawns a goroutine per
+// input (stages_advanced.go), so the interleaving is nondeterministic — which
+// is why this test asserts counts and content, never positions. Asserting an
+// order here would be asserting a race.
+func TestMessageBroadcastStage_DownstreamOfMergeStillPublishesEveryMessage(t *testing.T) {
+	bus := events.NewEventBus()
+	t.Cleanup(bus.Close)
+
+	var mu sync.Mutex
+	seen := map[string]int{}
+	bus.Subscribe(events.EventMessageCreated, func(e *events.Event) {
+		if d, ok := e.Data.(*events.MessageCreatedData); ok {
+			mu.Lock()
+			seen[d.Content]++
+			mu.Unlock()
+		}
+	})
+
+	emitMsgs := func(name string, contents ...string) *StageFunc {
+		return NewStageFunc(name, StageTypeGenerate,
+			func(ctx context.Context, _ <-chan StreamElement, out chan<- StreamElement) error {
+				defer close(out)
+				for _, c := range contents {
+					m := types.Message{Role: "assistant", Content: c}
+					select {
+					case out <- NewMessageElement(&m):
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+				return nil
+			})
+	}
+
+	a := emitMsgs("a", "a1", "a2")
+	b := emitMsgs("b", "b1")
+	merge := NewMergeStage("merge", 2)
+	bcast := NewMessageBroadcastStage(events.NewEmitter(bus, "run", "sess", "conv"))
+
+	p, err := NewPipelineBuilder().
+		AddStage(a).AddStage(b).AddStage(merge).AddStage(bcast).
+		Merge("merge", "a", "b").
+		Connect("merge", bcast.Name()).
+		Build()
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	in := make(chan StreamElement)
+	close(in)
+	out, err := p.Execute(ctx, in)
+	require.NoError(t, err)
+	for range out { //nolint:revive // draining
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		mu.Lock()
+		n := len(seen)
+		mu.Unlock()
+		if n == 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, map[string]int{"a1": 1, "a2": 1, "b1": 1}, seen,
+		"every message from both branches is published exactly once")
+}

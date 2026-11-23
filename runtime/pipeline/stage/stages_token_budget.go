@@ -184,7 +184,7 @@ func (s *TokenBudgetStage) emitResults(
 		if fromHistory != nil {
 			elem.Meta.FromHistory = fromHistory[i]
 		} else {
-			elem.Meta.FromHistory = !isNewMessage(&messages[i])
+			elem.Meta.FromHistory = !core.IsNewMessage(&messages[i])
 		}
 		select {
 		case output <- elem:

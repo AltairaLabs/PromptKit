@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -70,7 +70,7 @@ import (
 // queue overflows and drops an event, or when the stage sits downstream of a
 // fan-in that interleaves elements.
 type MessageBroadcastStage struct {
-	BaseStage
+	core.BaseStage
 	emitter *events.Emitter
 }
 
@@ -78,7 +78,7 @@ type MessageBroadcastStage struct {
 // makes the stage an inert pass-through.
 func NewMessageBroadcastStage(emitter *events.Emitter) *MessageBroadcastStage {
 	return &MessageBroadcastStage{
-		BaseStage: NewBaseStage("message_broadcast", StageTypeTransform),
+		BaseStage: core.NewBaseStage("message_broadcast", core.StageTypeTransform),
 		emitter:   emitter,
 	}
 }
@@ -86,8 +86,8 @@ func NewMessageBroadcastStage(emitter *events.Emitter) *MessageBroadcastStage {
 // Process publishes each new complete message and forwards all elements.
 func (s *MessageBroadcastStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -116,7 +116,7 @@ func (s *MessageBroadcastStage) Process(
 // puts each realtime assistant turn's Message on the element that carries
 // EndOfStream, and the save stage persists it. So every element that carries a
 // Message is counted and published, as the save stage collects every one.
-func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *StreamElement, msgIndex *int) {
+func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *core.StreamElement, msgIndex *int) {
 	// A held Message is not counted or broadcast here: its PlayoutRelease
 	// element, at the same place in the transcript, is, as the held element
 	// would have been, a held turn end's (PlayoutTurnEnd) included.
@@ -127,7 +127,7 @@ func (s *MessageBroadcastStage) broadcast(ctx context.Context, elem *StreamEleme
 	idx := *msgIndex
 	*msgIndex++
 
-	if s.emitter == nil || !isNewMessage(elem.Message) {
+	if s.emitter == nil || !core.IsNewMessage(elem.Message) {
 		return
 	}
 

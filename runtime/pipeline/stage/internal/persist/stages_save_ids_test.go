@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/pipeline/stage/internal/core"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/statestore"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -27,7 +28,7 @@ func TestIncrementalSaveStage_StoresStableMessageIDs(t *testing.T) {
 		Role: "assistant", Content: "hello",
 		Meta: map[string]interface{}{types.MetaMessageID: "client-given", "k": "v"},
 	}
-	results := runTestStage(t, s, []StreamElement{NewMessageElement(&user), NewMessageElement(&reply)})
+	results := runTestStage(t, s, []core.StreamElement{core.NewMessageElement(&user), core.NewMessageElement(&reply)})
 	require.Len(t, results, 2)
 
 	assert.Nil(t, user.Meta, "the caller's message is not changed")

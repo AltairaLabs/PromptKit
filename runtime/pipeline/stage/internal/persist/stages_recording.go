@@ -1,4 +1,4 @@
-package stage
+package persist
 
 import (
 	"context"
@@ -107,7 +107,7 @@ func DefaultRecordingStageConfig() RecordingStageConfig {
 // again would make an N-turn recording hold turn 1 N times. Each message is
 // recorded once, on the turn it was new.
 type RecordingStage struct {
-	BaseStage
+	core.BaseStage
 	store     events.EventStore
 	config    RecordingStageConfig
 	startTime time.Time
@@ -117,7 +117,7 @@ type RecordingStage struct {
 func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *RecordingStage {
 	name := "recording_" + string(config.Position)
 	return &RecordingStage{
-		BaseStage: NewBaseStage(name, StageTypeTransform),
+		BaseStage: core.NewBaseStage(name, core.StageTypeTransform),
 		store:     store,
 		config:    config,
 		startTime: time.Now(),
@@ -127,8 +127,8 @@ func NewRecordingStage(store events.EventStore, config RecordingStageConfig) *Re
 // Process observes elements and records them as events.
 func (rs *RecordingStage) Process(
 	ctx context.Context,
-	input <-chan StreamElement,
-	output chan<- StreamElement,
+	input <-chan core.StreamElement,
+	output chan<- core.StreamElement,
 ) error {
 	defer close(output)
 
@@ -152,7 +152,7 @@ func (rs *RecordingStage) Process(
 }
 
 // recordElement converts a StreamElement to events and persists them.
-func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
+func (rs *RecordingStage) recordElement(ctx context.Context, elem *core.StreamElement, msgIndex *int) {
 	if rs.store == nil {
 		return
 	}
@@ -185,7 +185,7 @@ func (rs *RecordingStage) recordElement(ctx context.Context, elem *StreamElement
 // Streaming content (text deltas, audio/video chunks) is opt-in per modality.
 // Complete messages are always recorded.
 func (rs *RecordingStage) recordContent(
-	ctx context.Context, elem *StreamElement, role string, msgIndex *int,
+	ctx context.Context, elem *core.StreamElement, role string, msgIndex *int,
 ) bool {
 	matched := false
 	if elem.Text != nil && rs.config.IncludeStreamingText {
@@ -220,7 +220,7 @@ func (rs *RecordingStage) recordContent(
 // timestamp, or now when it has none. Elements a provider stage builds from
 // response chunks carry none, and a recording sorts its events by time, so
 // zero timestamps put a session's turns in an arbitrary order.
-func eventTime(elem *StreamElement) time.Time {
+func eventTime(elem *core.StreamElement) time.Time {
 	if elem.Timestamp.IsZero() {
 		return time.Now()
 	}
@@ -255,7 +255,7 @@ func (rs *RecordingStage) appendOrWarn(ctx context.Context, evt *events.Event) {
 // could not tell a token from a turn — and doubled the text on replay, since
 // recording/replay.go appends every message.created and the complete message
 // arrives too.
-func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamElement, role string) {
+func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *core.StreamElement, role string) {
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventMessageTextDelta,
 		Timestamp:      eventTime(elem),
@@ -275,7 +275,7 @@ func (rs *RecordingStage) recordTextElement(ctx context.Context, elem *StreamEle
 const sourceRecordedInput = "recorded_input"
 
 // recordMessageElement records a complete message.
-func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *StreamElement, msgIndex *int) {
+func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *core.StreamElement, msgIndex *int) {
 	idx := *msgIndex
 	*msgIndex++
 
@@ -290,7 +290,7 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 	// change. Detected by Message.Source rather than Meta.FromHistory: at the
 	// output position this stage sits downstream of ProviderStage, which
 	// rebuilds elements with a zero Meta.
-	if !isNewMessage(elem.Message) {
+	if !core.IsNewMessage(elem.Message) {
 		return
 	}
 
@@ -327,7 +327,7 @@ func (rs *RecordingStage) recordMessageElement(ctx context.Context, elem *Stream
 // Direction and event type are derived from the role: user → input, assistant → output.
 // The event shape matches what the duplex-provider bus emit produces, so MediaTimeline
 // and replay paths consume both sources uniformly.
-func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamElement, role string) {
+func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *core.StreamElement, role string) {
 	audio := elem.Audio
 
 	// Direction, event type, and source attribution are all derived from role.
@@ -401,7 +401,7 @@ func (rs *RecordingStage) recordAudioElement(ctx context.Context, elem *StreamEl
 //
 // ImageEventData is the type the rest of the system already uses, and the audio
 // sibling below has always used its equivalent.
-func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamElement, role string) {
+func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *core.StreamElement, role string) {
 	img := elem.Image
 
 	eventType := events.EventImageOutput
@@ -440,7 +440,7 @@ func (rs *RecordingStage) recordImageElement(ctx context.Context, elem *StreamEl
 // Same defect as recordImageElement, with a sharper consequence: media_timeline
 // filters on EventVideoFrame, so frames recorded as message.created were
 // invisible to it.
-func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamElement, _ string) {
+func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *core.StreamElement, _ string) {
 	video := elem.Video
 
 	rs.appendOrWarn(ctx, &events.Event{
@@ -466,7 +466,7 @@ func (rs *RecordingStage) recordVideoElement(ctx context.Context, elem *StreamEl
 }
 
 // recordToolCallElement records a tool call.
-func (rs *RecordingStage) recordToolCallElement(ctx context.Context, elem *StreamElement) {
+func (rs *RecordingStage) recordToolCallElement(ctx context.Context, elem *core.StreamElement) {
 	tc := elem.ToolCall
 
 	rs.appendOrWarn(ctx, &events.Event{
@@ -482,7 +482,7 @@ func (rs *RecordingStage) recordToolCallElement(ctx context.Context, elem *Strea
 }
 
 // recordErrorElement records an error.
-func (rs *RecordingStage) recordErrorElement(ctx context.Context, elem *StreamElement) {
+func (rs *RecordingStage) recordErrorElement(ctx context.Context, elem *core.StreamElement) {
 	rs.appendOrWarn(ctx, &events.Event{
 		Type:           events.EventStreamInterrupted,
 		Timestamp:      eventTime(elem),
