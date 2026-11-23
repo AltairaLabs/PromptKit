@@ -40,7 +40,7 @@ type ToolRunnerConfig struct {
 // the tool events. It holds no turn state of its own.
 type ToolRunner struct {
 	Registry *tools.Registry
-	// Policy returns the tool Policy in force for the turn.
+	// Policy returns the tool policy in force for the turn.
 	Policy        func() *pipeline.ToolPolicy
 	Emitter       *events.Emitter
 	HookRegistry  *hooks.Registry

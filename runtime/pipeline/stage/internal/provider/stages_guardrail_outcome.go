@@ -25,7 +25,7 @@ type GuardrailOutcome struct {
 	Registry *hooks.Registry
 	Emitter  *events.Emitter
 	Caller   types.Caller
-	// Turn is the 0-based Turn the firings are reported against.
+	// Turn is the 0-based turn the firings are reported against.
 	Turn int
 	// Choose is the text a firing in direction blocks the turn with, given
 	// the text the guardrail chose: the stage's BlockedMessageFunc's choice
@@ -45,7 +45,7 @@ func (g GuardrailOutcome) BlockedMessage(
 }
 
 // Record reports a firing in direction, which took dur: its validation.failed
-// event, and its validation Record appended to vs, when vs is not nil.
+// event, and its validation record appended to vs, when vs is not nil.
 func (g GuardrailOutcome) Record(vs *[]types.ValidationResult, d hooks.Decision, direction string, dur time.Duration) {
 	recordGuardrailFiring(g.Emitter, nil, d, direction, dur, g.Turn)
 	if vs == nil {
@@ -77,7 +77,7 @@ type OutputVerdict struct {
 	// Holds, on an allowed chunk, is each chunk interceptor's hold: how many
 	// bytes at the end of the reply so far it has not cleared.
 	Holds []int
-	// Text is the reply's Text from here on, when it blocks: a truncation's
+	// Text is the reply's text from here on, when it blocks: a truncation's
 	// prefix, or the message that replaces the reply.
 	Text string
 	// Decision is the firing whose text stands, with the blocked message it
@@ -166,7 +166,7 @@ func (g GuardrailOutcome) JudgeResponse(
 	return v
 }
 
-// Verdict turns firings on a reply whose text was original into a Verdict.
+// Verdict turns firings on a reply whose text was original into a verdict.
 // The last firing stands: the deny that stopped the chain, or the last
 // enforcing hook, whose text the others judged. Its text is the reply's; a
 // replacement's or a deny's is the stage's choice (choose), made once, except
@@ -259,9 +259,6 @@ func (h *HoldController) clearHeld(i, offset int) { h.held[i] = max(h.held[i], o
 // releaseHeld records that the stream_hold guardrails passed the completed
 // reply: they hold nothing any more.
 func (h *HoldController) releaseHeld() { h.held = nil }
-
-// text is the reply's text so far, released and held.
-func (h *HoldController) text() string { return h.sent.String() + h.Pending }
 
 // Release returns the text every guardrail has cleared that was not released
 // before, and records it as released.
