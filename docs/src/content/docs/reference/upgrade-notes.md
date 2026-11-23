@@ -125,7 +125,9 @@ changes that need you to do something, with what to change and why. Sections
 are grouped by the release that first contained the change, newest first.
 Unreleased holds changes that are on `main` and in no release.
 
-## Unreleased
+## v2.23.0
+
+The entries are grouped by area: configuration, providers and tools.
 
 ### Configuration
 
