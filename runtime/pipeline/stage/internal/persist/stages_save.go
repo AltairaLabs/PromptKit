@@ -471,6 +471,12 @@ var errTailMoved = errors.New("the conversation changed while its messages were 
 // keeping its length. The count is read again after the tail: when it moved,
 // or the tail is not n long, the tail does not end where the caller's count
 // says, and errTailMoved is returned instead.
+//
+// The two counts agreeing shows only that the count is where it was, not that
+// nothing changed: a write that shortens the conversation (a BulkWriter.Save
+// or a history replacement) together with an append that brings it back to
+// the same count is not detected. Comparing ids would need a read of the
+// conversation before the count, which this check does without.
 func tailAtCount(
 	ctx context.Context, reader statestore.MessageReader, convID string, count, n int,
 ) ([]types.Message, error) {

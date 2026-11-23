@@ -310,6 +310,53 @@ func TestIncrementalSaveStage_LoggedTurnIsNeverIndexedAtAnotherWritersPosition(t
 	assert.Equal(t, map[string]int{"a": 4}, idx.at)
 }
 
+// appendAfterReadStore is a MemoryStore shared with another writer, whose
+// message lands just after the store answers a LoadRecentMessages: after the
+// stage read the tail and before it counts the messages again.
+type appendAfterReadStore struct {
+	*statestore.MemoryStore
+	pending []types.Message
+}
+
+func (s *appendAfterReadStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {
+	msgs, err := s.MemoryStore.LoadRecentMessages(ctx, id, n)
+	if err != nil || len(s.pending) == 0 {
+		return msgs, err
+	}
+	next := s.pending[0]
+	s.pending = s.pending[1:]
+	return msgs, s.MemoryStore.AppendMessages(ctx, id, []types.Message{next})
+}
+
+// A message another writer appends after the tail is read, before the stage
+// counts again, leaves the tail unconfirmed: no summary is written from it,
+// and the next turn summarizes turns 0-4 from messages 0-3.
+func TestIncrementalSaveStage_AppendAfterTheTailReadSkipsTheSummary(t *testing.T) {
+	store := &appendAfterReadStore{MemoryStore: statestore.NewMemoryStore()}
+	require.NoError(t, store.AppendMessages(context.Background(), "conv-ms", numberedMessages(4)))
+	store.pending = []types.Message{{Role: "user", Content: "other writer"}}
+	summarizer := &recordingSummarizer{}
+	stage := func() *IncrementalSaveStage { return summarizingStage(store, summarizer, 5, 4) }
+
+	runTestStage(t, stage(), messageElements([]types.Message{
+		{Role: "user", Content: "turn 1 q"}, {Role: "assistant", Content: "turn 1 a"},
+	}))
+
+	summaries, err := store.LoadSummaries(context.Background(), "conv-ms")
+	require.NoError(t, err)
+	assert.Empty(t, summaries, "no summary from a tail the count moved past")
+	assert.Nil(t, summarizer.batch, "the summarizer is not called")
+
+	runTestStage(t, stage(), messageElements([]types.Message{
+		{Role: "user", Content: "turn 2 q"}, {Role: "assistant", Content: "turn 2 a"},
+	}))
+
+	summaries, err = store.LoadSummaries(context.Background(), "conv-ms")
+	require.NoError(t, err)
+	assert.Equal(t, []statestore.Summary{{StartTurn: 0, EndTurn: 4, Content: "summary"}}, summaries)
+	assert.Equal(t, []string{"msg 0", "msg 1", "msg 2", "msg 3"}, contents(summarizer.batch))
+}
+
 // idlessSharedStore is a store that keeps no message ids, shared with another
 // writer that appends right after the stage's own append.
 type idlessSharedStore struct {
