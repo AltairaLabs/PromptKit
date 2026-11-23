@@ -331,7 +331,7 @@ func (r *cueRun) play(ctx context.Context, cue core.Cue) error {
 		return nil
 	}
 	if clip, isReady, ok := bank.get(cue.Text); ok {
-		return r.emit(ctx, cue, clip, isReady)
+		return r.emit(ctx, cue, clip, isReady, true)
 	}
 	if r.s.render == nil && !bank.canRender() {
 		logger.Debug("CueStage: no clip for the cue", "kind", cue.Kind)
@@ -348,7 +348,7 @@ func (r *cueRun) resolve(ctx context.Context) error {
 	r.discard()
 	if err := p.flight.err; err != nil {
 		logger.Warn("CueStage: the cue's clip did not render", "kind", p.cue.Kind, "error", err)
-	} else if err := r.emit(ctx, p.cue, p.flight.clip, p.flight.ready); err != nil {
+	} else if err := r.emit(ctx, p.cue, p.flight.clip, p.flight.ready, p.flight.keep); err != nil {
 		return err
 	}
 	return r.drain(ctx)
@@ -418,8 +418,11 @@ func (r *cueRun) replyAudioQueued() bool {
 }
 
 // emit plays clip for cue as audio elements of ChunkDuration each. A ready
-// clip at the output rate plays as it is; any other is prepared first.
-func (r *cueRun) emit(ctx context.Context, cue core.Cue, clip Clip, isReady bool) error {
+// clip at the output rate plays as it is; any other is prepared first. A
+// clip that is the text's own (own) is prepared once per run; one played in
+// its place (the earcon after the text's source failed) is not kept for the
+// text, so the text's own clip plays once its source renders it.
+func (r *cueRun) emit(ctx context.Context, cue core.Cue, clip Clip, isReady, own bool) error {
 	rate := r.outputRate()
 	key := cuePreparedKey{text: cue.Text, rate: rate}
 	pcm, ok := r.prepared[key]
@@ -430,7 +433,9 @@ func (r *cueRun) emit(ctx context.Context, cue core.Cue, clip Clip, isReady bool
 		} else {
 			pcm = prepareCueAudio(clip.Audio, rate)
 		}
-		r.prepared[key] = pcm
+		if own {
+			r.prepared[key] = pcm
+		}
 	}
 	return r.emitPCM(ctx, cue, pcm, rate)
 }

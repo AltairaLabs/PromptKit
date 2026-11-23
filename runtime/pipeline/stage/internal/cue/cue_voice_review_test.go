@@ -76,6 +76,43 @@ func TestCueVoice_FailedSourceIsRetriedAfterBackoff(t *testing.T) {
 	assert.Equal(t, cueFaded(pcm, 24000), clip.Audio.Samples)
 }
 
+// Within one run of the stage, a text that played the earcon because its
+// source failed plays its own clip once the source renders it after the
+// backoff: the earcon it played in its place is not kept for the run either.
+func TestCueVoice_RetriedClipPlaysLaterInTheSameRun(t *testing.T) {
+	pcm := cueRamp(4800)
+	var failing atomic.Bool
+	failing.Store(true)
+	svc := newFakeTTS(pcm)
+	svc.audio = func(string) ([]byte, error) {
+		if failing.Load() {
+			return nil, errors.New("tts down")
+		}
+		return pcm, nil
+	}
+	cue := cueStageForSession(t, Config{TTS: svc, Cache: cueclip.NewMemoryCache(1 << 20)},
+		spokenSession("alloy", 24000))
+	clock := &testClock{t: time.Unix(1000, 0)}
+	cue.bank.now = clock.now
+	text := "Retry me in this run."
+
+	c := startChain(t, cue)
+	c.in <- guardrailCueElem(text)
+	assert.Equal(t, text, *c.next(t).Text)
+	var first []byte
+	for range 2 { // 200 ms of earcon in 100 ms chunks
+		first = append(first, c.next(t).Audio.Samples...)
+	}
+	assert.Equal(t, earconPCM(24000), first, "the TTS failed: the earcon plays")
+
+	failing.Store(false)
+	clock.advance(cueRetryBackoff + time.Second)
+	c.in <- guardrailCueElem(text)
+	got := c.finish(t)
+	assert.Equal(t, 2, svc.calls(text), "the TTS is asked again after the backoff")
+	assert.Equal(t, cueFaded(pcm, 24000), cueAudioOf(got), "the TTS clip plays, not the earcon")
+}
+
 // unreportedSession is a session that does not report its output audio.
 type unreportedSession struct{ providers.StreamInputSession }
 
