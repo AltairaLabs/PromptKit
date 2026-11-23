@@ -1,6 +1,7 @@
 package persist
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -92,4 +93,30 @@ func TestIncrementalSaveStage_FullSaveKeepsStoredMetadata(t *testing.T) {
 
 	assert.Equal(t, map[string]any{"tenant": "acme", "trace": "t1"}, store.states["c"].Metadata)
 	assert.Equal(t, []string{"old", "new"}, contents(store.states["c"].Messages))
+}
+
+// shortTailStore's reader returns at most max of the messages asked for, the
+// most recent ones.
+type shortTailStore struct {
+	*readerWithSummaryStore
+	max int
+}
+
+func (s *shortTailStore) LoadRecentMessages(ctx context.Context, id string, n int) ([]types.Message, error) {
+	return s.readerWithSummaryStore.LoadRecentMessages(ctx, id, min(n, s.max))
+}
+
+// A reader that returns fewer messages than the unsummarized tail holds has
+// returned the most recent ones, not those after the last summary. No summary
+// is written from them: its turn range would not be the messages it summarized.
+func TestMaybeSummarize_ShortTailWritesNoSummary(t *testing.T) {
+	store := &shortTailStore{readerWithSummaryStore: newReaderWithSummaryStore(), max: 4}
+	store.messages["conv-ms"] = numberedMessages(9)
+	store.summaries["conv-ms"] = []statestore.Summary{{StartTurn: 0, EndTurn: 2, Content: "old"}}
+	summarizer := &recordingSummarizer{}
+
+	callMaybeSummarize(t, store, summarizer, 3, 5)
+
+	assert.Nil(t, summarizer.batch, "the summarizer is not called")
+	assert.Equal(t, []statestore.Summary{{StartTurn: 0, EndTurn: 2, Content: "old"}}, store.summaries["conv-ms"])
 }

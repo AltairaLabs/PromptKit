@@ -421,16 +421,18 @@ func (s *IncrementalSaveStage) maybeSummarize(ctx context.Context, convID string
 			"conversation", convID, "error", err)
 		return
 	}
-	if len(tail) < unsummarized {
-		// Reader returned fewer than asked — adjust unsummarized so the
-		// turn-index math below stays consistent.
-		unsummarized = len(tail)
+	if len(tail) != unsummarized {
+		// The reader returned the most recent messages, but not the ones
+		// asked for, so the tail does not start at lastSummarizedTurn. A
+		// summary of it would claim turns it did not summarize, and replace
+		// them in model context.
+		logger.Warn("Auto-summarize: message tail does not match the message count, skipping",
+			"conversation", convID, "want", unsummarized, "got", len(tail))
+		return
 	}
 
+	// unsummarized is at least one batch (checked above), so the batch fits.
 	endTurn := lastSummarizedTurn + s.config.SummarizeBatchSize
-	if endTurn-lastSummarizedTurn > unsummarized {
-		endTurn = lastSummarizedTurn + unsummarized
-	}
 
 	// tail covers messages [lastSummarizedTurn, count). Slice off the
 	// SummarizeBatchSize prefix to get the oldest unsummarized batch.
