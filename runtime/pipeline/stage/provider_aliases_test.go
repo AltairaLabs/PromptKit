@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/events"
+	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers/mock"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -55,4 +56,12 @@ func TestFacade_NewProviderStageWithEmitterEmitsThroughIt(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("no provider.call.started event")
 	}
+}
+
+func TestFacade_StreamMediaToElementRoutesAudio(t *testing.T) {
+	elem := StreamMediaToElement(&providers.StreamMediaData{MIMEType: "audio/pcm", Data: []byte{1, 2}, SampleRate: 24000})
+	require.NotNil(t, elem.Audio)
+	assert.Equal(t, AudioData{Samples: []byte{1, 2}, SampleRate: 24000, Channels: 1, Format: AudioFormatPCM16},
+		*elem.Audio)
+	assert.Nil(t, elem.Video)
 }
