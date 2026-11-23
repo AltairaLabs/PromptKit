@@ -1,14 +1,17 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
 )
@@ -150,4 +153,88 @@ func TestInteractions_ToolChoiceOmittedWithoutTools(t *testing.T) {
 	if got := srv.toolChoiceJSON(t); got != "" {
 		t.Errorf("tool_choice = %s, want none sent", got)
 	}
+}
+
+// captureWarnings routes the package logger to a buffer at warn level for the
+// test's duration.
+func captureWarnings(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	logger.SetLogger(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { logger.SetLogger(nil) })
+	return &logs
+}
+
+// Gemini rejects a request whose allowed function names include a tool it
+// was not given (HTTP 400 "allowed_function_names should be a subset of the
+// provided function_declarations names", verified live on both APIs). A
+// named choice outside the declared tools therefore forces a call to any
+// declared tool, as it did before named choices were restricted, and says so.
+func TestToolChoice_UndeclaredName_FallsBackToAny(t *testing.T) {
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+
+	t.Run("generateContent", func(t *testing.T) {
+		logs := captureWarnings(t)
+		srv := newExplicitCacheServer(t, http.StatusOK)
+		tp, tools := twoToolProvider(t, srv, nil)
+		if _, _, err := tp.PredictWithTools(context.Background(), req, tools, "deploy_prod"); err != nil {
+			t.Fatalf("PredictWithTools: %v", err)
+		}
+		want := `{"function_calling_config":{"mode":"ANY"}}`
+		if got := canonicalJSON(t, srv.genBody(t)["tool_config"]); got != want {
+			t.Errorf("request tool_config = %s, want %s", got, want)
+		}
+		if !strings.Contains(logs.String(), "deploy_prod") {
+			t.Errorf("expected a warning naming deploy_prod, got %q", logs.String())
+		}
+	})
+
+	t.Run("cached", func(t *testing.T) {
+		logs := captureWarnings(t)
+		srv := newExplicitCacheServer(t, http.StatusOK)
+		tp, tools := twoToolProvider(t, srv, map[string]any{"explicit_caching": true})
+		if _, _, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+			System: bigSystem, Messages: req.Messages,
+		}, tools, "deploy_prod"); err != nil {
+			t.Fatalf("PredictWithTools: %v", err)
+		}
+		var create map[string]any
+		if err := json.Unmarshal(srv.createBodies[0], &create); err != nil {
+			t.Fatalf("create body not JSON: %v", err)
+		}
+		want := `{"functionCallingConfig":{"mode":"ANY"}}`
+		if got := canonicalJSON(t, create["toolConfig"]); got != want {
+			t.Errorf("CachedContent toolConfig = %s, want %s", got, want)
+		}
+		if !strings.Contains(logs.String(), "deploy_prod") {
+			t.Errorf("expected a warning naming deploy_prod, got %q", logs.String())
+		}
+	})
+
+	t.Run("interactions", func(t *testing.T) {
+		logs := captureWarnings(t)
+		srv := newInteractionsChoiceServer(t)
+		tp, tools := newInteractionsChoiceProvider(t, srv.url)
+		if _, _, err := tp.PredictWithTools(context.Background(), req, tools, "deploy_prod"); err != nil {
+			t.Fatalf("PredictWithTools: %v", err)
+		}
+		if got := srv.toolChoiceJSON(t); got != `"any"` {
+			t.Errorf("tool_choice = %s, want \"any\"", got)
+		}
+		if !strings.Contains(logs.String(), "deploy_prod") {
+			t.Errorf("expected a warning naming deploy_prod, got %q", logs.String())
+		}
+	})
+
+	t.Run("declared name logs nothing", func(t *testing.T) {
+		logs := captureWarnings(t)
+		srv := newExplicitCacheServer(t, http.StatusOK)
+		tp, tools := twoToolProvider(t, srv, nil)
+		if _, _, err := tp.PredictWithTools(context.Background(), req, tools, "write_file"); err != nil {
+			t.Fatalf("PredictWithTools: %v", err)
+		}
+		if strings.Contains(logs.String(), "write_file") {
+			t.Errorf("a declared named choice must not warn, got %q", logs.String())
+		}
+	})
 }

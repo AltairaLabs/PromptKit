@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,7 +46,9 @@ const (
 	toolChoiceNone = "none"
 	// toolChoiceAuto lets the model decide whether to call a tool.
 	toolChoiceAuto = "auto"
-	// toolChoiceAny forces a call to some tool (alias of "required").
+	// toolChoiceRequired forces a call to some declared tool.
+	toolChoiceRequired = "required"
+	// toolChoiceAny is an alias of toolChoiceRequired.
 	toolChoiceAny = "any"
 
 	// logNameGemini identifies this provider in log lines.
@@ -446,11 +449,40 @@ func functionCallingMode(toolChoice string) string {
 // allowedFunctionNames to that tool.
 func namedToolChoice(toolChoice string) string {
 	switch toolChoice {
-	case "", toolChoiceAuto, toolChoiceNone, "required", toolChoiceAny:
+	case "", toolChoiceAuto, toolChoiceNone, toolChoiceRequired, toolChoiceAny:
 		return ""
 	default:
 		return toolChoice
 	}
+}
+
+// fitToolChoice returns the tool choice to send for the declared tools. A
+// choice naming a tool that is not declared falls back to "required" (call any
+// declared tool) with a warning: Gemini rejects allowed function names outside
+// the declared tools with HTTP 400 on both generateContent and Interactions.
+func (p *Provider) fitToolChoice(toolChoice string, declared []string) string {
+	name := namedToolChoice(toolChoice)
+	if name == "" || slices.Contains(declared, name) {
+		return toolChoice
+	}
+	logger.Warn("gemini: tool choice names a tool that is not declared on this request; "+
+		"forcing a call to any declared tool instead",
+		"provider", p.ID(), "tool", name, "declared", declared)
+	return toolChoiceRequired
+}
+
+// declaredToolNames returns the function names BuildTooling declared.
+func declaredToolNames(tools any) []string {
+	return interactionsToolNames(buildInteractionsTools(tools))
+}
+
+// interactionsToolNames returns the names of flat function declarations.
+func interactionsToolNames(tools []interactionsTool) []string {
+	names := make([]string, 0, len(tools))
+	for i := range tools {
+		names = append(names, tools[i].Name)
+	}
+	return names
 }
 
 // cachedToolConfig is the CachedContent toolConfig for a tool choice. A request
@@ -715,6 +747,9 @@ func (p *ToolProvider) buildToolRequest(
 	}
 
 	if tools != nil {
+		// Resolved once, so the inline tool_config and the cached toolConfig
+		// carry the same choice (and a bad name warns once).
+		toolChoice = p.fitToolChoice(toolChoice, declaredToolNames(tools))
 		addToolConfig(request, tools, toolChoice)
 	}
 

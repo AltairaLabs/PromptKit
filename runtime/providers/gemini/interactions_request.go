@@ -48,8 +48,11 @@ func (p *ToolProvider) buildInteractionsRequest(
 		Tools:          buildInteractionsTools(tools),
 		ResponseFormat: interactionsResponseFormat(req.ResponseFormat),
 	}
-	if choice := interactionsToolChoice(toolChoice); choice != nil && len(out.Tools) > 0 {
-		out.Generation = map[string]any{"tool_choice": choice}
+	if len(out.Tools) > 0 {
+		choice := interactionsToolChoice(p.fitToolChoice(toolChoice, interactionsToolNames(out.Tools)))
+		if choice != nil {
+			out.Generation = map[string]any{"tool_choice": choice}
+		}
 	}
 
 	// Thinking config has no equivalent field here — thought steps are returned
