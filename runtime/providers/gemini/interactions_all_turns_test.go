@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/types"
@@ -578,5 +579,42 @@ func TestInteractions_PartsMatchGenerateContentPerPath(t *testing.T) {
 	if gcTool.Parts != nil || inTool.Parts != nil {
 		t.Errorf("tool-turn parts = %v (generateContent), %v (interactions); want none on both",
 			gcTool.Parts, inTool.Parts)
+	}
+}
+
+// A unary turn reports its latency, the time from sending to the parsed
+// answer, on the Interactions API as on generateContent, with tools and
+// without. (A stream chunk carries no latency on either API.)
+func TestInteractions_ReportsLatency(t *testing.T) {
+	const delay = 30 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		time.Sleep(delay)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, allTurnsUnary)
+	}))
+	t.Cleanup(srv.Close)
+	p := newSpecProvider(t, srv.URL, interactionsMode)
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+
+	resp, err := p.Predict(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Predict: %v", err)
+	}
+	if resp.Latency < delay {
+		t.Errorf("tool-less latency = %v, want at least the server's %v", resp.Latency, delay)
+	}
+
+	tp := p.(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{Name: "probe", Description: "p"}})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	resp, _, err = tp.PredictWithTools(context.Background(), req, tools, "")
+	if err != nil {
+		t.Fatalf("PredictWithTools: %v", err)
+	}
+	if resp.Latency < delay {
+		t.Errorf("tool-turn latency = %v, want at least the server's %v", resp.Latency, delay)
 	}
 }

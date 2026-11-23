@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/providers"
@@ -199,6 +200,7 @@ func (p *ToolProvider) predictWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 	parts outputParts,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
+	start := time.Now()
 	predictResp := providers.PredictionResponse{}
 	body, err := p.buildInteractionsRequest(ctx, req, tools, toolChoice)
 	if err != nil {
@@ -229,6 +231,7 @@ func (p *ToolProvider) predictWithInteractions(
 	}
 
 	content, toolCalls, reasoning := parseInteractionsResponse(&resp)
+	predictResp.Latency = time.Since(start)
 
 	predictResp.Content = content
 	predictResp.Parts = interactionsOutputParts(&resp, parts == partsAlways)
