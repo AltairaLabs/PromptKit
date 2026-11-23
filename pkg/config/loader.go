@@ -80,7 +80,7 @@ func decodeManifest[T any](data []byte) (T, error) {
 	root := doc.Content[0]
 
 	present := map[string]bool{}
-	for i := 0; i+1 < len(root.Content); i += 2 {
+	for i := 0; i < len(root.Content); i += 2 { // a mapping node holds key, value pairs
 		present[root.Content[i].Value] = true
 	}
 	for _, key := range manifestRequiredKeys {
