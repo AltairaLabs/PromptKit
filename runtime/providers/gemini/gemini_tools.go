@@ -162,6 +162,30 @@ func (p *ToolProvider) BuildTooling(descriptors []*providers.ToolDescriptor) (pr
 	}, nil
 }
 
+// Predict runs a turn with no tools on the configured API. On the
+// Interactions API it takes the same path as a tool turn, with no tools;
+// otherwise it is the embedded Provider's generateContent call.
+func (p *ToolProvider) Predict(
+	ctx context.Context, req providers.PredictionRequest,
+) (providers.PredictionResponse, error) {
+	if p.resolveAPIMode() != APIModeInteractions {
+		return p.Provider.Predict(ctx, req)
+	}
+	resp, _, err := p.PredictWithTools(ctx, req, nil, "")
+	return resp, err
+}
+
+// PredictStream streams a turn with no tools from the configured API, as
+// Predict does.
+func (p *ToolProvider) PredictStream(
+	ctx context.Context, req providers.PredictionRequest,
+) (<-chan providers.StreamChunk, error) {
+	if p.resolveAPIMode() != APIModeInteractions {
+		return p.Provider.PredictStream(ctx, req)
+	}
+	return p.PredictStreamWithTools(ctx, req, nil, "")
+}
+
 // PredictWithTools runs predictWithToolsOnce, retrying without any sampling
 // parameter the API rejects for this model.
 func (p *ToolProvider) PredictWithTools(
@@ -1082,7 +1106,9 @@ func init() {
 				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
-				applyAPIModeConfig(tp.Provider, spec)
+				if err := applyAPIModeConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
 				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {
@@ -1101,7 +1127,9 @@ func init() {
 				tp.SetUnsupportedParams(spec.UnsupportedParams)
 				applyExplicitCachingConfig(tp.Provider, spec)
 				applyThinkingConfig(tp.Provider, spec)
-				applyAPIModeConfig(tp.Provider, spec)
+				if err := applyAPIModeConfig(tp.Provider, spec); err != nil {
+					return nil, err
+				}
 				applyStreamingModalitiesConfig(tp.Provider, spec)
 				applyContextWindowConfig(tp.Provider, spec)
 				if err := applyLiveURLConfig(tp.Provider, spec); err != nil {

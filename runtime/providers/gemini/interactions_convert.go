@@ -395,3 +395,37 @@ func parseInteractionsResponse(resp *interactionsResponse) (
 	}
 	return content, toolCalls, reasoning
 }
+
+// interactionsOutputParts returns the model's output as content parts, in
+// order, when it holds generated media (an image or audio item): the text,
+// markdown images and media, mapped as generateContent maps a candidate's
+// parts. A text-only answer returns nil, as a tool turn on generateContent
+// does: Content carries it.
+func interactionsOutputParts(resp *interactionsResponse) []types.ContentPart {
+	var parts []geminiPart
+	hasMedia := false
+	for i := range resp.Steps {
+		step := &resp.Steps[i]
+		if step.Type != stepTypeModelOutput && step.Type != stepTypeText {
+			continue
+		}
+		if step.Text != "" {
+			parts = append(parts, geminiPart{Text: step.Text})
+			continue
+		}
+		for j := range step.Content {
+			item := &step.Content[j]
+			if item.Data == "" {
+				parts = append(parts, geminiPart{Text: item.Text})
+				continue
+			}
+			hasMedia = true
+			parts = append(parts, geminiPart{InlineData: &geminiInlineData{MimeType: item.MIMEType, Data: item.Data}})
+		}
+	}
+	if !hasMedia {
+		return nil
+	}
+	out, _ := extractCandidateContent(parts)
+	return out
+}

@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
@@ -59,7 +60,8 @@ func configuredAPIMode(additionalConfig map[string]any) APIMode {
 }
 
 // resolveAPIMode decides where a request goes: the configured API, else
-// generateContent.
+// generateContent. It applies to every turn, with tools or without
+// (ToolProvider.Predict / PredictStream and the tool entry points).
 //
 // There is no automatic choice. One used to send a schema alongside tools to
 // the Interactions API, on the premise that it applies the schema only to the
@@ -72,12 +74,23 @@ func (p *Provider) resolveAPIMode() APIMode {
 	return APIModeGenerateContent
 }
 
-// applyAPIModeConfig reads additional_config.api_mode onto the provider.
+// applyAPIModeConfig reads additional_config.api_mode onto the provider. It
+// runs after applyExplicitCachingConfig, and refuses explicit caching with
+// the Interactions API, which has no explicit context caching (it answers a
+// cached_content field with HTTP 400 "Unknown parameter"): every turn goes to
+// that API, so the cache would never be used and each turn would pay the full
+// input price the config meant to cache.
 //
 // Wired from BOTH factory constructors. A config-reached feature that is only
 // applied on one of them is unreachable for half of callers while every
 // constructor test still passes — the failure mode that has bitten this repo
 // repeatedly.
-func applyAPIModeConfig(p *Provider, spec providers.ProviderSpec) {
+func applyAPIModeConfig(p *Provider, spec providers.ProviderSpec) error {
 	p.apiMode = configuredAPIMode(spec.AdditionalConfig)
+	if p.apiMode == APIModeInteractions && p.cache != nil {
+		return fmt.Errorf("gemini provider %q: additional_config.explicit_caching is not supported "+
+			"with api_mode interactions: the Interactions API has no explicit context caching; "+
+			"remove explicit_caching or use api_mode generate_content", spec.ID)
+	}
+	return nil
 }

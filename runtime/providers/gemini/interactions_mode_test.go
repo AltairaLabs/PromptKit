@@ -56,11 +56,11 @@ func TestConfiguredAPIMode(t *testing.T) {
 // half of callers while every constructor test still passes.
 func TestApplyAPIModeConfig_WiredFromSpec(t *testing.T) {
 	p := &Provider{}
-	applyAPIModeConfig(p, providers.ProviderSpec{
-		AdditionalConfig: map[string]any{"api_mode": "interactions"}})
+	require.NoError(t, applyAPIModeConfig(p, providers.ProviderSpec{
+		AdditionalConfig: map[string]any{"api_mode": "interactions"}}))
 	assert.Equal(t, APIModeInteractions, p.apiMode)
 
-	applyAPIModeConfig(p, providers.ProviderSpec{})
+	require.NoError(t, applyAPIModeConfig(p, providers.ProviderSpec{}))
 	assert.Equal(t, apiModeUnset, p.apiMode, "an absent config clears rather than sticks")
 }
 

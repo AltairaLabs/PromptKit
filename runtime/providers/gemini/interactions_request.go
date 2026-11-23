@@ -201,6 +201,7 @@ func (p *ToolProvider) predictWithInteractions(
 	content, toolCalls, reasoning := parseInteractionsResponse(&resp)
 
 	predictResp.Content = content
+	predictResp.Parts = interactionsOutputParts(&resp)
 	predictResp.Reasoning = reasoning
 	predictResp.FinishReason = finishReasonForInteraction(resp.Status, len(toolCalls) > 0)
 	if p.ShouldIncludeRawOutput() {

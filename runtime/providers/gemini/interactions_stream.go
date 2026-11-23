@@ -44,6 +44,10 @@ const (
 	deltaTypeText      = "text"
 	deltaTypeArguments = "arguments_delta"
 	deltaTypeSignature = "thought_signature"
+	// deltaTypeImage and deltaTypeAudio carry generated media as
+	// {"type":"image","mime_type":"image/jpeg","data":"…"} (verified live).
+	deltaTypeImage = "image"
+	deltaTypeAudio = "audio"
 	// deltaTypeThoughtSummary carries a thought summary's text as
 	// {"type":"thought_summary","content":{"text":"…"}} (verified live).
 	deltaTypeThoughtSummary = "thought_summary"
@@ -68,6 +72,7 @@ type interactionsStreamEvent struct {
 		Text      string `json:"text"`
 		Arguments string `json:"arguments"`
 		Signature string `json:"signature"`
+		MIMEType  string `json:"mime_type"`
 		// Content is decoded only for a thought_summary delta, so a delta of
 		// another type whose content has another shape still decodes.
 		Content json.RawMessage `json:"content"`
@@ -85,7 +90,7 @@ type streamStep struct {
 }
 
 // predictStreamWithInteractions runs a streaming turn through the Interactions
-// API, which is the only way a response schema can coexist with tools.
+// API, for a provider configured with api_mode interactions.
 func (p *ToolProvider) predictStreamWithInteractions(
 	ctx context.Context, req providers.PredictionRequest, tools providers.ProviderTools, toolChoice string,
 ) (<-chan providers.StreamChunk, error) {
@@ -289,6 +294,14 @@ func applyStepDelta(
 		// Reasoning streams beside the answer, as a thought part's text does on
 		// generateContent, and never into Content.
 		return emit(providers.StreamChunk{Content: content.String(), Reasoning: summary.Text})
+
+	case deltaTypeImage, deltaTypeAudio:
+		// A stream carries text, reasoning and tool calls only, as a
+		// generateContent stream does, so generated media is not delivered.
+		logger.Warn("gemini interactions: generated media is not delivered on a stream; "+
+			"use a non-streaming turn to receive it",
+			"type", ev.Delta.Type, "mime_type", ev.Delta.MIMEType)
+		return true
 
 	case deltaTypeSignature:
 		// A thought's signature is opaque and must be replayed on later rounds,

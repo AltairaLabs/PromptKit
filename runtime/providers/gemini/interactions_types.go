@@ -154,10 +154,14 @@ type interactionsFunctionResult struct {
 	Result any `json:"result"`
 }
 
-// interactionsContent is a content item inside a step.
+// interactionsContent is a content item inside a step. A model_output step's
+// generated image or audio arrives with Data (base64) and MIMEType set, as
+// {"type":"image","mime_type":"image/jpeg","data":"…"} (captured live).
 type interactionsContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MIMEType string `json:"mime_type,omitempty"`
 }
 
 // interactionsResponse is a completed (non-streaming) interaction.
