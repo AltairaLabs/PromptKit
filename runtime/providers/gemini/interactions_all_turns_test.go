@@ -282,8 +282,9 @@ func TestInteractions_ToolLessTurnRefusesUnacceptedDocument(t *testing.T) {
 // model audio/wav). It reaches the response's Parts beside the text, as an
 // inline-data part does on generateContent.
 func TestInteractions_GeneratedMediaReachesParts(t *testing.T) {
+	// The thought's text is reasoning and stays out of Parts.
 	unary := `{"id":"i1","status":"completed","steps":[
-	  {"type":"thought","signature":"SIG"},
+	  {"type":"thought","signature":"SIG","content":[{"type":"text","text":"planning"}]},
 	  {"type":"model_output","content":[{"type":"text","text":"Here:"},
 	    {"type":"image","mime_type":"image/jpeg","data":"aW1n"},
 	    {"type":"audio","mime_type":"audio/wav","data":"YXVk"}]}]}`
