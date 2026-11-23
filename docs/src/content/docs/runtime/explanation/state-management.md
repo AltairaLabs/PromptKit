@@ -173,7 +173,13 @@ flowchart LR
 
 With Redis, any instance serves any conversation, and instances add availability and capacity. Session affinity still helps if you cache per-instance state, because it lowers Redis load.
 
-Concurrent requests on one conversation need care. Two requests that each load, execute and save can overwrite each other when the store only supports `BulkWriter`. Stores that implement `MessageAppender` append atomically, which removes the race for messages. Serialize requests per conversation if you also depend on whole-state writes.
+Concurrent requests on one conversation need care. Two requests that each load, execute and save can overwrite each other when the store only supports `BulkWriter`. Stores that implement `MessageAppender` append atomically, which removes the race for messages. Auto-summarization, indexing and semantic retrieval read the message count and the messages in separate calls, and another writer can append between them:
+
+- Auto-summarization skips the turn when the count changes while it reads, and the next turn summarizes the skipped turns. The check compares counts only, so a write that shortens the conversation together with an append that restores its length goes undetected.
+- `IncrementalSaveStage` indexes each message where it finds it in the stored messages. It matches by message ID, or by role and text when the store keeps no IDs. A message it cannot find is left unindexed, so an index entry never points at another writer's message unless two messages share a role and text in a store without IDs.
+- `ContextAssemblyStage` matches retrieved messages to the hot window by message ID. When the window's messages have no IDs, it matches by position, and an append between the window read and the count can repeat the window's first message.
+
+Serialize requests per conversation if you also depend on whole-state writes, or need none of these limits.
 
 ## Load performance
 
