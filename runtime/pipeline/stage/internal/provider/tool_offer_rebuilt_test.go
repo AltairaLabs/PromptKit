@@ -605,3 +605,29 @@ func TestToolOfferRebuilt_StructuredOutputReask(t *testing.T) {
 		{Reasons: []string{events.ToolOfferReasonStructuredOutputReask}, Removed: []string{"lookup_order"}, Round: 1},
 	}, ev.all())
 }
+
+// A switch of provider between calls that are sent no tools changes no tools
+// array: nothing is reported and the warning is not spent.
+func TestToolOfferRebuilt_ProviderSwitchWithoutTools(t *testing.T) {
+	var buf bytes.Buffer
+	logger.SetOutput(&buf)
+	t.Cleanup(func() { logger.SetOutput(nil) })
+
+	ev := newOfferEvents(t)
+	prov := newOfferScriptProvider("first")
+	prov.caching = true
+	other := newOfferScriptProvider("second")
+	other.caching = true
+	resolver := &fakeResolver{sequence: []Handoff{
+		{Valid: true, SystemPrompt: "ORIGIN"},
+		{Valid: true, SystemPrompt: "ORIGIN", Call: &HandoffCall{Provider: other}},
+	}}
+	s := newOfferStage(t, prov, registryWithTools(t), ev, offerStageOpts{resolver: resolver})
+
+	runOfferTurn(t, s, "first")
+	runOfferTurn(t, s, "second")
+
+	assert.Nil(t, other.offeredOn(t, 0), "the second turn ran on the other provider, with no tools")
+	assert.Empty(t, ev.all())
+	assert.NotContains(t, buf.String(), offerRebuiltWarning)
+}

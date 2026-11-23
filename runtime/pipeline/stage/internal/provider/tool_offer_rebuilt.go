@@ -31,8 +31,13 @@ type offerSnapshot struct {
 	provider providers.Provider
 }
 
-// equal reports whether o and other are the same array for the same provider.
+// equal reports whether o and other are the same array for the same
+// provider. Two calls sent no tools send the same array, whichever provider
+// each went to.
 func (o offerSnapshot) equal(other offerSnapshot) bool {
+	if len(o.names) == 0 && len(other.names) == 0 {
+		return true
+	}
 	return o.key == other.key && sameProvider(o.provider, other.provider) && slices.Equal(o.names, other.names)
 }
 

@@ -6856,7 +6856,7 @@ type ToolCallRunner interface {
 ```
 
 <a name="ToolOfferHistory"></a>
-## type [ToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_offer_rebuilt.go#L56-L59>)
+## type [ToolOfferHistory](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/pipeline/stage/internal/provider/tool_offer_rebuilt.go#L61-L64>)
 
 ToolOfferHistory is what tool.offer.rebuilt compares a provider call's tools array against: the array the previous call was sent, what has changed the array since, and whether the cache\-cost warning was logged. Share one across the provider stages of a conversation, as the SDK does across a workflow's states, so a change from one stage's calls to the next stage's is reported and the warning is logged once. A stage built without one \(ProviderConfig.ToolOfferHistory\) keeps its own. Safe for concurrent use.
 
