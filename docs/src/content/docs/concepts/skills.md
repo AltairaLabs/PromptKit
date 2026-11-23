@@ -4,10 +4,13 @@ description: How skills load instructions and tools into a conversation on deman
 sidebar:
   order: 8
 verified:
-  commit: 8489bf3d95c7498f9de0f024769db9399c24e884
+  commit: fab3a060a311bd1abcad2ed0ca9669b3a89c203a
   sources:
+    - runtime/events/types.go
     - runtime/packspec/types.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/tool_offer_rebuilt.go
+    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/prompt/schema/promptpack.schema.json
     - runtime/skills/active_set.go
     - runtime/skills/executor.go
@@ -19,6 +22,7 @@ verified:
     - sdk/conversation.go
     - sdk/options.go
     - sdk/sdk.go
+    - sdk/tool_loading.go
     - sdk/workflow.go
 ---
 
@@ -92,7 +96,9 @@ Skills compose with the tool system in a hierarchy:
 
 When a skill activates, its `allowed-tools` extend the prompt's tool set, capped at the tools the pack declares. A skill cannot grant a tool the pack does not define. Deactivating a skill withdraws the tools it granted, unless another active skill still grants them.
 
-A grant that changes the tool set changes the tools array the next round sends the provider. A provider that caches the prompt cannot reuse its cache for that round: Claude writes the whole prefix to its cache again. The conversation's event bus reports the change as `tool.offer.rebuilt` with the reason `skill_grant`.
+In the default tool loading mode, `rebuild`, a grant that changes the tool set changes the tools array the next round sends the provider. A provider that caches the prompt cannot reuse its cache for that round: Claude writes the whole prefix to its cache again. The conversation's event bus reports the change as `tool.offer.rebuilt` with the reason `skill_grant`.
+
+`sdk.WithToolLoading(sdk.ToolLoading{Mode: sdk.ToolLoadingStable})` keeps the cache instead. Every call then carries the same tools array, which includes every pack tool a skill can grant, and a grant changes only which of those tools the model may call.
 
 Controlling which skills a conversation can activate therefore controls which extra tools the model can reach. A call to a skill's tool while the skill is not active is refused, with the result `Tool <name> was not run: it is not available this turn`, and the tool does not run. The check is made for every round, so a call in the round after `skill__activate` returns runs, and a call in the round after `skill__deactivate` returns is refused.
 
@@ -138,6 +144,8 @@ skills/
 The filter applies when the workflow opens or resumes in a state and on every transition. Entering a state deactivates any active skill its filter excludes, along with the tools that skill granted.
 
 The discovery index follows the filter. In each provider round, `skill__activate` lists only the skills the current state admits, so the model never sees a skill it cannot activate. A transition the model makes mid-turn changes the index for the next round. In a state whose filter admits no skill, such as `skills: none`, the model is not offered `skill__activate` at all.
+
+In `stable` tool loading mode the index lists every skill whatever the state's filter, so the tools array stays the same across states. Activating a skill the current state does not admit is still refused.
 
 ## Using skills from the SDK
 

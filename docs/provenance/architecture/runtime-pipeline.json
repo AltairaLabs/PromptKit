@@ -1,6 +1,6 @@
 {
  "page": "docs/src/content/docs/architecture/runtime-pipeline.md",
- "commit": "ebf8d92f226c18ca12b790f73b09a762bd8d2512",
+ "commit": "fab3a060a311bd1abcad2ed0ca9669b3a89c203a",
  "claims": [
   {
    "id": 1,
@@ -25,8 +25,11 @@
    "claim": "Default max 50 tool rounds; MaxRoundsError matches ErrMaxRoundsExceeded",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/errors.go",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go"
+    "runtime/pipeline/stage/internal/core/errors.go:132-154",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:1756-1762",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:33-35",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:1013",
+    "runtime/pipeline/types.go:94"
    ]
   },
   {
@@ -34,7 +37,9 @@
    "claim": "Tool calls run in parallel up to 10 by default",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:36",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:202-208",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:255"
    ]
   },
   {
@@ -42,7 +47,7 @@
    "claim": "A tool with errored result twice is excluded from later rounds",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go"
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:741-777"
    ]
   },
   {
@@ -50,10 +55,11 @@
    "claim": "A failing stage ends the turn via input-gate turn-failure signal; provider skips model; nothing canceled; error reaches caller as last output element",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/stage/pipeline.go:184",
-    "runtime/pipeline/stage/pipeline.go:367",
-    "runtime/pipeline/stage/pipeline.go:575"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:737-745",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:787-790",
+    "runtime/pipeline/stage/pipeline.go:253",
+    "runtime/pipeline/stage/pipeline.go:458",
+    "runtime/pipeline/stage/pipeline.go:656-694"
    ]
   },
   {
@@ -61,7 +67,7 @@
    "claim": "ExecuteSync returns last error element and collected messages",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/pipeline.go:1456"
+    "runtime/pipeline/stage/pipeline.go:1522"
    ]
   },
   {
@@ -69,8 +75,8 @@
    "claim": "TemplateStage fails with ErrTemplateUnresolved and does not substitute message content",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:286",
-    "runtime/pipeline/stage/stages_utilities.go:287"
+    "runtime/pipeline/stage/stages_utilities.go:311",
+    "runtime/pipeline/stage/stages_utilities.go:312"
    ]
   },
   {
@@ -78,8 +84,8 @@
    "claim": "Text/VAD/ASM stage chains",
    "verdict": "true",
    "evidence": [
-    "sdk/internal/pipeline/builder.go:469",
-    "sdk/internal/pipeline/builder_vad.go:72"
+    "sdk/internal/pipeline/builder.go:531",
+    "sdk/internal/pipeline/builder_vad.go:73"
    ]
   },
   {
@@ -87,7 +93,7 @@
    "claim": "Build rejects empty, duplicate names, cycles, fan-in into non-MultiInputStage",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/builder.go:195"
+    "runtime/pipeline/stage/builder.go:197"
    ]
   },
   {
@@ -95,18 +101,21 @@
    "claim": "RouterStage pipelines support one Execute at a time",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/stage.go",
-    "runtime/pipeline/stage/pipeline.go:1048"
+    "runtime/pipeline/stage/internal/core/stage.go:78-93",
+    "runtime/pipeline/stage/pipeline.go:1087-1103"
    ]
   },
   {
    "id": 12,
-   "claim": "StreamElement fields incl. Reasoning; hooks interfaces; MaxCostUSD per run",
+   "claim": "StreamElement fields incl. Reasoning and Cue; hooks interfaces; MaxCostUSD per run",
    "verdict": "true",
    "evidence": [
     "runtime/hooks/hooks.go:10",
-    "runtime/pipeline/stage/internal/core/element.go",
-    "runtime/pipeline/stage/internal/provider/stages_provider.go"
+    "runtime/hooks/hooks.go:19",
+    "runtime/hooks/hooks.go:32",
+    "runtime/hooks/hooks.go:56",
+    "runtime/pipeline/stage/internal/core/element.go:76-123",
+    "runtime/pipeline/stage/internal/provider/tool_runner.go:857-897"
    ]
   },
   {
@@ -115,7 +124,7 @@
    "verdict": "true",
    "evidence": [
     "runtime/events/types.go:23",
-    "runtime/pipeline/stage/pipeline.go:1003"
+    "runtime/pipeline/stage/pipeline.go:1042"
    ]
   },
   {
@@ -123,10 +132,12 @@
    "claim": "Failure: caller cancel is not a failure; ExecutionTimeout/IdleTimeout fail the turn with ErrExecutionTimeout/ErrIdleTimeout; provider error delivered as emitted; gate signals unless a signal already passed",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/core/errors.go",
-    "runtime/pipeline/stage/internal/core/idle_timeout.go",
-    "runtime/pipeline/stage/pipeline.go:184",
-    "runtime/pipeline/stage/pipeline.go:575"
+    "runtime/pipeline/stage/internal/core/errors.go:22-25",
+    "runtime/pipeline/stage/internal/core/errors.go:97-105",
+    "runtime/pipeline/stage/internal/core/idle_timeout.go:12",
+    "runtime/pipeline/stage/internal/core/idle_timeout.go:88-100",
+    "runtime/pipeline/stage/pipeline.go:195",
+    "runtime/pipeline/stage/pipeline.go:656-694"
    ]
   },
   {
@@ -136,8 +147,10 @@
    "evidence": [
     "runtime/pipeline/stage/config.go:22",
     "runtime/pipeline/stage/config.go:40-62",
-    "runtime/pipeline/stage/internal/core/errors.go",
-    "runtime/pipeline/stage/pipeline.go:1504"
+    "runtime/pipeline/stage/internal/core/errors.go:13-17",
+    "runtime/pipeline/stage/pipeline.go:114-123",
+    "runtime/pipeline/stage/pipeline.go:1570",
+    "runtime/pipeline/stage/pipeline.go:449-451"
    ]
   },
   {
@@ -145,8 +158,9 @@
    "claim": "Provider stage validates request media parts before each call; SkipContentValidation disables; ToolPolicy.MaxCallsPerMinute",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/internal/provider/stages_provider.go",
-    "runtime/pipeline/types.go:36"
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:2653-2665",
+    "runtime/pipeline/stage/internal/provider/stages_provider.go:325-334",
+    "runtime/pipeline/types.go:21-36"
    ]
   },
   {
@@ -154,8 +168,8 @@
    "claim": "TemplateStage WithSystemPromptSuffix appends text to rendered prompt",
    "verdict": "true",
    "evidence": [
-    "runtime/pipeline/stage/stages_utilities.go:146-158",
-    "runtime/pipeline/stage/stages_utilities.go:298-306"
+    "runtime/pipeline/stage/stages_utilities.go:147-159",
+    "runtime/pipeline/stage/stages_utilities.go:323-331"
    ]
   }
  ]

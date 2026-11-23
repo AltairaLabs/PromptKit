@@ -3,7 +3,7 @@ title: Runtime Pipeline
 sidebar:
   order: 2
 verified:
-  commit: ebf8d92f226c18ca12b790f73b09a762bd8d2512
+  commit: fab3a060a311bd1abcad2ed0ca9669b3a89c203a
   sources:
     - runtime/events/types.go
     - runtime/hooks/hooks.go
@@ -14,6 +14,7 @@ verified:
     - runtime/pipeline/stage/internal/core/idle_timeout.go
     - runtime/pipeline/stage/internal/core/stage.go
     - runtime/pipeline/stage/internal/provider/stages_provider.go
+    - runtime/pipeline/stage/internal/provider/tool_runner.go
     - runtime/pipeline/stage/pipeline.go
     - runtime/pipeline/stage/stages_utilities.go
     - runtime/pipeline/types.go
@@ -68,6 +69,7 @@ type StreamElement struct {
     Source    string
     Priority  Priority        // Low, Normal, High, Critical
     Reasoning *ReasoningDelta // live model reasoning, never persisted as content
+    Cue       *Cue            // asks a cue stage to play a pre-rendered clip; not content
     Meta      ElementMetadata // typed per-element coordination data
 
     // Control signals
