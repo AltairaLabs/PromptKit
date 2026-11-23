@@ -92,5 +92,10 @@ func applyAPIModeConfig(p *Provider, spec providers.ProviderSpec) error {
 			"with api_mode interactions: the Interactions API has no explicit context caching; "+
 			"remove explicit_caching or use api_mode generate_content", spec.ID)
 	}
+	if p.apiMode == APIModeInteractions && p.isVertex() && !vertexModelsBaseURL.MatchString(p.baseURL) {
+		return fmt.Errorf("gemini provider %q: api_mode interactions on Vertex needs a base URL ending in "+
+			"/projects/{project}/locations/{location}/publishers/google/models, "+
+			"from which the Interactions endpoint is derived; got %q", spec.ID, p.baseURL)
+	}
 	return nil
 }

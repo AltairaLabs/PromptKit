@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -15,12 +16,28 @@ import (
 // interactionsURL builds the endpoint for the Interactions API.
 //
 // Unlike generateContent the model is a request field rather than part of the
-// path, so this is a single collection endpoint.
+// path, so this is a single collection endpoint. On AI Studio it sits under
+// the API version; on Vertex under the project's location,
+// {host}/v1/projects/{project}/locations/{location}/interactions, beside the
+// publisher models path generateContent uses (probed live: the models path
+// answers 404). applyAPIModeConfig refuses a Vertex base URL it cannot be
+// derived from.
 func (p *Provider) interactionsURL() string {
 	// No credential in the URL on either platform — auth is applied as a
 	// header by authCredential.
+	if p.isVertex() {
+		return strings.TrimSuffix(p.baseURL, vertexModelsSuffix) + interactionsPath
+	}
 	return p.baseURL + interactionsPath
 }
+
+// vertexModelsSuffix ends a Vertex base URL for Google's models.
+const vertexModelsSuffix = "/publishers/google/models"
+
+// vertexModelsBaseURL matches a Vertex base URL for Google's models, the shape
+// vertexGeminiEndpoint builds: …/projects/{project}/locations/{location}
+// followed by vertexModelsSuffix.
+var vertexModelsBaseURL = regexp.MustCompile(`/projects/[^/]+/locations/[^/]+` + vertexModelsSuffix + `$`)
 
 // buildInteractionsRequest assembles one stateless Interactions call: the whole
 // transcript as input, the tools, and the caller's schema.

@@ -194,7 +194,10 @@ The Interactions request also changed in three ways. Each fixes a difference fro
 | Replay a history with assistant replies on the Interactions API | each reply sent as a `model_output` step and each user message as a `user_input` step | none |
 | Set a system prompt with `api_mode: interactions` | the prompt sent in `system_instruction`, where it was sent as the first turn of the transcript | none |
 | Run a turn with `api_mode: interactions` | `safety_settings` sent with every category `off`, as generateContent sends `BLOCK_NONE` | none |
-| Ask a model that generates images or audio for one with `api_mode: interactions` | a unary turn returns the image or audio in the response's parts, beside the text; a streamed turn does not deliver it and logs a warning; a generateContent stream does not deliver it either | use a turn that does not stream to receive generated media |
+| Ask a model that generates images or audio for one with `api_mode: interactions` | a unary turn returns the image or audio in the response's parts, beside the text | none |
+| Stream a turn in which the model generates an image or audio, on either API | one warning per stream that the media is not delivered, where it was dropped without one | use a turn that does not stream to receive generated media |
+| Set `api_mode: interactions` on Vertex | requests sent to `{host}/v1/projects/{project}/locations/{location}/interactions`, where they went to `…/publishers/google/models/interactions` and failed with HTTP 404. Vertex serves the Interactions API in the `global`, `us` and `eu` locations only, and answers another location, or a Gemini 2.5 model, with HTTP 400 | use location `global`, `us` or `eu` and a model the API serves |
+| Set `api_mode: interactions` on Vertex with a base URL that does not end in `/projects/{project}/locations/{location}/publishers/google/models` | an error when the provider is built, since the Interactions endpoint cannot be derived from it | use the Vertex publisher models URL, or let the provider build it from `platform.project` and `platform.region` |
 
 #### Claude sends tool choice `none`
 

@@ -468,3 +468,63 @@ func TestInteractions_SendableFormatsFollowTheAPI(t *testing.T) {
 		})
 	}
 }
+
+// Vertex serves the Interactions API at
+// {host}/v1/projects/{project}/locations/{location}/interactions (probed live
+// on the global, us and eu locations; v1beta1 answers too), beside the
+// publisher models path generateContent uses. The provider sent Vertex turns to
+// {base}/publishers/google/models/interactions, which answers 404. A turn with
+// tools and one without now reach the location's interactions path, with the
+// Vertex credential.
+func TestInteractions_VertexUsesTheLocationInteractionsPath(t *testing.T) {
+	srv := newRouteServer(t, allTurnsUnary, allTurnsStream)
+	cred := &mockBearerCredential{}
+	p, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: uniqueProviderID("int-vertex"), Type: "gemini", Model: "gemini-3.7-flash",
+		BaseURL:          srv.url + "/v1/projects/p1/locations/global/publishers/google/models",
+		Platform:         vertexPlatform,
+		PlatformConfig:   &providers.PlatformConfig{Project: "p1", Region: "global"},
+		Credential:       cred,
+		AdditionalConfig: interactionsMode,
+	})
+	if err != nil {
+		t.Fatalf("CreateProviderFromSpec: %v", err)
+	}
+	tp := p.(*ToolProvider)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{Name: "probe", Description: "p"}})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	req := providers.PredictionRequest{Messages: []types.Message{{Role: roleUser, Content: "hi"}}}
+	predictTurn(t, p, req, false)
+	predictTurn(t, p, req, true)
+	if _, _, err := tp.PredictWithTools(context.Background(), req, tools, ""); err != nil {
+		t.Fatalf("PredictWithTools: %v", err)
+	}
+
+	want := "/v1/projects/p1/locations/global/interactions"
+	if got := strings.Join(srv.sentPaths(), ","); got != want+","+want+","+want {
+		t.Errorf("requests went to %q, want three to %q", got, want)
+	}
+	if !cred.applied {
+		t.Error("the Vertex credential was not applied")
+	}
+}
+
+// On Vertex the interactions path is derived from the publisher models base
+// URL. A base URL of another shape gives no location to send to, so a Vertex
+// provider with api_mode interactions and such a base URL fails when it is
+// built, rather than at the first turn with a 404.
+func TestInteractions_VertexWithoutAModelsBaseURLIsRefused(t *testing.T) {
+	_, err := providers.CreateProviderFromSpec(providers.ProviderSpec{
+		ID: "gemini-vertex-gw", Type: "gemini", Model: "gemini-3.7-flash",
+		BaseURL: "https://gateway.example/gemini", Platform: vertexPlatform,
+		Credential: &mockBearerCredential{}, AdditionalConfig: interactionsMode,
+	})
+	want := `gemini provider "gemini-vertex-gw": api_mode interactions on Vertex needs a base URL ending in ` +
+		`/projects/{project}/locations/{location}/publishers/google/models, ` +
+		`from which the Interactions endpoint is derived; got "https://gateway.example/gemini"`
+	if err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %q", err, want)
+	}
+}
