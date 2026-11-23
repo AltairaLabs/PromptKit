@@ -61,8 +61,6 @@ const (
 // ToolProvider extends GeminiProvider with tool support
 type ToolProvider struct {
 	*Provider
-	currentTools   providers.ProviderTools      // Store current tools for continuation
-	currentRequest *providers.PredictionRequest // Store current request context for continuation
 }
 
 // NewToolProvider creates a new Gemini provider with tool support
@@ -190,10 +188,6 @@ func (p *ToolProvider) predictWithToolsOnce(
 	tools providers.ProviderTools,
 	toolChoice string,
 ) (providers.PredictionResponse, []types.MessageToolCall, error) {
-	// Store tools and request context for potential continuation
-	p.currentTools = tools
-	p.currentRequest = &req
-
 	if tools != nil && wantsSchema(req.ResponseFormat) {
 		return p.predictSchemaAfterTools(ctx, req, tools, toolChoice)
 	}
