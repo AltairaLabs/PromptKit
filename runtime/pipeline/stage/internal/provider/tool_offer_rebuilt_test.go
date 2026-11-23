@@ -631,3 +631,46 @@ func TestToolOfferRebuilt_ProviderSwitchWithoutTools(t *testing.T) {
 	assert.Empty(t, ev.all())
 	assert.NotContains(t, buf.String(), offerRebuiltWarning)
 }
+
+// flipResolver is a fakeResolver that runs onCall with each call's 1-based
+// number before answering, as a real resolver commits a transition.
+type flipResolver struct {
+	fakeResolver
+	onCall func(n int)
+}
+
+func (f *flipResolver) ResolveCurrentState(ctx context.Context) (Handoff, error) {
+	f.onCall(f.calls + 1)
+	return f.fakeResolver.ResolveCurrentState(ctx)
+}
+
+// A workflow handoff that keeps the prompt and the tools but changes how
+// DescribeTool describes them, as a state's skill filter narrows the
+// skill__activate index, is reported as a describe change.
+func TestToolOfferRebuilt_DescribeOnlyHandoff(t *testing.T) {
+	ev := newOfferEvents(t)
+	prov := newOfferScriptProvider("p", []types.MessageToolCall{offerCall("c1", "workflow__transition")})
+	index := "skills: a, b"
+	state := Handoff{Valid: true, SystemPrompt: "ORIGIN", AllowedTools: []string{"lookup_order"}}
+	resolver := &flipResolver{fakeResolver: fakeResolver{sequence: []Handoff{state}}, onCall: func(n int) {
+		if n == 2 { // the transition commits after round 1's tool call
+			index = "skills: a"
+		}
+	}}
+	s := newOfferStage(t, prov, registryWithTools(t, "workflow__transition", "lookup_order", "skill__activate"), ev,
+		offerStageOpts{allowed: []string{"lookup_order"}, resolver: resolver, cfg: &ProviderConfig{
+			DescribeTool: func(d *tools.ToolDescriptor) *tools.ToolDescriptor {
+				c := *d
+				if c.Name == "skill__activate" {
+					c.Description = index
+				}
+				return &c
+			},
+		}})
+
+	runOfferTurn(t, s, "go")
+
+	assert.Equal(t, []events.ToolOfferRebuiltData{{
+		Reasons: []string{events.ToolOfferReasonDescribe}, Round: 2,
+	}}, ev.all())
+}

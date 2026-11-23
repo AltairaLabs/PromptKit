@@ -1401,7 +1401,9 @@ func (s *ProviderStage) applyStateHandoff(
 	acc.systemPrompt = handoff.SystemPrompt
 	acc.allowedTools, acc.eligibleTools = handoff.AllowedTools, nil
 	loop.useTools(rebuilt)
-	s.noteHandoffOffer(acc, providerChanged)
+	// offered is set only when the state kept the prompt, the provider and
+	// the tools, and DescribeTool alone changed the array.
+	s.noteHandoffOffer(acc, providerChanged, offered != nil)
 	if providerChanged {
 		loop.cachingSupported = supportsPromptCaching(s.callProvider())
 	}

@@ -255,13 +255,16 @@ func (s *ProviderStage) offerInputsFor(acc *providerInput) offerInputs {
 }
 
 // noteHandoffOffer records a workflow handoff's tools build, from acc as the
-// handoff left it: the destination state's tools, or another provider's
-// wire form of them.
-func (s *ProviderStage) noteHandoffOffer(acc *providerInput, providerChanged bool) {
+// handoff left it: another provider's wire form of the tools, the same tools
+// described differently (describeOnly), or the destination state's tools.
+func (s *ProviderStage) noteHandoffOffer(acc *providerInput, providerChanged, describeOnly bool) {
 	o := s.offerLog()
-	if providerChanged {
+	switch {
+	case providerChanged:
 		o.noteCause(events.ToolOfferReasonProviderSwitch)
-	} else {
+	case describeOnly:
+		o.noteCause(events.ToolOfferReasonDescribe)
+	default:
 		o.noteCause(events.ToolOfferReasonWorkflowState)
 	}
 	o.setInputs(s.offerInputsFor(acc))
