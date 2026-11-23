@@ -466,3 +466,66 @@ func TestGemini_Interactions_ThinkingLevel_Live(t *testing.T) {
 		}
 	}
 }
+
+// TestGemini_Interactions_ThoughtSummaryToolLoop_Live proves a tool loop with
+// include_thoughts works: round 1 returns a thought summary as reasoning and a
+// tool call, and round 2 replays the thought as its signature alone (no
+// summary) and is accepted, answering from the tool result.
+//
+//	GEMINI_API_KEY=... go test -tags integration ./runtime/providers/gemini/ \
+//	    -run TestGemini_Interactions_ThoughtSummaryToolLoop_Live -v
+func TestGemini_Interactions_ThoughtSummaryToolLoop_Live(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	for rep := 1; rep <= 2; rep++ {
+		t.Run(fmt.Sprintf("rep %d", rep), func(t *testing.T) {
+			tp := newInteractionsLiveProvider(t, "gemini-int-summary-loop", 8000,
+				map[string]any{"thinking_level": "high", "include_thoughts": true})
+			tools, err := tp.BuildTooling([]*providers.ToolDescriptor{{
+				Name:        "get_temperature",
+				Description: "Get the current temperature for a city in Celsius",
+				InputSchema: json.RawMessage(
+					`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}`),
+			}})
+			require.NoError(t, err)
+			req := providers.PredictionRequest{Messages: []types.Message{{
+				Role: roleUser, Content: "What's the temperature in Bristol? Use the tool, then answer in one sentence.",
+			}}}
+
+			resp, calls, err := tp.PredictWithTools(context.Background(), req, tools, "auto")
+			require.NoError(t, err)
+			require.NotEmpty(t, calls, "round 1 must call the tool")
+			require.NotNil(t, resp.Reasoning)
+			t.Logf("round 1: %d call(s), summary %d chars, %d signature(s)",
+				len(calls), len(resp.Reasoning.Text), len(resp.Reasoning.Opaque))
+			assert.NotEmpty(t, resp.Reasoning.Text, "include_thoughts must return a thought summary")
+			require.NotEmpty(t, resp.Reasoning.Opaque, "the thought signature must be kept for replay")
+
+			req.Messages = append(req.Messages, types.Message{
+				Role: roleAssistant, ToolCalls: calls, Reasoning: resp.Reasoning,
+			})
+			for i := range calls {
+				req.Messages = append(req.Messages, types.NewToolResultMessage(
+					types.NewTextToolResult(calls[i].ID, calls[i].Name, `{"celsius": 21}`)))
+			}
+
+			resp2, calls2, err := tp.PredictWithTools(context.Background(), req, tools, "auto")
+			require.NoError(t, err, "round 2 replaying the signature-only thought must be accepted")
+			sent, ok := resp2.RawRequest.(interactionsRequest)
+			require.True(t, ok, "raw request is %T", resp2.RawRequest)
+			replayed := 0
+			for _, step := range sent.Input {
+				if th, ok := step.(interactionsThoughtStep); ok {
+					replayed++
+					raw, _ := json.Marshal(th)
+					assert.NotContains(t, string(raw), "summary", "a replayed thought carries its signature only")
+				}
+			}
+			t.Logf("round 2: %d thought step(s) replayed, %d call(s), answer %q", replayed, len(calls2), resp2.Content)
+			assert.Positive(t, replayed, "round 2 must replay the round-1 thought")
+			assert.Empty(t, calls2)
+			assert.Contains(t, resp2.Content, "21")
+		})
+	}
+}

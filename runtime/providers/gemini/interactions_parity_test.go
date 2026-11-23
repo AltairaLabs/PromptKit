@@ -163,6 +163,36 @@ func TestInteractions_IncompleteReportsMaxOutputTokens(t *testing.T) {
 	}
 }
 
+// A reply cut off by the cap while calling a tool still reports
+// max_output_tokens, as a MAX_TOKENS turn with function calls does on
+// generateContent: the truncation is what the caller has to act on.
+func TestInteractions_IncompleteWithToolCallReportsMaxOutputTokens(t *testing.T) {
+	body := `{"id":"i1","status":"incomplete","steps":[
+	  {"type":"thought","signature":"SIG"},
+	  {"type":"function_call","id":"c1","name":"get_status","arguments":{}}],
+	  "usage":{"total_input_tokens":13,"total_output_tokens":40}}`
+	srv := newInteractionsParityServer(t, body, "")
+	tp := newInteractionsParityProvider(t, "int-incomplete-tool", srv.url, nil)
+	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
+		{Name: "get_status", Description: "status", InputSchema: json.RawMessage(`{"type":"object"}`)},
+	})
+	if err != nil {
+		t.Fatalf("BuildTooling: %v", err)
+	}
+	resp, calls, err := tp.PredictWithTools(context.Background(), providers.PredictionRequest{
+		Messages: []types.Message{{Role: roleUser, Content: "status?"}}, MaxTokens: 40,
+	}, tools, "")
+	if err != nil {
+		t.Fatalf("PredictWithTools: %v", err)
+	}
+	if resp.FinishReason != types.FinishReasonMaxOutputTokens {
+		t.Errorf("finish reason = %q, want %q", resp.FinishReason, types.FinishReasonMaxOutputTokens)
+	}
+	if len(calls) != 1 || calls[0].Name != "get_status" {
+		t.Errorf("tool calls = %+v, want the one get_status call", calls)
+	}
+}
+
 // The Interactions API has no top_k, presence_penalty or frequency_penalty in
 // generation_config, and answers each with HTTP 400 "Unknown parameter"
 // (probed live on gemini-3.7-flash and gemini-2.5-flash). They are not sent,
@@ -340,6 +370,23 @@ func TestInteractions_CostPricesThoughtAndCachedTokens(t *testing.T) {
 			want := map[string]any{"input": 2051, "cached": 12435, "output": 2, "reasoning": 20.0}
 			if canonicalJSON(t, got) != canonicalJSON(t, want) {
 				t.Errorf("cost = %s, want %s", canonicalJSON(t, got), canonicalJSON(t, want))
+			}
+			// gemini-3.7-flash: $0.75 per 1M input, cache reads at 10% of it,
+			// $3.75 per 1M output with thinking at the output rate.
+			//   input  2051 x 0.75/1M          = 0.00153825
+			//   cached 12435 x 0.075/1M        = 0.000932625
+			//   output (2 + 20) x 3.75/1M      = 0.0000825
+			usd := map[string]float64{
+				"input": cost.InputCostUSD, "cached": cost.CachedCostUSD,
+				"output": cost.OutputCostUSD, "total": cost.TotalCost,
+			}
+			wantUSD := map[string]float64{
+				"input": 0.00153825, "cached": 0.000932625, "output": 0.0000825, "total": 0.002553375,
+			}
+			for k, w := range wantUSD {
+				if d := usd[k] - w; d > 1e-12 || d < -1e-12 {
+					t.Errorf("%s cost = %.12f USD, want %.12f", k, usd[k], w)
+				}
 			}
 		})
 	}
