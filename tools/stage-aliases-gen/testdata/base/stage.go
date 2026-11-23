@@ -28,6 +28,14 @@ func Close(Scored) {}
 
 func Named(core Scored, n int) Scored { return core }
 
+func NamedResult(n int) (core Scored) { return Scored{} }
+
+func Clash(core, corepkg int) int { return 0 }
+
+func ClashImport(core int, v corepkg.V) int { return 0 }
+
+func Only(core int) int { return 0 }
+
 type Element = elem.Element
 
 type Other = media.Other

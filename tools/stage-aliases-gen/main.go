@@ -81,12 +81,23 @@ func generate(dir, importPath string, before map[string]bool, aliases map[string
 	}
 	g := &generator{
 		fset: fset, q: path.Base(importPath), internalDir: path.Dir(importPath),
-		before: before, aliases: aliases, imports: map[string]bool{importPath: true},
+		before: before, aliases: aliases, imports: map[string]bool{},
 	}
 	for _, f := range files {
 		for _, d := range f.file.Decls {
 			if declErr := g.decl(f, d); declErr != nil {
 				return nil, 0, declErr
+			}
+		}
+	}
+	if g.plain {
+		g.imports[importPath] = true
+	}
+	if g.shadowed {
+		for p := range g.imports {
+			if p != importPath && path.Base(p) == g.shadowQ() {
+				return nil, 0, fmt.Errorf("%s: %s names both the package's second import and another import",
+					g.shadowUser, g.shadowQ())
 			}
 		}
 	}
@@ -119,26 +130,35 @@ type generator struct {
 	before      map[string]bool
 	aliases     map[string]string // stage's alias name -> "importpath.Name" it aliases
 	imports     map[string]bool
-	shadowed    bool // a wrapper's parameter hides q: the package is imported again as shadowQ
+	plain       bool   // something calls or aliases through q: the package is imported as itself
+	shadowed    bool   // a wrapper's parameter or result hides q: the package is imported again as shadowQ
+	shadowUser  string // the first such wrapper, for an error
 	body        bytes.Buffer
 	n           int
 }
 
 // shadowQ is the second name the internal package is imported by, for the
-// wrappers with a parameter named like the package (NewProviderStage's
-// provider): in them q is the parameter, and renaming the parameter instead
-// would change stage's documented signature.
+// wrappers with a parameter or named result named like the package
+// (NewProviderStage's provider): in them q is that name, and renaming it
+// instead would change stage's documented signature. The package is imported
+// as itself only when something else uses that name, and generation fails
+// when shadowQ is itself taken, by the wrapper or by another import.
 func (g *generator) shadowQ() string {
-	g.shadowed = true
 	return g.q + "pkg"
 }
 
-// paramNamed reports whether a parameter in list is named name.
-func paramNamed(list *ast.FieldList, name string) bool {
-	for _, field := range list.List {
-		for _, id := range field.Names {
-			if id.Name == name {
-				return true
+// namedIn reports whether a parameter or a named result of ft is named name:
+// wrapper copies both into the wrapper's signature.
+func namedIn(ft *ast.FuncType, name string) bool {
+	for _, list := range []*ast.FieldList{ft.Params, ft.Results} {
+		if list == nil {
+			continue
+		}
+		for _, field := range list.List {
+			for _, id := range field.Names {
+				if id.Name == name {
+					return true
+				}
 			}
 		}
 	}
@@ -168,8 +188,17 @@ func (g *generator) decl(f srcFile, d ast.Decl) error {
 		g.n++
 		text := func(n ast.Node) string { return f.textUnqualified(g.fset, n, facade) }
 		q := g.q
-		if paramNamed(d.Type.Params, g.q) {
+		if namedIn(d.Type, g.q) {
+			if namedIn(d.Type, g.shadowQ()) {
+				return fmt.Errorf("%s: %s names both the package's second import and a parameter or result",
+					d.Name.Name, g.shadowQ())
+			}
 			q = g.shadowQ()
+			if !g.shadowed {
+				g.shadowed, g.shadowUser = true, d.Name.Name
+			}
+		} else {
+			g.plain = true
 		}
 		g.body.WriteString("\n" + doc(d.Doc) + wrapper(text, d, q) + "\n")
 	case *ast.GenDecl:
@@ -223,6 +252,7 @@ func (g *generator) spec(f srcFile, d *ast.GenDecl, s ast.Spec, constType *strin
 			return nil, "", fmt.Errorf("%s: generic type; write its alias by hand", s.Name.Name)
 		}
 		g.n++
+		g.plain = true
 		return s.Doc, fmt.Sprintf("%s = %s.%s", s.Name.Name, g.q, s.Name.Name), nil
 	case *ast.ValueSpec:
 		return s.Doc, g.valueSpec(f, d.Tok, s, constType), nil
@@ -248,6 +278,7 @@ func (g *generator) valueSpec(f srcFile, tok token.Token, s *ast.ValueSpec, cons
 	for _, id := range s.Names {
 		if g.before[id.Name] {
 			g.n++
+			g.plain = true
 			lines = append(lines, fmt.Sprintf("%s%s = %s.%s", id.Name, typ, g.q, id.Name))
 		}
 	}

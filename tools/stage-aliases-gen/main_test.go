@@ -32,8 +32,9 @@ func runFixture(t *testing.T, pkg string) (string, string, error) {
 // type (also through iota), an untyped const, a lone typed const, wrappers for
 // plain, variadic, blank and unnamed parameters and for single and multiple
 // results, the imports their signatures need (a /v2 path by its package name),
-// a wrapper whose parameter is named like the internal package (Named's core)
-// keeping that name and calling through a second import of the package;
+// a wrapper whose parameter (Named's core) or named result (NamedResult's
+// core) is named like the internal package keeping that name and calling
+// through a second import of the package;
 // single and grouped vars, each with its doc; a sibling internal package's type
 // that stage aliases named as stage names it (Feed's Element); and nothing stage did not export
 // before (Helper, ErrInternal, kindHidden) nor any method.
@@ -55,8 +56,8 @@ func TestGenerate_MatchesGolden(t *testing.T) {
 	if got != string(want) {
 		t.Fatalf("generated file differs from %s (rerun with -update to accept):\n%s", golden, got)
 	}
-	if !strings.HasSuffix(stdout, ": 15 names re-exported from "+fixtureImport+"\n") {
-		t.Fatalf("report = %q, want 15 names", stdout)
+	if !strings.HasSuffix(stdout, ": 16 names re-exported from "+fixtureImport+"\n") {
+		t.Fatalf("report = %q, want 16 names", stdout)
 	}
 }
 
@@ -70,6 +71,8 @@ func TestGenerate_RefusesWhatItCannotWrite(t *testing.T) {
 		{"testdata/notalias", "UseScored: elem.Scored: stage has no alias Scored = elem.Scored; add one before re-exporting this"},
 		{"testdata/unaliased", "UseHidden: elem.Hidden: stage has no alias Hidden = elem.Hidden; add one before re-exporting this"},
 		{"testdata/othersibling", "UseOther: elem.Other: stage has no alias Other = elem.Other; add one before re-exporting this"},
+		{"testdata/shadowclash", "Clash: corepkg names both the package's second import and a parameter or result"},
+		{"testdata/shadowimport", "ClashImport: corepkg names both the package's second import and another import"},
 		{"testdata/missing", "testdata/missing: no Go files"},
 	}
 	for _, tt := range tests {
@@ -97,5 +100,21 @@ func TestRun_ReportsAnUnreadableBase(t *testing.T) {
 		"-out", filepath.Join(t.TempDir(), "x.go")}, &bytes.Buffer{})
 	if err == nil || err.Error() != "testdata/missing: no Go files" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A package whose only re-export calls through the second import gets only
+// that import: the plain one would be unused, and the file would not compile.
+func TestGenerate_ImportsThePlainNameOnlyWhenUsed(t *testing.T) {
+	got, _, err := runFixture(t, "testdata/onlyshadow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "import (\n\tcorepkg \"example.com/stage/internal/core\"\n)\n"
+	if !strings.Contains(got, want) || strings.Contains(got, "\t\"example.com/stage/internal/core\"") {
+		t.Fatalf("import block is not just the second import:\n%s", got)
+	}
+	if !strings.Contains(got, "return corepkg.Only(core)") {
+		t.Fatalf("wrapper does not call through the second import:\n%s", got)
 	}
 }

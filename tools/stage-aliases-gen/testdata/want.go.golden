@@ -59,6 +59,11 @@ func Named(core Scored, n int) Scored {
 	return corepkg.Named(core, n)
 }
 
+// NamedResult has a result named like the package, which the wrapper keeps.
+func NamedResult(n int) (core Scored) {
+	return corepkg.NamedResult(n)
+}
+
 // ErrGone is gone.
 var ErrGone = core.ErrGone
 
