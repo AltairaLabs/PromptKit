@@ -24,12 +24,13 @@ const (
 
 // restrictedToolChoice returns the tool_choice that restricts a call to
 // active, PredictionRequest.ActiveTools, under choice, and whether there is
-// one: none for nil active (no restriction), on a hyperscaler platform (where
+// one: none for nil active (no restriction), for any host but OpenAI's own
+// API (a hyperscaler platform or an OpenAI-compatible server, where
 // allowed_tools is not documented; the pipeline refuses a call outside active
 // anyway), and for a forced tool (which restricts the call further on its
 // own). An empty active, or choice none, is tool_choice none.
 func (p *Provider) restrictedToolChoice(choice string, active []string, responses bool) (any, bool) {
-	if active == nil || p.platform != "" {
+	if active == nil || p.platform != "" || !isOpenAIHost(p.baseURL) {
 		return nil, false
 	}
 	if choice == toolChoiceNone || len(active) == 0 {

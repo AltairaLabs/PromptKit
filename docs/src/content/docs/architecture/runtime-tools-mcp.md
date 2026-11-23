@@ -286,7 +286,7 @@ On a provider that advertises prompt caching, the stage also logs a warning at t
 | A forced `tool_choice` | It must fit what the model may call, else the call is sent `auto` |
 | A grant or a state naming a tool outside the catalog, `describe`, `mcp_list_changed`, `provider_switch`, `registry` | The array is rebuilt and reported, as in `rebuild` mode |
 
-OpenAI is sent `ActiveTools` as `tool_choice` `allowed_tools` (except on Azure, Bedrock and Vertex). Every other provider sees the whole array, and the refusal enforces the restriction. `types.MetaToolsOffered` records what the model may call. The realtime (duplex) stage ignores the setting.
+OpenAI's own API (`api.openai.com`) is sent `ActiveTools` as `tool_choice` `allowed_tools`. Azure, Bedrock, Vertex, an OpenAI-compatible server and every other provider see the whole array, and the refusal enforces the restriction. `types.MetaToolsOffered` records what the model may call. The realtime (duplex) stage ignores the setting.
 
 `MaxCallsPerMinute` counts each tool's calls in a sliding one-minute window per conversation. The provider stage holds the window, or uses the one passed in `ProviderConfig.CallRate`, so it spans the turns of a conversation that stage runs. The SDK passes one window per conversation to all of that conversation's pipelines. A workflow passes one window to every state's conversation, through `CallRateWindow.Scoped`, because each state's conversation has its own ID. A composition step counts under the enclosing conversation's ID.
 

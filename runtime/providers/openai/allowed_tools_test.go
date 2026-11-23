@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,10 +38,33 @@ const (
 		`"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}`
 )
 
+// toServer sends every request to server, whatever host it names, so the
+// adapter can be configured with OpenAI's own base URL.
+type toServer struct{ server *httptest.Server }
+
+func (s toServer) RoundTrip(r *http.Request) (*http.Response, error) {
+	target, _ := url.Parse(s.server.URL)
+	r = r.Clone(r.Context())
+	r.URL.Scheme, r.URL.Host, r.Host = target.Scheme, target.Host, target.Host
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// openAIBaseURL is OpenAI's own API, the only host allowed_tools is sent to.
+const openAIBaseURL = "https://api.openai.com/v1"
+
 // allowedToolsBody sends one tool call through the real adapter, in apiMode,
-// and returns the request body the server received.
+// against OpenAI's own API, and returns the request body the server received.
 func allowedToolsBody(
 	t *testing.T, apiMode APIMode, platform string, active []string, choice string,
+) map[string]any {
+	t.Helper()
+	return allowedToolsBodyAt(t, openAIBaseURL, apiMode, platform, active, choice)
+}
+
+// allowedToolsBodyAt is allowedToolsBody for a provider configured with
+// baseURL.
+func allowedToolsBodyAt(
+	t *testing.T, baseURL string, apiMode APIMode, platform string, active []string, choice string,
 ) map[string]any {
 	t.Helper()
 	var body []byte
@@ -55,7 +79,8 @@ func allowedToolsBody(
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv("OPENAI_API_KEY", "k")
-	tp := NewToolProvider("allowed", "gpt-test", server.URL, providers.ProviderDefaults{MaxTokens: 64}, false, nil, nil)
+	tp := NewToolProvider("allowed", "gpt-test", baseURL, providers.ProviderDefaults{MaxTokens: 64}, false, nil, nil)
+	tp.SetHTTPTransport(toServer{server: server})
 	tp.apiMode = apiMode
 	tp.platform = platform
 	tools, err := tp.BuildTooling([]*providers.ToolDescriptor{
@@ -146,4 +171,14 @@ func TestAllowedTools_NilActiveSendsNoRestriction(t *testing.T) {
 func TestAllowedTools_NotSentOnPlatforms(t *testing.T) {
 	body := allowedToolsBody(t, APIModeCompletions, azurePlatform, []string{"refund"}, "auto")
 	assert.NotContains(t, body, "tool_choice")
+}
+
+// An OpenAI-compatible server (vLLM, Groq, OpenRouter, LiteLLM, ...) is not
+// sent allowed_tools: whether it takes it is up to each server, and the
+// pipeline refuses a call outside the restriction anyway.
+func TestAllowedTools_NotSentToOtherHosts(t *testing.T) {
+	for _, mode := range []APIMode{APIModeCompletions, APIModeResponses} {
+		body := allowedToolsBodyAt(t, "https://openrouter.example/api/v1", mode, "", []string{"refund"}, "auto")
+		assert.NotContains(t, body, "tool_choice", mode)
+	}
 }
