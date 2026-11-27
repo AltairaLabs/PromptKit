@@ -19,6 +19,10 @@ const (
 // ToolCallRecord captures a single tool invocation for eval/assertion context.
 // Shared between runtime/evals and PromptArena's assertions.
 type ToolCallRecord struct {
+	// TurnIndex is the index, in the message history the record was built
+	// from, of the assistant message that made the call (evals.ExtractToolCalls
+	// sets it so), not a turn number. Turn-level evals compare it with the
+	// history's message indexes to keep only the current turn's calls.
 	TurnIndex int            `json:"turn_index"`
 	ToolName  string         `json:"tool_name"`
 	Arguments map[string]any `json:"arguments"`

@@ -108,11 +108,13 @@ The check is made after param defaults and aliases apply, so a legacy name such 
 
 ### Guardrail scope
 
-Any registered type, alias or custom handler works as a guardrail. A guardrail evaluates one message: `CurrentOutput` is the user's message (`direction: input`) or the assistant response (`direction: output`). `contains_any` and `content_excludes` scan only that message in a guardrail, and the whole assistant transcript when used as an eval or assertion. Handlers that read `ToolCalls`, `Extras`, `Metadata` or `PriorResults` receive them derived from the message history; `SessionID`, `PromptID` and `Variables` are not set.
+Any registered type, alias or custom handler works as a guardrail. A guardrail evaluates one message: `CurrentOutput` is the user's message (`direction: input`) or the assistant response (`direction: output`). `contains_any` and `content_excludes` scan only that message in a guardrail, and the whole assistant transcript when used as an eval or assertion. Handlers that read `ToolCalls`, `Extras`, `Metadata` or `PriorResults` receive them derived from the message history; `SessionID`, `PromptID` and `Variables` are not set. A turn-level tool check (see [Tool checks](#tool-checks-turn-level)) sees only the tool calls of the turn in progress, so a call an earlier turn made does not fire it.
 
 ### Triggers
 
 An eval `trigger` is one of `every_turn`, `on_session_complete`, `sample_turns`, `sample_sessions`, `on_conversation_complete` or `on_workflow_step`. `sample_percentage` defaults to `5`. A conversation opened with the SDK runs `on_session_complete` evals on every `Close()`, and `on_session_complete` then `on_conversation_complete` evals on `Complete()`, over the transcript it holds. A conversation completed with an empty transcript runs no conversation evals.
+
+An `every_turn` or `sample_turns` eval judges the turn it runs on. Its `when` conditions (`tool_called`, `tool_called_pattern`, `any_tool_called`, `min_tool_calls`) count only the tool calls made from that turn's last user message on, and so does a turn-level tool check (see [Tool checks](#tool-checks-turn-level)). When a provider delivers the caller's transcript after the reply (OpenAI Realtime without transcript reordering), the transcript is stored after the reply, and the turn is taken to start after the previous turn's reply instead. `sdk.Evaluate` judges the turn its `Messages` end with. Every other check, and every eval with another trigger, sees all the tool calls in the history it is given.
 
 ### Evals that cannot run
 
@@ -344,7 +346,7 @@ assertions:
 
 ## Tool checks (turn-level)
 
-These checks read `EvalContext.ToolCalls`, the tool calls in the message history passed to the eval.
+These checks read `EvalContext.ToolCalls`, the tool calls in the message history passed to the eval. `tools_called`, `tools_not_called`, `tool_args`, `tool_calls_with_args`, `tool_call_count`, `no_tool_errors` and the four `tool_result_*` checks judge one turn: run by an `every_turn` or `sample_turns` eval, or as a guardrail, they see only the calls made from the turn's last user message on, so `tools_not_called` on a turn that made no call passes even when an earlier turn called the tool. Wrapped in `assertion` or `guardrail`, they behave the same. Run by an eval with another trigger, they see every call in the history. `tool_call_sequence`, `tool_call_chain`, `tool_anti_pattern`, `tool_no_repeat` and `tool_efficiency` always see every call. `tools_offered` always reads the offered set of the history's last turn, whatever the trigger.
 
 | Type | Aliases | Params | Score |
 |------|---------|--------|-------|

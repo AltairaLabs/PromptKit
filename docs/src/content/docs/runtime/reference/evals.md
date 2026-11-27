@@ -55,11 +55,13 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func \(h \*AssertionEvalHandler\) Eval\(ctx context.Context, evalCtx \*EvalContext, params map\[string\]any\) \(\*EvalResult, error\)](<#AssertionEvalHandler.Eval>)
   - [func \(h \*AssertionEvalHandler\) EvalTimeout\(params map\[string\]any\) time.Duration](<#AssertionEvalHandler.EvalTimeout>)
   - [func \(h \*AssertionEvalHandler\) ParamNames\(\) \[\]string](<#AssertionEvalHandler.ParamNames>)
+  - [func \(h \*AssertionEvalHandler\) ScopedToTurn\(params map\[string\]any\) bool](<#AssertionEvalHandler.ScopedToTurn>)
   - [func \(h \*AssertionEvalHandler\) Type\(\) string](<#AssertionEvalHandler.Type>)
   - [func \(h \*AssertionEvalHandler\) ValidateParams\(params map\[string\]any\) error](<#AssertionEvalHandler.ValidateParams>)
 - [type EvalContext](<#EvalContext>)
   - [func BuildEvalContext\(messages \[\]types.Message, turnIndex int, sessionID string, promptID string, metadata map\[string\]any\) \*EvalContext](<#BuildEvalContext>)
   - [func BuildGuardrailEvalContext\(messages \[\]types.Message, currentOutput string, metadata map\[string\]any\) \*EvalContext](<#BuildGuardrailEvalContext>)
+  - [func ScopeToTurn\(handler EvalTypeHandler, params map\[string\]any, evalCtx \*EvalContext\) \*EvalContext](<#ScopeToTurn>)
 - [type EvalDef](<#EvalDef>)
   - [func FilterByGroups\(defs \[\]EvalDef, groups \[\]string\) \[\]EvalDef](<#FilterByGroups>)
   - [func ResolveEvals\(packEvals, promptEvals \[\]EvalDef\) \[\]EvalDef](<#ResolveEvals>)
@@ -108,6 +110,7 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
   - [func \(h \*GuardrailEvalHandler\) Eval\(ctx context.Context, evalCtx \*EvalContext, params map\[string\]any\) \(\*EvalResult, error\)](<#GuardrailEvalHandler.Eval>)
   - [func \(h \*GuardrailEvalHandler\) EvalTimeout\(params map\[string\]any\) time.Duration](<#GuardrailEvalHandler.EvalTimeout>)
   - [func \(h \*GuardrailEvalHandler\) ParamNames\(\) \[\]string](<#GuardrailEvalHandler.ParamNames>)
+  - [func \(h \*GuardrailEvalHandler\) ScopedToTurn\(params map\[string\]any\) bool](<#GuardrailEvalHandler.ScopedToTurn>)
   - [func \(h \*GuardrailEvalHandler\) Type\(\) string](<#GuardrailEvalHandler.Type>)
   - [func \(h \*GuardrailEvalHandler\) ValidateParams\(params map\[string\]any\) error](<#GuardrailEvalHandler.ValidateParams>)
 - [type HandlerTimeout](<#HandlerTimeout>)
@@ -140,8 +143,10 @@ EvalRunner executes EvalDef values against an EvalContext, and EvalTypeRegistry 
 - [type StreamableRequestEvalHandler](<#StreamableRequestEvalHandler>)
 - [type Threshold](<#Threshold>)
 - [type ToolCallRecord](<#ToolCallRecord>)
+  - [func CurrentTurnToolCalls\(evalCtx \*EvalContext\) \[\]ToolCallRecord](<#CurrentTurnToolCalls>)
   - [func ExtractToolCalls\(messages \[\]types.Message\) \[\]ToolCallRecord](<#ExtractToolCalls>)
 - [type TriggerContext](<#TriggerContext>)
+- [type TurnScoped](<#TurnScoped>)
 - [type WorkerOption](<#WorkerOption>)
   - [func WithLogger\(l Logger\) WorkerOption](<#WithLogger>)
 
@@ -420,7 +425,7 @@ func EncodeEvalWhen(when *EvalWhen) map[string]any
 EncodeEvalWhen is the inverse of DecodeEvalWhen: it renders promptkit's when\-conditions into the spec's open \`when\` object, for building an eval programmatically. A nil or empty EvalWhen yields nil.
 
 <a name="ExtractToolsOffered"></a>
-## func [ExtractToolsOffered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L195>)
+## func [ExtractToolsOffered](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L190>)
 
 ```go
 func ExtractToolsOffered(messages []types.Message) []string
@@ -450,7 +455,7 @@ Precedence:
 An expression that does not resolve, or resolves to something non\-numeric, yields no sample.
 
 <a name="ExtractWorkflowExtras"></a>
-## func [ExtractWorkflowExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L256>)
+## func [ExtractWorkflowExtras](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L251>)
 
 ```go
 func ExtractWorkflowExtras(messages []types.Message) map[string]any
@@ -750,6 +755,15 @@ func (h *AssertionEvalHandler) ParamNames() []string
 
 ParamNames lists the assertion wrapper's own params. min\_score and max\_score are always accepted \(see ValidateHandlerParams\).
 
+<a name="AssertionEvalHandler.ScopedToTurn"></a>
+### func \(\*AssertionEvalHandler\) [ScopedToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L101>)
+
+```go
+func (h *AssertionEvalHandler) ScopedToTurn(params map[string]any) bool
+```
+
+ScopedToTurn reports whether the wrapped eval judges one turn.
+
 <a name="AssertionEvalHandler.Type"></a>
 ### func \(\*AssertionEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L294>)
 
@@ -856,6 +870,15 @@ BuildGuardrailEvalContext constructs an EvalContext for a guardrail, which judge
 It differs from BuildEvalContext in two ways. CurrentOutput is the caller\-supplied currentOutput rather than the last assistant message, because an input guardrail judges the user's message, and ContentScope is set to ContentScopeCurrent. ToolCalls, ToolsOffered, Extras, Metadata and PriorResults are derived from the message history exactly as BuildEvalContext derives them, so a handler sees the same data either way.
 
 TurnIndex, SessionID, PromptID and Variables are left unset because they cannot be derived from the message history. Handlers that depend on them are unsuitable as guardrails.
+
+<a name="ScopeToTurn"></a>
+### func [ScopeToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L25>)
+
+```go
+func ScopeToTurn(handler EvalTypeHandler, params map[string]any, evalCtx *EvalContext) *EvalContext
+```
+
+ScopeToTurn returns the context handler should judge: evalCtx itself, or, when handler is TurnScoped and reports ScopedToTurn for params, a shallow copy whose ToolCalls holds only the current turn's calls \(CurrentTurnToolCalls\). evalCtx is never modified.
 
 <a name="EvalDef"></a>
 ## type [EvalDef](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/types.go#L277>)
@@ -1126,7 +1149,7 @@ func (r *EvalRunner) Registry() *EvalTypeRegistry
 Registry returns the eval type registry the runner resolves handlers from, so a caller holding only the runner can check defs against the handlers that will run them \(ValidateEvalTypes\).
 
 <a name="EvalRunner.RunConversationEvals"></a>
-### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L153-L157>)
+### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L162-L166>)
 
 ```go
 func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1135,7 +1158,7 @@ func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, e
 RunConversationEvals runs conversation\-level evals \(on\_conversation\_complete trigger\). Call this once, when the conversation is finished \(the end of an Arena self\-play run, or a host's last session of a conversation\), and not when it is suspended to be resumed, such as while a held tool call waits for a human's approval. Call RunSessionEvals for the final session as well.
 
 <a name="EvalRunner.RunSessionEvals"></a>
-### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L135-L139>)
+### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L144-L148>)
 
 ```go
 func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1144,7 +1167,7 @@ func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCt
 RunSessionEvals runs session\-level evals \(on\_session\_complete and sample\_sessions triggers\). Call this when a session ends: each time the conversation is closed, whether it is finished or suspended to be resumed.
 
 <a name="EvalRunner.RunTurnEvals"></a>
-### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L119-L123>)
+### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L128-L132>)
 
 ```go
 func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1152,8 +1175,10 @@ func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *
 
 RunTurnEvals runs turn\-level evals \(every\_turn and sample\_turns triggers\). It skips defs that are disabled, have another trigger, are excluded by sampling, or fail their when\-conditions, and executes the rest in order. Each eval sees the earlier results of the batch in EvalContext.PriorResults.
 
+evalCtx holds the history up to the turn being judged, but a turn eval asks about that turn: its when\-conditions are checked against the current turn's tool calls, and a handler that is TurnScoped, such as tools\_called, is given only those calls. Other handlers see every call in evalCtx.ToolCalls. The current turn begins at the last user message, unless user messages follow the last assistant message: those are the turn's transcript, stored after its reply because the provider delivered it late, and the turn begins after the previous turn's reply.
+
 <a name="EvalRunner.RunWorkflowStepEvals"></a>
-### func \(\*EvalRunner\) [RunWorkflowStepEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L169-L173>)
+### func \(\*EvalRunner\) [RunWorkflowStepEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L178-L182>)
 
 ```go
 func (r *EvalRunner) RunWorkflowStepEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1501,6 +1526,15 @@ func (h *GuardrailEvalHandler) ParamNames() []string
 
 ParamNames lists the guardrail wrapper's own params.
 
+<a name="GuardrailEvalHandler.ScopedToTurn"></a>
+### func \(\*GuardrailEvalHandler\) [ScopedToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L106>)
+
+```go
+func (h *GuardrailEvalHandler) ScopedToTurn(params map[string]any) bool
+```
+
+ScopedToTurn reports whether the wrapped eval judges one turn.
+
 <a name="GuardrailEvalHandler.Type"></a>
 ### func \(\*GuardrailEvalHandler\) [Type](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/wrappers.go#L379>)
 
@@ -1520,7 +1554,7 @@ func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams mirrors AssertionEvalHandler.ValidateParams.
 
 <a name="HandlerTimeout"></a>
-## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L316-L320>)
+## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L341-L345>)
 
 HandlerTimeout is implemented by handlers that bound their own work \(a subprocess, a tool call\) and can legitimately need longer than the runner's per\-eval timeout. Without it the runner's timeout \(30s by default\) silently caps a configured \`timeout\_ms: 300000\` at 30 seconds.
 
@@ -1893,8 +1927,17 @@ ToolCallRecord is an alias for types.ToolCallRecord.
 type ToolCallRecord = types.ToolCallRecord
 ```
 
+<a name="CurrentTurnToolCalls"></a>
+### func [CurrentTurnToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L34>)
+
+```go
+func CurrentTurnToolCalls(evalCtx *EvalContext) []ToolCallRecord
+```
+
+CurrentTurnToolCalls returns the calls in evalCtx.ToolCalls made in the current turn: those whose TurnIndex, the index of the assistant message that made the call \(see ExtractToolCalls\), is at or after the last user message in evalCtx.Messages. With no user message in Messages the turn boundary cannot be seen, and every call is returned.
+
 <a name="ExtractToolCalls"></a>
-### func [ExtractToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L239>)
+### func [ExtractToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/context.go#L234>)
 
 ```go
 func ExtractToolCalls(messages []types.Message) []ToolCallRecord
@@ -1917,6 +1960,21 @@ type TriggerContext struct {
 
     // IsSessionComplete indicates whether the session has ended.
     IsSessionComplete bool
+}
+```
+
+<a name="TurnScoped"></a>
+## type [TurnScoped](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L15-L19>)
+
+TurnScoped is an optional interface for an EvalTypeHandler whose eval judges a single turn rather than the session, such as tools\_called or tools\_not\_called.
+
+A turn\-triggered eval \(every\_turn, sample\_turns\) is handed the history up to the turn it judges, so EvalContext.ToolCalls holds every earlier turn's calls too. When the handler reports ScopedToTurn, the eval runner and the guardrail adapter narrow ToolCalls to the current turn's calls before calling it; see ScopeToTurn. A handler that does not implement TurnScoped sees the whole history, which is what a session\-level check wants.
+
+```go
+type TurnScoped interface {
+    // ScopedToTurn reports whether the eval, given params, judges one turn.
+    // A wrapper decides from the eval it wraps, named in params.
+    ScopedToTurn(params map[string]any) bool
 }
 ```
 

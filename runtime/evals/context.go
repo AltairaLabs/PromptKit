@@ -178,12 +178,7 @@ const MetaToolsOffered = types.MetaToolsOffered
 // Returns the whole history when no user message is present, which is the
 // honest answer for a transcript whose turn boundaries cannot be seen.
 func currentTurnMessages(messages []types.Message) []types.Message {
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == roleUser {
-			return messages[i:]
-		}
-	}
-	return messages
+	return messages[max(lastUserIndex(messages), 0):]
 }
 
 // ExtractToolsOffered returns the union of the tool sets recorded under
