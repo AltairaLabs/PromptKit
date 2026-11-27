@@ -19,11 +19,14 @@ import (
 // call and a content part: parseStructuredResponse, parseToolCalls and
 // parseSinglePart. A turn's text is read from content, text or the legacy
 // response key.
-const keyType = "type"
+const (
+	keyType            = "type"
+	keyInputTranscript = "input_transcript"
+)
 
 var (
 	mockTurnKeys = []string{
-		"audio_file", "audio_mime_type", "audio_sample_rate", "content", "parts", "response",
+		"audio_file", "audio_mime_type", "audio_sample_rate", "content", keyInputTranscript, "parts", "response",
 		turnTypeText, turnTypeToolCalls, keyType,
 	}
 	mockToolCallKeys = []string{"arguments", "name"}

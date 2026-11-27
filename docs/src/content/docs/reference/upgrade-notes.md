@@ -178,6 +178,29 @@ A stateless server (`a2aserver.NewStatelessServer`) answering `message/send` kep
 |---|---|---|
 | Call `message/send` on a stateless server whose handler emits `ReplacesText` | the artifact holds the replacement and the text after it, not the text it replaced | none |
 
+### Mock provider
+
+#### Mock realtime sessions transcribe scripted caller speech
+
+An input guardrail on a realtime session judges the provider's transcript of the caller's speech, and the mock streaming session sent no transcript, so with mocks an input guardrail never fired. A structured turn in a mock response file now takes `input_transcript`: what the caller said on that turn. On a spoken turn (the caller sent audio), the session sends it ahead of the turn's reply as a final input transcription, as OpenAI Realtime does: a chunk whose `Metadata` has `type` `input_transcription`, `transcription` set to the text and `item_id` set to `mock_input_<turn>`. A typed turn, and a turn without `input_transcript`, get no transcript. The caller audio the duplex pipeline sends a session carries no record of the text it was synthesized from, so the mock cannot take the transcript from the audio: set `input_transcript` on each turn you want transcribed.
+
+The session now also implements `providers.TurnForgetter` and `providers.ContextNoter`. It records the inputs it is asked to forget (`ForgottenTurns`) and the notes it is given (`ContextNotes`), and sends nothing for either.
+
+```yaml
+scenarios:
+  transfer-call:
+    turns:
+      1:
+        content: "Sure, sending it now."
+        input_transcript: "a wire transfer please"
+```
+
+| If you | You will see | Change |
+|---|---|---|
+| Set `input_transcript` on a turn of a duplex mock scenario | a user message with that text, and input guardrails judging it; a blocked turn's reply is cut and replaced by the guardrail's message | none |
+| Run an input or output guardrail that blocks a turn on a mock realtime session | the session is given a note after the blocked turn, reported as a `context.note_added` event, where it got none; an input block also calls `ForgetTurn` with the turn's `item_id` | none |
+| Misspell the key, for example `input_transcription` | the file fails to load, naming the key and listing `input_transcript` among the valid ones | fix the key |
+
 ## v2.23.0
 
 The entries are grouped by area: configuration, providers and tools.

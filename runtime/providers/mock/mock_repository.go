@@ -63,6 +63,14 @@ type Turn struct {
 	// AudioMIMEType is the MIME type advertised on emitted audio chunks. Defaults to "audio/pcm".
 	AudioMIMEType string `yaml:"audio_mime_type,omitempty"`
 
+	// InputTranscript is what the caller said on this turn, as a realtime
+	// provider transcribes the caller's speech. On a spoken duplex turn the
+	// mock streaming session sends it as a final input transcription ahead of
+	// the turn's reply, as OpenAI Realtime does, so the duplex pipeline's
+	// input guardrails judge it. A typed turn, or a turn without it, sends no
+	// transcript.
+	InputTranscript string `yaml:"input_transcript,omitempty"`
+
 	// StreamChunks, when set, is how a streamed text reply arrives: one chunk
 	// per entry, carrying it as the Delta, then a final chunk with the finish
 	// reason and the usage, as the real providers end a stream. Content is
@@ -473,6 +481,9 @@ func (r *FileMockRepository) parseStructuredResponse(responseMap map[string]inte
 	}
 
 	parseAudioFixture(&turn, responseMap)
+	if transcript, ok := responseMap[keyInputTranscript].(string); ok {
+		turn.InputTranscript = transcript
+	}
 
 	return &turn, nil
 }
