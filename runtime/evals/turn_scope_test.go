@@ -226,3 +226,74 @@ func TestScopeToTurn_LeavesTheCallersContextWhole(t *testing.T) {
 	assert.Empty(t, scoped.ToolCalls)
 	assert.Len(t, evalCtx.ToolCalls, 2, "the caller's context keeps turn 1's calls")
 }
+
+// A provider that delivers the caller's transcript after the reply (OpenAI
+// Realtime, without reordering) stores it after that reply, and the turn is
+// reported once it arrives. The trailing user message is the judged turn's own,
+// so the turn's calls before it still count.
+func TestTurnEvals_LateTranscriptKeepsTheTurnsCalls(t *testing.T) {
+	earlier := []types.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c0", Name: "fetch"}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "c0", Name: "fetch"}},
+		{Role: "assistant", Content: "hello"},
+	}
+	lateTurn := []types.Message{
+		{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "lookup"}}},
+		{Role: "tool", ToolResult: &types.MessageToolResult{ID: "c1", Name: "lookup", Parts: []types.ContentPart{
+			types.NewTextPart("found x"),
+		}}},
+		{Role: "assistant", Content: "x is found"},
+		{Role: "user", Content: "find x"},
+	}
+	history := append(earlier, lateTurn...)
+
+	called := evals.EvalDef{ID: "lookup", Type: "tools_called",
+		Params: map[string]any{"tool_names": []any{"lookup"}}}
+	assert.Equal(t, 1.0, scoreOf(t, runTurnEval(t, called, history)), "the late turn called lookup")
+
+	notFetch := evals.EvalDef{ID: "no-fetch", Type: "tools_not_called",
+		Params: map[string]any{"tool_names": []any{"fetch"}}}
+	assert.Equal(t, 1.0, scoreOf(t, runTurnEval(t, notFetch, history)), "fetch was the earlier turn's call")
+
+	gated := evals.EvalDef{ID: "gated", Type: "contains",
+		Params: map[string]any{"patterns": []any{"found"}},
+		When:   map[string]any{"tool_called": "lookup"}}
+	assert.False(t, runTurnEval(t, gated, history).Skipped, "the late turn called lookup, so the gate opens")
+}
+
+// scopeProbe is a custom handler that judges one turn only when its scope
+// param says so, and scores 1 when it sees no tool calls.
+type scopeProbe struct{}
+
+func (scopeProbe) Type() string { return "scope_probe" }
+
+func (scopeProbe) ScopedToTurn(params map[string]any) bool { return params["scope"] == "turn" }
+
+func (scopeProbe) Eval(_ context.Context, evalCtx *evals.EvalContext, _ map[string]any) (*evals.EvalResult, error) {
+	score := 1.0
+	if len(evalCtx.ToolCalls) > 0 {
+		score = 0
+	}
+	return &evals.EvalResult{Score: &score}, nil
+}
+
+// A wrapper asks the wrapped handler whether it judges one turn with the params
+// it will call it with, its defaults applied, as a direct declaration does.
+func TestTurnEvals_WrapperAppliesTheWrappedTypesDefaultsToItsScope(t *testing.T) {
+	evals.ParamDefaults["scope_probe"] = map[string]any{"scope": "turn"}
+	t.Cleanup(func() { delete(evals.ParamDefaults, "scope_probe") })
+	registry := evals.NewEvalTypeRegistry()
+	registry.Register(scopeProbe{})
+	def := evals.EvalDef{ID: "wrapped", Type: evals.WrapperTypeAssertion, Trigger: evals.TriggerEveryTurn,
+		Params: map[string]any{"eval_type": "scope_probe"}}
+	history := append(turnWithCalls(), turnWithoutCalls()...)
+
+	runner := evals.NewEvalRunner(registry)
+	evalCtx := evals.BuildEvalContext(history, 1, "s1", "p1", nil)
+	results := runner.RunTurnEvals(context.Background(), []evals.EvalDef{def}, evalCtx)
+
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Passed)
+	assert.True(t, *results[0].Passed, "the default scope: turn must hide turn 1's calls")
+}

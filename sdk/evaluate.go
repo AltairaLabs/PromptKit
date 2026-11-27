@@ -38,7 +38,9 @@ type EvaluateOpts struct {
 
 	// --- Conversation snapshot ---
 
-	// Messages is the conversation history to evaluate.
+	// Messages is the conversation history to evaluate. For turn evals it ends
+	// with the turn being judged: turn-level tool checks and `when`
+	// conditions count only the tool calls from its last user message on.
 	Messages []types.Message
 
 	// SessionID identifies the session for sampling determinism and result attribution.

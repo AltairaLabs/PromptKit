@@ -131,7 +131,7 @@ Unreleased holds changes that are on `main` and in no release.
 
 #### Turn-level tool checks see only the current turn's calls
 
-An `every_turn` or `sample_turns` eval is given the history up to the turn it judges, and its tool checks counted the calls of every earlier turn as well. They now count only the calls made from the turn's last user message on. This applies to `tools_called`, `tools_not_called`, `tools_offered`, `tool_args`, `tool_calls_with_args`, `tool_call_count`, `no_tool_errors`, `tool_result_includes`, `tool_result_matches`, `tool_result_has_media` and `tool_result_media_type`, run directly or wrapped in `assertion` or `guardrail`, and to the `when` conditions of every `every_turn` and `sample_turns` eval. A guardrail on one of these checks now judges the turn in progress too. The session-level tool checks (`tools_called_session`, `tool_call_sequence`, `tool_efficiency` and the rest) and evals with any other trigger still see every call. See [Tool checks](/reference/checks/#tool-checks-turn-level).
+An `every_turn` or `sample_turns` eval is given the history up to the turn it judges, and its tool checks counted the calls of every earlier turn as well. They now count only the calls made from the turn's last user message on. This applies to `tools_called`, `tools_not_called`, `tool_args`, `tool_calls_with_args`, `tool_call_count`, `no_tool_errors`, `tool_result_includes`, `tool_result_matches`, `tool_result_has_media` and `tool_result_media_type`, run directly or wrapped in `assertion` or `guardrail`, and to the `when` conditions of every `every_turn` and `sample_turns` eval. A guardrail on one of these checks now judges the turn in progress too. The session-level tool checks (`tools_called_session`, `tool_call_sequence`, `tool_efficiency` and the rest) and evals with any other trigger still see every call. See [Tool checks](/reference/checks/#tool-checks-turn-level).
 
 | If you | You will see | Change |
 |---|---|---|
@@ -140,6 +140,7 @@ An `every_turn` or `sample_turns` eval is given the history up to the turn it ju
 | Run `no_tool_errors` on every turn | an error from an earlier turn's call no longer lowers a later turn's score | none |
 | Gate an `every_turn` eval with `when: {tool_called: ...}`, `any_tool_called` or `min_tool_calls` | the eval runs only on turns that made the call, where it ran on every turn after the first such call | none |
 | Use one of these checks as an output guardrail | it fires only on a call the current turn made; one call no longer blocks every later reply | none |
+| Call `sdk.Evaluate` with a whole transcript and an earlier `TurnIndex` | turn-level tool checks judge the last turn of `Messages`, not the turn `TurnIndex` names | pass `Messages` cut after the turn you judge |
 | Write an eval handler | a handler that implements `evals.TurnScoped` and reports `ScopedToTurn` gets `EvalContext.ToolCalls` narrowed this way; others still get every call | implement it if the handler judges one turn |
 
 ## v2.23.0

@@ -119,9 +119,12 @@ func NewEvalRunner(
 //
 // evalCtx holds the history up to the turn being judged, but a turn eval asks
 // about that turn: its when-conditions are checked against the current turn's
-// tool calls (CurrentTurnToolCalls), and a handler that is TurnScoped, such as
-// tools_called, is given only those calls. Other handlers see every call in
-// evalCtx.ToolCalls.
+// tool calls, and a handler that is TurnScoped, such as tools_called, is given
+// only those calls. Other handlers see every call in evalCtx.ToolCalls. The
+// current turn begins at the last user message, unless user messages follow
+// the last assistant message: those are the turn's transcript, stored after
+// its reply because the provider delivered it late, and the turn begins after
+// the previous turn's reply.
 func (r *EvalRunner) RunTurnEvals(
 	ctx context.Context,
 	defs []EvalDef,
@@ -292,7 +295,7 @@ func (r *EvalRunner) runOne(
 		}
 		gateCalls := evalCtx.ToolCalls
 		if scope.currentTurn {
-			gateCalls = CurrentTurnToolCalls(evalCtx)
+			gateCalls = toolCallsFrom(evalCtx.ToolCalls, repliedTurnStart(evalCtx.Messages))
 		}
 		if shouldRun, reason := ShouldRunWhen(def.When, gateCalls); !shouldRun {
 			logger.Debug("evals: skipping eval, when-condition not met", "eval_id", def.ID, "reason", reason)
@@ -324,7 +327,7 @@ func (r *EvalRunner) runOne(
 	logger.Debug("evals: executing eval", "eval_id", def.ID, "type", def.Type)
 
 	if scope.currentTurn {
-		evalCtx = ScopeToTurn(handler, def.Params, evalCtx)
+		evalCtx = scopeToTurnFrom(handler, def.Params, evalCtx, repliedTurnStart(evalCtx.Messages))
 	}
 
 	// Execute with timeout and panic recovery

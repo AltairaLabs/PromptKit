@@ -793,7 +793,7 @@ func DescribeGovernance(g *Governance) string
 DescribeGovernance renders a declaration as a short human\-readable summary, listing only the fields the pack actually declares.
 
 <a name="Evaluate"></a>
-## func [Evaluate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L160>)
+## func [Evaluate](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L162>)
 
 ```go
 func Evaluate(ctx context.Context, opts EvaluateOpts) ([]evals.EvalResult, error)
@@ -855,7 +855,7 @@ The registries are populated by package init\(\), which means the answer depends
 Intended for deploy\-time and boot\-time validation — a caller can check a configured type without constructing a provider and string\-matching the error. See ValidateOptions to check a whole option set.
 
 <a name="ValidateEvalTypes"></a>
-## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L441>)
+## func [ValidateEvalTypes](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L443>)
 
 ```go
 func ValidateEvalTypes(opts ValidateEvalTypesOpts) ([]evals.EvalDef, error)
@@ -3461,7 +3461,7 @@ type EndpointResolver interface {
 ```
 
 <a name="EvaluateOpts"></a>
-## type [EvaluateOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L23-L147>)
+## type [EvaluateOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L23-L149>)
 
 EvaluateOpts configures standalone eval execution.
 
@@ -3481,7 +3481,9 @@ type EvaluateOpts struct {
     // Only used with PackPath or PackData. If empty, only pack-level evals run.
     PromptName string
 
-    // Messages is the conversation history to evaluate.
+    // Messages is the conversation history to evaluate. For turn evals it ends
+    // with the turn being judged: turn-level tool checks and `when`
+    // conditions count only the tool calls from its last user message on.
     Messages []types.Message
 
     // SessionID identifies the session for sampling determinism and result attribution.
@@ -8118,7 +8120,7 @@ func DefaultVADModeConfig() *VADModeConfig
 DefaultVADModeConfig returns sensible defaults for VAD mode.
 
 <a name="ValidateEvalTypesOpts"></a>
-## type [ValidateEvalTypesOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L401-L429>)
+## type [ValidateEvalTypesOpts](<https://github.com/AltairaLabs/PromptKit/blob/main/sdk/evaluate.go#L403-L431>)
 
 ValidateEvalTypesOpts configures eval type validation.
 

@@ -756,7 +756,7 @@ func (h *AssertionEvalHandler) ParamNames() []string
 ParamNames lists the assertion wrapper's own params. min\_score and max\_score are always accepted \(see ValidateHandlerParams\).
 
 <a name="AssertionEvalHandler.ScopedToTurn"></a>
-### func \(\*AssertionEvalHandler\) [ScopedToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L70>)
+### func \(\*AssertionEvalHandler\) [ScopedToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L101>)
 
 ```go
 func (h *AssertionEvalHandler) ScopedToTurn(params map[string]any) bool
@@ -1149,7 +1149,7 @@ func (r *EvalRunner) Registry() *EvalTypeRegistry
 Registry returns the eval type registry the runner resolves handlers from, so a caller holding only the runner can check defs against the handlers that will run them \(ValidateEvalTypes\).
 
 <a name="EvalRunner.RunConversationEvals"></a>
-### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L159-L163>)
+### func \(\*EvalRunner\) [RunConversationEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L162-L166>)
 
 ```go
 func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1158,7 +1158,7 @@ func (r *EvalRunner) RunConversationEvals(ctx context.Context, defs []EvalDef, e
 RunConversationEvals runs conversation\-level evals \(on\_conversation\_complete trigger\). Call this once, when the conversation is finished \(the end of an Arena self\-play run, or a host's last session of a conversation\), and not when it is suspended to be resumed, such as while a held tool call waits for a human's approval. Call RunSessionEvals for the final session as well.
 
 <a name="EvalRunner.RunSessionEvals"></a>
-### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L141-L145>)
+### func \(\*EvalRunner\) [RunSessionEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L144-L148>)
 
 ```go
 func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1167,7 +1167,7 @@ func (r *EvalRunner) RunSessionEvals(ctx context.Context, defs []EvalDef, evalCt
 RunSessionEvals runs session\-level evals \(on\_session\_complete and sample\_sessions triggers\). Call this when a session ends: each time the conversation is closed, whether it is finished or suspended to be resumed.
 
 <a name="EvalRunner.RunTurnEvals"></a>
-### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L125-L129>)
+### func \(\*EvalRunner\) [RunTurnEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L128-L132>)
 
 ```go
 func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1175,10 +1175,10 @@ func (r *EvalRunner) RunTurnEvals(ctx context.Context, defs []EvalDef, evalCtx *
 
 RunTurnEvals runs turn\-level evals \(every\_turn and sample\_turns triggers\). It skips defs that are disabled, have another trigger, are excluded by sampling, or fail their when\-conditions, and executes the rest in order. Each eval sees the earlier results of the batch in EvalContext.PriorResults.
 
-evalCtx holds the history up to the turn being judged, but a turn eval asks about that turn: its when\-conditions are checked against the current turn's tool calls \(CurrentTurnToolCalls\), and a handler that is TurnScoped, such as tools\_called, is given only those calls. Other handlers see every call in evalCtx.ToolCalls.
+evalCtx holds the history up to the turn being judged, but a turn eval asks about that turn: its when\-conditions are checked against the current turn's tool calls, and a handler that is TurnScoped, such as tools\_called, is given only those calls. Other handlers see every call in evalCtx.ToolCalls. The current turn begins at the last user message, unless user messages follow the last assistant message: those are the turn's transcript, stored after its reply because the provider delivered it late, and the turn begins after the previous turn's reply.
 
 <a name="EvalRunner.RunWorkflowStepEvals"></a>
-### func \(\*EvalRunner\) [RunWorkflowStepEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L175-L179>)
+### func \(\*EvalRunner\) [RunWorkflowStepEvals](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L178-L182>)
 
 ```go
 func (r *EvalRunner) RunWorkflowStepEvals(ctx context.Context, defs []EvalDef, evalCtx *EvalContext) []EvalResult
@@ -1527,7 +1527,7 @@ func (h *GuardrailEvalHandler) ParamNames() []string
 ParamNames lists the guardrail wrapper's own params.
 
 <a name="GuardrailEvalHandler.ScopedToTurn"></a>
-### func \(\*GuardrailEvalHandler\) [ScopedToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L75>)
+### func \(\*GuardrailEvalHandler\) [ScopedToTurn](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L106>)
 
 ```go
 func (h *GuardrailEvalHandler) ScopedToTurn(params map[string]any) bool
@@ -1554,7 +1554,7 @@ func (h *GuardrailEvalHandler) ValidateParams(params map[string]any) error
 ValidateParams mirrors AssertionEvalHandler.ValidateParams.
 
 <a name="HandlerTimeout"></a>
-## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L338-L342>)
+## type [HandlerTimeout](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/runner.go#L341-L345>)
 
 HandlerTimeout is implemented by handlers that bound their own work \(a subprocess, a tool call\) and can legitimately need longer than the runner's per\-eval timeout. Without it the runner's timeout \(30s by default\) silently caps a configured \`timeout\_ms: 300000\` at 30 seconds.
 
@@ -1928,7 +1928,7 @@ type ToolCallRecord = types.ToolCallRecord
 ```
 
 <a name="CurrentTurnToolCalls"></a>
-### func [CurrentTurnToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L38>)
+### func [CurrentTurnToolCalls](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/evals/turn_scope.go#L34>)
 
 ```go
 func CurrentTurnToolCalls(evalCtx *EvalContext) []ToolCallRecord

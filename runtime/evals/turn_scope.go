@@ -23,11 +23,7 @@ type TurnScoped interface {
 // copy whose ToolCalls holds only the current turn's calls (CurrentTurnToolCalls).
 // evalCtx is never modified.
 func ScopeToTurn(handler EvalTypeHandler, params map[string]any, evalCtx *EvalContext) *EvalContext {
-	ts, ok := handler.(TurnScoped)
-	if !ok || !ts.ScopedToTurn(params) {
-		return evalCtx
-	}
-	return withCurrentTurnToolCalls(evalCtx)
+	return scopeToTurnFrom(handler, params, evalCtx, lastUserIndex(evalCtx.Messages))
 }
 
 // CurrentTurnToolCalls returns the calls in evalCtx.ToolCalls made in the
@@ -36,23 +32,32 @@ func ScopeToTurn(handler EvalTypeHandler, params map[string]any, evalCtx *EvalCo
 // message in evalCtx.Messages. With no user message in Messages the turn
 // boundary cannot be seen, and every call is returned.
 func CurrentTurnToolCalls(evalCtx *EvalContext) []ToolCallRecord {
-	// With no user message start is -1, which every call is at or after.
-	start := lastUserIndex(evalCtx.Messages)
-	var calls []ToolCallRecord
-	for i := range evalCtx.ToolCalls {
-		if evalCtx.ToolCalls[i].TurnIndex >= start {
-			calls = append(calls, evalCtx.ToolCalls[i])
-		}
-	}
-	return calls
+	return toolCallsFrom(evalCtx.ToolCalls, lastUserIndex(evalCtx.Messages))
 }
 
-// withCurrentTurnToolCalls is a shallow copy of evalCtx with ToolCalls
-// narrowed to the current turn.
-func withCurrentTurnToolCalls(evalCtx *EvalContext) *EvalContext {
+// scopeToTurnFrom is ScopeToTurn with the turn starting at message index start.
+func scopeToTurnFrom(
+	handler EvalTypeHandler, params map[string]any, evalCtx *EvalContext, start int,
+) *EvalContext {
+	ts, ok := handler.(TurnScoped)
+	if !ok || !ts.ScopedToTurn(params) {
+		return evalCtx
+	}
 	scoped := *evalCtx
-	scoped.ToolCalls = CurrentTurnToolCalls(evalCtx)
+	scoped.ToolCalls = toolCallsFrom(evalCtx.ToolCalls, start)
 	return &scoped
+}
+
+// toolCallsFrom returns the calls made by a message at or after index start.
+// A negative start keeps every call.
+func toolCallsFrom(calls []ToolCallRecord, start int) []ToolCallRecord {
+	var from []ToolCallRecord
+	for i := range calls {
+		if calls[i].TurnIndex >= start {
+			from = append(from, calls[i])
+		}
+	}
+	return from
 }
 
 // lastUserIndex is the index of the last user message, or -1 when there is
@@ -66,6 +71,32 @@ func lastUserIndex(messages []types.Message) int {
 	return -1
 }
 
+// repliedTurnStart is where the turn a turn eval judges begins in messages.
+//
+// A turn eval runs once the turn's reply is stored. Usually the turn begins at
+// its user message, the last one. A provider that delivers the caller's
+// transcript after the reply (OpenAI Realtime, without transcript reordering)
+// stores it after that reply instead, and the turn is reported once it
+// arrives, so user messages after the last assistant message are the judged
+// turn's own. The turn then begins after the previous turn's reply: the last
+// assistant message without tool calls before this turn's reply, or the
+// start of the history when there is none.
+func repliedTurnStart(messages []types.Message) int {
+	reply := len(messages) - 1
+	for reply >= 0 && messages[reply].Role == roleUser {
+		reply--
+	}
+	if reply == len(messages)-1 || reply < 0 || messages[reply].Role != roleAssistant {
+		return lastUserIndex(messages)
+	}
+	for i := reply - 1; i >= 0; i-- {
+		if messages[i].Role == roleAssistant && len(messages[i].ToolCalls) == 0 {
+			return i + 1
+		}
+	}
+	return 0
+}
+
 // ScopedToTurn reports whether the wrapped eval judges one turn.
 func (h *AssertionEvalHandler) ScopedToTurn(params map[string]any) bool {
 	return innerScopedToTurn(h.registry, params)
@@ -77,7 +108,8 @@ func (h *GuardrailEvalHandler) ScopedToTurn(params map[string]any) bool {
 }
 
 // innerScopedToTurn reports whether the eval a wrapper delegates to is
-// TurnScoped for its own params.
+// TurnScoped for its own params, after the defaults and aliases the wrapper
+// applies before calling it (prepareInner).
 func innerScopedToTurn(registry *EvalTypeRegistry, params map[string]any) bool {
 	evalType, _ := innerEvalType(params)
 	handler, err := registry.Get(evalType)
@@ -85,5 +117,5 @@ func innerScopedToTurn(registry *EvalTypeRegistry, params map[string]any) bool {
 		return false
 	}
 	ts, ok := handler.(TurnScoped)
-	return ok && ts.ScopedToTurn(extractEvalParams(params))
+	return ok && ts.ScopedToTurn(NormalizeParams(evalType, ApplyDefaults(evalType, extractEvalParams(params))))
 }

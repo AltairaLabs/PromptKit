@@ -1491,12 +1491,16 @@ func (c *StreamingMediaConfig) Validate() error
 Validate checks that Type is audio, video or image. Audio and video require a positive ChunkSize. Audio also requires a positive SampleRate and Channels and a non\-empty Encoding. Video requires a positive Width, Height and FrameRate.
 
 <a name="ToolCallRecord"></a>
-## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/tool_call_record.go#L21-L29>)
+## type [ToolCallRecord](<https://github.com/AltairaLabs/PromptKit/blob/main/runtime/types/tool_call_record.go#L21-L33>)
 
 ToolCallRecord captures a single tool invocation for eval/assertion context. Shared between runtime/evals and PromptArena's assertions.
 
 ```go
 type ToolCallRecord struct {
+    // TurnIndex is the index, in the message history the record was built
+    // from, of the assistant message that made the call (evals.ExtractToolCalls
+    // sets it so), not a turn number. Turn-level evals compare it with the
+    // history's message indexes to keep only the current turn's calls.
     TurnIndex int            `json:"turn_index"`
     ToolName  string         `json:"tool_name"`
     Arguments map[string]any `json:"arguments"`
