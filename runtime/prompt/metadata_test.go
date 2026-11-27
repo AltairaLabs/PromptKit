@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/AltairaLabs/PromptKit/runtime/v2/logger"
 	"github.com/AltairaLabs/PromptKit/runtime/v2/packspec"
 
@@ -376,23 +378,18 @@ func TestMetadataBuilder_AddChangelogEntry(t *testing.T) {
 	}
 }
 
-func TestGetDefaultPipelineConfig(t *testing.T) {
-	config := GetDefaultPipelineConfig()
-
-	if config == nil {
-		t.Fatal("Expected non-nil config")
+// GetDefaultPipelineConfig is deprecated but still exported, so callers that
+// read it get the same block they always did.
+func TestGetDefaultPipelineConfig_ReturnsTheLegacyBlock(t *testing.T) {
+	want := &packspec.PipelineConfig{
+		Stages: []string{"template", "provider", "validator"},
+		Middleware: []*packspec.MiddlewareConfig{
+			{Type: "template", Config: map[string]any{"strict_mode": false, "allow_undefined": true}},
+			{Type: "provider", Config: map[string]any{"retry_attempts": 3, "timeout": 30}},
+			{Type: "validator", Config: map[string]any{"fail_fast": false}},
+		},
 	}
-
-	// Typed now that Prompt.Pipeline is the generated *PipelineConfig.
-	stages := config.Stages
-	if len(stages) != 3 {
-		t.Errorf("Expected 3 stages, got %d", len(stages))
-	}
-
-	middleware := config.Middleware
-	if len(middleware) != 3 {
-		t.Errorf("Expected 3 middleware configs, got %d", len(middleware))
-	}
+	assert.Equal(t, want, GetDefaultPipelineConfig()) //nolint:staticcheck // pins the deprecated API
 }
 
 func TestMetadataBuilder_BuildMetadata(t *testing.T) {

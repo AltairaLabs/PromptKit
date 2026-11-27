@@ -129,12 +129,17 @@ func unionStrings(a, b []string) []string {
 	return out
 }
 
-// Config represents the complete pipeline configuration for pack format
+// Config is a list of pipeline stage names, once the shape of a pack's pipeline
+// block. Nothing in PromptKit reads it.
+//
+// Deprecated: a pack's pipeline block is packspec.PipelineConfig, and the stage
+// pipeline is built in code (see runtime/pipeline/stage), not from stage names.
 type Config struct {
 	Stages []string `json:"stages"` // Pipeline stages in order
 }
 
-// RetryPolicy defines retry behavior for provider middleware
+// RetryPolicy describes a retry policy: attempts, backoff strategy and initial
+// delay. Nothing in PromptKit reads it.
 type RetryPolicy struct {
 	MaxRetries     int    `json:"max_retries"`                // Maximum retry attempts
 	Backoff        string `json:"backoff"`                    // Backoff strategy ("fixed", "exponential")
@@ -189,7 +194,7 @@ type TraceEvent struct {
 	Message   string      `json:"message,omitempty"` // Human-readable description
 }
 
-// StateStoreConfig contains configuration for state store middleware
+// StateStoreConfig contains configuration for the state store stages.
 type StateStoreConfig struct {
 	Store          interface{}            // State store implementation (statestore.Store)
 	ConversationID string                 // Unique conversation identifier

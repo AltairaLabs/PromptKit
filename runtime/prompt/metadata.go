@@ -83,13 +83,14 @@ func (mb *MetadataBuilder) BuildCompilationInfo(compilerVersion string) *Compila
 	}
 }
 
-// GetDefaultPipelineConfig returns the default Arena pipeline configuration
-// Returns as map to avoid import cycle with pipeline package
-// GetDefaultPipelineConfig returns the pipeline a pack gets when it declares
-// none: template, provider and validator stages with their default middleware.
+// GetDefaultPipelineConfig returns the pipeline block the pack compiler used to
+// set on every compiled prompt: template, provider and validator stages with
+// middleware settings. Nothing in PromptKit reads a pack's pipeline block, and
+// the compiler no longer emits one.
 //
-// Typed now that PackPrompt.Pipeline is the generated *PipelineConfig rather
-// than a map[string]any.
+// Deprecated: the block configures nothing; timeouts and retries are the host's
+// to set (the provider's own settings and RuntimeConfig). Leave
+// PackPrompt.Pipeline unset.
 func GetDefaultPipelineConfig() *packspec.PipelineConfig {
 	const (
 		stageTemplate  = "template"
