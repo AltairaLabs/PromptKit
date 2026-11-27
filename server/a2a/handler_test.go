@@ -3,6 +3,7 @@ package a2aserver
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -275,4 +276,40 @@ func TestStateless_OpenerModeStillPools(t *testing.T) {
 	srv.convsMu.RLock()
 	defer srv.convsMu.RUnlock()
 	assert.Len(t, srv.convs, 1)
+}
+
+// A text event marked ReplacesText (an output guardrail cut the reply) replaces
+// the text before it on message/send exactly as on message/stream, so the text
+// the guardrail cut never reaches the caller (#2925).
+func TestStateless_SendHonoursReplacesTextAsStreamDoes(t *testing.T) {
+	events := []StreamEvent{
+		{Kind: EventText, Text: "Your card is "},
+		{Kind: EventText, Text: "4111"},
+		{Kind: EventText, Text: "Let's talk about something else.", ReplacesText: true},
+		{Kind: EventText, Text: " Anything else?"},
+	}
+	srv, ts := statelessServer(t, &recordingHandler{events: events})
+	defer ts.Close()
+
+	sent := a2aSendMessage(t, ts, "ctx-replace-send", "hello")
+	var sentTexts []string
+	for _, art := range sent.Artifacts {
+		for _, p := range art.Parts {
+			if p.Text != nil {
+				sentTexts = append(sentTexts, *p.Text)
+			}
+		}
+	}
+	assert.Equal(t, []string{"Let's talk about something else.", " Anything else?"}, sentTexts)
+
+	streamed := readSSEEvents(t, ts, a2a.MethodV1SendStreamingMessage, a2a.SendMessageRequest{
+		Message: a2a.Message{ContextID: "ctx-replace-stream", Role: a2a.RoleUser,
+			Parts: []a2a.Part{{Text: serverTextPtr("hello")}}},
+	})
+	task, err := srv.taskStore.Get(taskIDFromEvents(t, streamed))
+	require.NoError(t, err)
+	require.Len(t, task.Artifacts, 1)
+	require.NotNil(t, task.Artifacts[0].Parts[0].Text)
+	assert.Equal(t, strings.Join(sentTexts, ""), *task.Artifacts[0].Parts[0].Text,
+		"message/send and message/stream must keep the same text for the same handler")
 }

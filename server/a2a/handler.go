@@ -156,6 +156,12 @@ func (r *streamResult) consume(evt StreamEvent) (done bool) {
 	}
 	switch evt.Kind {
 	case EventText:
+		// A replacement (an output guardrail cut the reply) drops the text
+		// before it, as message/stream restarts its text artifact: the cut
+		// text must not reach the caller through message/send either.
+		if evt.ReplacesText {
+			r.texts = r.texts[:0]
+		}
 		r.texts = append(r.texts, evt.Text)
 	case EventMedia:
 		if evt.Media != nil {
