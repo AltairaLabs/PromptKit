@@ -155,6 +155,16 @@ The pack compiler set the same `pipeline` block on every compiled prompt: `templ
 | Edited `pipeline` in a compiled pack to change a timeout or retries | no change in behavior; the block never had an effect | set the provider's own timeout or retry settings, or the host's |
 | Call `prompt.GetDefaultPipelineConfig` or use `pipeline.Config` | a staticcheck deprecation warning (SA1019); both still work | leave `PackPrompt.Pipeline` unset; nothing reads it |
 
+### A2A server
+
+#### `message/send` drops text a guardrail replaced
+
+A stateless server (`a2aserver.NewStatelessServer`) answering `message/send` kept every text event a handler emitted, including the text before an event marked `ReplacesText`. When an output guardrail cut a reply, the task's artifact held the cut text followed by the guardrail's message. It now keeps only the replacement and what follows it, as `message/stream` already did.
+
+| If you | You will see | Change |
+|---|---|---|
+| Call `message/send` on a stateless server whose handler emits `ReplacesText` | the artifact holds the replacement and the text after it, not the text it replaced | none |
+
 ## v2.23.0
 
 The entries are grouped by area: configuration, providers and tools.
