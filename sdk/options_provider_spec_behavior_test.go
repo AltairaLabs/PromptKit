@@ -102,12 +102,14 @@ func TestConv_ProviderSpecReachesTheWire(t *testing.T) {
 		require.NoError(t, WithInferenceProvider(convSpecFor(w, "judge", "gpt-4o-mini"))(c))
 		p, err := c.inferenceRegistry.Get("judge")
 		require.NoError(t, err)
-		_, err = p.Infer(ctx, inference.Request{
+		resp, err := p.Infer(ctx, inference.Request{
 			Inputs: []types.Message{{Role: "user", Content: "great"}},
 			Labels: []string{"positive", "negative"},
 		})
-		// The scripted endpoint returns no logprobs; the request is under test.
-		require.ErrorContains(t, err, "logprobs")
+		// The scripted endpoint returns no logprobs, so the label it answered
+		// as text decides.
+		require.NoError(t, err)
+		assert.Equal(t, []inference.LabelScore{{Label: "positive", Score: 1}, {Label: "negative", Score: 0}}, resp.Scores)
 		r := w.last(t)
 		convAssertSpecOnWire(t, r)
 		assert.Equal(t, "gpt-4o-mini", r.Body["model"])
