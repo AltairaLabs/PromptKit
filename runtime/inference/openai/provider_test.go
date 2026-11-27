@@ -3,6 +3,7 @@ package openai_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -373,4 +374,177 @@ func TestNemoGuardAlias_DefaultsToA20sCallTimeout(t *testing.T) {
 		AdditionalConfig: map[string]any{"timeout_seconds": 5}})
 	require.NoError(t, err)
 	assert.Equal(t, 5*time.Second, p.(*openai.Provider).HTTPTimeout(), "timeout_seconds still overrides it")
+}
+
+// answerOnlyBody builds a chat-completions response that carries the model's
+// answer as message text and no logprobs — what an endpoint that does not
+// support logprobs (or ignores the request for them) returns. withNullLogprobs
+// sends an explicit "logprobs": null, the shape OpenAI-compatible servers use;
+// otherwise the field is absent.
+func answerOnlyBody(t *testing.T, content string, withNullLogprobs bool) string {
+	t.Helper()
+	choice := map[string]any{
+		"index":         0,
+		"message":       map[string]any{"role": "assistant", "content": content},
+		"finish_reason": "length",
+	}
+	if withNullLogprobs {
+		choice["logprobs"] = nil
+	}
+	b, err := json.Marshal(map[string]any{
+		"choices": []map[string]any{choice},
+		"usage":   map[string]any{"prompt_tokens": 7},
+	})
+	require.NoError(t, err)
+	return string(b)
+}
+
+// answerOnlyProvider builds the nvidia-topic-control provider from a spec, as a
+// host's provider file does, against an endpoint that answers content with no
+// logprobs.
+func answerOnlyProvider(t *testing.T, content string, withNullLogprobs bool) inference.Provider {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(answerOnlyBody(t, content, withNullLogprobs)))
+	}))
+	t.Cleanup(srv.Close)
+	p, err := inference.CreateFromSpec(inference.ProviderSpec{Type: "nvidia-topic-control", BaseURL: srv.URL})
+	require.NoError(t, err)
+	return p
+}
+
+var topicLabels = []string{"on-topic", "off-topic"}
+
+// An endpoint with no logprobs still answers the label as text. That answer is
+// the decision: the answered label scores 1.0, every other label 0, and the
+// call succeeds instead of failing every turn (#2924). Matching is
+// case-insensitive, ignores surrounding whitespace and one layer of quotes or a
+// trailing period, and accepts the full label or its first-token prefix
+// (max_tokens is 1, so "on" is what a well-behaved model returns).
+func TestInfer_NoLogprobs_TakesTheLabelFromTheAnswerText(t *testing.T) {
+	onWins := []inference.LabelScore{{Label: "on-topic", Score: 1}, {Label: "off-topic", Score: 0}}
+	offWins := []inference.LabelScore{{Label: "off-topic", Score: 1}, {Label: "on-topic", Score: 0}}
+	cases := []struct {
+		answer string
+		want   []inference.LabelScore
+	}{
+		{"on", onWins},
+		{"off", offWins},
+		{"on-topic", onWins},
+		{"off-topic", offWins},
+		{"OFF-Topic", offWins},
+		{"  On\n", onWins},
+		{`"off-topic".`, offWins},
+		{"'on'", onWins},
+	}
+	for _, tc := range cases {
+		for _, nullField := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%q/null=%v", tc.answer, nullField), func(t *testing.T) {
+				p := answerOnlyProvider(t, tc.answer, nullField)
+
+				resp, err := p.Infer(context.Background(), inference.Request{
+					Inputs: []types.Message{{Role: "user", Content: "Who should I vote for?"}},
+					Labels: topicLabels,
+				})
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.want, resp.Scores)
+				assert.Equal(t, tc.answer, resp.Raw, "the raw answer is kept for diagnostics")
+				assert.Equal(t, openai.NemoGuardModel, resp.Model)
+				assert.Equal(t, 7, resp.Usage.InputTokens)
+			})
+		}
+	}
+}
+
+// Case is ignored on the label side too, and the scores carry the caller's
+// spelling of the label, not the model's.
+func TestInfer_NoLogprobs_MatchingIgnoresTheLabelsCase(t *testing.T) {
+	p := answerOnlyProvider(t, "off-topic", true)
+
+	resp, err := p.Infer(context.Background(), inference.Request{Labels: []string{"On-Topic", "Off-Topic"}})
+
+	require.NoError(t, err)
+	assert.Equal(t, []inference.LabelScore{{Label: "Off-Topic", Score: 1}, {Label: "On-Topic", Score: 0}}, resp.Scores)
+}
+
+// An answer that is not a label is not a decision: no scores, so the caller's
+// "no usable label" policy applies (topic_policy's on_unknown, default deny) —
+// the same rule as a sampled token that is not a label. Near misses are
+// deliberately not accepted: matching never searches inside a sentence, so a
+// model that talks instead of answering cannot steer the result.
+func TestInfer_NoLogprobs_NonLabelAnswer_ReturnsNoScores(t *testing.T) {
+	for _, answer := range []string{"maybe", "on topic", "It is off-topic", "onward", "topic", "yes", "on-topic!"} {
+		t.Run(answer, func(t *testing.T) {
+			p := answerOnlyProvider(t, answer, true)
+
+			resp, err := p.Infer(context.Background(), inference.Request{Labels: topicLabels})
+
+			require.NoError(t, err)
+			assert.Empty(t, resp.Scores, "a non-label answer is not a decision")
+			assert.Equal(t, answer, resp.Raw)
+		})
+	}
+}
+
+// No logprobs and no answer text is a broken response, not a decision.
+func TestInfer_NoLogprobsAndNoAnswer_Errors(t *testing.T) {
+	for _, answer := range []string{"", "  \n", `""`} {
+		t.Run(fmt.Sprintf("%q", answer), func(t *testing.T) {
+			p := answerOnlyProvider(t, answer, true)
+
+			_, err := p.Infer(context.Background(), inference.Request{Labels: topicLabels})
+
+			require.EqualError(t, err, "inference: response carried neither logprobs nor an answer")
+		})
+	}
+}
+
+func TestInfer_NoChoices_Errors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[]}`))
+	}))
+	defer srv.Close()
+	p, err := openai.New(openai.Config{BaseURL: srv.URL, Model: "m"})
+	require.NoError(t, err)
+
+	_, err = p.Infer(context.Background(), inference.Request{Labels: topicLabels})
+
+	require.EqualError(t, err, "inference: response carried no choices")
+}
+
+// Labels that share a first-token prefix are as ambiguous in the answer text as
+// in the logprobs: "on" could be either, so the call errors rather than guess.
+func TestInfer_NoLogprobs_SharedPrefixLabels_Errors(t *testing.T) {
+	p := answerOnlyProvider(t, "on-topic", true)
+
+	_, err := p.Infer(context.Background(), inference.Request{Labels: []string{"on-topic", "on-hold"}})
+
+	require.EqualError(t, err,
+		`inference: labels on-topic, on-hold share the first-token prefix "on"; first-token matching cannot tell them apart`)
+}
+
+// When logprobs are present they decide, exactly as before: the answer text is
+// not consulted, even when it disagrees.
+func TestInfer_LogprobsPresent_IgnoresTheAnswerText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var body map[string]any
+		require.NoError(t, json.Unmarshal([]byte(topLogprobsBody(t, map[string]float64{"on": 0.7, "off": 0.3})), &body))
+		choice := body["choices"].([]any)[0].(map[string]any)
+		choice["message"] = map[string]any{"role": "assistant", "content": "off"}
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	defer srv.Close()
+	p, err := openai.New(openai.Config{BaseURL: srv.URL, Model: "m"})
+	require.NoError(t, err)
+
+	resp, err := p.Infer(context.Background(), inference.Request{Labels: topicLabels})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Scores, 2)
+	assert.Equal(t, "on-topic", resp.Scores[0].Label)
+	assert.InDelta(t, 0.7, resp.Scores[0].Score, 0.001)
+	assert.Equal(t, "off-topic", resp.Scores[1].Label)
+	assert.InDelta(t, 0.3, resp.Scores[1].Score, 0.001)
+	assert.Equal(t, "on", resp.Raw, "Raw is the sampled token, not the message text")
 }

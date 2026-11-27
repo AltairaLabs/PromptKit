@@ -86,7 +86,7 @@ A provider's `role:` field is optional and defaults to `llm`. It tells the runti
 - `inference` is non-LLM classification through one interface,
   `inference.Provider`: content in, a probability per label out. It powers
   checks like `audio_emotion`, `text_toxicity` and `topic_policy`. Types:
-  `huggingface`, `openai` (logprobs), `systemone` (Jev) and
+  `huggingface`, `openai` (logprobs, or the answered label without them), `systemone` (Jev) and
   `nvidia-topic-control`; see
   [Inference Providers](https://promptarena.altairalabs.ai/arena/how-to/configure-providers/#inference-providers-audio--text--image-classification--embedding)
   in the configure-providers how-to.

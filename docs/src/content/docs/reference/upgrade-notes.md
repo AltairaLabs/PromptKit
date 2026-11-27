@@ -143,6 +143,19 @@ An `every_turn` or `sample_turns` eval is given the history up to the turn it ju
 | Call `sdk.Evaluate` with a whole transcript and an earlier `TurnIndex` | turn-level tool checks judge the last turn of `Messages`, not the turn `TurnIndex` names | pass `Messages` cut after the turn you judge |
 | Write an eval handler | a handler that implements `evals.TurnScoped` and reports `ScopedToTurn` gets `EvalContext.ToolCalls` narrowed this way; others still get every call | implement it if the handler judges one turn |
 
+#### `topic_policy` works against endpoints that return no logprobs
+
+The `openai` and `nvidia-topic-control` inference types read the label probabilities from logprobs, and a response without them failed with `inference: response carried no logprobs; the endpoint must support logprobs`. `topic_policy` sent that error to `on_error`, which denies by default, so every turn was refused. Now the label the model answered as text decides: it scores `1.0` and the other labels `0`. The answer matches when, ignoring case, surrounding whitespace, quotes and a trailing period, it is the label or its first word (`on` for `on-topic`). See [`topic_policy`](/reference/checks/#topic_policy).
+
+| If you | You will see | Change |
+|---|---|---|
+| Point `type: openai` or `nvidia-topic-control` at an endpoint that returns no logprobs | `topic_policy` allows or denies each turn as the model answered, where it denied every turn through `on_error` | none |
+| Read `confidence` from a `topic_policy` result | `1.0` for every decision made without logprobs; it is not a probability | use an endpoint that returns logprobs if you need one |
+| Use such an endpoint and the model answers something other than a label | `on_unknown` decides, as for a non-label answer with logprobs | none |
+| Use such an endpoint and it answers with empty text | the error `inference: response carried neither logprobs nor an answer`, so `on_error` decides | none |
+| Use an endpoint that returns logprobs | no change; the answer text is not consulted | none |
+| Call `Infer` on the `openai` provider and get a response with no choices | the error `inference: response carried no choices` | none |
+
 ### Packs
 
 #### Compiled prompts no longer carry a pipeline block

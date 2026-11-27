@@ -1,6 +1,6 @@
 // Package openai implements inference.Provider over any OpenAI-compatible
-// chat-completions endpoint that returns token logprobs — OpenAI itself,
-// NVIDIA's hosted NemoGuard models, vLLM, LiteLLM and most gateways.
+// chat-completions endpoint — OpenAI itself, NVIDIA's hosted NemoGuard
+// models, vLLM, LiteLLM and most gateways.
 //
 // Each Infer call becomes one single-token completion: the candidate labels
 // are the allowed answer set, the model is asked for exactly one of them,
@@ -8,6 +8,12 @@
 // the allowed set — read from the endpoint's top_logprobs rather than a
 // dedicated logit-scoring API. Like any such approach the numbers are
 // uncalibrated.
+//
+// An endpoint that returns no logprobs is still usable: the label the model
+// answered in its message text is the decision, scored 1.0, with 0 for every
+// other label. That is a decision without a distribution, not a probability.
+// An answer that is not a label returns no scores, as a non-label sampled
+// token does.
 package openai
 
 import (
@@ -107,7 +113,9 @@ func (p *Provider) HTTPTimeout() time.Duration { return provbase.ClientTimeout(p
 
 // Infer asks the configured model to answer with exactly one of req.Labels,
 // and returns the renormalized label distribution read from the
-// completion's top_logprobs.
+// completion's top_logprobs. When the endpoint returns no logprobs, the label
+// the model answered as text scores 1.0 and every other label 0 (see
+// answerScores); an answer that is not a label returns no scores.
 func (p *Provider) Infer(ctx context.Context, req inference.Request) (inference.Response, error) {
 	if len(req.Labels) < minLabels {
 		return inference.Response{}, fmt.Errorf("%w: got %d, need at least %d",
@@ -123,9 +131,18 @@ func (p *Provider) Infer(ctx context.Context, req inference.Request) (inference.
 		model = p.model
 	}
 
-	top, usage, raw, err := p.complete(ctx, model, req)
+	out, err := p.complete(ctx, model, req)
 	if err != nil {
 		return inference.Response{}, err
+	}
+	top, usage, raw := out.top, out.usage, out.raw
+
+	if !out.hasLogprobs {
+		scores, answerErr := answerScores(raw, req.Labels)
+		if answerErr != nil {
+			return inference.Response{}, answerErr
+		}
+		return inference.Response{Model: model, Scores: scores, Usage: usage, Raw: raw}, nil
 	}
 
 	// The answer the model actually gave must be a label. Otherwise the
@@ -167,24 +184,85 @@ func isLabelToken(token string, labels []string) bool {
 	return false
 }
 
-// distribution renormalizes the labels' probabilities over the returned
-// top_logprobs, matching each label by its first-token prefix. It errors
-// when two labels share a prefix (matching could not tell them apart) or
-// when no label's prefix appears at all — reading that as a uniform guess
-// would invent an answer.
-func distribution(top map[string]float64, labels []string) ([]inference.LabelScore, error) {
+// labelPrefixes returns each label's first-token prefix, in label order. It
+// errors when two labels share a prefix: first-token matching could not tell
+// them apart.
+func labelPrefixes(labels []string) ([]string, error) {
 	prefixes := make([]string, len(labels))
 	byPrefix := make(map[string][]string, len(labels))
 	for i, label := range labels {
 		prefixes[i] = firstTokenPrefix(label)
 		byPrefix[prefixes[i]] = append(byPrefix[prefixes[i]], label)
 	}
-	for prefix, sharing := range byPrefix {
-		if len(sharing) > 1 {
+	for _, prefix := range prefixes {
+		if sharing := byPrefix[prefix]; len(sharing) > 1 {
 			return nil, fmt.Errorf(
 				"inference: labels %s share the first-token prefix %q; first-token matching cannot tell them apart",
 				strings.Join(sharing, ", "), prefix)
 		}
+	}
+	return prefixes, nil
+}
+
+// answerQuoting is what normalizeAnswer strips from both ends of an answer:
+// quotes and a trailing period, as a chat model often wraps a one-word answer.
+const answerQuoting = `"'.`
+
+// normalizeAnswer lowercases answer and strips surrounding whitespace and
+// answerQuoting. Nothing inside the answer is touched.
+func normalizeAnswer(answer string) string {
+	s := strings.Trim(strings.TrimSpace(answer), answerQuoting)
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// answerScores reads the decision from the model's answer text, for an
+// endpoint that returned no logprobs. The normalized answer (see
+// normalizeAnswer) must equal one label, case-insensitively, or that label's
+// first-token prefix — max_tokens is 1, so "on" is the expected answer for
+// "on-topic". Nothing is searched for inside a longer answer.
+//
+// A matched label scores 1.0 and the others 0, the matched one first: the
+// model's answer, not a probability. An answer that matches no label returns
+// no scores, so the caller's "no usable label" policy decides. An empty answer
+// is an error: the endpoint returned nothing to decide on.
+func answerScores(answer string, labels []string) ([]inference.LabelScore, error) {
+	norm := normalizeAnswer(answer)
+	if norm == "" {
+		return nil, errors.New("inference: response carried neither logprobs nor an answer")
+	}
+	prefixes, err := labelPrefixes(labels)
+	if err != nil {
+		return nil, err
+	}
+	matched := -1
+	for i, label := range labels {
+		if strings.EqualFold(norm, label) || norm == prefixes[i] {
+			matched = i
+			break
+		}
+	}
+	if matched < 0 {
+		return nil, nil
+	}
+	scores := make([]inference.LabelScore, 0, len(labels))
+	scores = append(scores, inference.LabelScore{Label: labels[matched], Score: 1})
+	for i, label := range labels {
+		if i != matched {
+			scores = append(scores, inference.LabelScore{Label: label, Score: 0})
+		}
+	}
+	return scores, nil
+}
+
+// distribution renormalizes the labels' probabilities over the returned
+// top_logprobs, matching each label by its first-token prefix. It errors
+// when two labels share a prefix (matching could not tell them apart) or
+// when no label's prefix appears at all — reading that as a uniform guess
+// would invent an answer.
+func distribution(top map[string]float64, labels []string) ([]inference.LabelScore, error) {
+	prefixes, err := labelPrefixes(labels)
+	if err != nil {
+		return nil, err
 	}
 
 	probs := make([]float64, len(labels))
@@ -227,6 +305,9 @@ type chatMessage struct {
 
 type chatResponse struct {
 	Choices []struct {
+		Message struct {
+			Content string `json:"content"`
+		} `json:"message"`
 		Logprobs struct {
 			Content []struct {
 				Token       string `json:"token"`
@@ -265,12 +346,24 @@ func buildMessages(req inference.Request) []chatMessage {
 	return msgs
 }
 
+// completion is what complete reads from one chat-completions response.
+type completion struct {
+	// hasLogprobs reports whether the response carried logprobs. Without
+	// them top is nil and raw is the message text.
+	hasLogprobs bool
+	// top is the first sampled position's top_logprobs, token -> logprob.
+	top map[string]float64
+	// raw is the sampled token, or the message text without logprobs.
+	raw   string
+	usage inference.Usage
+}
+
 // complete sends the single-token completion request, retrying transient
-// failures, and returns the raw top_logprobs token->logprob map from the
-// first (only) sampled position.
+// failures, and returns the first (only) sampled position's top_logprobs —
+// or, when the endpoint returned no logprobs, the answer text.
 func (p *Provider) complete(
 	ctx context.Context, model string, req inference.Request,
-) (map[string]float64, inference.Usage, string, error) {
+) (completion, error) {
 	body, err := json.Marshal(chatRequest{
 		Model:       model,
 		Messages:    buildMessages(req),
@@ -280,7 +373,7 @@ func (p *Provider) complete(
 		TopLogprobs: maxTopLogprobs,
 	})
 	if err != nil {
-		return nil, inference.Usage{}, "", fmt.Errorf("inference: encode request: %w", err)
+		return completion{}, fmt.Errorf("inference: encode request: %w", err)
 	}
 	url := p.baseURL + chatCompletionsPath
 
@@ -298,17 +391,17 @@ func (p *Provider) complete(
 
 	resp, err := providers.DoWithRetry(ctx, p.retryPolicy, providerName, doFn)
 	if err != nil {
-		return nil, inference.Usage{}, "", fmt.Errorf("inference: call model: %w", err)
+		return completion{}, fmt.Errorf("inference: call model: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	payload, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, inference.Usage{}, "", fmt.Errorf("inference: read response: %w", err)
+		return completion{}, fmt.Errorf("inference: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, inference.Usage{}, "", &providers.ProviderHTTPError{
+		return completion{}, &providers.ProviderHTTPError{
 			StatusCode: resp.StatusCode,
 			URL:        url,
 			Body:       string(payload),
@@ -318,18 +411,21 @@ func (p *Provider) complete(
 
 	var decoded chatResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return nil, inference.Usage{}, "", fmt.Errorf("inference: decode response: %w", err)
+		return completion{}, fmt.Errorf("inference: decode response: %w", err)
 	}
-	if len(decoded.Choices) == 0 || len(decoded.Choices[0].Logprobs.Content) == 0 {
-		return nil, inference.Usage{}, "",
-			errors.New("inference: response carried no logprobs; the endpoint must support logprobs")
+	if len(decoded.Choices) == 0 {
+		return completion{}, errors.New("inference: response carried no choices")
+	}
+	choice := decoded.Choices[0]
+	usage := inference.Usage{InputTokens: decoded.Usage.PromptTokens}
+	if len(choice.Logprobs.Content) == 0 {
+		return completion{raw: choice.Message.Content, usage: usage}, nil
 	}
 
-	sampled := decoded.Choices[0].Logprobs.Content[0]
+	sampled := choice.Logprobs.Content[0]
 	top := make(map[string]float64, len(sampled.TopLogprobs))
 	for _, t := range sampled.TopLogprobs {
 		top[t.Token] = t.Logprob
 	}
-	usage := inference.Usage{InputTokens: decoded.Usage.PromptTokens}
-	return top, usage, sampled.Token, nil
+	return completion{hasLogprobs: true, top: top, raw: sampled.Token, usage: usage}, nil
 }
