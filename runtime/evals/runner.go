@@ -116,6 +116,12 @@ func NewEvalRunner(
 // It skips defs that are disabled, have another trigger, are excluded by
 // sampling, or fail their when-conditions, and executes the rest in order. Each
 // eval sees the earlier results of the batch in EvalContext.PriorResults.
+//
+// evalCtx holds the history up to the turn being judged, but a turn eval asks
+// about that turn: its when-conditions are checked against the current turn's
+// tool calls (CurrentTurnToolCalls), and a handler that is TurnScoped, such as
+// tools_called, is given only those calls. Other handlers see every call in
+// evalCtx.ToolCalls.
 func (r *EvalRunner) RunTurnEvals(
 	ctx context.Context,
 	defs []EvalDef,
@@ -126,7 +132,7 @@ func (r *EvalRunner) RunTurnEvals(
 		TurnIndex:         evalCtx.TurnIndex,
 		IsSessionComplete: false,
 	}
-	return r.runEvals(ctx, defs, evalCtx, trigCtx, turnTriggers)
+	return r.runEvals(ctx, defs, evalCtx, trigCtx, runScope{triggers: turnTriggers, currentTurn: true})
 }
 
 // RunSessionEvals runs session-level evals (on_session_complete and
@@ -142,7 +148,7 @@ func (r *EvalRunner) RunSessionEvals(
 		TurnIndex:         evalCtx.TurnIndex,
 		IsSessionComplete: true,
 	}
-	return r.runEvals(ctx, defs, evalCtx, trigCtx, sessionTriggers)
+	return r.runEvals(ctx, defs, evalCtx, trigCtx, runScope{triggers: sessionTriggers})
 }
 
 // RunConversationEvals runs conversation-level evals (on_conversation_complete
@@ -160,7 +166,7 @@ func (r *EvalRunner) RunConversationEvals(
 		TurnIndex:         evalCtx.TurnIndex,
 		IsSessionComplete: true,
 	}
-	return r.runEvals(ctx, defs, evalCtx, trigCtx, conversationTriggers)
+	return r.runEvals(ctx, defs, evalCtx, trigCtx, runScope{triggers: conversationTriggers})
 }
 
 // RunWorkflowStepEvals runs workflow-step evals (on_workflow_step trigger).
@@ -176,7 +182,7 @@ func (r *EvalRunner) RunWorkflowStepEvals(
 		TurnIndex:         evalCtx.TurnIndex,
 		IsSessionComplete: false,
 	}
-	return r.runEvals(ctx, defs, evalCtx, trigCtx, workflowStepTriggers)
+	return r.runEvals(ctx, defs, evalCtx, trigCtx, runScope{triggers: workflowStepTriggers})
 }
 
 // workflowStepTriggers is the set of triggers that fire after a workflow
@@ -202,6 +208,14 @@ var conversationTriggers = map[EvalTrigger]bool{
 	TriggerOnConversationComplete: true,
 }
 
+// runScope is what a run executes: the triggers it fires, and whether it judges
+// the current turn, in which case when-conditions and TurnScoped handlers see
+// only that turn's tool calls.
+type runScope struct {
+	triggers    map[EvalTrigger]bool
+	currentTurn bool
+}
+
 // runEvals is the shared implementation for both turn and session evals.
 // TODO(perf): Consider running independent evals concurrently with a worker pool
 // to reduce total eval latency, especially for external (REST/LLM) eval types.
@@ -210,7 +224,7 @@ func (r *EvalRunner) runEvals(
 	defs []EvalDef,
 	evalCtx *EvalContext,
 	trigCtx *TriggerContext,
-	allowedTriggers map[EvalTrigger]bool,
+	scope runScope,
 ) []EvalResult {
 	logger.Debug("evals: running evals", "count", len(defs), "session_id", evalCtx.SessionID)
 	// Preserve any PriorResults seeded by BuildEvalContext (e.g., from
@@ -225,7 +239,7 @@ func (r *EvalRunner) runEvals(
 		prior = append(prior, seeded...)
 		prior = append(prior, results...)
 		evalCtx.PriorResults = prior
-		result := r.runOne(ctx, &defs[i], evalCtx, trigCtx, allowedTriggers)
+		result := r.runOne(ctx, &defs[i], evalCtx, trigCtx, scope)
 		if result != nil {
 			result.SessionID = evalCtx.SessionID
 			result.TurnIndex = evalCtx.TurnIndex
@@ -243,7 +257,7 @@ func (r *EvalRunner) runOne(
 	def *EvalDef,
 	evalCtx *EvalContext,
 	trigCtx *TriggerContext,
-	allowedTriggers map[EvalTrigger]bool,
+	scope runScope,
 ) *EvalResult {
 	// Skip disabled evals
 	if !IsEnabled(def) {
@@ -252,7 +266,7 @@ func (r *EvalRunner) runOne(
 	}
 
 	// Skip evals whose trigger doesn't match this execution mode
-	if !allowedTriggers[EvalTrigger(def.Trigger)] {
+	if !scope.triggers[EvalTrigger(def.Trigger)] {
 		logger.Debug("evals: skipping eval, trigger mismatch", "eval_id", def.ID, "trigger", def.Trigger)
 		return nil
 	}
@@ -276,7 +290,11 @@ func (r *EvalRunner) runOne(
 				Error:  err.Error(),
 			}
 		}
-		if shouldRun, reason := ShouldRunWhen(def.When, evalCtx.ToolCalls); !shouldRun {
+		gateCalls := evalCtx.ToolCalls
+		if scope.currentTurn {
+			gateCalls = CurrentTurnToolCalls(evalCtx)
+		}
+		if shouldRun, reason := ShouldRunWhen(def.When, gateCalls); !shouldRun {
 			logger.Debug("evals: skipping eval, when-condition not met", "eval_id", def.ID, "reason", reason)
 			return &EvalResult{
 				EvalID:     def.ID,
@@ -304,6 +322,10 @@ func (r *EvalRunner) runOne(
 	}
 
 	logger.Debug("evals: executing eval", "eval_id", def.ID, "type", def.Type)
+
+	if scope.currentTurn {
+		evalCtx = ScopeToTurn(handler, def.Params, evalCtx)
+	}
 
 	// Execute with timeout and panic recovery
 	return r.executeHandler(ctx, handler, def, evalCtx)

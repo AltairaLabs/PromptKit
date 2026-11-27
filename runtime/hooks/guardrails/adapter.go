@@ -394,7 +394,10 @@ func (a *GuardrailHookAdapter) evaluateWith(
 	// Inference providers the guardrail's handler calls report through the
 	// adapter's emitter.
 	handlerCtx = inference.WithEmitter(handlerCtx, a.emitter)
-	result, err := a.handler.Eval(handlerCtx, evalCtx, params)
+	// A guardrail judges the turn in progress, so a turn-level tool check sees
+	// only this turn's calls: one call on an earlier turn must not block every
+	// later reply (#2927).
+	result, err := a.handler.Eval(handlerCtx, evals.ScopeToTurn(a.handler, params, evalCtx), params)
 	// Checked whether Eval returned an error or not: TopicPolicyHandler's
 	// on_error/timeout outcome absorbs classifier errors (including this
 	// context's own timeout) into a *scored result* rather than a Go error, so
