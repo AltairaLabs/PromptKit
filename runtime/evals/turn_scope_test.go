@@ -297,3 +297,59 @@ func TestTurnEvals_WrapperAppliesTheWrappedTypesDefaultsToItsScope(t *testing.T)
 	require.NotNil(t, results[0].Passed)
 	assert.True(t, *results[0].Passed, "the default scope: turn must hide turn 1's calls")
 }
+
+// lookupCalledThisTurn reports whether a turn eval on the last turn of history
+// finds a lookup call in that turn.
+func lookupCalledThisTurn(t *testing.T, history []types.Message) bool {
+	t.Helper()
+	def := evals.EvalDef{ID: "lookup", Type: "tools_called",
+		Params: map[string]any{"tool_names": []any{"lookup"}}}
+	return scoreOf(t, runTurnEval(t, def, history)) == 1.0
+}
+
+func TestTurnEvals_TurnBoundaries(t *testing.T) {
+	lookupCall := types.Message{Role: "assistant", ToolCalls: []types.MessageToolCall{{ID: "c1", Name: "lookup"}}}
+	lookupResult := types.Message{Role: "tool", ToolResult: &types.MessageToolResult{ID: "c1", Name: "lookup"}}
+
+	cases := []struct {
+		name    string
+		history []types.Message
+		want    bool
+	}{
+		{
+			// The first turn's transcript arrived late: no earlier reply bounds it.
+			name: "late transcript on the first turn",
+			history: []types.Message{lookupCall, lookupResult,
+				{Role: "assistant", Content: "found"}, {Role: "user", Content: "find x"}},
+			want: true,
+		},
+		{
+			// A user message after a tool result, with no reply, opens a new turn.
+			name: "user message after a tool result",
+			history: []types.Message{{Role: "user", Content: "find x"}, lookupCall, lookupResult,
+				{Role: "user", Content: "never mind"}},
+			want: false,
+		},
+		{
+			// In order, an interim reply inside the turn does not end it.
+			name: "interim reply inside an in-order turn",
+			history: []types.Message{{Role: "user", Content: "find x"}, lookupCall, lookupResult,
+				{Role: "assistant", Content: "one moment"},
+				{Role: "assistant", Content: "found"}},
+			want: true,
+		},
+		{
+			// Two trailing user messages are both the late turn's.
+			name: "late transcript in two parts",
+			history: []types.Message{{Role: "user", Content: "hi"}, {Role: "assistant", Content: "hello"},
+				lookupCall, lookupResult, {Role: "assistant", Content: "found"},
+				{Role: "user", Content: "find"}, {Role: "user", Content: "x"}},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, lookupCalledThisTurn(t, tc.history))
+		})
+	}
+}
