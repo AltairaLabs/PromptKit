@@ -79,6 +79,13 @@ type MockStreamSession struct {
 
 	chunks []*types.MediaChunk
 	texts  []string
+	// heardAudio is set when caller audio arrived since the last turn's
+	// response: the turn is spoken, and its scripted input transcript is sent
+	// (mock_stream_input_transcript.go).
+	heardAudio bool
+	// record is the turns the session was asked to forget and the notes it
+	// was given (mock_stream_input_transcript.go).
+	record sessionRecord
 
 	// sendMu is held (read) by EmitChunk while it sends, and (write) by
 	// Close before it closes the channel.
@@ -285,6 +292,9 @@ func (m *MockStreamSession) SendChunk(ctx context.Context, chunk *types.MediaChu
 	}
 
 	m.chunks = append(m.chunks, chunk)
+	if !isVideoOrImage(chunk.Metadata) {
+		m.heardAudio = true
+	}
 
 	return nil
 }
@@ -510,6 +520,7 @@ func (m *MockStreamSession) emitAutoResponse() {
 	}
 
 	m.responseCount++
+	m.heardAudio = false
 
 	m.closeAfterTurnIfConfigured()
 }
@@ -575,7 +586,13 @@ func (m *MockStreamSession) closeAfterTurnIfConfigured() {
 //
 // Must be called with m.mu held.
 func (m *MockStreamSession) emitTurnResponse(turnNumber int) {
-	text, audioFixture, toolCalls := m.resolveTurn(turnNumber)
+	text, audioFixture, toolCalls, transcript := m.resolveTurn(turnNumber)
+
+	// The caller's speech is transcribed ahead of the reply, as a realtime
+	// provider does; a typed turn is not transcribed.
+	if transcript != "" && m.heardAudio {
+		m.sendTagged(inputTranscriptionChunk(transcript, turnNumber), true)
+	}
 
 	// Emit audio chunks first (if any) so consumers see them as part of the
 	// response stream — providers like Gemini interleave audio + transcript,
@@ -628,13 +645,15 @@ func convertMockToolCalls(turnToolCalls []ToolCall) []types.MessageToolCall {
 	return out
 }
 
-// resolveTurn looks up the text + audio fixture + tool calls for the given
-// turn. If a repository is configured it queries the repo for the turn;
-// otherwise it returns the static responseText with no audio and no tool
-// calls.
-func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixture, []types.MessageToolCall) {
+// resolveTurn looks up the text + audio fixture + tool calls + the caller's
+// input transcript for the given turn. If a repository is configured it
+// queries the repo for the turn; otherwise it returns the static responseText
+// with no audio, no tool calls and no transcript.
+func (m *MockStreamSession) resolveTurn(
+	turnNumber int,
+) (text string, fixture *mockAudioFixture, toolCalls []types.MessageToolCall, transcript string) {
 	if m.repo == nil || m.scenarioID == "" {
-		return m.responseText, nil, nil
+		return m.responseText, nil, nil, ""
 	}
 
 	turn, err := m.repo.GetTurn(context.Background(), ResponseParams{
@@ -648,18 +667,18 @@ func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixtu
 				"turn", turnNumber,
 				"error", err)
 		}
-		return m.responseText, nil, nil
+		return m.responseText, nil, nil, ""
 	}
 
-	text := turn.Content
+	text = turn.Content
 	if text == "" {
 		text = m.responseText
 	}
 
-	toolCalls := convertMockToolCalls(turn.ToolCalls)
+	toolCalls = convertMockToolCalls(turn.ToolCalls)
 
 	if turn.AudioFile == "" {
-		return text, nil, toolCalls
+		return text, nil, toolCalls, turn.InputTranscript
 	}
 
 	fixture, loadErr := m.loadAudioFixture(turn.AudioFile, turn.AudioSampleRate, turn.AudioMIMEType)
@@ -667,9 +686,9 @@ func (m *MockStreamSession) resolveTurn(turnNumber int) (string, *mockAudioFixtu
 		logger.Warn("MockStreamSession: failed to load audio fixture; emitting text-only response",
 			"file", turn.AudioFile,
 			"error", loadErr)
-		return text, nil, toolCalls
+		return text, nil, toolCalls, turn.InputTranscript
 	}
-	return text, fixture, toolCalls
+	return text, fixture, toolCalls, turn.InputTranscript
 }
 
 // loadAudioFixture reads a PCM fixture from disk and caches it by resolved

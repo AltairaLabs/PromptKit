@@ -39,7 +39,7 @@ func TestValidateConfig_ReportsEachUnknownKeyWithItsLine(t *testing.T) {
 		"            txt: hi\n" // 15
 	assert.Equal(t, []mock.ConfigProblem{
 		{Line: 5, Path: "scenarios.s1.turns.1", Message: `unknown key "contnet" (valid: audio_file, ` +
-			`audio_mime_type, audio_sample_rate, content, parts, response, text, tool_calls, type)`},
+			`audio_mime_type, audio_sample_rate, content, input_transcript, parts, response, text, tool_calls, type)`},
 		{Line: 8, Path: "scenarios.s1.turns.1.tool_calls[0]", Message: `unknown key "args" (valid: arguments, name)`},
 		{Line: 15, Path: "selfplay.p1.steps.a.parts[0]", Message: `unknown key "txt" (valid: audio_url, image_url, ` +
 			`metadata, text, type, video_url)`},
@@ -74,7 +74,7 @@ func TestValidateConfig_ValidConfigIsNil(t *testing.T) {
 		"empty": {"", nil},
 		"one misspelled key": {strings.Replace(valid, "content", "contnet", 1), []mock.ConfigProblem{{
 			Line: 6, Path: "scenarios.s1.turns.1", Message: `unknown key "contnet" (valid: audio_file, ` +
-				`audio_mime_type, audio_sample_rate, content, parts, response, text, tool_calls, type)`,
+				`audio_mime_type, audio_sample_rate, content, input_transcript, parts, response, text, tool_calls, type)`,
 		}}},
 	}
 	for name, tc := range cases {

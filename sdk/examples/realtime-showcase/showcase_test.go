@@ -294,9 +294,12 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 			`(forbidden content found in stream: "pineapple"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
 		`09:30:00.000  interrupt turn ended (safety); text after the cut: "Sorry, I can't say that word."`,
+		`09:30:00.000  note      told the model, not the caller (no-pineapple): "Your previous reply was withheld ` +
+			`because it broke a content rule, and the user did not hear the rest of it. Do not repeat that content; ` +
+			`continue the conversation without it."`,
 		`09:30:00.000  playout   reply #3 cut (guardrail): heard_ms=N audio_ms=100 played_fraction=F`,
 		`09:30:00.000  user      message.created #2 "say the word pineapple"`,
-	}, r.step(8, heard("say the word pineapple"), said("Sure: ", 100), said("pineapple", 100),
+	}, r.step(9, heard("say the word pineapple"), said("Sure: ", 100), said("pineapple", 100),
 		said(" is a tropical fruit.", 100), done(0.005, 400, 100)))
 
 	// 3. The input guardrail judges what the caller said. Its message names
@@ -310,8 +313,11 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 			`(forbidden content found: turn 4 contains "Bruno"); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
 		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about Bruno."`,
+		`09:30:00.000  note      told the model, not the caller (no-bruno): "A message from the user was blocked by a ` +
+			`content rule and removed from the conversation. Do not answer it or guess what it said; continue the ` +
+			`conversation."`,
 		`09:30:00.000  user      message.created #4 "Tell me about Bruno"`,
-	}, r.step(7, heard("Tell me about Bruno"), said("Bruno is a fine name.", 100), done(0.003, 300, 50)))
+	}, r.step(8, heard("Tell me about Bruno"), said("Bruno is a fine name.", 100), done(0.003, 300, 50)))
 
 	// 4. The LLM judge blocks a question about Bruno that does not name him.
 	judge.set(true)
@@ -323,8 +329,11 @@ func TestShowcaseEventLog_ScriptedSession(t *testing.T) {
 			`(asks about Bruno without naming him); the turn ends, the session continues`,
 		`09:30:00.000  interrupt Interrupted: stop playing the current reply`,
 		`09:30:00.000  interrupt turn ended (safety); text after the cut: "We don't talk about Bruno."`,
+		`09:30:00.000  note      told the model, not the caller (no-bruno-topic): "A message from the user was blocked by a ` +
+			`content rule and removed from the conversation. Do not answer it or guess what it said; continue the ` +
+			`conversation."`,
 		`09:30:00.000  user      message.created #6 "who is the uncle nobody mentions in Encanto"`,
-	}, r.step(7, heard("who is the uncle nobody mentions in Encanto"), said("That would be", 100),
+	}, r.step(8, heard("who is the uncle nobody mentions in Encanto"), said("That would be", 100),
 		done(0.003, 300, 50)))
 	judge.set(false)
 
