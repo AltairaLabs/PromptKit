@@ -790,9 +790,11 @@ Every backend receives the same prompt (the policy as the instruction, ending wi
 
 | Provider `type` | Backend | Notes |
 |-----------------|---------|-------|
-| `nvidia-topic-control` | NemoGuard topic control (`nvidia/llama-3.1-nemoguard-8b-topic-control`) on an OpenAI-compatible endpoint (NIM) | An alias for `openai` with that model; `base_url` is required, and the endpoint must return logprobs |
-| `openai` | Any OpenAI-compatible chat model that returns logprobs (OpenAI, vLLM, LiteLLM) | `model` is required. `OPENAI_API_KEY` is used only for OpenAI's own endpoint; any other `base_url` needs an explicit `credential` |
+| `nvidia-topic-control` | NemoGuard topic control (`nvidia/llama-3.1-nemoguard-8b-topic-control`) on an OpenAI-compatible endpoint (NIM) | An alias for `openai` with that model; `base_url` is required |
+| `openai` | Any OpenAI-compatible chat model (OpenAI, vLLM, LiteLLM, gateways) | `model` is required. `OPENAI_API_KEY` is used only for OpenAI's own endpoint; any other `base_url` needs an explicit `credential` |
 | `systemone` | TypeSafe's Jev, through the Vercel AI Gateway (`base_url: https://ai-gateway.vercel.sh/typesafe/v1`, `model: typesafe-ai/jev`) or a self-hosted server speaking the same API | Needs an explicit `credential` unless `base_url` is loopback |
+
+The `openai` and `nvidia-topic-control` types ask for logprobs and read the probabilities from them. An endpoint that returns no logprobs still works: the label the model answered as text decides, and `confidence` is `1.0`. That value means the model answered the label, not that it was certain. The answer matches a label when, ignoring case, surrounding whitespace, quotes and a trailing period, it is the label or the label's first word (`on` for `on-topic`). Any other answer is not a decision and resolves through `on_unknown`. An empty answer is an error and resolves through `on_error`.
 
 :::caution[Do not point this at a reasoning model]
 A reasoning model starts its answer with its thinking rather than a bare label. An answer that is not a label is not a decision, so every classification falls to `on_unknown`, which denies, and the guardrail blocks every turn. Use a model that answers with `on-topic` or `off-topic` and nothing else.

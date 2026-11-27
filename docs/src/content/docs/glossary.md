@@ -96,7 +96,7 @@ An interception point in the runtime. `ProviderHook` wraps provider calls, `Tool
 
 ### Inference provider
 
-A [provider](#provider) declared with `role: inference` that answers classification requests through one interface, `inference.Provider`: content and optional labels in, a probability per label out. Each type calls one vendor API: `huggingface` (Hugging Face Inference API), `openai` (OpenAI-compatible chat completions, read through logprobs), or `systemone`. Checks such as `audio_emotion`, `text_toxicity`, and `topic_policy` use inference providers. See [Providers](/concepts/providers/).
+A [provider](#provider) declared with `role: inference` that answers classification requests through one interface, `inference.Provider`: content and optional labels in, a probability per label out. Each type calls one vendor API: `huggingface` (Hugging Face Inference API), `openai` (OpenAI-compatible chat completions, read through logprobs, or through the answered label when the endpoint returns none), or `systemone`. Checks such as `audio_emotion`, `text_toxicity`, and `topic_policy` use inference providers. See [Providers](/concepts/providers/).
 
 ### Mock provider
 
