@@ -633,7 +633,6 @@ func (pc *PackCompiler) createPackPrompt(config *Config) *PackPrompt {
 		Media:          config.Spec.MediaConfig,
 		TestedModels:   ptrSlice(config.Spec.TestedModels),
 		ModelOverrides: ptrMap(config.Spec.ModelOverrides),
-		Pipeline:       GetDefaultPipelineConfig(),
 		Extensions:     config.Spec.Extensions,
 	}
 }

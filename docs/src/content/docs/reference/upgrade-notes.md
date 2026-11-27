@@ -143,6 +143,18 @@ An `every_turn` or `sample_turns` eval is given the history up to the turn it ju
 | Call `sdk.Evaluate` with a whole transcript and an earlier `TurnIndex` | turn-level tool checks judge the last turn of `Messages`, not the turn `TurnIndex` names | pass `Messages` cut after the turn you judge |
 | Write an eval handler | a handler that implements `evals.TurnScoped` and reports `ScopedToTurn` gets `EvalContext.ToolCalls` narrowed this way; others still get every call | implement it if the handler judges one turn |
 
+### Packs
+
+#### Compiled prompts no longer carry a pipeline block
+
+The pack compiler set the same `pipeline` block on every compiled prompt: `template`, `provider` and `validator` stages, with middleware settings that included a provider `retry_attempts` and `timeout`. Nothing in PromptKit read it, and no prompt config could change it, so editing it in a compiled pack changed nothing. The compiler no longer emits it. A pack that still carries a `pipeline` block loads as before.
+
+| If you | You will see | Change |
+|---|---|---|
+| Compile a pack | no `pipeline` key on its prompts; diffs against an earlier compile show it removed | none |
+| Edited `pipeline` in a compiled pack to change a timeout or retries | no change in behavior; the block never had an effect | set the provider's own timeout or retry settings, or the host's |
+| Call `prompt.GetDefaultPipelineConfig` or use `pipeline.Config` | a staticcheck deprecation warning (SA1019); both still work | leave `PackPrompt.Pipeline` unset; nothing reads it |
+
 ## v2.23.0
 
 The entries are grouped by area: configuration, providers and tools.
